@@ -1,0 +1,110 @@
+From b09011e9f439429f44f669562d9c25a993a0e9ba Mon Sep 17 00:00:00 2001
+From: betim-hodza <bhodza02@proton.me>
+Date: Tue, 20 Oct 2026 06:03:22 -0400
+Subject: [PATCH 04/12] chainload: keep out of the CTRR window; optional armed
+ watchdog
+
+From omarchy-m5 patches/m1n1/0004-chainload-ctrr-window-and-wdt-keep.patch, rebased onto upstream main.
+---
+ proxyclient/tools/chainload.py | 14 +++++++++++++-
+ src/chainload.c                | 15 ++++++++++++++-
+ src/wdt.c                      | 10 ++++++++++
+ 3 files changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/proxyclient/tools/chainload.py b/proxyclient/tools/chainload.py
+index 8bb6672b..e0576a83 100755
+--- a/proxyclient/tools/chainload.py
++++ b/proxyclient/tools/chainload.py
+@@ -49,6 +49,18 @@ bootargs_off = image_size
+ bootargs_size = 0x4000
+ image_size += bootargs_size
+ 
++# M4+/M5: iBoot leaves a CTRR range (a 44-48 KiB WFI sled) ending at
++# top_of_kernel_data that only the boot CPU may write. Whatever lands there
++# (a secondary's stack, shared SMP state) faults on the secondaries' first
++# store. Keep the image below it and hand on the original top_of_kernel_data,
++# so the next m1n1's heap starts above it (as GravityLinux/bootloader e779ec7).
++top_kdata = u.ba.top_of_kernel_data
++protected_start = top_kdata - 3 * 0x4000
++if new_base < top_kdata and new_base + image_size > protected_start:
++    raise SystemExit(f"chainload: image 0x{new_base:x}..0x{new_base + image_size:x} would cover "
++                     f"the secondary-only CTRR range 0x{protected_start:x}..0x{top_kdata:x}; "
++                     "try --no-sepfw")
++
+ print(f"Total region size: 0x{image_size:x} bytes")
+ image_addr = u.malloc(image_size)
+ 
+@@ -101,7 +113,7 @@ u.push_adt()
+ print("Setting up bootargs...")
+ tba = u.ba.copy()
+ 
+-tba.top_of_kernel_data = new_base + image_size
++tba.top_of_kernel_data = max(top_kdata, new_base + image_size)
+ 
+ if len(args.boot_args) > 0:
+     boot_args = " ".join(args.boot_args)
+diff --git a/src/chainload.c b/src/chainload.c
+index eeb8f3e9..efcede66 100644
+--- a/src/chainload.c
++++ b/src/chainload.c
+@@ -56,6 +56,19 @@ int chainload_image(void *image, size_t size, char **vars, size_t var_cnt)
+     const size_t bootargs_size = SZ_16K;
+     image_size += bootargs_size;
+ 
++    // M4+/M5: iBoot leaves a CTRR range (a 44-48 KiB WFI sled) ending at
++    // top_of_kernel_data that only the boot CPU may write. Keep the image
++    // below it and hand on the original top_of_kernel_data, so the next
++    // m1n1's heap (secondary stacks!) starts above it.
++    u64 top_kdata = cur_boot_args.top_of_kernel_data;
++    u64 protected_start = top_kdata - 3 * SZ_16K;
++    if (new_base < top_kdata && new_base + image_size > protected_start) {
++        printf("chainload: image 0x%lx..0x%lx would cover the secondary-only CTRR range "
++               "0x%lx..0x%lx\n",
++               new_base, new_base + image_size, protected_start, top_kdata);
++        return -1;
++    }
++
+     printf("chainload: Total image size: 0x%lx\n", image_size);
+ 
+     size_t stub_size = _chainload_stub_end - _chainload_stub_start;
+@@ -92,7 +105,7 @@ int chainload_image(void *image, size_t size, char **vars, size_t var_cnt)
+     // Copy bootargs
+     struct boot_args *new_boot_args = new_image + bootargs_off;
+     *new_boot_args = cur_boot_args;
+-    new_boot_args->top_of_kernel_data = new_base + image_size;
++    new_boot_args->top_of_kernel_data = max(top_kdata, new_base + image_size);
+ 
+     // Copy chainload stub
+     void *stub = new_image + image_size;
+diff --git a/src/wdt.c b/src/wdt.c
+index a8d58999..06bbc6d0 100644
+--- a/src/wdt.c
++++ b/src/wdt.c
+@@ -3,7 +3,9 @@
+ #include "wdt.h"
+ #include "adt.h"
+ #include "types.h"
++#include "string.h"
+ #include "utils.h"
++#include "xnuboot.h"
+ 
+ #define WDT_COUNT 0x10
+ #define WDT_ALARM 0x14
+@@ -27,6 +29,14 @@ void wdt_disable(void)
+     }
+ 
+     printf("Primary WDT register @ 0x%lx\n", wdt_base);
++    // Experimental images are chainloaded with "m1n1.wdt=keep" after the host
++    // armed the watchdog (hv/wdt-arm.py): leave it armed, so a hang anywhere
++    // past this point still resets the machine into the installed stage-1.
++    // The host disarms it once the new proxy answers (hv/wdt-arm.py --off).
++    if (strstr(cur_boot_args.rv1.cmdline, "m1n1.wdt=keep")) {
++        printf("Primary WDT left armed (m1n1.wdt=keep)\n");
++        return;
++    }
+     write32(wdt_base + WDT_CTL, 0);
+     printf("Primary WDT disabled\n");
+ 
+-- 
+2.56.0
+

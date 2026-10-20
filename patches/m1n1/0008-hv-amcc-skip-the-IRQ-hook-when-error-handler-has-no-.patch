@@ -1,0 +1,33 @@
+From 6607d36dd2796400dbd8aea25e6e3b7499674de9 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 08:01:01 -0400
+Subject: [PATCH 08/12] hv: amcc: skip the IRQ hook when error-handler has no
+ amcc-metadata
+
+T6050 describes its AMCCs in /arm-io/mcc (amcc-count, amcc-reg-idx, amcc-enable-mask); /arm-io/error-handler carries none of amcc-metadata, amcc-enable-mask or interrupts, so hv_amcc_init() failed and the hypervisor refused to start an SPTM guest.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/hv/hv_amcc.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/hv/hv_amcc.c b/src/hv/hv_amcc.c
+index d9dfad0d..497b2458 100644
+--- a/src/hv/hv_amcc.c
++++ b/src/hv/hv_amcc.c
+@@ -79,6 +79,12 @@ bool hv_amcc_init(void)
+     } metadata;
+     u32 enabled, planes, stride;
+ 
++    // T6050 describes the AMCCs in /arm-io/mcc instead; leave their IRQs to the guest.
++    if (!adt_getprop(adt, error_handler_node, "amcc-metadata", NULL)) {
++        printf("hv_amcc: no amcc-metadata in error-handler, not hooking AMCC IRQs\n");
++        return true;
++    }
++
+     if (ADT_GETPROP(adt, error_handler_node, "amcc-metadata", &metadata) != sizeof(metadata) ||
+         ADT_GETPROP(adt, error_handler_node, "amcc-enable-mask", &enabled) != sizeof(enabled) ||
+         ADT_GETPROP(adt, amcc_node, "plane-count", &planes) != sizeof(planes) ||
+-- 
+2.56.0
+

@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: GPL-2.0+ OR MIT
+/*
+ * Apple MacBook Pro (16-inch, M5 Pro, 2026)
+ *
+ * target-type: J716s (Mac17,8)
+ *
+ * Copyright The Asahi Linux Contributors / omarchy-m5 contributors
+ */
+
+/dts-v1/;
+
+#include "t6050.dtsi"
+#include "t6050-jxxx.dtsi"
+
+/ {
+	compatible = "apple,j716s", "apple,t6050", "apple,arm-platform";
+	model = "Apple MacBook Pro (16-inch, M5 Pro, 2026)";
+
+	aliases {
+		/* m1n1 dt_set_ipd(): fills apple,keyboard-layout-id/hid-country-code
+		 * from /arm-io/dockchannel-mtp/mtp-transport/keyboard kblang-calibration */
+		keyboard = &keyboard;
+	};
+};
+
+/*
+ * J716s is the full 18-core SKU: the runtime ADT lists cpu0-17, six per
+ * cluster, so unlike J714s nothing is fused off here.
+ *
+ * Built-in keyboard + trackpad (MTP): the same mtp-transport children as
+ * J714s (multi-touch CBOR, keyboard, stm, actuator, tp-accel). The trackpad
+ * needs apple/tpmtfw-j716s.bin extracted from the macOS restore bundle.
+ */
+&mtp {
+	status = "okay";
+};
+
+&mtp_mbox {
+	status = "okay";
+};
+
+&mtp_dart {
+	status = "okay";
+};
+
+&mtp_dockchannel {
+	status = "okay";
+};
+
+&mtp_hid {
+	multi-touch {
+		firmware-name = "apple/tpmtfw-j716s.bin";
+	};
+
+	keyboard: keyboard {
+		hid-country-code = <0>;
+		apple,keyboard-layout-id = <0>;
+	};
+
+	stm {
+	};
+
+	actuator {
+	};
+
+	/* ADT calls it tp-accel; the M2/M3 DTs use tp_accel. Which name the
+	 * firmware announces decides which node binds; the other is inert. */
+	tp-accel {
+	};
+
+	tp_accel {
+	};
+
+	/* an extra "mtp" interface exists on the M4 Air (GravityLinux PR #1) */
+	mtp {
+	};
+};
+
+/* SMC sensors: two fans (F0Ac/F1Ac) like J714s; keys not yet probed on J716s. */
+#include "hwmon-common.dtsi"
+#include "hwmon-fan-dual.dtsi"
+#include "hwmon-laptop.dtsi"

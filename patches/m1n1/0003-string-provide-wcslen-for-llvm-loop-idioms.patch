@@ -1,0 +1,53 @@
+From 0f4284a78f9657e35509fd8ea895123883cd3153 Mon Sep 17 00:00:00 2001
+From: betim-hodza <bhodza02@proton.me>
+Date: Tue, 20 Oct 2026 06:03:22 -0400
+Subject: [PATCH 03/12] string-provide-wcslen-for-llvm-loop-idioms
+
+From omarchy-m5 patches/m1n1/0003-string-provide-wcslen-for-llvm-loop-idioms.patch, rebased onto upstream main.
+---
+ src/string.c    | 16 ++++++++++++++++
+ sysinc/string.h |  1 +
+ 2 files changed, 17 insertions(+)
+
+diff --git a/src/string.c b/src/string.c
+index c9ccf5ac..4a66c855 100644
+--- a/src/string.c
++++ b/src/string.c
+@@ -149,6 +149,22 @@ size_t strlen(const char *s)
+     return rc;
+ }
+ 
++/*
++ * Not called by m1n1 itself: LLVM's loop-idiom pass turns hand-written
++ * "count until a zero word" loops into wcslen() calls (seen in the Rust ADT
++ * code with recent toolchains), so a freestanding build has to provide it.
++ */
++size_t wcslen(const wchar_t *s)
++{
++    size_t rc = 0;
++
++    while (s[rc]) {
++        ++rc;
++    }
++
++    return rc;
++}
++
+ size_t strnlen(const char *s, size_t n)
+ {
+     size_t rc = 0;
+diff --git a/sysinc/string.h b/sysinc/string.h
+index 6cecf127..323c9131 100644
+--- a/sysinc/string.h
++++ b/sysinc/string.h
+@@ -16,6 +16,7 @@ int strcmp(const char *s1, const char *s2);
+ int strncmp(const char *s1, const char *s2, size_t n);
+ size_t strlen(const char *s);
+ size_t strnlen(const char *s, size_t n);
++size_t wcslen(const wchar_t *s);
+ char *strchr(const char *s, int c);
+ char *strrchr(const char *s, int c);
+ char *strstr(const char *s1, const char *s2);
+-- 
+2.56.0
+

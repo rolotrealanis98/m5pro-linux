@@ -1,0 +1,13 @@
+# build outputs, Apple objects, dumps and images never belong here
+build/
+*.bin
+*.macho
+*.img
+*.img.gz
+*.img4
+*.im4p
+*.cpio
+*.cpio.gz
+*.tar.gz
+adt-*
+*.log

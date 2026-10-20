@@ -1,0 +1,3 @@
+# m1n1 proxy gadget: give the logged-in seat user access (no uucp re-login needed).
+# Must sort before 73-seat-late.rules, which turns the uaccess tag into an ACL.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="316d", TAG+="uaccess"

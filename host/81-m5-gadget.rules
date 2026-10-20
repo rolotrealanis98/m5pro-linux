@@ -1,0 +1,4 @@
+# omarchy-m5 USB gadget (CDC EEM, serial m5pro-<n>): host side is 10.55.<n>.1/24.
+ACTION=="add", SUBSYSTEM=="net", ATTRS{idVendor}=="1d6b", ATTRS{idProduct}=="0104", ATTRS{serial}=="m5pro-0", RUN+="/usr/bin/ip addr replace 10.55.0.1/24 dev $name", RUN+="/usr/bin/ip link set $name up"
+ACTION=="add", SUBSYSTEM=="net", ATTRS{idVendor}=="1d6b", ATTRS{idProduct}=="0104", ATTRS{serial}=="m5pro-1", RUN+="/usr/bin/ip addr replace 10.55.1.1/24 dev $name", RUN+="/usr/bin/ip link set $name up"
+ACTION=="add", SUBSYSTEM=="net", ATTRS{idVendor}=="1d6b", ATTRS{idProduct}=="0104", ATTRS{serial}=="m5pro-2", RUN+="/usr/bin/ip addr replace 10.55.2.1/24 dev $name", RUN+="/usr/bin/ip link set $name up"

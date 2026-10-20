@@ -1,0 +1,36 @@
+From 27eb1b2d6452961fb928a353983fa28916c99653 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 08:21:38 -0400
+Subject: [PATCH 11/12] hv: sprr: align the guest RAM top to 1 MiB for T6050
+ MTE
+
+SPTM types the MTE tag storage as [TagOffset, TagOffset + size) and expects it to end at the top of RAM. With the guard page the guest top was 0x...89fc000, leaving 1008 KiB untyped: sptm_bootstrap_finalize: Frame has been left untyped during bootstrap 0x10ae8900000.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/hv/hv_sprr.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/hv/hv_sprr.c b/src/hv/hv_sprr.c
+index c274cadb..eaf3f8ca 100644
+--- a/src/hv/hv_sprr.c
++++ b/src/hv/hv_sprr.c
+@@ -248,8 +248,14 @@ u64 hv_sprr_reserve_pool(u64 size)
+     sprr_pool_top = sprr_pool_base + size;
+     u64 top = cur_boot_args.phys_base + cur_boot_args.mem_size;
+ 
+-    /* SPTM recomputes TagOffset from the top of the RAM it is given and panics on a mismatch */
++    /*
++     * SPTM recomputes TagOffset from the top of the RAM it is given and panics on a mismatch,
++     * and it expects the tag storage to end exactly at the top: trim to 1 MiB, or the frames
++     * past the tags stay untyped (sptm_bootstrap_finalize).
++     */
+     if (tag_size) {
++        cur_boot_args.mem_size -= top & (SZ_1M - 1);
++        top = ALIGN_DOWN(top, SZ_1M);
+         tagoffset = (tagoffset & ~TAGOFFSET_ADDR) | ALIGN_DOWN(top - tag_size, SZ_1M);
+         for (int i = 0; i < MAX_CPUS; i++)
+             hv_sprr_cpus[i].shadow[HV_VREG_S3_0_C11_C9_0] = tagoffset;
+-- 
+2.56.0
+
