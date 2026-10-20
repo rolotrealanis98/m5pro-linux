@@ -64,6 +64,14 @@ antiapplefox/m5-linux `scripts/pack-bootkc.py` from our plain `m1n1.macho`: segm
 takes the kernelcache path for it, SPTM will be loaded first and m1n1 is not SPTM-aware yet; expect
 a black screen and recover with the raw `go.sh` flow.
 
+Result (same day): **kmutil refused the BootKC image as well** (registered via
+`finish-install.sh --m1n1 m1n1.bootkc.macho --macho`, step2 in the stub's 1TR). Raw restored with
+`go.sh` at 10:46. So the gate is kmutil in 1TR, before iBoot ever sees the file; packaging tricks
+on the m1n1 side cannot pass it without knowing what kmutil checks. Next: capture the exact kmutil
+error text, read `kmutil configure-boot --help` on macOS 27.2 for any flag that declares an
+executable range for `--raw` images, and ask upstream whether any M4+ custom kernel was ever
+registered without `--raw`.
+
 ## Dead ends (do not repeat)
 
 - Hypervisor trace of macOS (omarchy-m5 rounds 1-9): XNU spins in `wfe` long before any CPU
