@@ -1,0 +1,137 @@
+
+==== com.apple.driver.ApplePMGR fn 0xfffffe000988478c..0xfffffe00098849a8 (contains 0xfffffe000988478c)
+0xfffffe000988478c  pacibsp  
+0xfffffe0009884790  stp      x22, x21, [sp, #-0x30]!
+0xfffffe0009884794  stp      x20, x19, [sp, #0x10]
+0xfffffe0009884798  stp      x29, x30, [sp, #0x20]
+0xfffffe000988479c  add      x29, sp, #0x20
+0xfffffe00098847a0  add      x8, x0, #0x3e, lsl #12
+0xfffffe00098847a4  add      x21, x8, #0xfa8
+0xfffffe00098847a8  ldr      w8, [x21, #0x1b0]
+0xfffffe00098847ac  cmp      w1, w8
+0xfffffe00098847b0  b.hs     #0xfffffe0009884940
+0xfffffe00098847b4  mov      x19, x1
+0xfffffe00098847b8  mov      x20, x0
+0xfffffe00098847bc  ldr      x8, [x21, #0x1a8]
+0xfffffe00098847c0  mov      w9, #0x8e08
+0xfffffe00098847c4  umull    x9, w1, w9
+0xfffffe00098847c8  cmp      x9, w9, sxtw
+0xfffffe00098847cc  add      x22, x8, w9, sxtw
+0xfffffe00098847d0  add      x16, x8, x9
+0xfffffe00098847d4  movk     x16, #0x2bad, lsl #48
+0xfffffe00098847d8  csel     x22, x22, x16, eq
+0xfffffe00098847dc  ldrh     w1, [x22, #0x32]
+0xfffffe00098847e0  bl       #0xfffffe00098775fc  ; com.apple.driver.ApplePMGR
+0xfffffe00098847e4  ldrb     w8, [x0, #0xf]
+0xfffffe00098847e8  tbnz     w8, #6, #0xfffffe00098847f4
+0xfffffe00098847ec  ldrb     w8, [x0, #0x19]
+0xfffffe00098847f0  b        #0xfffffe00098847f8
+0xfffffe00098847f4  mov      x8, #0
+0xfffffe00098847f8  ldr      x9, [x21]
+0xfffffe00098847fc  add      x10, x20, #0x3e, lsl #12
+0xfffffe0009884800  add      x10, x10, #0xfb8
+0xfffffe0009884804  mov      w11, #0x8dd0
+0xfffffe0009884808  add      x11, x22, x11
+0xfffffe000988480c  ldr      w11, [x11]
+0xfffffe0009884810  lsl      x11, x11, #6
+0xfffffe0009884814  add      x8, x11, x8, lsl #1
+0xfffffe0009884818  cmp      x8, w8, sxtw
+0xfffffe000988481c  add      x11, x10, w8, sxtw
+0xfffffe0009884820  add      x16, x10, x8
+0xfffffe0009884824  movk     x16, #0x2bad, lsl #48
+0xfffffe0009884828  csel     x11, x11, x16, eq
+0xfffffe000988482c  ldrh     w8, [x11]
+0xfffffe0009884830  add      x8, x8, x8, lsl #1
+0xfffffe0009884834  add      x10, x9, x8, lsl #4
+0xfffffe0009884838  ldrb     w8, [x10, #8]
+0xfffffe000988483c  cbnz     w8, #0xfffffe0009884944
+0xfffffe0009884840  ldr      x16, [x20]
+0xfffffe0009884844  mov      x17, x20
+0xfffffe0009884848  movk     x17, #0xcda1, lsl #48
+0xfffffe000988484c  autda    x16, x17
+0xfffffe0009884850  mov      x17, #0xd30
+0xfffffe0009884854  add      x16, x16, x17
+0xfffffe0009884858  ldr      x8, [x16]
+0xfffffe000988485c  mov      x0, x20
+0xfffffe0009884860  mov      x1, x19
+0xfffffe0009884864  mov      w2, #1
+0xfffffe0009884868  movk     x16, #0xdc08, lsl #48
+0xfffffe000988486c  blraa    x8, x16
+0xfffffe0009884870  ldr      w8, [x20, #0x2494]
+0xfffffe0009884874  cbz      w8, #0xfffffe0009884930
+0xfffffe0009884878  mov      w2, w19
+0xfffffe000988487c  mov      x21, x20
+0xfffffe0009884880  movk     x21, #0xcda1, lsl #48
+0xfffffe0009884884  ldr      x0, [x20, #0x1b80]
+0xfffffe0009884888  ldr      x16, [x0]
+0xfffffe000988488c  mov      x17, x0
+0xfffffe0009884890  movk     x17, #0xcda1, lsl #48
+0xfffffe0009884894  autda    x16, x17
+0xfffffe0009884898  mov      x17, #0x1e8
+0xfffffe000988489c  add      x16, x16, x17
+0xfffffe00098848a0  ldr      x9, [x16]
+0xfffffe00098848a4  mov      x8, x16
+0xfffffe00098848a8  adrp     x16, #0xfffffe000988c000
+0xfffffe00098848ac  add      x16, x16, #0x2f4  ; -> 0xfffffe000988c2f4 (com.apple.driver.ApplePMGR)
+0xfffffe00098848b0  mov      x17, #0xbd41
+0xfffffe00098848b4  pacia    x16, x17
+0xfffffe00098848b8  mov      x1, x16
+0xfffffe00098848bc  mov      x3, #0
+0xfffffe00098848c0  mov      x4, #0
+0xfffffe00098848c4  mov      x5, #0
+0xfffffe00098848c8  mov      x17, x8
+0xfffffe00098848cc  movk     x17, #0xf9ff, lsl #48
+0xfffffe00098848d0  blraa    x9, x17
+0xfffffe00098848d4  mov      x17, x21
+0xfffffe00098848d8  ldr      x16, [x20]
+0xfffffe00098848dc  autda    x16, x17
+0xfffffe00098848e0  mov      x17, x16
+0xfffffe00098848e4  xpacd    x17
+0xfffffe00098848e8  cmp      x16, x17
+0xfffffe00098848ec  b.eq     #0xfffffe00098848f4
+0xfffffe00098848f0  brk      #0xc472
+0xfffffe00098848f4  add      x3, x16, #0xd00  ; -> 0xfffffe000988cff4 (com.apple.driver.ApplePMGR)
+0xfffffe00098848f8  ldr      x16, [x16, #0xd00]  ; [0xfffffe000988cff4]
+0xfffffe00098848fc  mov      x0, x20
+0xfffffe0009884900  mov      x1, x19
+0xfffffe0009884904  mov      w2, #1
+0xfffffe0009884908  ldp      x29, x30, [sp, #0x20]
+0xfffffe000988490c  ldp      x20, x19, [sp, #0x10]
+0xfffffe0009884910  ldp      x22, x21, [sp], #0x30
+0xfffffe0009884914  autibsp  
+0xfffffe0009884918  eor      x17, x30, x30, lsl #1
+0xfffffe000988491c  tbz      x17, #0x3e, #0xfffffe0009884924
+0xfffffe0009884920  brk      #0xc471
+0xfffffe0009884924  mov      x17, x3
+0xfffffe0009884928  movk     x17, #0xebc7, lsl #48
+0xfffffe000988492c  braa     x16, x17
+0xfffffe0009884930  ldp      x29, x30, [sp, #0x20]
+0xfffffe0009884934  ldp      x20, x19, [sp, #0x10]
+0xfffffe0009884938  ldp      x22, x21, [sp], #0x30
+0xfffffe000988493c  retab    
+0xfffffe0009884940  bl       #0xfffffe00098c18a8  ; com.apple.driver.ApplePMGR
+0xfffffe0009884944  bl       #0xfffffe00098c18e4  ; com.apple.driver.ApplePMGR
+0xfffffe0009884948  bti      c
+0xfffffe000988494c  mov      x3, x2
+0xfffffe0009884950  mov      x2, x1
+0xfffffe0009884954  ldr      x0, [x0, #0x1b80]
+0xfffffe0009884958  ldr      x16, [x0]
+0xfffffe000988495c  mov      x17, x0
+0xfffffe0009884960  movk     x17, #0xcda1, lsl #48
+0xfffffe0009884964  autda    x16, x17
+0xfffffe0009884968  mov      x17, #0x1e8
+0xfffffe000988496c  add      x16, x16, x17
+0xfffffe0009884970  ldr      x8, [x16]
+0xfffffe0009884974  mov      x6, x16
+0xfffffe0009884978  adrp     x16, #0xfffffe000988c000
+0xfffffe000988497c  add      x16, x16, #0x2f4  ; -> 0xfffffe000988c2f4 (com.apple.driver.ApplePMGR)
+0xfffffe0009884980  mov      x17, #0xbd41
+0xfffffe0009884984  pacia    x16, x17
+0xfffffe0009884988  mov      x1, x16
+0xfffffe000988498c  mov      x16, x8
+0xfffffe0009884990  mov      x4, #0
+0xfffffe0009884994  mov      x5, #0
+0xfffffe0009884998  mov      x17, x6
+0xfffffe000988499c  movk     x17, #0xf9ff, lsl #48
+0xfffffe00098849a0  braa     x16, x17
+0xfffffe00098849a4  bti      c

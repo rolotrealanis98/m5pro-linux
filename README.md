@@ -17,7 +17,7 @@ This repo holds only what was made or changed here. Upstream sources are pinned 
 | Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots, tethered |
 | Framebuffer console, built-in keyboard, NVMe read/write, USB gadget network | works |
 | Arch Linux ARM root on the internal SSD (GPT entry 5 = `nvme0n1p5`) | works, systemd `running` |
-| SMP (secondary cores) | **not working**, `maxcpus=1`; waiting for upstream Asahi |
+| SMP (secondary cores) | **not working**, `maxcpus=1`. Released cores power up but never fetch; PMGR side exhausted, macOS does the same writes. Next: boot object as Mach-O. [`docs/smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) |
 | Trackpad (needs `tpmtfw-j716s.bin`), GPU, display driver, Wi-Fi/BT (N1), audio | not started |
 | Untethered boot (kernel on the ESP) | not started |
 
@@ -26,11 +26,11 @@ This repo holds only what was made or changed here. Upstream sources are pinned 
 | Path | What |
 |---|---|
 | `patches/m1n1/` | `git format-patch` series on upstream m1n1 (see SOURCES.md). 0001-0007: omarchy-m5's T6050 patches, rebased (author kept). 0008-0012: written here. |
-| `patches/omarchy-m5/` | Changes to the omarchy-m5 checkout: J716s board DT, measured PMGR boot state, `GCC=1` kernel builds. |
+| `patches/omarchy-m5/` | Changes to the omarchy-m5 checkout: J716s board DT, measured PMGR boot state, `GCC=1` kernel builds; `0002` adds `finish-install.sh --macho`. |
 | `dt/` | The J716s board DTS and its measured PMGR power-state table, also inside the patch above. |
 | `host/` | Studio-side config: udev rules for the m1n1 device and the M5's USB network, the NAT script. |
-| `scripts/` | Tether helpers used on the Studio (tmux-driven proxy sessions, watchdog-guarded rounds). They expect the omarchy-m5 checkout at `~/Work/omarchy-m5`. |
-| `docs/` | How to rebuild, boot, provision and recover: [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md). |
+| `scripts/` | Tether helpers used on the Studio (tmux-driven proxy sessions, watchdog-guarded rounds). They expect the omarchy-m5 checkout at `~/Work/omarchy-m5`. `scripts/probes/` are the SMP hardware probes, `scripts/kc/` the kernelcache/SPTM disassembly helpers. |
+| `docs/` | [`boot-and-recovery.md`](docs/boot-and-recovery.md) (rebuild, boot, provision, recover), [`smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) (the SMP investigation), `docs/re/` (disassembly excerpts). |
 
 ## Rebuild m1n1
 

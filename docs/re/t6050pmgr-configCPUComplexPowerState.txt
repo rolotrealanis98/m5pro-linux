@@ -1,0 +1,97 @@
+
+==== com.apple.driver.AppleT6050PMGR fn 0xfffffe0009ceca10..0xfffffe0009cecb8c (contains 0xfffffe0009ceca10)
+0xfffffe0009ceca10  pacibsp  
+0xfffffe0009ceca14  stp      x24, x23, [sp, #-0x40]!
+0xfffffe0009ceca18  stp      x22, x21, [sp, #0x10]
+0xfffffe0009ceca1c  stp      x20, x19, [sp, #0x20]
+0xfffffe0009ceca20  stp      x29, x30, [sp, #0x30]
+0xfffffe0009ceca24  add      x29, sp, #0x30
+0xfffffe0009ceca28  add      x22, x0, #0x73, lsl #12
+0xfffffe0009ceca2c  ldr      w8, [x22, #0x8fc]
+0xfffffe0009ceca30  cmp      w2, w8
+0xfffffe0009ceca34  b.hs     #0xfffffe0009cecb84
+0xfffffe0009ceca38  mov      x20, x2
+0xfffffe0009ceca3c  mov      x21, x1
+0xfffffe0009ceca40  mov      x19, x0
+0xfffffe0009ceca44  ldr      x16, [x0]
+0xfffffe0009ceca48  mov      x23, x0
+0xfffffe0009ceca4c  movk     x23, #0xcda1, lsl #48
+0xfffffe0009ceca50  mov      x17, x0
+0xfffffe0009ceca54  movk     x17, #0xcda1, lsl #48
+0xfffffe0009ceca58  autda    x16, x17
+0xfffffe0009ceca5c  mov      x17, #0x1130
+0xfffffe0009ceca60  add      x16, x16, x17
+0xfffffe0009ceca64  ldr      x8, [x16]
+0xfffffe0009ceca68  mov      x1, x2
+0xfffffe0009ceca6c  mov      w2, #0x20
+0xfffffe0009ceca70  movk     w2, #0xe2, lsl #16
+0xfffffe0009ceca74  mov      w3, #0
+0xfffffe0009ceca78  movk     x16, #0x97fa, lsl #48
+0xfffffe0009ceca7c  blraa    x8, x16
+0xfffffe0009ceca80  mov      x17, x19
+0xfffffe0009ceca84  and      x8, x0, #0xffffffffff7fffff
+0xfffffe0009ceca88  cmp      w21, #0
+0xfffffe0009ceca8c  mov      w9, #0x800000
+0xfffffe0009ceca90  csel     x9, xzr, x9, ne
+0xfffffe0009ceca94  ldr      x16, [x19]
+0xfffffe0009ceca98  movk     x17, #0xcda1, lsl #48
+0xfffffe0009ceca9c  autda    x16, x17
+0xfffffe0009cecaa0  mov      x17, x16
+0xfffffe0009cecaa4  xpacd    x17
+0xfffffe0009cecaa8  cmp      x16, x17
+0xfffffe0009cecaac  b.eq     #0xfffffe0009cecab4
+0xfffffe0009cecab0  brk      #0xc472
+0xfffffe0009cecab4  mov      w10, #0x1140
+0xfffffe0009cecab8  add      x10, x16, x10
+0xfffffe0009cecabc  ldr      x11, [x16, #0x1140]
+0xfffffe0009cecac0  orr      x3, x8, x9
+0xfffffe0009cecac4  mov      x0, x19
+0xfffffe0009cecac8  mov      x1, x20
+0xfffffe0009cecacc  mov      w2, #0x20
+0xfffffe0009cecad0  movk     w2, #0xe2, lsl #16
+0xfffffe0009cecad4  mov      w4, #0
+0xfffffe0009cecad8  mov      x17, x10
+0xfffffe0009cecadc  movk     x17, #0x6978, lsl #48
+0xfffffe0009cecae0  blraa    x11, x17
+0xfffffe0009cecae4  tbnz     w21, #0, #0xfffffe0009cecb1c
+0xfffffe0009cecae8  ldr      x16, [x19]
+0xfffffe0009cecaec  autda    x16, x23
+0xfffffe0009cecaf0  mov      x17, #0x1130
+0xfffffe0009cecaf4  add      x16, x16, x17
+0xfffffe0009cecaf8  ldr      x8, [x16]
+0xfffffe0009cecafc  mov      x0, x19
+0xfffffe0009cecb00  mov      x1, x20
+0xfffffe0009cecb04  mov      w2, #0x20
+0xfffffe0009cecb08  movk     w2, #0xe2, lsl #16
+0xfffffe0009cecb0c  mov      w3, #0
+0xfffffe0009cecb10  movk     x16, #0x97fa, lsl #48
+0xfffffe0009cecb14  blraa    x8, x16
+0xfffffe0009cecb18  tbnz     w0, #7, #0xfffffe0009cecae8
+0xfffffe0009cecb1c  ldrb     w8, [x22, #0x8e7]
+0xfffffe0009cecb20  tbz      w8, #0, #0xfffffe0009cecb70
+0xfffffe0009cecb24  ldr      x16, [x19]
+0xfffffe0009cecb28  autda    x16, x23
+0xfffffe0009cecb2c  mov      x17, #0x1150
+0xfffffe0009cecb30  add      x16, x16, x17
+0xfffffe0009cecb34  ldr      x8, [x16]
+0xfffffe0009cecb38  mov      x1, x16
+0xfffffe0009cecb3c  mov      x16, x8
+0xfffffe0009cecb40  mov      x0, x19
+0xfffffe0009cecb44  ldp      x29, x30, [sp, #0x30]
+0xfffffe0009cecb48  ldp      x20, x19, [sp, #0x20]
+0xfffffe0009cecb4c  ldp      x22, x21, [sp, #0x10]
+0xfffffe0009cecb50  ldp      x24, x23, [sp], #0x40
+0xfffffe0009cecb54  autibsp  
+0xfffffe0009cecb58  eor      x17, x30, x30, lsl #1
+0xfffffe0009cecb5c  tbz      x17, #0x3e, #0xfffffe0009cecb64
+0xfffffe0009cecb60  brk      #0xc471
+0xfffffe0009cecb64  mov      x17, x1
+0xfffffe0009cecb68  movk     x17, #0xf1e, lsl #48
+0xfffffe0009cecb6c  braa     x16, x17
+0xfffffe0009cecb70  ldp      x29, x30, [sp, #0x30]
+0xfffffe0009cecb74  ldp      x20, x19, [sp, #0x20]
+0xfffffe0009cecb78  ldp      x22, x21, [sp, #0x10]
+0xfffffe0009cecb7c  ldp      x24, x23, [sp], #0x40
+0xfffffe0009cecb80  retab    
+0xfffffe0009cecb84  bl       #0xfffffe0009cf2454  ; com.apple.driver.AppleT6050PMGR
+0xfffffe0009cecb88  bti      c
