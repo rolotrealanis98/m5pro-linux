@@ -48,6 +48,22 @@ Register m1n1 as a Mach-O instead of a raw image, so iBoot gets a text segment:
    (`__TEXT_EXEC`/`__DATA_CONST`/`__TEXT_BOOT_EXEC`/`__DATA` + `LC_FILESET_ENTRY`), which may make
    iBoot take the kernelcache path and load SPTM; then the XNU-shim work applies.
 
+## Mach-O attempt (2026-10-20, later)
+
+`finish-install.sh --m1n1 m1n1.macho --macho` + the 1TR ceremony: **kmutil refused the Mach-O**
+(error text to be added). The raw image was re-registered from the 1TR shell with
+`sh <(curl -s 192.168.1.4:8000/go.sh)` served from the Studio (`~/Work/m1n1/build-plain/go.sh`,
+raw kmutil + install-media cleanup + reboot). Back on the raw stage-1 the RVBAR crumb probe with
+the five release variants was negative again (`BootKC-rx` size 0 as before).
+
+Staged for the next ceremony: `~/Work/m1n1/build-plain/m1n1.bootkc.macho`, made with
+antiapplefox/m5-linux `scripts/pack-bootkc.py` from our plain `m1n1.macho`: segments renamed to
+`__TEXT`/`__TEXT_EXEC`/`__DATA_CONST`/`__DATA`, `PYLD` zeroed, `__DATA_SPTM` (0x54000) added,
+`LC_UUID`/`LC_BUILD_VERSION`/empty `LC_DYLD_CHAINED_FIXUPS` added, `LC_UNIXTHREAD.pc` kept at
+`_start` (`__TEXT_EXEC + 0x800`). No `LC_FILESET_ENTRY` (the packer does not add one). If iBoot
+takes the kernelcache path for it, SPTM will be loaded first and m1n1 is not SPTM-aware yet; expect
+a black screen and recover with the raw `go.sh` flow.
+
 ## Dead ends (do not repeat)
 
 - Hypervisor trace of macOS (omarchy-m5 rounds 1-9): XNU spins in `wfe` long before any CPU
