@@ -1,0 +1,46 @@
+diff --git i/scripts/finish-install.sh w/scripts/finish-install.sh
+index ac94506..b6fc436 100755
+--- i/scripts/finish-install.sh
++++ w/scripts/finish-install.sh
+@@ -21,7 +21,8 @@
+ #   - bless --setBoot   (while SystemVersion.plist is still visible)
+ #   - then hide SystemVersion.plist + drop .IAPhysicalMedia
+ #
+-# Usage: sudo scripts/finish-install.sh [--m1n1 PATH] [--stub NAME]
++# Usage: sudo scripts/finish-install.sh [--m1n1 PATH] [--macho] [--stub NAME]
++#   --macho: register the image as a Mach-O (no --raw), so iBoot sees a text segment
+ #
+ # Idempotent: safe to re-run; it rebuilds the app and re-blesses.
+ # Reverse it with: sudo scripts/finish-install.sh --undo
+@@ -32,6 +33,7 @@ STUB_NAME="Omarchy"
+ DISTRO="Omarchy"
+ VENDOR_M1N1="vendor/m1n1/build/m1n1.bin"
+ M1N1="$VENDOR_M1N1"
++MACHO=0
+ UNDO=0
+ 
+ while [ $# -gt 0 ]; do
+@@ -39,6 +41,7 @@ while [ $# -gt 0 ]; do
+         # absolute: the script cds to the repo root below
+         --m1n1) M1N1="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift 2 ;;
+         --stub) STUB_NAME="$2"; shift 2 ;;
++        --macho) MACHO=1; shift ;;
+         --undo) UNDO=1; shift ;;
+         *) echo "unknown argument: $1" >&2; exit 2 ;;
+     esac
+@@ -303,6 +306,15 @@ sed -i '' \
+     -e "s|##VGID##|$VGID|" \
+     -e "s|##PREBOOT##|$PB_VOL|" \
+     "$RES/step2.sh"
++if [ "$MACHO" = 1 ]; then
++    # Mach-O boot object: drop the raw-image flags from the generated step2.sh
++    python3 - "$RES/step2.sh" <<'PYEOF'
++import sys; p=sys.argv[1]; s=open(p).read()
++old='configure-boot -c "$resources/boot.bin" --raw \\\n    --entry-point 2048 --lowest-virtual-address 0 -v "$system_dir"'
++assert old in s, "kmutil line not found"
++open(p,'w').write(s.replace(old, 'configure-boot -c "$resources/boot.bin" -v "$system_dir"'))
++PYEOF
++fi
+ chmod 755 "$RES/step2.sh"
+ 
+ step "Installing m1n1 as $RES/boot.bin"
