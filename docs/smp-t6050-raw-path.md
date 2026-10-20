@@ -72,6 +72,15 @@ error text, read `kmutil configure-boot --help` on macOS 27.2 for any flag that 
 executable range for `--raw` images, and ask upstream whether any M4+ custom kernel was ever
 registered without `--raw`.
 
+Checked on macOS 27.2 afterwards: `kmutil configure-boot` has only `--raw`, `--entry-point`,
+`--lowest-virtual-address` and `--compress`; there is no way to declare an executable range for a
+raw object. `kmutil inspect --show-mach-boot-properties` shows the properties a real kernel
+collection gets (ro/SPTM/boot-exec/rw/linkedit regions + entry); a raw object gets only entry and
+lowest address. The stub's boot-object directory holds the kernelcache and trust caches only, no
+SPTM/TXM. The signed artifacts kmutil writes are out of scope: the supported path is kmutil's own
+custom-boot-object mechanism, and the question of what shape of Mach-O it accepts on M4+ goes to
+upstream (Asahi / m1n1 developers).
+
 ## Dead ends (do not repeat)
 
 - Hypervisor trace of macOS (omarchy-m5 rounds 1-9): XNU spins in `wfe` long before any CPU
