@@ -81,6 +81,23 @@ SPTM/TXM. The signed artifacts kmutil writes are out of scope: the supported pat
 custom-boot-object mechanism, and the question of what shape of Mach-O it accepts on M4+ goes to
 upstream (Asahi / m1n1 developers).
 
+## Public record (found 2026-10-20)
+
+- Gravity Linux FAQ (gravitylinux.org/about): as of macOS 27.0 Beta 5 the M5 Pro/Max are
+  "misconfigured out of the box and we are unable to start secondary CPU cores"; reported to Apple,
+  "no choice but to wait for Apple". It's FOSS / Linux Consultant repeated it on 2026-09-23.
+- m1n1 PR #610 (T6050/T6051 initial support) is Yureka's own, tested on macOS 26.2b2 and 27.0b2,
+  same symptom. Her 2026-10-02 blog's working "M5" is the base M5 (T8142); GravityLinux/linux #4
+  boots the base M5 (J704) with all 10 cores.
+- bretttegart/j604-linux: on the base M4 (T8132) secondaries start once m1n1 reserves the second
+  CTRR window (CTRR_D); m1n1 main already reserves the M4+ window and our cores never fetch at all,
+  so T6050 is a different failure.
+
+Conclusion: the T6050/T6051 firmware shipped with macOS 27 does not start a secondary core on the
+raw path. Known, Apple-reported, not fixable from the bootloader. Re-test after every macOS update:
+read `/chosen/system-firmware-version` (now `mBoot-20457.41.2`), then `wdt-arm.py 150 &&
+release-variants.py`. A crumb is the signal.
+
 ## Dead ends (do not repeat)
 
 - Hypervisor trace of macOS (omarchy-m5 rounds 1-9): XNU spins in `wfe` long before any CPU
