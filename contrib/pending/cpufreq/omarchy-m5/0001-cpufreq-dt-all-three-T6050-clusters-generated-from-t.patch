@@ -1,0 +1,401 @@
+From 7efa8920e7695fdadd4310c51ba54b34eef056b2 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 18:00:07 -0500
+Subject: [PATCH] cpufreq dt: all three T6050 clusters, generated from the
+ J716s ADT
+
+gen-cpufreq-dt.py now emits the P cluster (cluster 2, apple,everest)
+as well as the two M clusters, and t6050-cpufreq.dtsi is regenerated
+from build/adt-runtime-j716s.bin.
+
+- M clusters (voltage-states22/23): unchanged p-states 2-15, which is
+  byte-for-byte what the J714s ADT gave (the old generator run on the
+  J716s ADT reproduces the old file exactly). The refused top entry,
+  p-state 16 (4380 MHz), is now listed with turbo-mode, so it is used
+  only after "echo 1 > /sys/devices/system/cpu/cpufreq/boost".
+- P cluster (voltage-states5, 20 entries, 1308-4608 MHz): p-states
+  2-21, assuming the M clusters' "p-state N = entry N-2" mapping, which
+  is not measured on this cluster yet. Entries above 4308 MHz (p-states
+  18-21) are turbo-mode. performance-controller@212e20000 follows the
+  ADT pmgr reg list, which maps the same 0x12e8-byte DVFS window at
+  0x21Xe20000 for all three clusters.
+- compatible is now "apple,t6050-cluster-cpufreq",
+  "apple,t8112-cluster-cpufreq", the form the binding accepts for T6020;
+  the driver matched the t8112 entry before and still does.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ dt/t6050-cpufreq.dtsi     | 188 +++++++++++++++++++++++++++++++++++++-
+ scripts/gen-cpufreq-dt.py |  66 +++++++------
+ 2 files changed, 223 insertions(+), 31 deletions(-)
+
+diff --git a/dt/t6050-cpufreq.dtsi b/dt/t6050-cpufreq.dtsi
+index 869c3ec..47f9a2a 100644
+--- a/dt/t6050-cpufreq.dtsi
++++ b/dt/t6050-cpufreq.dtsi
+@@ -1,8 +1,9 @@
+ // SPDX-License-Identifier: GPL-2.0+ OR MIT
+ /*
+  * T6050 CPU cluster DVFS (apple-soc-cpufreq).
+- * GENERATED from the runtime ADT (build/adt-runtime-j714s.bin) by
++ * GENERATED from the runtime ADT (adt-runtime-j716s.bin) by
+  * gen-cpufreq-dt.py; see there for the measured p-state/frequency mapping.
++ * M clusters: measured. P cluster: p-state mapping assumed, not yet measured.
+  */
+ 
+ / {
+@@ -93,6 +94,13 @@
+ 			opp-microvolt = <1070000>;
+ 			clock-latency-ns = <8000>;
+ 		};
++		opp16 {
++			opp-hz = /bits/ 64 <4380000000>;
++			opp-level = <16>;
++			opp-microvolt = <1070000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
+ 	};
+ 
+ 	m1_opp: opp-table-m1 {
+@@ -182,25 +190,165 @@
+ 			opp-microvolt = <1070000>;
+ 			clock-latency-ns = <8000>;
+ 		};
++		opp16 {
++			opp-hz = /bits/ 64 <4380000000>;
++			opp-level = <16>;
++			opp-microvolt = <1070000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
++	};
++
++	p_opp: opp-table-p {
++		compatible = "operating-points-v2";
++
++		opp02 {
++			opp-hz = /bits/ 64 <1308000000>;
++			opp-level = <2>;
++			opp-microvolt = <760000>;
++			clock-latency-ns = <8000>;
++		};
++		opp03 {
++			opp-hz = /bits/ 64 <1620000000>;
++			opp-level = <3>;
++			opp-microvolt = <785000>;
++			clock-latency-ns = <8000>;
++		};
++		opp04 {
++			opp-hz = /bits/ 64 <1980000000>;
++			opp-level = <4>;
++			opp-microvolt = <820000>;
++			clock-latency-ns = <8000>;
++		};
++		opp05 {
++			opp-hz = /bits/ 64 <2292000000>;
++			opp-level = <5>;
++			opp-microvolt = <855000>;
++			clock-latency-ns = <8000>;
++		};
++		opp06 {
++			opp-hz = /bits/ 64 <2580000000>;
++			opp-level = <6>;
++			opp-microvolt = <885000>;
++			clock-latency-ns = <8000>;
++		};
++		opp07 {
++			opp-hz = /bits/ 64 <2880000000>;
++			opp-level = <7>;
++			opp-microvolt = <920000>;
++			clock-latency-ns = <8000>;
++		};
++		opp08 {
++			opp-hz = /bits/ 64 <3180000000>;
++			opp-level = <8>;
++			opp-microvolt = <950000>;
++			clock-latency-ns = <8000>;
++		};
++		opp09 {
++			opp-hz = /bits/ 64 <3432000000>;
++			opp-level = <9>;
++			opp-microvolt = <980000>;
++			clock-latency-ns = <8000>;
++		};
++		opp10 {
++			opp-hz = /bits/ 64 <3648000000>;
++			opp-level = <10>;
++			opp-microvolt = <1010000>;
++			clock-latency-ns = <8000>;
++		};
++		opp11 {
++			opp-hz = /bits/ 64 <3828000000>;
++			opp-level = <11>;
++			opp-microvolt = <1030000>;
++			clock-latency-ns = <8000>;
++		};
++		opp12 {
++			opp-hz = /bits/ 64 <3984000000>;
++			opp-level = <12>;
++			opp-microvolt = <1050000>;
++			clock-latency-ns = <8000>;
++		};
++		opp13 {
++			opp-hz = /bits/ 64 <4104000000>;
++			opp-level = <13>;
++			opp-microvolt = <1065000>;
++			clock-latency-ns = <8000>;
++		};
++		opp14 {
++			opp-hz = /bits/ 64 <4188000000>;
++			opp-level = <14>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++		};
++		opp15 {
++			opp-hz = /bits/ 64 <4236000000>;
++			opp-level = <15>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++		};
++		opp16 {
++			opp-hz = /bits/ 64 <4284000000>;
++			opp-level = <16>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++		};
++		opp17 {
++			opp-hz = /bits/ 64 <4308000000>;
++			opp-level = <17>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++		};
++		opp18 {
++			opp-hz = /bits/ 64 <4332000000>;
++			opp-level = <18>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
++		opp19 {
++			opp-hz = /bits/ 64 <4428000000>;
++			opp-level = <19>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
++		opp20 {
++			opp-hz = /bits/ 64 <4512000000>;
++			opp-level = <20>;
++			opp-microvolt = <1120000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
++		opp21 {
++			opp-hz = /bits/ 64 <4608000000>;
++			opp-level = <21>;
++			opp-microvolt = <1120000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
+ 	};
+ 
+ };
+ 
+ &soc {
+ 	cpufreq_m0: performance-controller@210e20000 {
+-		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq",
+-			     "apple,cluster-cpufreq";
++		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+ 		reg = <0x2 0x10e20000 0x0 0x1000>;
+ 		#performance-domain-cells = <0>;
+ 	};
+ 
+ 	cpufreq_m1: performance-controller@211e20000 {
+-		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq",
+-			     "apple,cluster-cpufreq";
++		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+ 		reg = <0x2 0x11e20000 0x0 0x1000>;
+ 		#performance-domain-cells = <0>;
+ 	};
+ 
++	cpufreq_p: performance-controller@212e20000 {
++		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
++		reg = <0x2 0x12e20000 0x0 0x1000>;
++		#performance-domain-cells = <0>;
++	};
++
+ };
+ 
+ &cpu_m0_0 {
+@@ -262,3 +410,33 @@
+ 	operating-points-v2 = <&m1_opp>;
+ 	performance-domains = <&cpufreq_m1>;
+ };
++
++&cpu_p0 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p1 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p2 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p3 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p4 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p5 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
+diff --git a/scripts/gen-cpufreq-dt.py b/scripts/gen-cpufreq-dt.py
+index 112e32b..32e01fe 100755
+--- a/scripts/gen-cpufreq-dt.py
++++ b/scripts/gen-cpufreq-dt.py
+@@ -1,8 +1,8 @@
+ #!/usr/bin/env python3
+ # Generate dt/t6050-cpufreq.dtsi from the runtime ADT (no device needed):
+-#   scripts/gen-cpufreq-dt.py build/adt-runtime-j714s.bin > dt/t6050-cpufreq.dtsi
++#   scripts/gen-cpufreq-dt.py build/adt-runtime-j716s.bin > dt/t6050-cpufreq.dtsi
+ #
+-# Measured on the M5 (cluster 0, apple,sawtooth; boot state 6), with
++# Measured on the M5 (J714s, cluster 0, apple,sawtooth; boot state 6), with
+ # tools/cpuhz.c and writes to CLUSTER_PSTATE (base + 0x20020):
+ #   p-state  6 -> 2649 MHz   ADT table entry [4]  2652 MHz
+ #   p-state  7 -> 2961 MHz   entry [5]            2964 MHz
+@@ -10,20 +10,35 @@
+ #   p-state 15 -> 4303 MHz   entry [13]           4308 MHz
+ #   p-state 16 -> refused, the cluster settles at 15 (entry [14] 4380 MHz).
+ # So p-state N is entry N-2 of the cluster's pmgr voltage-states<k>-sram
+-# (kHz, mV); 16 is left out. The status register at +0x20050 uses the T8112
+-# layout, so the stock driver's apple,t8112-cluster-cpufreq path fits.
++# (kHz, mV). The status register at +0x20050 uses the T8112 layout, so the
++# stock driver's apple,t8112-cluster-cpufreq path fits.
+ #
+-# Only the M clusters are emitted: the P cluster's offset is unverified (it
+-# has never run). Its CPUs get no OPP table, which leaves them unmanaged.
++# Which voltage-states table belongs to which cluster comes from pmgr
++# acc-clusters ((cluster << 8) | index) and is confirmed by pmgr perf-domains
++# (MCPU0 -> 22, MCPU1 -> 23, PCPU -> 5 on J716s). The ADT pmgr reg list maps
++# a 0x12e8-byte window at <cluster DVFS block> + 0x20000 for all three
++# clusters, which is the performance-controller reg below.
++#
++# The P cluster (cluster 2, apple,everest) has NOT been measured yet: its
++# entry N-2 mapping is assumed from the M clusters. Entries faster than the
++# M clusters' highest accepted state (TURBO_ABOVE_KHZ) are emitted with
++# turbo-mode, so they are only used once boost is enabled in sysfs; the same
++# goes for the M clusters' refused top entry. Re-run with the measured
++# numbers once TEST-PLAN P-cluster steps have been done.
+ import sys
+ import os
+ sys.path.insert(0, os.environ.get('M1N1_PROXYCLIENT', os.path.expanduser('~/tether/proxyclient')))
+ from m1n1 import adt
+ dt = adt.load_adt(open(sys.argv[1], 'rb').read())
++src = os.path.basename(sys.argv[1])
+ 
+-PSTATE_OFFSET = 2      # p-state N = table entry N - 2 (measured, see above)
+-MAX_PSTATE = 15        # 16 is refused by the hardware
+-DT_PREFIX = {0: 'm0', 1: 'm1'}   # ADT cluster-id -> dt/t6050.dtsi cpu label prefix
++PSTATE_OFFSET = 2           # p-state N = table entry N - 2 (measured on M, assumed on P)
++TURBO_ABOVE_KHZ = 4308000   # highest state the M cluster accepted; above it -> turbo-mode
++CLUSTERS = {                # ADT cluster-id -> (dt/t6050.dtsi cpu labels, opp/controller name)
++    0: ([f"cpu_m0_{i}" for i in range(6)], 'm0'),
++    1: ([f"cpu_m1_{i}" for i in range(6)], 'm1'),
++    2: ([f"cpu_p{i}" for i in range(6)], 'p'),
++}
+ 
+ pmgr = dt['/arm-io/pmgr']._properties
+ # pmgr acc-clusters: (cluster << 8) | voltage-states index, per cluster
+@@ -40,33 +55,37 @@ for cpu in dt['/cpus']:
+     # DVFS block = cpm-impl-reg - 0x40000 (as on M1: cpm 0x210e40000, DVFS 0x210e00000)
+     clusters.setdefault(cl, (p['cluster-type'], p['cpm-impl-reg'][0] - 0x40000))
+ 
++assert set(clusters) == set(CLUSTERS), clusters
++assert [clusters[c][0] for c in sorted(clusters)] == ['M', 'M', 'P'], clusters
++
+ out = []
+ w = out.append
+ w("// SPDX-License-Identifier: GPL-2.0+ OR MIT")
+ w("/*")
+ w(" * T6050 CPU cluster DVFS (apple-soc-cpufreq).")
+-w(" * GENERATED from the runtime ADT (build/adt-runtime-j714s.bin) by")
++w(f" * GENERATED from the runtime ADT ({src}) by")
+ w(" * gen-cpufreq-dt.py; see there for the measured p-state/frequency mapping.")
++w(" * M clusters: measured. P cluster: p-state mapping assumed, not yet measured.")
+ w(" */")
+ w("")
+ w("/ {")
+ for cl, (ctype, base) in sorted(clusters.items()):
+-    if cl not in DT_PREFIX:
+-        continue
+-    assert ctype == 'M', (cl, ctype)
++    name = CLUSTERS[cl][1]
+     states = list(pmgr[f'voltage-states{acc[cl]}-sram'])
+     pairs = list(zip(states[0::2], states[1::2]))
+-    name = DT_PREFIX[cl]
+     w(f"\t{name}_opp: opp-table-{name} {{")
+     w('\t\tcompatible = "operating-points-v2";')
+     w("")
+-    for level in range(PSTATE_OFFSET, MAX_PSTATE + 1):
+-        khz, mv = pairs[level - PSTATE_OFFSET]
++    for idx, (khz, mv) in enumerate(pairs):
++        level = idx + PSTATE_OFFSET
++        assert level <= 31, level    # 5-bit p-state field (T8112 layout)
+         w(f"\t\topp{level:02d} {{")
+         w(f"\t\t\topp-hz = /bits/ 64 <{khz * 1000}>;")
+         w(f"\t\t\topp-level = <{level}>;")
+         w(f"\t\t\topp-microvolt = <{mv * 1000}>;")
+         w("\t\t\tclock-latency-ns = <8000>;")
++        if khz > TURBO_ABOVE_KHZ:
++            w("\t\t\tturbo-mode;")
+         w("\t\t};")
+     w("\t};")
+     w("")
+@@ -74,25 +93,20 @@ w("};")
+ w("")
+ w("&soc {")
+ for cl, (ctype, base) in sorted(clusters.items()):
+-    if cl not in DT_PREFIX:
+-        continue
+-    name = DT_PREFIX[cl]
++    name = CLUSTERS[cl][1]
+     perf = base + 0x20000
+     w(f"\tcpufreq_{name}: performance-controller@{perf:x} {{")
+-    w('\t\tcompatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq",')
+-    w('\t\t\t     "apple,cluster-cpufreq";')
++    w('\t\tcompatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";')
+     w(f"\t\treg = <{perf >> 32:#x} {perf & 0xffffffff:#010x} 0x0 0x1000>;")
+     w("\t\t#performance-domain-cells = <0>;")
+     w("\t};")
+     w("")
+ w("};")
+ for cl in sorted(clusters):
+-    if cl not in DT_PREFIX:
+-        continue
+-    name = DT_PREFIX[cl]
+-    for core in range(6):
++    labels, name = CLUSTERS[cl]
++    for label in labels:
+         w("")
+-        w(f"&cpu_{name}_{core} {{")
++        w(f"&{label} {{")
+         w(f"\toperating-points-v2 = <&{name}_opp>;")
+         w(f"\tperformance-domains = <&cpufreq_{name}>;")
+         w("};")
+-- 
+2.56.0
+

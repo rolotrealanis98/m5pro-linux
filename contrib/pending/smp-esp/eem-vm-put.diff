@@ -1,0 +1,34 @@
+--- /Users/rolo/Work/agents/smp-esp/eem-vm.py.orig	2026-11-04 18:00:48
++++ eem-vm.py	2026-11-04 18:00:56
+@@ -13,6 +13,8 @@
+                                        add --keep to leave it up afterwards)
+   eem-vm.py --stop                     power off a guest left running by --keep
+   eem-vm.py --status                   say whether a guest is running and which M5 address answers
++  eem-vm.py --keep --put SRC DST ['cmd'] copy local SRC to DST on the M5 (ssh 'cat > DST', byte-clean),
++                                       then run cmd if given
+ 
+ The qcow2 is opened with snapshot=on: nothing persists in the image. Guest serial console goes to
+ ~/Work/m5-logs/eem-vm-console.log, QEMU stderr to ~/Work/m5-logs/eem-vm-qemu.log.
+@@ -36,6 +38,7 @@
+ ap.add_argument("--keep", action="store_true", help="leave the guest running afterwards")
+ ap.add_argument("--stop", action="store_true", help="power off a running guest and exit")
+ ap.add_argument("--status", action="store_true", help="report guest/M5 reachability and exit")
++ap.add_argument("--put", nargs=2, metavar=("SRC", "DST"), help="copy local file SRC to DST on the M5 before cmd")
+ ap.add_argument("-q", "--quiet", action="store_true", help="no [vm] progress lines on stderr")
+ ap.add_argument("cmd", nargs="?", default=None, help="shell command to run as root on the M5")
+ a = ap.parse_args()
+@@ -177,6 +180,14 @@
+ try:
+     m5 = setup()
+     if not m5: rc = 2
++    if m5 and a.put:
++        src, dst = a.put
++        log("put %s (%d bytes) -> root@%s:%s" % (src, os.path.getsize(src), m5, dst))
++        with open(src, "rb") as f:
++            rc = subprocess.call(m5_ssh(m5) + ["cat > %s" % shlex.quote(dst)], stdin=f)
++        if rc: log("put failed (rc %d)" % rc)
++    if not m5 or rc or (a.put and not a.cmd and not a.shell):
++        pass
+     elif a.shell:
+         log("ssh root@%s (exit the shell to %s)" % (m5, "detach; guest stays up" if a.keep else "power the guest off"))
+         rc = subprocess.call(m5_ssh(m5, ["-t"]) + ([a.cmd] if a.cmd else []))

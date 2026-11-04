@@ -1,0 +1,72 @@
+From 24058addd55262695a8851206e069bc532c0fc45 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 17:57:20 -0500
+Subject: [PATCH 1/3] cpufreq: apple-soc: report the nearest OPP for p-states
+ outside the table
+
+apple_soc_cpufreq_get_rate() returns 0 when the hardware reports a
+p-state that has no OPP. cpufreq_online() treats 0 from ->get() as fatal
+("->get() failed"), so the policy is torn down and the cluster stays at
+whatever p-state the bootloader left it in.
+
+On T6050 (M5 Pro) the OPP tables deliberately start at p-state 2 (the
+lowest entry of the cluster's ADT voltage-states table) and leave out
+p-states the cluster refuses, so a cluster that firmware left in one of
+those states would never get a policy. Return the frequency of the
+nearest table entry instead and warn (ratelimited), so the policy comes
+up and the first ->target_index() moves the cluster into the table.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/cpufreq/apple-soc-cpufreq.c | 25 ++++++++++++++++++++-----
+ 1 file changed, 20 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/cpufreq/apple-soc-cpufreq.c b/drivers/cpufreq/apple-soc-cpufreq.c
+index 5ad274a1e..6c7c9e084 100644
+--- a/drivers/cpufreq/apple-soc-cpufreq.c
++++ b/drivers/cpufreq/apple-soc-cpufreq.c
+@@ -137,7 +137,7 @@ static unsigned int apple_soc_cpufreq_get_rate(unsigned int cpu)
+ 	struct cpufreq_policy *policy;
+ 	struct apple_cpu_priv *priv;
+ 	struct cpufreq_frequency_table *p;
+-	unsigned int pstate;
++	unsigned int pstate, dist, best_dist = UINT_MAX, best_freq = 0;
+ 
+ 	policy = cpufreq_cpu_get_raw(cpu);
+ 	if (unlikely(!policy))
+@@ -159,13 +159,28 @@ static unsigned int apple_soc_cpufreq_get_rate(unsigned int cpu)
+ 		pstate = FIELD_GET(APPLE_DVFS_CMD_PS1, reg);
+ 	}
+ 
+-	cpufreq_for_each_valid_entry(p, policy->freq_table)
++	cpufreq_for_each_valid_entry(p, policy->freq_table) {
+ 		if (p->driver_data == pstate)
+ 			return p->frequency;
+ 
+-	dev_err(priv->cpu_dev, "could not find frequency for pstate %d\n",
+-		pstate);
+-	return 0;
++		dist = p->driver_data > pstate ? p->driver_data - pstate :
++						  pstate - p->driver_data;
++		if (dist < best_dist) {
++			best_dist = dist;
++			best_freq = p->frequency;
++		}
++	}
++
++	/*
++	 * The OPP table need not cover every hardware p-state: T6050 leaves
++	 * out the lowest ones and the ones the cluster refuses. Returning 0
++	 * here makes cpufreq_online() fail ("->get() failed") and leaves the
++	 * whole cluster unmanaged, so report the nearest table entry instead.
++	 */
++	dev_warn_ratelimited(priv->cpu_dev,
++			     "p-state %u is not in the OPP table, reporting %u kHz\n",
++			     pstate, best_freq);
++	return best_freq;
+ }
+ 
+ static int apple_soc_cpufreq_set_target(struct cpufreq_policy *policy,
+-- 
+2.56.0
+

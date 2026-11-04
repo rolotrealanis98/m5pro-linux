@@ -1,0 +1,103 @@
+t6050 SMC: map the whole gen 4 SPMI window; use the T6050 fan mode keys
+
+- nub_spmi0 reg size 0x100 -> 0x4000 (ADT size). The gen 4 FIFO registers
+  the driver uses (0x200/0x210/0x220, patches/linux/0008) were outside the
+  0x100 resource; it only worked because ioremap maps a whole 16K page.
+- J716s/J714s: the T6050 SMC has F0md/F1md (ui8, writable), not F0Md/F1Md.
+  With the Asahi hwmon-fan*.dtsi names, macsmc-hwmon dropped both fans
+  (parse failure of the optional mode key is fatal for the fan).
+
+Apply in the omarchy-m5 checkout: git apply <this file>
+
+diff --git a/dt/t6050-smc.dtsi b/dt/t6050-smc.dtsi
+--- a/dt/t6050-smc.dtsi
++++ b/dt/t6050-smc.dtsi
+@@ -10,7 +10,10 @@
+  * (see PLAN.md for the property each number comes from).  Structure copied
+  * from t6030.dtsi:937-998 / t6031-die0.dtsi:107-169 / t8122.dtsi:775-889.
+  *
+- * Board files add hwmon sensors (hwmon-*.dtsi) on top of &smc_hwmon.
++ * Board files add hwmon sensors (hwmon-*.dtsi) on top of &smc_hwmon. The
++ * T6050 SMC has no F0Md/F1Md: its fan mode keys are F0md/F1md (ui8,
++ * writable), so every T6050 board overrides apple,fan-mode after including
++ * hwmon-fan*.dtsi (see the board files).
+  */
+ 
+ #include <dt-bindings/spmi/spmi.h>
+@@ -18,8 +21,10 @@
+ &soc {
+ 	/*
+ 	 * ADT /arm-io/nub-spmi0: compatible "aapl,spmi", gen = 4,
+-	 * reg[0] = 0x8a014000 (-> 0x28a014000, ADT size 0x4000; the Linux
+-	 * driver only touches the first 0x100, like t6031).
++	 * reg[0] = 0x8a014000 (-> 0x28a014000), ADT size 0x4000. The full
++	 * ADT size is used: the gen 4 FIFO registers below sit at 0x200-0x220,
++	 * outside the 0x100 window t6031 maps for its gen 1 layout (a 0x100
++	 * resource only worked because ioremap maps a whole 16K page).
+ 	 * interrupts = [256, 726, 281, ...]: 256 is the controller-internal
+ 	 * SPMI_IRQ_NOTIFY hwirq (identical in all five SPMI nodes), 726 is the
+ 	 * AIC line (same index convention as wdt: ADT interrupts[0] = 721).
+@@ -36,7 +41,7 @@
+ 	 */
+ 	nub_spmi0: spmi@28a014000 {
+ 		compatible = "apple,t6050-spmi";
+-		reg = <0x2 0x8a014000 0x0 0x100>;
++		reg = <0x2 0x8a014000 0x0 0x4000>;
+ 		#address-cells = <2>;
+ 		#size-cells = <0>;
+ 		#interrupt-cells = <2>;
+diff --git a/dt/t6050-j716s.dts b/dt/t6050-j716s.dts
+--- a/dt/t6050-j716s.dts
++++ b/dt/t6050-j716s.dts
+@@ -76,7 +76,27 @@
+ 	};
+ };
+ 
+-/* SMC sensors: two fans (F0Ac/F1Ac) like J714s; keys not yet probed on J716s. */
++/*
++ * SMC sensors: two fans (F0Ac/F1Ac) and the laptop temperature/power keys,
++ * as on J714s (docs/research/smc-keys-j714s.json). Not yet re-probed on
++ * J716s: a key it lacks drops only that sensor.
++ */
+ #include "hwmon-common.dtsi"
+ #include "hwmon-fan-dual.dtsi"
+ #include "hwmon-laptop.dtsi"
++
++/*
++ * The T6050 SMC spells the fan mode keys F0md/F1md (ui8, flags 0xd0); F0Md/
++ * F1Md from hwmon-fan*.dtsi do not exist and would drop fan control (and,
++ * without the macsmc-hwmon optional-key fix, both fans). Manual fan control
++ * stays off unless macsmc_hwmon.fan_control=1.
++ */
++&smc_hwmon {
++	fan-F0Ac {
++		apple,fan-mode = "F0md";
++	};
++
++	fan-F1Ac {
++		apple,fan-mode = "F1md";
++	};
++};
+diff --git a/dt/t6050-j714s.dts b/dt/t6050-j714s.dts
+--- a/dt/t6050-j714s.dts
++++ b/dt/t6050-j714s.dts
+@@ -82,3 +82,19 @@
+ #include "hwmon-common.dtsi"
+ #include "hwmon-fan-dual.dtsi"
+ #include "hwmon-laptop.dtsi"
++
++/*
++ * The T6050 SMC spells the fan mode keys F0md/F1md (ui8, flags 0xd0); F0Md/
++ * F1Md from hwmon-fan*.dtsi do not exist and would drop fan control (and,
++ * without the macsmc-hwmon optional-key fix, both fans). Manual fan control
++ * stays off unless macsmc_hwmon.fan_control=1.
++ */
++&smc_hwmon {
++	fan-F0Ac {
++		apple,fan-mode = "F0md";
++	};
++
++	fan-F1Ac {
++		apple,fan-mode = "F1md";
++	};
++};

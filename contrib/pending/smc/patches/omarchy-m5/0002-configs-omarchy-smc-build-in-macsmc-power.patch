@@ -1,0 +1,27 @@
+configs/omarchy-smc.config: build macsmc-power in, gated by initcall_blacklist
+
+Requires patches/linux/0011 (macsmc-power work-init race fix). Boot with
+initcall_blacklist=macsmc_power_driver_init until TEST-PLAN T6 passes.
+
+Apply in the omarchy-m5 checkout: git apply <this file>
+
+diff --git a/configs/omarchy-smc.config b/configs/omarchy-smc.config
+--- a/configs/omarchy-smc.config
++++ b/configs/omarchy-smc.config
+@@ -17,7 +17,14 @@
+ CONFIG_INPUT_MACSMC_INPUT=y
+ CONFIG_GPIO_MACSMC=y
+ CONFIG_SENSORS_MACSMC_HWMON=y
+-# CONFIG_MACSMC_POWER (battery) is not built in: it panicked the M5 at boot
+-# (2026-10-02, cause not yet read off the panel). Off until diagnosed.
++#
++# Battery/charger is built in again, gated per boot: it panicked the M5 at
++# boot once (2026-10-02, panel not read). The kernel carries the macsmc-power
++# work-init race fix (patches/linux/0011); until the TEST-PLAN battery step
++# (T6) has passed, boot with
++#   initcall_blacklist=macsmc_power_driver_init
++# which keeps the driver from registering at all (everything else in this
++# fragment is unaffected). Drop the argument to test it.
++CONFIG_MACSMC_POWER=y
+ CONFIG_SPMI_APPLE=y
+ CONFIG_NVMEM_APPLE_SPMI=y
