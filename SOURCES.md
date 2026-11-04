@@ -4,7 +4,7 @@ Everything the M5 was booted with on 2026-10-20, by exact revision.
 
 | Source | Revision | Where it lives on the Studio |
 |---|---|---|
-| m1n1 (github.com/AsahiLinux/m1n1) | `main` @ `7cde7d1a` + `patches/m1n1/` = branch `m5-t6050` @ `549ec7c1` (Linux side, 12 patches, installed stage-1) / @ `dece1ac1` (macOS side, 13 patches, ESP stage-1 candidate) | `~/Work/m1n1` on both |
+| m1n1 (github.com/AsahiLinux/m1n1) | `main` @ `7cde7d1a` + `patches/m1n1/` = branch `m5-t6050` @ `549ec7c1` (Linux side, 12 patches, installed stage-1) / @ `f8c3f941` (14 patches; Linux-toolchain build in a Fedora container, ESP stage-1 candidate `chain-esp-small.bin`) | `~/Work/m1n1` on both |
 | omarchy-m5 (github.com/betizzel/omarchy-m5) | `main` @ `15cd70c` + `patches/omarchy-m5/` = branch `j716s` @ `16837f2` | `~/Work/omarchy-m5` |
 | Linux (github.com/AsahiLinux/linux) | `asahi-wip-7.2` @ `236788cd2602` + omarchy-m5 `patches/linux/0001-0009` = branch `m5-t6050` @ `666335fea5e3` | `~/Work/omarchy-m5/vendor/linux` (worktree of `~/linux`) |
 | Kernel config | `defconfig asahi.config omarchy-bringup.config omarchy-storage-net.config omarchy-smc.config` | built with `GCC=1 scripts/build-kernel.sh` |

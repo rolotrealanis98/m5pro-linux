@@ -1,0 +1,30 @@
+From f8c3f941322f9136cba80ec2c3dc1f2e4ac35db9 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 17:11:03 -0500
+Subject: [PATCH] smp: MAX_CPUS 32 -> 24 to keep the raw image under the T6050
+ stage-1 size cliff
+
+A CHAINLOADING build is 0x4F0000 bytes and does not boot as an iBoot-loaded stage-1 on
+T6050 (plain 0x4D0000 does; the same bytes-only size cliff is reported on T8132 and T8140).
+Most of the file is zeros from secondary_stacks[MAX_CPUS][0x10000]; 24 covers every M5 Pro/Max
+(18 cores) and matches GravityLinux's fork, saving 0x80000.
+---
+ src/smp_asm.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/smp_asm.h b/src/smp_asm.h
+index 2a93362a..d35bce26 100644
+--- a/src/smp_asm.h
++++ b/src/smp_asm.h
+@@ -3,7 +3,7 @@
+ #ifndef __SMP_ASM_H__
+ #define __SMP_ASM_H__
+ 
+-#define MAX_CPUS     32
++#define MAX_CPUS     24
+ #define MAX_EL3_CPUS 4
+ 
+ #define SECONDARY_STACK_SIZE 0x10000
+-- 
+2.56.0
+

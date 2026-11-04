@@ -160,7 +160,11 @@ back to macOS and `boot-plain`. Also to check on the stage-2 side: that the relo
 `secondary_stacks`/`_smp_shared` never land in the old SMP-RO window (Gravity 093767c9 allows the
 overlap; aurora 32c043bf saw EL2 faults from L2 blocks crossing it).
 
-Open: untethered boot is parked; the tethered 18-core setup is the working state.
+Done on 2026-11-04 evening: m1n1 patch 0014 (`MAX_CPUS 32 -> 24`) brings the CHAINLOADING image to
+0x420000 (Linux toolchain build in the Fedora container, `~/Work/m1n1-linuxbuild`). Tethered
+regression with the ESP variable appended (`~/Work/stage1-serve/chain-esp-small.bin`): it loads
+stage-2 from the ESP and boots Linux on 18 cores. Next: install it as stage-1 through the macOS
+route (`stage1-install.sh`, then the ceremony); rollback is `boot-plain` the same way.
 
 Tooling that came out of it (all in `host/macos/`):
 - `1tr-stage1.sh`, served from the Studio with `cd ~/Work/stage1-serve && python3 -m http.server 8000`
