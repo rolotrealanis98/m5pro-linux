@@ -120,10 +120,43 @@ relocated it and booted Linux into the Arch root on 18 cores with no proxy
 (`~/Work/m5-logs/esp-chainload-20261104-152732.log`). The variable must be *appended to the image*;
 passing it as `chainload.py` boot args is ignored.
 
-Remaining: make that image the stage-1. On the M5 in macOS:
-`sudo scripts/finish-install.sh --m1n1 ~/Work/m1n1/m1n1-chain-esp.bin` (omarchy-m5 checkout) and
-the 1TR ceremony. If the ESP load ever fails, stage-1 falls back to the proxy as before.
-Note the image is built on macOS (clang 23.1.4, `-march=armv8.4-a`), not the Linux-side toolchain.
+### Stage-1 attempts (2026-11-04, evening): every CHAINLOADING image boot-loops from iBoot
+
+Installing a CHAINLOADING=1 m1n1 as the stub's boot object makes the Mac boot-loop into the
+"The version of macOS on the selected disk needs to be reinstalled" recovery. Probes, each one
+ceremony, each landing in that recovery:
+
+| stage-1 image | size | result |
+|---|---|---|
+| October plain (CHAINLOADING=0, Linux clang 23) | 0x4D0000 | boots (baseline, restored each time) |
+| macOS clang 23 CHAINLOADING + `chainload=<ESP>;m1n1/boot.bin` | 0x4E0000 + var | loop |
+| same, variable pointing at a nonexistent file | 0x4E0000 + var | loop (never enumerates USB) |
+| October Linux clang 23 CHAINLOADING + nonexistent-file variable | 0x4F0000 + var | loop |
+| October plain zero-padded to 0x4F0000 | 0x4F0000 | loop (one run; to be re-confirmed) |
+
+So it is not the toolchain and not the ESP path (that image chainloads and boots Linux fine when
+started from the plain stage-1). omarchy-m5's rule "the installed stage-1 must not be a chainload
+build" is real; the padded-plain result points at the raw image size or what iBoot/mBoot does with
+the memory right after it on T6050. Open: untethered boot is parked until this is understood
+(research in progress); the tethered 18-core setup is the working state.
+
+Tooling that came out of it (all in `host/macos/`):
+- `1tr-stage1.sh`, served from the Studio with `cd ~/Work/stage1-serve && python3 -m http.server 8000`
+  (the Studio is <studio-ip>). From any recovery Terminal (join Wi-Fi first):
+  `sh <(curl -s <studio-ip>:8000/stage1.sh) <image> arm` copies the image into the stub's
+  `Finish Installation.app` as `boot.bin`, re-arms the install-media markers and reboots; then
+  power-hold -> Omarchy runs step2 (bputil -nc + kmutil) in the stub's *paired* recovery. `kmutil`
+  from the "Options" recovery fails with "Boot policy error: ... code pairing". `check` prints the
+  installed boot.bin hash. `boot-plain` is the rollback.
+- `stage1-install.sh`: the macOS-side variant (finish-install.sh + copies images to the stub).
+- `m5.sh log`: m1n1 replays its whole boot log on the primary USB interface when a host opens it
+  (pyserial with DTR), so any stage-1 that reaches the proxy can be read back; a stage-1 that dies
+  before USB init shows nothing. `m5.sh reboot`: macvdmtool reboot over a Thunderbolt cable from the
+  Studio's DFU port (rear, next to Ethernet) to the M5's port next to MagSafe. Serial mode over that
+  cable answers BUSY (`0x05ac80d2`) on this firmware; `/chosen/debug-enabled = 0`.
+- `sudoers-m5pro`: scoped passwordless sudo for the two macOS-side scripts (install from the M5).
+- m1n1 built with a Linux toolchain in an Apple `container` Fedora VM
+  (`~/Work/m1n1-linuxbuild`, clang 21): same sizes as the October builds.
 
 ## Re-provisioning the root filesystem
 

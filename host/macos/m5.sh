@@ -13,6 +13,14 @@
 #   host/macos/m5.sh boot-linux    chainload build/m1n1-chain.bin, then linux.py with the kernel built
 #                                  here (omarchy-m5 vendor/linux), in tmux session "m5linux"; all cores
 #   host/macos/m5.sh console       attach to that tmux session
+#   host/macos/m5.sh log [secs]    capture m1n1's console (the proxy's secondary USB interface,
+#                                  /dev/cu.usbmodem<serial>3) to ~/Work/m5-logs/m1n1-console-*.log
+#                                  until it disappears or secs elapse; shows what stage-1 prints
+#                                  after its USB init, including the ESP chainload steps
+#   host/macos/m5.sh reboot        macvdmtool reboot of the M5 over the Thunderbolt debug-port cable
+#   host/macos/m5.sh autoboot      hands-free tether: whenever stage-1 m1n1 appears on USB, run
+#                                  boot-linux (Arch root, all cores); Ctrl-C to stop. Interim
+#                                  "untethered" until the ESP stage-1 is installed.
 set -u
 M=$HOME/Work/m1n1; O=$HOME/Work/omarchy-m5
 R=$(cd "$(dirname "$0")/../.." && pwd)
@@ -93,5 +101,52 @@ boot-linux)
     tmux new-session -d -s m5linux -x 200 -y 50 "cd '$M/proxyclient' && PATH=/usr/bin:/bin:/usr/sbin:/sbin TOOLCHAIN=/opt/homebrew/opt/llvm/bin/ M1N1DEVICE='$M1N1DEVICE' PYTHONPATH=. '$PY' tools/linux.py '$IMG' '$DTB' '$IRF' -b '$ARGS' 2>&1 | tee -a '$log'; echo '[linux.py exited]'; sleep 86400"
     sleep 25; tmux capture-pane -p -t m5linux | grep -vE '^\s*$' | tail -25 ;;
 console) tmux attach -t m5linux ;;
+log)
+    # m1n1 keeps no console backlog, so open the primary interface the instant it enumerates and
+    # record everything it prints from then on (a stage-1 doing an ESP chainload prints its steps
+    # right after USB init). Polls every 50 ms; stops when the device goes away or secs elapse.
+    secs=${2:-180}; mkdir -p "$LOGS"; log=$LOGS/m1n1-console-$(date +%Y%m%d-%H%M%S).log; echo "log: $log"
+    "$PY" - "$secs" "$log" <<'PYEOF'
+import glob, re, serial, subprocess, sys, time
+secs, log = int(sys.argv[1]), sys.argv[2]
+def m1n1_primary():
+    for d in glob.glob("/dev/cu.usbmodem*1"):
+        if "204101" in d: continue           # the ESP32 on this desk
+        return d
+    return None
+t0 = time.time(); dev = None
+if "--next" in sys.argv[3:] or True:
+    # wait for the current m1n1 (if any) to go away first, so the capture is of the *next* boot
+    while m1n1_primary() and time.time() - t0 < secs: time.sleep(0.2)
+    if time.time() - t0 >= secs: sys.exit("m1n1 never went away")
+    print(f"previous m1n1 gone after {time.time()-t0:.0f}s; waiting for the next boot", flush=True)
+    t0 = time.time()
+while time.time() - t0 < secs and not dev:
+    dev = m1n1_primary() or (time.sleep(0.05) or None)
+if not dev: sys.exit(f"no m1n1 device in {secs}s")
+print(f"opened {dev} after {time.time()-t0:.1f}s", flush=True)
+with open(log, "ab") as f:
+    try:
+        s = serial.Serial(dev, 115200, timeout=0.2); s.dtr = True
+        while time.time() - t0 < secs:
+            b = s.read(65536)
+            if b:
+                f.write(b); f.flush(); sys.stdout.write(b.decode("utf-8", "replace")); sys.stdout.flush()
+    except (serial.SerialException, OSError) as ex:
+        print(f"\n[device gone: {ex}]")
+PYEOF
+    ;;
+reboot) sudo /Users/rolo/Work/macvdmtool/macvdmtool reboot 2>&1 | tail -2 ;;
+autoboot)
+    echo "autoboot: watching for stage-1 m1n1 (device $(m1n1_dev)); Ctrl-C stops"
+    while :; do
+        if "$0" wait 20 >/dev/null 2>&1; then
+            echo "$(date +%T) autoboot: m1n1 is up, booting Linux"
+            "$0" boot-linux 2>&1 | grep -E '^(kernel|log:|== |proxy ok)' || true
+            # the kernel owns USB now; wait for it to go away before watching again
+            sleep 60
+        fi
+        sleep 5
+    done ;;
 *)    sed -n 2,16p "$0"; exit 2 ;;
 esac
