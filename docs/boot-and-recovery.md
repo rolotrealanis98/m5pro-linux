@@ -134,11 +134,33 @@ ceremony, each landing in that recovery:
 | October Linux clang 23 CHAINLOADING + nonexistent-file variable | 0x4F0000 + var | loop |
 | October plain zero-padded to 0x4F0000 | 0x4F0000 | loop (one run; to be re-confirmed) |
 
-So it is not the toolchain and not the ESP path (that image chainloads and boots Linux fine when
-started from the plain stage-1). omarchy-m5's rule "the installed stage-1 must not be a chainload
-build" is real; the padded-plain result points at the raw image size or what iBoot/mBoot does with
-the memory right after it on T6050. Open: untethered boot is parked until this is understood
-(research in progress); the tethered 18-core setup is the working state.
+Caveat on that table: only the first row's failure went through the `finish-install.sh` route;
+the three probes used the `arm` shortcut, after which even `boot-plain` failed, so they are void.
+The likely reason (aurora-silicon/m1n1 337f3486): iBoot counts failed boots in the PMU's legacy
+scratchpad and drops to the "needs to be reinstalled" screen once the count is high; macOS clears
+it after a good boot, which every `finish-install` round trip did and the shortcut never did.
+m1n1 can clear it too (`proxyclient/tools/reset_panic_counter.py`) once a stage-1 is up.
+
+What the research found (2026-11-04): the cliff is image size, on the iBoot side, and it is
+reproduced on two other chips with the *same bytes merely padded*: bretttegart/j604-linux
+(T8132, 0x3B0000 boots, zero-padded copy boot-loops with no m1n1 output) and aurora-silicon/m1n1
+f24d7197 (T8140 J700, 0x410000 boots, 0x420000 hangs before the logo). iBoot's own allocations
+(boot_args, the 48 KiB SMP-RO window) sit a fixed distance above the image base, so the usable
+size is layout-relative, not a documented cap. Our plain image is 0x4D0000 and boots; the
+CHAINLOADING build is 0x4F0000 and does not.
+
+The practical fix, untested: shrink the CHAINLOADING stage-1 below 0x4D0000. Most of the raw file
+is zeros from `secondary_stacks[MAX_CPUS=32][0x10000]` (2 MiB, `src/smp_asm.h`, `src/smp.c:46`);
+the J716s has 18 cores, Gravity's fork already uses `MAX_CPUS 24`. `MAX_CPUS 24` alone saves
+0x80000 and puts the chainloading image around 0x470000. Dropping `LOGO=` saves another ~320 KiB.
+Keep `.bss` and the stacks inside the file part (aurora 8bd67a82: iBoot places live coprocessor
+buffers on the page right after the raw file). Protocol for the next attempt: build, check the
+size, install through the macOS route (a macOS boot clears the failure counter), and if it loops,
+back to macOS and `boot-plain`. Also to check on the stage-2 side: that the relocated stage-2's
+`secondary_stacks`/`_smp_shared` never land in the old SMP-RO window (Gravity 093767c9 allows the
+overlap; aurora 32c043bf saw EL2 faults from L2 blocks crossing it).
+
+Open: untethered boot is parked; the tethered 18-core setup is the working state.
 
 Tooling that came out of it (all in `host/macos/`):
 - `1tr-stage1.sh`, served from the Studio with `cd ~/Work/stage1-serve && python3 -m http.server 8000`
