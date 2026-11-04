@@ -14,19 +14,19 @@ This repo holds only what was made or changed here. Upstream sources are pinned 
 | m1n1 installed as the stub's boot object (macOS 27.2 stays at Full Security) | works |
 | m1n1 proxy over USB-C to the Studio, through the CalDigit TS5 Plus | works |
 | Chainloading m1n1 builds (`chainload.py -r -n`) | works |
-| Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots, untethered from the ESP (1 CPU there, see below) or tethered (18 CPUs) |
+| Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots untethered from the ESP, 18 CPUs |
 | Framebuffer console, built-in keyboard, NVMe read/write, USB gadget network | works |
 | Arch Linux ARM root on the internal SSD (GPT entry 5 = `nvme0n1p5`) | works, systemd `running` |
 | SMP (secondary cores) | **works, 18 cores** (2026-11-04): stub rebuilt on macOS 27.3 beta 1, whose stage-2 mBoot carries Apple's fix for raw boot objects on M5 Pro/Max/Ultra (release notes, mBoot > Resolved Issues). No m1n1 or kernel change needed; `maxcpus=1` dropped. Any stub must be built from macOS >= 27.3 beta 1. [`docs/smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) |
 | Trackpad | firmware extracted and shipped; first boot logs `dockchannel-hid: input iface multitouch start timed out` (2026-11-04). Keyboard works. Next: dmesg from the Arch root. |
 | GPU, display driver (DCP), Wi-Fi/BT (N1), audio | not started |
-| Untethered boot (kernel on the ESP) | boots the Arch root with no cable (2026-11-04), **but on 1 CPU**: stage-2 is relocated above the CTRR window (patch 0013) while the secondaries' RVBAR stays locked to the stage-1 base, so they reset into stage-1's old vectors and kboot prunes them. Fix in progress: a relocated m1n1 plants a trampoline at the locked RVBAR (stage-2 only, ESP file update, no ceremony). [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md) |
+| Untethered boot (kernel on the ESP) | **works on all 18 CPUs** (2026-11-04 18:08): stage-1 = CHAINLOADING m1n1 (0013+0014, chainload variable, 64 KiB-aligned) installed once; stage-2 on the ESP = m1n1 with patch 0015 (reset-vector trampoline for a relocated image) + kernel + DTB + initramfs. Kernel updates are an ESP file copy over the SSH bridge. [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md) |
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `patches/m1n1/` | `git format-patch` series on upstream m1n1 (see SOURCES.md). 0001-0007: omarchy-m5's T6050 patches, rebased (author kept). 0008-0014: written here (0013: chainload relocation above the CTRR window, for stage-2 from the ESP; 0014: MAX_CPUS 24 so a chainloading stage-1 stays under the T6050 raw-image size cliff). |
+| `patches/m1n1/` | `git format-patch` series on upstream m1n1 (see SOURCES.md). 0001-0007: omarchy-m5's T6050 patches, rebased (author kept). 0008-0015: written here (0013: chainload relocation above the CTRR window, for stage-2 from the ESP; 0014: MAX_CPUS 24 so a chainloading stage-1 stays under the T6050 raw-image size cliff; 0015: a relocated m1n1 plants a trampoline at the locked RVBAR so secondaries reach it, and reserves it in the FDT). |
 | `patches/omarchy-m5/` | Changes to the omarchy-m5 checkout: J716s board DT, measured PMGR boot state, `GCC=1` kernel builds; `0002` adds `finish-install.sh --macho`. |
 | `dt/` | The J716s board DTS and its measured PMGR power-state table, also inside the patch above. |
 | `host/macos/` | The same tether from the Studio booted into macOS: `m5.sh`, stub refresh/recreate, ESP installer, Omarchy-volume reader. |

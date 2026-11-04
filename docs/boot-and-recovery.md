@@ -183,9 +183,15 @@ the secondaries' RVBAR is locked by iBoot to the stage-1 image base; chainload.p
 place (same base, so RVBAR points at the new image and SMP works, hence the 18 penguins), but the
 ESP stage-2 is relocated above the CTRR window by patch 0013, so released cores reset into
 stage-1's old vector table, m1n1 prints "Failed!" and prunes them (aurora-silicon 8bd67a82 notes
-the same). Fix: when RVBAR is locked and differs from `_vectors_start`, the relocated m1n1 writes a
-trampoline (`ldr x16, =_vectors_start; br x16`) into slot 0 at the locked address before releasing
-each core; it lives in stage-2, so it ships as an ESP file update over the SSH bridge, no ceremony.
+the same). Fix, done 2026-11-04 18:08 (m1n1 patch 0015, stage-2 @ 459a3af2): when RVBAR is locked and differs
+from `_vectors_start`, `smp_start_cpu()` installs a trampoline (`ldr x16, #8; br x16; .quad
+_vectors_start`, rest `b .`) in slot 0 at the locked address, with dc civac / ic ivau and a readback
+under an exception guard, once per locked address, only if the address is in RAM below `_base`;
+kboot adds an FDT `/memreserve/` of 0x80 bytes for it. Deployed as an ESP file update over the
+SSH bridge (`eem-vm.py --put`), one reboot: `smp: Brought up 1 node, 18 CPUs`, `nproc` 18,
+untethered. `/boot/m1n1/boot.bin.prev` on the ESP (systemd automounts the ESP at `/boot`) holds
+the previous 1-CPU payload; `cp` it back to roll back. New cpufreq fact from that boot:
+`apple_soc_cpufreq_init: failed to add OPP table: -19` for cpu12-17 (MIDR 0x611f0651 cluster).
 
 Access without a tether: `~/Work/eem-vm/eem-vm.py` (README there) boots a Debian guest under QEMU
 with the M5's EEM gadgets passed through and proxies SSH to root@10.55.0.2; `--shell`, `--keep`.

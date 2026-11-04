@@ -1,0 +1,182 @@
+From 459a3af220df4434aa6da6289655f9b6e1227bb7 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 17:59:05 -0500
+Subject: [PATCH] smp: redirect a locked RVBAR to a relocated m1n1 with a reset
+ trampoline
+
+iBoot locks every secondary core's RVBAR to the base of the image it loaded. A chainloaded m1n1
+that was relocated (T6050 stage-2 from the ESP, placed above the secondary-only CTRR window by
+the chainload relocation) runs elsewhere, so released cores reset into the old image's vector
+table, never reach this image's spin table and get pruned: Linux comes up on one CPU.
+
+When RVBAR is locked and differs from _vectors_start, and the locked address is RAM below this
+image, overwrite its reset slot (0x80 bytes) once with "ldr x16, #8; br x16; .quad
+_vectors_start" (rest "b ."), clean it to PoC, invalidate the I-cache and read it back, all under
+an exception guard. Any failure, and every other case, keeps the previous "Failed!" path with its
+bounded wait. kboot reserves the patched slot in the FDT so Linux never overwrites it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/kboot.c |  9 +++++
+ src/smp.c   | 95 +++++++++++++++++++++++++++++++++++++++++++++++++++--
+ src/smp.h   |  4 +++
+ 3 files changed, 106 insertions(+), 2 deletions(-)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index 027c2220..6ba1452c 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -2842,6 +2842,15 @@ int kboot_prepare_dt(void *fdt)
+             bail("FDT: couldn't add reservation for M4+ SMP-RO CTRR area\n");
+     }
+ 
++    // Keep the reset trampolines we wrote at locked RVBARs (relocated m1n1, see smp.c) intact:
++    // a core reset into RVBAR again (deep idle, hotplug) must still find them.
++    for (int i = 0; i < smp_rvbar_trampoline_count(); i++) {
++        u64 addr = smp_rvbar_trampoline_addr(i);
++        printf("FDT: reserving RVBAR trampoline at 0x%lx\n", addr);
++        if (fdt_add_mem_rsv(dt, addr, RVBAR_TRAMPOLINE_SIZE))
++            printf("FDT: couldn't add reservation for the RVBAR trampoline at 0x%lx\n", addr);
++    }
++
+     /* setup console log buffer early to capture as much log as possible */
+     dt_setup_mtd_phram();
+ 
+diff --git a/src/smp.c b/src/smp.c
+index fa8b9d13..3c4cdb25 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -5,6 +5,7 @@
+ #include "aic.h"
+ #include "aic_regs.h"
+ #include "cpu_regs.h"
++#include "exception.h"
+ #include "memory.h"
+ #include "pmgr.h"
+ #include "soc.h"
+@@ -149,6 +150,94 @@ void smp_secondary_prep_el3(void)
+     return;
+ }
+ 
++/*
++ * A chainloaded m1n1 that was relocated (e.g. stage-2 loaded from the ESP and placed above the
++ * M4+/M5 secondary-only CTRR window) runs at a different address than the image iBoot loaded.
++ * iBoot locks every secondary core's RVBAR to that original image base, so a released core resets
++ * into the old image's vector table and never reaches our spin table. Redirect it: overwrite the
++ * reset slot (slot 0, 0x80 bytes) at the locked RVBAR with "ldr x16, 1f; br x16; 1: .quad
++ * _vectors_start". Done once per locked address; only for RAM below this image.
++ */
++#define MAX_RVBAR_TRAMPOLINES 4
++
++static u64 rvbar_trampolines[MAX_RVBAR_TRAMPOLINES];
++static int rvbar_trampoline_count;
++
++static bool smp_rvbar_trampoline(u64 rvbar)
++{
++    u64 entry = (u64)_vectors_start;
++
++    for (int i = 0; i < rvbar_trampoline_count; i++)
++        if (rvbar_trampolines[i] == rvbar)
++            return true;
++
++    if (!rvbar || rvbar < ram_base || rvbar + RVBAR_TRAMPOLINE_SIZE > (u64)_base) {
++        printf("RVBAR 0x%lx is not RAM below this image (0x%lx..), not redirecting\n", rvbar,
++               (u64)_base);
++        return false;
++    }
++
++    if (rvbar_trampoline_count >= MAX_RVBAR_TRAMPOLINES) {
++        printf("RVBAR 0x%lx: too many locked RVBAR addresses, not redirecting\n", rvbar);
++        return false;
++    }
++
++    u32 code[RVBAR_TRAMPOLINE_SIZE / 4];
++    for (size_t i = 0; i < ARRAY_SIZE(code); i++)
++        code[i] = 0x14000000; // b .
++    code[0] = 0x58000050;     // ldr x16, #8
++    code[1] = 0xd61f0200;     // br x16
++    code[2] = (u32)entry;     // .quad _vectors_start
++    code[3] = (u32)(entry >> 32);
++
++    // Guarded: a fault here (unexpectedly protected memory) must not take the boot down
++    int exc_before = exc_count;
++    exc_guard = GUARD_SKIP;
++
++    for (size_t i = 0; i < ARRAY_SIZE(code); i++)
++        write32(rvbar + 4 * i, code[i]);
++
++    // The core resets with its MMU and caches off: push the stub to PoC, drop stale I-lines
++    dc_civac_range((void *)rvbar, RVBAR_TRAMPOLINE_SIZE);
++    sysop("dsb sy");
++    ic_ivau_range((void *)rvbar, RVBAR_TRAMPOLINE_SIZE);
++    sysop("dsb sy");
++    sysop("isb");
++
++    bool ok = true;
++    for (size_t i = 0; i < ARRAY_SIZE(code); i++)
++        if (read32(rvbar + 4 * i) != code[i])
++            ok = false;
++
++    sysop("dsb sy");
++    sysop("isb");
++    exc_guard = GUARD_OFF;
++
++    if (exc_count != exc_before || !ok) {
++        printf("RVBAR 0x%lx: writing the reset trampoline failed (%s), not redirecting\n", rvbar,
++               exc_count != exc_before ? "exception" : "readback mismatch");
++        return false;
++    }
++
++    rvbar_trampolines[rvbar_trampoline_count++] = rvbar;
++    printf("RVBAR 0x%lx is locked and differs from entry point 0x%lx: "
++           "installed reset trampoline (ldr x16; br x16 -> 0x%lx)\n",
++           rvbar, entry, entry);
++    return true;
++}
++
++int smp_rvbar_trampoline_count(void)
++{
++    return rvbar_trampoline_count;
++}
++
++u64 smp_rvbar_trampoline_addr(int i)
++{
++    if (i < 0 || i >= rvbar_trampoline_count)
++        return 0;
++    return rvbar_trampolines[i];
++}
++
+ static void smp_start_cpu(int index, const struct cpu_info *cpu)
+ {
+     int i;
+@@ -164,8 +253,10 @@ static void smp_start_cpu(int index, const struct cpu_info *cpu)
+ 
+     if (!cpu_features->apple_sysregs_unlocked &&
+         (read64(cpu->impl_reg) & RVBAR_ADDR) != (u64)_vectors_start) {
+-        printf("Failed! \n    RVBAR (=0x%lx) is locked and differs from entry point (=0x%lx)\n",
+-               read64(cpu->impl_reg) & RVBAR_ADDR, (u64)_vectors_start);
++        u64 rvbar = read64(cpu->impl_reg) & RVBAR_ADDR;
++        if (!smp_rvbar_trampoline(rvbar))
++            printf("Failed! \n    RVBAR (=0x%lx) is locked and differs from entry point (=0x%lx)\n",
++                   rvbar, (u64)_vectors_start);
+     }
+ 
+     printf("Starting CPU %d (%d:%d:%d)... ", index, cpu->die, cpu->cluster, cpu->core);
+diff --git a/src/smp.h b/src/smp.h
+index 3c0c09e8..d3d13ef8 100644
+--- a/src/smp.h
++++ b/src/smp.h
+@@ -17,6 +17,10 @@ int smp_init(void);
+ void smp_start_secondaries(void);
+ void smp_stop_secondaries(bool deep_sleep);
+ 
++#define RVBAR_TRAMPOLINE_SIZE 0x80
++int smp_rvbar_trampoline_count(void);
++u64 smp_rvbar_trampoline_addr(int i);
++
+ #define smp_call0(i, f)          smp_call4(i, f, 0, 0, 0, 0)
+ #define smp_call1(i, f, a)       smp_call4(i, f, a, 0, 0, 0)
+ #define smp_call2(i, f, a, b)    smp_call4(i, f, a, b, 0, 0)
+-- 
+2.56.0
+
