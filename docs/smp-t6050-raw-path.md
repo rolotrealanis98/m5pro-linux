@@ -98,6 +98,95 @@ raw path. Known, Apple-reported, not fixable from the bootloader. Re-test after 
 read `/chosen/system-firmware-version` (now `mBoot-20457.41.2`), then `wdt-arm.py 150 &&
 release-variants.py`. A crumb is the signal.
 
+## macOS 27.3 beta 1 (found 2026-11-04)
+
+Apple's macOS 27.3 Golden Gate beta 1 release notes (build 26C5035r, 2026-11-03), under **mBoot >
+Resolved Issues**: "Fixed: Only a single core is available when you boot Linux or other third-party
+operating systems from a custom raw boot object on Mac computers with M5 Pro, M5 Max, and M5 Ultra
+chips. (182898702) (FB23916610)". That is this exact symptom (raw path, secondaries never fetch),
+fixed in the firmware, not in anything we can patch. Upstream m1n1 `main` already selects
+`CPU_START_OFF_T6031` (0x88000) for T6050/T6051, which matches the measured PMGR CPU_START block,
+so no m1n1 change is expected to be needed.
+
+Re-test plan: install 27.3 beta 1 on Macintosh HD (the firmware is machine-wide, the stub can stay
+on 27.2), boot stage-1 m1n1, confirm `/chosen/system-firmware-version` is no longer
+`mBoot-20457.41.2`, then `wdt-arm.py 150 && release-variants.py`. A crumb means the fix landed;
+after that drop `maxcpus=1` from the `linux.py` command line.
+
+### Re-test 2026-11-04, macOS 27.3 beta 1 installed on Macintosh HD: negative, but not conclusive
+
+Host: the Studio booted into macOS (`host/macos/m5.sh`, log `~/Work/m5-logs/smp-20261104-134525.log`).
+`release-variants.py` on stage-1: all five variants power the core up (`ps 0x100 -> 0x1f0`,
+status `...d800 -> ...d102`) and no crumb, exactly as in October. `BootKC-rx` size is still 0.
+
+The ADT explains it. m1n1 (`src/firmware.c`) names the two fields: `/chosen/firmware-version`
+is the "OS FW version" (the per-OS stage-2 iBoot/mBoot that loaded m1n1) and
+`/chosen/system-firmware-version` is the "System FW version" (LLB). After the update:
+
+| field | value |
+|---|---|
+| `system-firmware-version` (LLB, machine-wide) | `mBoot-20457.60.65.0.1` (new) |
+| `firmware-version` (stage 2, from the stub) | `mBoot-20457.41.2` (unchanged, 27.2) |
+
+Stage 2 comes from the stub's Preboot restore bundle, which `prep-stub.sh` cloned from the host
+macOS (27.2) at install time; a macOS update does not touch it. The loader that builds the
+memory-map, programs CTRR/RVBAR and starts secondaries is stage 2, so the fix has not been
+exercised yet. Next: on the M5 in macOS, `sudo host/macos/refresh-stub-firmware.sh check`, then
+`refresh` (moves the old bundle aside, re-runs prep-stub in resume mode, finish-install with the
+same stage-1 image), the 1TR ceremony, and `m5.sh fw` must show a 20457.60.x `firmware-version`
+before `m5.sh smp-test` means anything.
+
+### 2026-11-04, stub rebuilt on 27.3 beta 1: **a secondary core executes**
+
+`host/macos/refresh-stub-firmware.sh recreate` (the in-place `refresh` fails at `bless` with
+bootpolicy error 11 "AP boot mode": an existing Permissive LocalPolicy can only be rewritten from
+1TR, and a new restore bundle needs a new policy), then the 1TR ceremony. New VGID
+`<stub VGID>`, `firmware-version` = `mBoot-20457.60.65.0.1`.
+`release-variants.py` (log `~/Work/m5-logs/smp-20261104-144435.log`):
+
+```
+cpu1: control: XNU sequence (+0x4 die bit, +0x8+4*cl cluster bit)
+   crumbs: [(1, '0x80040001')]
+   >>> EXECUTION at RVBAR
+```
+
+Nothing else changed: `BootKC-rx` is still size 0, the PMGR writes are the same. The plain XNU
+sequence is enough. The fix is the stage-2 mBoot in the stub, so any future stub must be built from
+macOS 27.3 beta 1 (26C5035r) or later. Backups of the 27.2 bundle and the old boot objects are in
+`~/Work/stub-backup-*` on the M5.
+
+Then, on a fresh stage-1 (watchdog reset), `p.smp_start_secondaries()` over the proxy with the
+installed m1n1 (main @ 7cde7d1a + our patches, no SMP changes):
+
+```
+Starting CPU 1 (0:0:1)...   Started.
+...
+Starting CPU 17 (0:2:5)...   Started.
+alive: [1..17] (17/18)          # 0.6 s for all of them
+```
+
+So m1n1's existing T6050 code (`CPU_START_OFF_T6031`) is right; only the firmware was missing.
+After proxy SMP experiments reset the Mac (`wdt-arm.py 5`) before chainloading: a chainloaded
+m1n1 expects the secondaries off, as they are at boot.
+
+First all-core Linux boot (2026-11-04 15:04, log `~/Work/m5-logs/linux-20261104-150420.log`):
+the October `m1n1-chain.bin` + `Image.gz` + `t6050-j716s.dtb` + `initramfs.cpio.gz`, no `maxcpus=1`,
+no `m5.root=`. m1n1's kboot started CPUs 1-17 ("Started." for each) and jumped; about a minute later
+the Studio enumerated the M5's gadget (`omarchy-m5 MBP14 M5 Pro`, 1d6b:0104), i.e. the kernel reached
+the initramfs `/init`. Panel photo: **18 Tux logos** across the top of the framebuffer console (one per online CPU),
+the initramfs banner and a `~ #` prompt. **Linux runs on all 18 cores of the J716s.**
+
+Also on that panel, not SMP-related but new to look at: `apple-pmgr-pwrstate
+2300600000.power-management:power-controller@650/660/670/690: PS b2bd_afc_0/afc_1/afr_0/afr_3:
+Failed to reach power state 0xf (now 0xf0000ff / 0x80f)`, and
+`280600000.power-management:power-controller@280/290/2e8/2f0: probe ... failed with error -110`
+(deferred-probe timeout; `sync_state() pending due to 29c000000.pinctrl / 2801e4000.pinctrl`).
+Those are the measured-PMGR DT domains whose suppliers never probe; with `pd_ignore_unused` they
+are noise for now. Compare against a `maxcpus=1` boot before blaming SMP. The kernel, DTB and initramfs are on the Studio's
+Omarchy partition, so this is the Linux-side `linux.py` command from
+[`boot-and-recovery.md`](boot-and-recovery.md) with `maxcpus=1` removed. Expect 18 CPUs in
+`/proc/cpuinfo`; watch for cpufreq/PMGR complaints for the two P clusters, which have never run.
+
 ## Dead ends (do not repeat)
 
 - Hypervisor trace of macOS (omarchy-m5 rounds 1-9): XNU spins in `wfe` long before any CPU

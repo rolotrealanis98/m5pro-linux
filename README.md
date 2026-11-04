@@ -7,7 +7,7 @@ as the build and USB host. Started 2026-10-20.
 This repo holds only what was made or changed here. Upstream sources are pinned in
 [`SOURCES.md`](SOURCES.md), not vendored.
 
-## Status (2026-10-20)
+## Status (2026-11-04)
 
 | Area | State |
 |---|---|
@@ -17,7 +17,7 @@ This repo holds only what was made or changed here. Upstream sources are pinned 
 | Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots, tethered |
 | Framebuffer console, built-in keyboard, NVMe read/write, USB gadget network | works |
 | Arch Linux ARM root on the internal SSD (GPT entry 5 = `nvme0n1p5`) | works, systemd `running` |
-| SMP (secondary cores) | **not working**, `maxcpus=1`. Released cores power up but never fetch; PMGR side exhausted, macOS does the same writes. Known firmware issue (Gravity Linux: reported to Apple, waiting). Re-test after each macOS update. [`docs/smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) |
+| SMP (secondary cores) | **works, 18 cores** (2026-11-04): stub rebuilt on macOS 27.3 beta 1, whose stage-2 mBoot carries Apple's fix for raw boot objects on M5 Pro/Max/Ultra (release notes, mBoot > Resolved Issues). No m1n1 or kernel change needed; `maxcpus=1` dropped. Any stub must be built from macOS >= 27.3 beta 1. [`docs/smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) |
 | Trackpad (needs `tpmtfw-j716s.bin`), GPU, display driver, Wi-Fi/BT (N1), audio | not started |
 | Untethered boot (kernel on the ESP) | not started |
 

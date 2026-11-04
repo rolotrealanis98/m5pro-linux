@@ -51,7 +51,7 @@ cd ~/Work/m1n1/proxyclient && M1N1DEVICE=/dev/m1n1 PYTHONPATH=. ../.venv/bin/pyt
 3. Boot Linux (run it in a terminal: `linux.py` ends in an interactive console):
 
 ```bash
-cd ~/Work/m1n1/proxyclient && L=~/Work/omarchy-m5/vendor/linux && M1N1DEVICE=/dev/m1n1 PYTHONPATH=. ../.venv/bin/python tools/linux.py $L/arch/arm64/boot/Image.gz $L/arch/arm64/boot/dts/apple/t6050-j716s.dtb ~/Work/omarchy-m5/build/initramfs.cpio.gz -b "maxcpus=1 earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5"
+cd ~/Work/m1n1/proxyclient && L=~/Work/omarchy-m5/vendor/linux && M1N1DEVICE=/dev/m1n1 PYTHONPATH=. ../.venv/bin/python tools/linux.py $L/arch/arm64/boot/Image.gz $L/arch/arm64/boot/dts/apple/t6050-j716s.dtb ~/Work/omarchy-m5/build/initramfs.cpio.gz -b "earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5"
 ```
 
 4. About 20 s later the gadget appears and the Studio gets `10.55.0.1` from udev:
@@ -64,6 +64,31 @@ Root and `alarm` passwords are locked: SSH with the key is the only login.
 
 `build/m1n1-chain.bin` is built with `CHAINLOADING=1`; the plain build is `build/m1n1.bin`.
 After a config change delete `build/build_cfg.h` before `make`.
+
+## Host on the Studio's macOS side (set up 2026-11-04)
+
+When the Studio is booted into macOS instead of Omarchy, the same tree exists there: `~/Work/m1n1`
+(branch `m5-t6050`, venv in `.venv`, `build-plain/m1n1.bin` and `build/m1n1-chain.bin`) and
+`~/Work/omarchy-m5` (branch `j716s`). The M5 in m1n1 enumerates as `/dev/cu.usbmodemP_01`; no
+udev. [`host/macos/m5.sh`](../host/macos/m5.sh) wraps the proxyclient: `wait`, `fw`, `smp-test`
+(the 27.3 re-test, logged to `~/Work/m5-logs/`), `shell`, `py FILE`.
+
+Build notes for macOS: Apple's `make` is 3.81 and cannot parse the Makefile's `&:` rules, so use
+Homebrew `gmake`; `~/.cargo/bin` must precede the Homebrew Rust on `PATH` (rustup with the
+`aarch64-unknown-none-softfloat` target and `rust-src`); and Homebrew clang 23.1.4 rejects the
+`tlbi vmalls12e1os` in `hv_sprr.c` at `-march=armv8.2-a`, so pass
+`EXTRA_CFLAGS="-Wstack-usage=2048 -march=armv8.4-a"`. Delete `build/build_cfg.h` between the plain
+and `CHAINLOADING=1` builds. These images are not byte-identical to the Linux-side ones.
+
+The Omarchy root is btrfs (`asahi-root`, unencrypted) on `disk0s5`; macOS cannot mount it but
+[`host/macos/omarchy-volume.py`](../host/macos/omarchy-volume.py) reads it raw (dissect.btrfs). The
+October builds and the M5 SSH key were copied out that way into `~/Work/studio-artifacts`, which
+`m5.sh boot-linux` uses by default (`M5_ARTIFACTS=` overrides; the kernel built here lives in
+`~/Work/omarchy-m5/vendor/linux`, a symlink to the case-sensitive image `/Volumes/linux-cs`).
+
+Limits of the macOS host: the M5's gadget is CDC-EEM, which macOS has no driver for, so there is no
+`10.55.0.x` network and no SSH from macOS; the panel is the console. Boot without `m5.root=` to stay
+in the initramfs shell (banner shows `cpus:`), or boot from the Omarchy side for SSH.
 
 ## Re-provisioning the root filesystem
 
@@ -87,6 +112,6 @@ provision-rootfs 200224487 42724609
 
 ## Known gaps
 
-- One CPU core only (`maxcpus=1`).
+- SMP works since 2026-11-04 (stub rebuilt on macOS 27.3 beta 1, see `smp-t6050-raw-path.md`): 18 cores in the initramfs. Stubs built from macOS < 27.3 boot one core.
 - No backup of the M5 exists (no Time Machine destination).
 - The gadget calls itself "j714s" (hard-coded in omarchy-m5's `usb-gadget-net.sh`): cosmetic.
