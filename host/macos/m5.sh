@@ -29,7 +29,9 @@ for b in sys.stdin.read().split("+-o "):
 }
 export M1N1DEVICE=${M1N1DEVICE:-$(m1n1_dev)}
 PY=$M/.venv/bin/python
-run() { (cd "$M/proxyclient" && PYTHONPATH=. "$PY" "$@"); }
+# The proxyclient shells out to `brew --prefix llvm` at import with a 2 s timeout, which fails
+# under load (a kernel build); hide brew from it and name the toolchain directly instead.
+run() { (cd "$M/proxyclient" && PATH=/usr/bin:/bin:/usr/sbin:/sbin TOOLCHAIN=/opt/homebrew/opt/llvm/bin/ LLDDIR=/opt/homebrew/opt/lld/bin/ PYTHONPATH=. "$PY" "$@"); }
 fw_snippet='
 from m1n1.setup import *
 ch = u.adt["/chosen"]
@@ -78,6 +80,7 @@ boot-linux)
         K=$O/vendor/linux/arch/arm64/boot; IMG=$K/Image.gz; DTB=$K/dts/apple/t6050-j716s.dtb; IRF=$O/build/initramfs.cpio.gz
         CHAIN=$M/build/m1n1-chain.bin
     fi
+    IRF=${LINUX_INITRD:-$IRF}   # LINUX_INITRD= overrides (e.g. the esp-install overlay)
     echo "kernel $IMG"; echo "dtb    $DTB"; echo "initrd $IRF"; echo "m1n1   $CHAIN"
     for f in "$IMG" "$DTB" "$IRF" "$CHAIN"; do [ -f "$f" ] || { echo "missing $f"; exit 1; }; done
     ARGS=${LINUX_ARGS:-"earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5"}
@@ -87,7 +90,7 @@ boot-linux)
     sleep 4; "$0" wait 120 | tee -a "$log" || exit 1
     echo "== linux.py (tmux session m5linux; '$0 console' to attach) =="
     tmux kill-session -t m5linux 2>/dev/null || true
-    tmux new-session -d -s m5linux -x 200 -y 50 "cd '$M/proxyclient' && M1N1DEVICE='$M1N1DEVICE' PYTHONPATH=. '$PY' tools/linux.py '$IMG' '$DTB' '$IRF' -b '$ARGS' 2>&1 | tee -a '$log'; echo '[linux.py exited]'; sleep 86400"
+    tmux new-session -d -s m5linux -x 200 -y 50 "cd '$M/proxyclient' && PATH=/usr/bin:/bin:/usr/sbin:/sbin TOOLCHAIN=/opt/homebrew/opt/llvm/bin/ M1N1DEVICE='$M1N1DEVICE' PYTHONPATH=. '$PY' tools/linux.py '$IMG' '$DTB' '$IRF' -b '$ARGS' 2>&1 | tee -a '$log'; echo '[linux.py exited]'; sleep 86400"
     sleep 25; tmux capture-pane -p -t m5linux | grep -vE '^\s*$' | tail -25 ;;
 console) tmux attach -t m5linux ;;
 *)    sed -n 2,16p "$0"; exit 2 ;;

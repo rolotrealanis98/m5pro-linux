@@ -39,7 +39,7 @@ sudo install -m 644 host/70-m1n1-uaccess.rules host/81-m5-gadget.rules /etc/udev
 `80-m1n1.rules` (m1n1's own, creates `/dev/m1n1`) is also installed. NAT for the M5, until the
 Studio reboots: `sudo bash host/m5-nat.sh`.
 
-## Every boot (tethered)
+## Every boot (tethered, until the stage-1 ceremony below)
 
 1. Power on the M5: it starts in m1n1 and waits.
 2. Chainload the working-tree m1n1 (SEPFW dropped so the image clears the M5's CTRR window):
@@ -89,6 +89,41 @@ October builds and the M5 SSH key were copied out that way into `~/Work/studio-a
 Limits of the macOS host: the M5's gadget is CDC-EEM, which macOS has no driver for, so there is no
 `10.55.0.x` network and no SSH from macOS; the panel is the console. Boot without `m5.root=` to stay
 in the initramfs shell (banner shows `cpus:`), or boot from the Omarchy side for SSH.
+
+## Untethered boot (2026-11-04: stage-2 from the ESP works; stage-1 ceremony pending)
+
+Asahi layout. Stage-1 m1n1 (the stub's boot object, a `CHAINLOADING=1` build with
+`chainload=<ESP PARTUUID>;m1n1/boot.bin` appended) loads stage-2 from the
+EFI partition (p4, that PARTUUID, FAT) with its own NVMe + FAT drivers, which work on T6050 under the
+27.3 firmware (`nvme-proxy-probe.py` lists the GPT). Stage-2 = plain m1n1 + `chosen.bootargs` +
+`Image.gz` + `t6050-j716s.dtb` + `initramfs.cpio.gz` (omarchy-m5 `mkpayload.sh`, ~24 MB). A kernel
+update is then a file copy to the ESP, no ceremony.
+
+Two things were needed:
+
+- m1n1 patch 0013: the device-side `chainload_image()` placed the new image in place at `_base`,
+  and patch 0004 refuses that when it would cover the secondary-only CTRR window (12 MiB above
+  `_base` on a J716s, so a 30 MiB stage-2 never fits). 0013 relocates the image above the window
+  and above its own staging buffer instead; the next m1n1's heap starts above it.
+- Getting the payload onto the ESP from a macOS host (no network to the M5): `host/macos/mk-esp-install.sh`
+  builds the payload and a one-shot initramfs overlay (`rdinit=/esp-install.sh`) that mounts p4,
+  copies `m1n1/boot.bin`, checks the hash and reboots into stage-1. Boot it over the tether:
+
+```bash
+host/macos/mk-esp-install.sh
+LINUX_INITRD=~/Work/omarchy-m5/build/initramfs-esp-install.cpio.gz LINUX_ARGS="earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused no_console_suspend nvme_apple.flush_interval=0 rdinit=/esp-install.sh" host/macos/m5.sh boot-linux
+```
+
+Verified tethered: `chainload.py -r -n ~/Work/m1n1/build/m1n1-chain-esp.bin` (CHAINLOADING=1 build of
+`m5-t6050` @ dece1ac1 with the variable appended) read the 25,322,926-byte file from the ESP,
+relocated it and booted Linux into the Arch root on 18 cores with no proxy
+(`~/Work/m5-logs/esp-chainload-20261104-152732.log`). The variable must be *appended to the image*;
+passing it as `chainload.py` boot args is ignored.
+
+Remaining: make that image the stage-1. On the M5 in macOS:
+`sudo scripts/finish-install.sh --m1n1 ~/Work/m1n1/m1n1-chain-esp.bin` (omarchy-m5 checkout) and
+the 1TR ceremony. If the ESP load ever fails, stage-1 falls back to the proxy as before.
+Note the image is built on macOS (clang 23.1.4, `-march=armv8.4-a`), not the Linux-side toolchain.
 
 ## Re-provisioning the root filesystem
 
