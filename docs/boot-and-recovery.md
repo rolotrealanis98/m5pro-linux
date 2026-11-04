@@ -39,7 +39,7 @@ sudo install -m 644 host/70-m1n1-uaccess.rules host/81-m5-gadget.rules /etc/udev
 `80-m1n1.rules` (m1n1's own, creates `/dev/m1n1`) is also installed. NAT for the M5, until the
 Studio reboots: `sudo bash host/m5-nat.sh`.
 
-## Every boot (tethered, until the stage-1 ceremony below)
+## Every boot (tethered; only needed when `m1n1/boot.bin` is absent from the ESP)
 
 1. Power on the M5: it starts in m1n1 and waits.
 2. Chainload the working-tree m1n1 (SEPFW dropped so the image clears the M5's CTRR window):
@@ -175,8 +175,10 @@ Done on 2026-11-04 evening: m1n1 patch 0014 (`MAX_CPUS 32 -> 24`) brings the CHA
 0x420000 (Linux toolchain build in the Fedora container, `~/Work/m1n1-linuxbuild`). Tethered
 regression with the ESP variable appended and the file padded to 0x430000
 (`~/Work/stage1-serve/chain-esp-small.bin`): it loads stage-2 from the ESP and boots Linux on 18
-cores. Next: install it as stage-1 through the macOS
-route (`stage1-install.sh`, then the ceremony); rollback is `boot-plain` the same way.
+cores. Installed as stage-1 through the macOS route
+(`stage1-install.sh` + ceremony) on 2026-11-04 ~17:40: **the M5 boots Linux untethered**, power-on
+to the Arch login on 18 cores. Whether the fix was the size (0x4F0000 -> 0x430000), the 64 KiB
+alignment of the appended-variable image, or both, is not separated; both are kept.
 
 Tooling that came out of it (all in `host/macos/`):
 - `1tr-stage1.sh`, served from the Studio with `cd ~/Work/stage1-serve && python3 -m http.server 8000`

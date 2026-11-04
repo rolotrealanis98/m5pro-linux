@@ -14,13 +14,13 @@ This repo holds only what was made or changed here. Upstream sources are pinned 
 | m1n1 installed as the stub's boot object (macOS 27.2 stays at Full Security) | works |
 | m1n1 proxy over USB-C to the Studio, through the CalDigit TS5 Plus | works |
 | Chainloading m1n1 builds (`chainload.py -r -n`) | works |
-| Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots, tethered |
+| Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots, untethered from the ESP |
 | Framebuffer console, built-in keyboard, NVMe read/write, USB gadget network | works |
 | Arch Linux ARM root on the internal SSD (GPT entry 5 = `nvme0n1p5`) | works, systemd `running` |
 | SMP (secondary cores) | **works, 18 cores** (2026-11-04): stub rebuilt on macOS 27.3 beta 1, whose stage-2 mBoot carries Apple's fix for raw boot objects on M5 Pro/Max/Ultra (release notes, mBoot > Resolved Issues). No m1n1 or kernel change needed; `maxcpus=1` dropped. Any stub must be built from macOS >= 27.3 beta 1. [`docs/smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) |
-| Trackpad | firmware extracted (27.2 IPSW, 27.3 pending) and shipped in the ESP initramfs and the Arch root; **untested on the panel** (2026-11-04) |
+| Trackpad | firmware extracted and shipped; first boot logs `dockchannel-hid: input iface multitouch start timed out` (2026-11-04). Keyboard works. Next: dmesg from the Arch root. |
 | GPU, display driver (DCP), Wi-Fi/BT (N1), audio | not started |
-| Untethered boot (kernel on the ESP) | **parked.** Stage-2 from the ESP works when started from the plain stage-1 (m1n1 patch 0013), but every CHAINLOADING m1n1 installed as stage-1 boot-loops from iBoot, as does the plain image padded to the same size. Tooling for one-command stage-1 swaps from 1TR is in `host/macos/`. [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md) |
+| Untethered boot (kernel on the ESP) | **works** (2026-11-04): stage-1 = CHAINLOADING m1n1 with patches 0013+0014, `chainload=<ESP PARTUUID>;m1n1/boot.bin` appended, padded to a 64 KiB multiple (0x430000); stage-2 on the ESP = plain m1n1 + kernel + DTB + initramfs. Power-on lands in the Arch root on 18 cores, no cable. [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md) |
 
 ## Layout
 
