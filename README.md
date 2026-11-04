@@ -18,7 +18,8 @@ This repo holds only what was made or changed here. Upstream sources are pinned 
 | Framebuffer console, built-in keyboard, NVMe read/write, USB gadget network | works |
 | Arch Linux ARM root on the internal SSD (GPT entry 5 = `nvme0n1p5`) | works, systemd `running` |
 | SMP (secondary cores) | **works, 18 cores** (2026-11-04): stub rebuilt on macOS 27.3 beta 1, whose stage-2 mBoot carries Apple's fix for raw boot objects on M5 Pro/Max/Ultra (release notes, mBoot > Resolved Issues). No m1n1 or kernel change needed; `maxcpus=1` dropped. Any stub must be built from macOS >= 27.3 beta 1. [`docs/smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) |
-| Trackpad (needs `tpmtfw-j716s.bin`), GPU, display driver, Wi-Fi/BT (N1), audio | not started |
+| Trackpad | firmware extracted (27.2 IPSW, 27.3 pending) and shipped in the ESP initramfs and the Arch root; **untested on the panel** (2026-11-04) |
+| GPU, display driver (DCP), Wi-Fi/BT (N1), audio | not started |
 | Untethered boot (kernel on the ESP) | **parked.** Stage-2 from the ESP works when started from the plain stage-1 (m1n1 patch 0013), but every CHAINLOADING m1n1 installed as stage-1 boot-loops from iBoot, as does the plain image padded to the same size. Tooling for one-command stage-1 swaps from 1TR is in `host/macos/`. [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md) |
 
 ## Layout
