@@ -202,12 +202,18 @@ Kernel and DT were already in place (omarchy-m5 patch 0005 dockchannel MTP, `CON
 `CONFIG_HID_MAGICMOUSE=y`, `&mtp_hid` in `t6050-j716s.dts` naming `apple/tpmtfw-j716s.bin`); only the
 firmware blob was missing. omarchy-m5's `scripts/extract-tpmtfw.py` works on real data (first run):
 with `--installer ~/Work/asahi-installer --device-class j716sap` and the public 27.2 IPSW
-(`--ipsw`, ~30 MB of range requests) it wrote an 81,420-byte `HIDF` blob. The blob should come from
-the build the stub boots (27.3 beta 1 bundle, on the M5 at `~/Work/stub-backup-26C5035r/restore`,
-`--bundle`); the 27.2 one is the interim. Delivery: `mkinitramfs.py --firmware DIR` packs it under
+(`--ipsw`, ~30 MB of range requests) it wrote an 81,420-byte `HIDF` blob. The blob from the build the stub
+boots (27.3 beta 1 bundle, `--bundle ~/Work/stub-backup-26C5035r/restore --behavior Update
+--variant "macOS Customer Software Update"`, since a Preboot bundle carries the Update identity)
+is byte-identical to the 27.2 one, so the shipped blob is final. Delivery: `mkinitramfs.py --firmware DIR` packs it under
 `/lib/firmware`, and `host/macos/mk-esp-install.sh --initramfs ... --firmware DIR` rebuilds the ESP
 stage-2 payload with it and makes the one-shot installer also copy the tree into the Arch root
-(`/usr/lib/firmware/apple/`). Both done with the 27.2 blob on 2026-11-04. To verify: in the
+(`/usr/lib/firmware/apple/`). Both done on 2026-11-04.
+
+Operational note for the untethered stage-1: it goes straight to Linux, so the proxy is only
+reachable if `m1n1/boot.bin` is removed from the ESP (from Linux), or by re-installing
+`boot-plain`. Console passwords on the Arch root are still locked (SSH-key only, Linux hosts only);
+set them from a Linux host over the gadget, or via the `root-passwd` overlay before going untethered. To verify: in the
 initramfs (`no m5.root`) `cat /proc/bus/input/devices` should list the trackpad; in Arch, `libinput`.
 
 ## Re-provisioning the root filesystem
