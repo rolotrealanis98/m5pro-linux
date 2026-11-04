@@ -160,10 +160,22 @@ back to macOS and `boot-plain`. Also to check on the stage-2 side: that the relo
 `secondary_stacks`/`_smp_shared` never land in the old SMP-RO window (Gravity 093767c9 allows the
 overlap; aurora 32c043bf saw EL2 faults from L2 blocks crossing it).
 
+Second finding (research, 2026-11-04): on M4+ the installed raw object **including appended
+variables** must be a 16 KiB multiple. GravityLinux/installer 517c72a pads "the complete boot
+object, including variables" to 64 KiB for T8132; the Esocidae M5 project saw a 23,610,751-byte
+object rejected and a 16 KiB-aligned one accepted. Our plain October image is exactly 0x4D0000;
+every image we appended `chainload=` to was not aligned. So the one genuine failure may be
+alignment, size, or both. Candidates are now padded to a 64 KiB multiple after the variable and
+its `\0\0\0\0` terminator. Fallback if a padded, small raw image still loops: aura's Mach-O wrapper
+(`tools/macho_boot_object.py`, `kcbz: 0`, installed without `--raw`), tested by them on T8140.
+Prior art for untethered M5 (base chip only): Esocidae (eliott.info/pond), all 10 cores from
+internal storage since 2026-09-14.
+
 Done on 2026-11-04 evening: m1n1 patch 0014 (`MAX_CPUS 32 -> 24`) brings the CHAINLOADING image to
 0x420000 (Linux toolchain build in the Fedora container, `~/Work/m1n1-linuxbuild`). Tethered
-regression with the ESP variable appended (`~/Work/stage1-serve/chain-esp-small.bin`): it loads
-stage-2 from the ESP and boots Linux on 18 cores. Next: install it as stage-1 through the macOS
+regression with the ESP variable appended and the file padded to 0x430000
+(`~/Work/stage1-serve/chain-esp-small.bin`): it loads stage-2 from the ESP and boots Linux on 18
+cores. Next: install it as stage-1 through the macOS
 route (`stage1-install.sh`, then the ceremony); rollback is `boot-plain` the same way.
 
 Tooling that came out of it (all in `host/macos/`):
