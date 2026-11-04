@@ -1,0 +1,287 @@
+From b0f97e91be23f80b9aaede196e2d67aa5af64b5d Mon Sep 17 00:00:00 2001
+From: betim-hodza <bhodza02@proton.me>
+Date: Tue, 20 Oct 2026 06:03:01 -0400
+Subject: [PATCH 01/12] t6050: kboot bring-up diagnostics, DAPF window clamp,
+ P_KBOOT_GET_DT
+
+From omarchy-m5 patches/m1n1/0001, rebased onto upstream main. The CTRR in_el2() guard is dropped: upstream 00b88143 reads the EL1 CTRR registers, which fixes the same hypervisor-guest UNDEF.
+---
+ proxyclient/m1n1/proxy.py |  3 ++
+ src/dapf.c                | 60 +++++++++++++++++++++++++++++++++------
+ src/kboot.c               | 48 +++++++++++++++++++++++++++----
+ src/kboot.h               |  1 +
+ src/proxy.c               |  6 ++++
+ src/proxy.h               |  1 +
+ 6 files changed, 104 insertions(+), 15 deletions(-)
+
+diff --git a/proxyclient/m1n1/proxy.py b/proxyclient/m1n1/proxy.py
+index 834b5cfe..6f7c0091 100644
+--- a/proxyclient/m1n1/proxy.py
++++ b/proxyclient/m1n1/proxy.py
+@@ -627,6 +627,7 @@ class M1N1Proxy(Reloadable):
+     P_KBOOT_SET_INITRD = 0x702
+     P_KBOOT_PREPARE_DT = 0x703
+     P_KBOOT_SET_UBOOT = 0x704
++    P_KBOOT_GET_DT = 0x705
+ 
+     P_PMGR_POWER_ENABLE = 0x800
+     P_PMGR_POWER_DISABLE = 0x801
+@@ -1080,6 +1081,8 @@ class M1N1Proxy(Reloadable):
+         return self.request(self.P_KBOOT_PREPARE_DT, dt_addr)
+     def kboot_set_uboot(self, name, value):
+         self.request(self.P_KBOOT_SET_UBOOT, name, value)
++    def kboot_get_dt(self):
++        return self.request(self.P_KBOOT_GET_DT)
+ 
+     def pmgr_power_enable(self, clkid):
+         return self.request(self.P_PMGR_POWER_ENABLE, clkid)
+diff --git a/src/dapf.c b/src/dapf.c
+index 13a04986..03080288 100644
+--- a/src/dapf.c
++++ b/src/dapf.c
+@@ -6,6 +6,7 @@
+ #include "malloc.h"
+ #include "memory.h"
+ #include "pmgr.h"
++#include "soc.h"
+ #include "string.h"
+ #include "utils.h"
+ 
+@@ -69,37 +70,62 @@ struct dapf_t8110b_config {
+     u32 pad;
+ } PACKED;
+ 
+-static int dapf_init_t8110a(u64 base, struct dapf_t8110_config *config, u32 length)
++static int dapf_init_t8110a(u64 base, u64 size, struct dapf_t8110_config *config, u32 length)
+ {
+     int count = length / sizeof(*config);
+ 
++    /* Each entry consumes 0x40 bytes of register space. The ADT property
++     * length and the register window are independent, and on an unsupported
++     * SoC a mis-sized property walks straight off the end of the window into
++     * unmapped MMIO -> external abort -> asynchronous SError. */
++    if (size && (u64)count * 0x40 > size) {
++        printf("dapf: clamping %d entries to %ld (window 0x%lx at 0x%lx)\n", count, size / 0x40,
++               size, base);
++        count = size / 0x40;
++    }
++
+     for (int i = 0; i < count; i++) {
++        /* Per-slice barrier: the abort these writes can raise is an
++         * asynchronous SError, so without this the reported PC is wherever
++         * the CPU happened to be, not the slice that caused it. */
++        printf("dapf:   slice %d @ 0x%lx\n", i, base);
+         write32(base + 0x04, config[i].r4);
+         write64(base + 0x08, config[i].start);
+         write64(base + 0x10, config[i].end);
+         write32(base + 0x00, (config[i].r0_hi << 4) | config[i].r0_lo);
+         write32(base + 0x20, config[i].r20);
++        sysop("dsb sy");
++        sysop("isb");
+         base += 0x40;
+     }
+     return 0;
+ }
+ 
+-static int dapf_init_t8110b(u64 base, struct dapf_t8110b_config *config, u32 length)
++static int dapf_init_t8110b(u64 base, u64 size, struct dapf_t8110b_config *config, u32 length)
+ {
+     int count = length / sizeof(*config);
+ 
++    if (size && (u64)count * 0x40 > size) {
++        printf("dapf: clamping %d entries to %ld (window 0x%lx at 0x%lx)\n", count, size / 0x40,
++               size, base);
++        count = size / 0x40;
++    }
++
+     for (int i = 0; i < count; i++) {
++        printf("dapf:   slice %d @ 0x%lx\n", i, base);
+         write32(base + 0x04, config[i].r4);
+         write64(base + 0x08, config[i].start);
+         write64(base + 0x10, config[i].end);
+         write32(base + 0x00, (config[i].r0_hi << 4) | config[i].r0_lo);
+         write32(base + 0x20, config[i].r20);
++        sysop("dsb sy");
++        sysop("isb");
+         base += 0x40;
+     }
+     return 0;
+ }
+ 
+-static int dapf_init_t8110(const char *path, u64 base, int node)
++static int dapf_init_t8110(const char *path, u64 base, u64 size, int node)
+ {
+     u32 length;
+     const char *prop = "dapf-instance-0";
+@@ -110,13 +136,15 @@ static int dapf_init_t8110(const char *path, u64 base, int node)
+         return -1;
+     }
+ 
++    printf("dapf: %s base 0x%lx window 0x%lx, %s length %u\n", path, base, size, prop, length);
++
+     // The least common multiple of 52 and 56 is 728 which is in the range of
+     // the observed lengthe for "dapf-instance-0". The 52 byte variant is more
+     // common and prefering that works so far.
+     if (length % sizeof(struct dapf_t8110_config) == 0) {
+-        return dapf_init_t8110a(base, (struct dapf_t8110_config *)config, length);
++        return dapf_init_t8110a(base, size, (struct dapf_t8110_config *)config, length);
+     } else if (length % sizeof(struct dapf_t8110b_config) == 0) {
+-        return dapf_init_t8110b(base, (struct dapf_t8110b_config *)config, length);
++        return dapf_init_t8110b(base, size, (struct dapf_t8110b_config *)config, length);
+     } else {
+         printf("dapf: Invalid length for %s property %s\n", path, prop);
+         return -1;
+@@ -139,9 +167,9 @@ int dapf_init(const char *path, int index)
+     if (pwr && (pmgr_adt_power_enable(path) < 0))
+         return -1;
+ 
+-    u64 base;
+-    if (adt_get_reg(adt, dart_path, "reg", index, &base, NULL) < 0) {
+-        printf("dapf: Error getting DAPF %s base address.\n", path);
++    u64 base, size = 0;
++    if (adt_get_reg(adt, dart_path, "reg", index, &base, &size) < 0) {
++        printf("dapf: Error getting DAPF %s base address (index %d).\n", path, index);
+         return -1;
+     }
+ 
+@@ -150,7 +178,7 @@ int dapf_init(const char *path, int index)
+     } else if (adt_is_compatible(adt, node, "dart,t6000")) {
+         ret = dapf_init_t8020(path, base, node);
+     } else if (adt_is_compatible(adt, node, "dart,t8110")) {
+-        ret = dapf_init_t8110(path, base, node);
++        ret = dapf_init_t8110(path, base, size, node);
+     } else {
+         printf("dapf: DAPF %s at 0x%lx is of an unknown type\n", path, base);
+         return -1;
+@@ -186,6 +214,20 @@ int dapf_init_all(void)
+             entry++;
+             continue;
+         }
++        /* T6050 (M5 Pro) bring-up: programming /arm-io/dart-aop's DAPF
++         * raises an asynchronous SError on slice 6 (L2C_ERR_ADR =
++         * base + 0x180) even though the runtime ADT lists 18 slices and
++         * they fit inside the 0x4000 window. The on-disk ADT carries
++         * "allow-dram-apf-slices-0 = 0" for this DART, which m1n1 ignores,
++         * so the hardware very likely exposes fewer slices than the
++         * property describes. AOP DMA is not needed to boot Linux, so skip
++         * it here until the real slice count is known. */
++        if (chip_id == T6050 && !strcmp(entry->path, "/arm-io/dart-aop")) {
++            printf("dapf: skipping %s on T6050 (known SError, bring-up workaround)\n",
++                   entry->path);
++            entry++;
++            continue;
++        }
+         if (dapf_init(entry->path, entry->index) < 0) {
+             ret = -1;
+         }
+diff --git a/src/kboot.c b/src/kboot.c
+index 9bb95481..027c2220 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -2934,16 +2934,47 @@ int kboot_prepare_dt(void *fdt)
+ 
+ int kboot_boot(void *kernel)
+ {
+-    mcc_enable_cache();
+-    tunables_apply_static();
+-    clk_init();
++    /* omarchy-m5 T6050 bring-up diagnostics.
++     *
++     * An SError here is asynchronous: it is reported at whatever PC happens
++     * to be executing, which made it look like dapf's fault. A DSB+ISB after
++     * each phase forces the abort to be taken inside the phase that caused
++     * it, so the last "kboot phase:" line printed names the culprit. */
++#define KBOOT_PHASE(name, call)                                                                    \
++    do {                                                                                           \
++        printf("kboot phase: %s\n", name);                                                         \
++        call;                                                                                      \
++        sysop("dsb sy");                                                                           \
++        sysop("isb");                                                                              \
++        printf("kboot phase: %s done\n", name);                                                    \
++    } while (0)
+ 
+-    usb_init();
+-    pcie_init();
+-    dapf_init_all();
++    KBOOT_PHASE("mcc_enable_cache", mcc_enable_cache());
++    KBOOT_PHASE("tunables_apply_static", tunables_apply_static());
++    KBOOT_PHASE("clk_init", clk_init());
++    KBOOT_PHASE("usb_init", usb_init());
++    KBOOT_PHASE("pcie_init", pcie_init());
++    KBOOT_PHASE("dapf_init_all", dapf_init_all());
++#undef KBOOT_PHASE
+ 
+     printf("Setting SMP mode to WFE...\n");
+     smp_set_wfe_mode(true);
++
++    /* omarchy-m5: paint the marker band the kernel's early checkpoints also
++     * use, through the exact same raw-store path (boot_args video base,
++     * stride from boot_args, no fb console involvement). If this yellow band
++     * appears but none of the kernel's bands do, the marker mechanism is
++     * proven good and the kernel really did not get that far. Rows
++     * 144..159 are ours; the kernel paints rows 0..111. */
++    {
++        u32 *fb = (u32 *)cur_boot_args.video.base;
++        u32 stride_px = cur_boot_args.video.stride / 4;
++        for (u32 y = 144; y < 160; y++)
++            for (u32 x = 0; x < 256; x++)
++                fb[y * stride_px + x] = 0x3FFFFC00; /* yellow in x2r10g10b10 */
++        sysop("dsb sy");
++    }
++
+     printf("Preparing to boot kernel at %p with fdt at %p\n", kernel, dt);
+ 
+     next_stage.entry = kernel;
+@@ -2956,3 +2987,8 @@ int kboot_boot(void *kernel)
+ 
+     return 0;
+ }
++
++void *kboot_get_dt(void)
++{
++    return dt;
++}
+diff --git a/src/kboot.h b/src/kboot.h
+index 61deacc9..c191c37e 100644
+--- a/src/kboot.h
++++ b/src/kboot.h
+@@ -25,6 +25,7 @@ int kboot_set_chosen(const char *name, const char *value);
+ int kboot_set_uboot(const char *name, const char *value);
+ int kboot_prepare_dt(void *fdt);
+ int kboot_boot(void *kernel);
++void *kboot_get_dt(void);
+ 
+ // from rust/usb4.rs
+ u64 rust_usb4_router_uuid(void);
+diff --git a/src/proxy.c b/src/proxy.c
+index 41a8e854..7ae72a59 100644
+--- a/src/proxy.c
++++ b/src/proxy.c
+@@ -420,6 +420,12 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
+         case P_KBOOT_SET_UBOOT:
+             reply->retval = kboot_set_uboot((void *)request->args[0], (void *)request->args[1]);
+             break;
++        case P_KBOOT_GET_DT:
++            /* The prepared FDT is the only artifact that reflects every fixup
++             * m1n1 applies; the input DTB and the Apple ADT both differ from
++             * it. Hand its address to the host so it can be read back. */
++            reply->retval = (u64)kboot_get_dt();
++            break;
+ 
+         case P_PMGR_POWER_ENABLE:
+             reply->retval = pmgr_power_enable(request->args[0]);
+diff --git a/src/proxy.h b/src/proxy.h
+index 0927e3be..27ddaea5 100644
+--- a/src/proxy.h
++++ b/src/proxy.h
+@@ -105,6 +105,7 @@ typedef enum {
+     P_KBOOT_SET_INITRD,
+     P_KBOOT_PREPARE_DT,
+     P_KBOOT_SET_UBOOT,
++    P_KBOOT_GET_DT,
+ 
+     P_PMGR_POWER_ENABLE = 0x800, // power/clock management ops
+     P_PMGR_POWER_DISABLE,
+-- 
+2.56.0
+

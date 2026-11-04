@@ -1,0 +1,307 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+#
+# m5pro-update-payload - build the M5 Pro stage-2 boot object on the ESP and manage its slots.
+#
+# Stage-1 (the stub's iBoot-loaded m1n1, a CHAINLOADING build) reads ONE fixed file from the ESP:
+# chainload=<ESP PARTUUID>;m1n1/boot.bin (m1n1 rust/src/chainload.rs: one UUID, one path). So
+# slots are files, and switching slots is a copy + rename on the ESP. Layout (DESIGN.md, "ESP"):
+#
+#   m1n1/boot.bin          what stage-1 loads (always a copy of one payload below)
+#   m1n1/boot.prev.bin     the boot.bin before the last change      (rollback)
+#   m1n1/fallback.bin      the last payload that reached multi-user  (mark-good)
+#   m5pro/payloads/<id>.bin  versioned store, pruned to $KEEP
+#   m5pro/payloads.log     one line per build: id, kernel, cmdline sha, date
+#
+# The payload format is omarchy-m5 scripts/mkpayload.sh's (lines 84-90):
+#   m1n1 (plain) | chosen.bootargs=... | chosen.m5pro,payload-id=<id> | Image.gz | dtb | initramfs(gzip)
+# m1n1 understands gzip/xz/fdt/kernel/variables only (m1n1 src/payload.c load_one_payload), so the
+# initramfs must be gzip (mkinitcpio's default zstd is NOT parsed; m5pro-boot ships a
+# mkinitcpio.conf.d drop-in that sets COMPRESSION=gzip, and this script refuses anything else).
+#
+#   m5pro-update-payload build      [--initramfs F] [--cmdline S] [--slot boot|rescue]   (pacman hook)
+#   m5pro-update-payload verify     rebuild in memory and compare with m1n1/boot.bin (exit 1 if stale)
+#   m5pro-update-payload rollback   swap boot.bin and boot.prev.bin
+#   m5pro-update-payload select ID  copy payloads/ID.bin to boot.bin (previous goes to boot.prev.bin)
+#   m5pro-update-payload mark-good  if the running payload-id is boot.bin's, copy it to fallback.bin
+#   m5pro-update-payload stage1     stage a new stage-1 image on the ESP for the macOS side to install
+#   m5pro-update-payload status
+# Test/offline options (before the command): --esp DIR (use DIR as the mounted ESP),
+#   --root DIR (prefix for /usr, /boot, /etc reads), --board jXXXs, --dry-run.
+set -euo pipefail
+
+ROOT=""
+ESP_DIR=""
+BOARD_OVERRIDE=""
+DRY=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --esp) ESP_DIR=$2; shift 2 ;;
+        --root) ROOT=$2; shift 2 ;;
+        --board) BOARD_OVERRIDE=$2; shift 2 ;;
+        --dry-run) DRY=1; shift ;;
+        *) break ;;
+    esac
+done
+CMD=${1:-build}; shift || true
+
+die() { echo "m5pro-update-payload: ERROR: $*" >&2; exit 1; }
+log() { echo "m5pro-update-payload: $*"; }
+
+# --- configuration --------------------------------------------------------------------------
+# /etc/m5pro/boot.conf (backup= in m5pro-boot): shell variables, all optional.
+CMDLINE="earlycon=efifb keep_bootcon console=tty0 loglevel=4 pd_ignore_unused clk_ignore_unused nvme_apple.flush_interval=0 root=LABEL=m5root rw"
+KERNEL_PKGBASE=linux-m5pro
+STAGE2_M1N1=/usr/lib/m1n1-m5pro/m1n1-stage2.bin
+ESP_PARTUUID=""
+KEEP=4
+# shellcheck disable=SC1091
+[ -r "$ROOT/etc/m5pro/boot.conf" ] && . "$ROOT/etc/m5pro/boot.conf"
+# /etc/m5pro/cmdline, if present, replaces CMDLINE (one line; like Asahi's /etc/m1n1.conf
+# chosen.bootargs, but kept as a plain file so tools can edit it without shell quoting).
+if [ -r "$ROOT/etc/m5pro/cmdline" ]; then
+    CMDLINE=$(grep -v '^[[:space:]]*#' "$ROOT/etc/m5pro/cmdline" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+fi
+
+dt_prop() {   # dt_prop <chosen property>: NUL-terminated string from the live device tree
+    local f=/proc/device-tree/chosen/$1
+    [ -z "$ROOT" ] && [ -r "$f" ] && tr -d '\0' < "$f" || true
+}
+
+board() {
+    if [ -n "$BOARD_OVERRIDE" ]; then echo "$BOARD_OVERRIDE"; return; fi
+    # root compatible is "apple,j716s\0apple,t6050\0apple,arm-platform" (dt/t6050-j716s.dts)
+    local c
+    c=$(tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | head -1)
+    case "$c" in apple,j*) echo "${c#apple,}" ;; *) die "cannot tell the board from the device tree ($c); pass --board" ;; esac
+}
+
+# --- the ESP ---------------------------------------------------------------------------------
+MOUNTED_HERE=""
+cleanup() { if [ -n "$MOUNTED_HERE" ]; then umount "$MOUNTED_HERE" || true; rmdir "$MOUNTED_HERE" 2>/dev/null || true; fi; }
+trap cleanup EXIT
+
+esp_mount() {
+    [ -n "$ESP_DIR" ] && { [ -d "$ESP_DIR" ] || die "--esp $ESP_DIR is not a directory"; return; }
+    local uuid dev mnt
+    # Stage-1 carries chosen.asahi,efi-system-partition (tools/mk-stage1.py) and m1n1 passes
+    # chosen.* down the chain into the kernel's /chosen; the config value is the fallback.
+    uuid=$(dt_prop asahi,efi-system-partition)
+    [ -n "$uuid" ] || uuid=$ESP_PARTUUID
+    [ -n "$uuid" ] || die "ESP unknown: no /chosen/asahi,efi-system-partition and no ESP_PARTUUID in /etc/m5pro/boot.conf"
+    dev=/dev/disk/by-partuuid/${uuid,,}
+    [ -b "$dev" ] || die "ESP $uuid not found ($dev)"
+    mnt=$(findmnt -nro TARGET -S "$dev" | head -1 || true)
+    if [ -z "$mnt" ]; then
+        mnt=/run/m5pro-esp
+        mkdir -p "$mnt"
+        mount -t vfat -o rw,noatime,flush "$dev" "$mnt"
+        MOUNTED_HERE=$mnt
+    fi
+    ESP_DIR=$mnt
+}
+
+# --- inputs ----------------------------------------------------------------------------------
+kernel_dir() {   # the modules dir of the installed $KERNEL_PKGBASE (one package = one release)
+    local d
+    for d in "$ROOT"/usr/lib/modules/*/; do
+        [ "$(cat "$d/pkgbase" 2>/dev/null)" = "$KERNEL_PKGBASE" ] && { echo "${d%/}"; return; }
+    done
+    die "$KERNEL_PKGBASE is not installed (no usr/lib/modules/*/pkgbase naming it)"
+}
+
+payload_id() {   # stable id: kernel release + hash of every input, so verify can recompute it
+    local kver=$1; shift
+    { cat "$@"; printf '%s' "$CMDLINE"; } | sha256sum | cut -c1-12 | sed "s/^/${kver}-/"
+}
+
+assemble() {   # assemble <out> <slot> [initramfs]  -> prints the id
+    local out=$1 slot=$2 irf=${3:-} kdir kver dtb m1n1 kernel id b
+    kdir=$(kernel_dir); kver=$(basename "$kdir")
+    m1n1=$ROOT$STAGE2_M1N1
+    kernel=$kdir/Image.gz
+    b=$(board)
+    dtb=$kdir/dtbs/apple/t6050-$b.dtb
+    [ -n "$irf" ] || irf=$ROOT/boot/initramfs-$KERNEL_PKGBASE.img
+    local f; for f in "$m1n1" "$kernel" "$dtb" "$irf"; do [ -f "$f" ] || die "missing $f"; done
+    [ "$(head -c2 "$irf" | od -An -tx1 | tr -d ' ')" = 1f8b ] \
+        || die "$irf is not gzip; m1n1 cannot parse it (set COMPRESSION=gzip for mkinitcpio)"
+    [ "${#CMDLINE}" -lt 1000 ] || die "cmdline is ${#CMDLINE} bytes; m1n1 caps a variable value at 1024"
+    case "$CMDLINE" in *$'\n'*) die "cmdline contains a newline" ;; esac
+    id=$(payload_id "$kver" "$m1n1" "$kernel" "$dtb" "$irf")
+    [ "$slot" = rescue ] && id=rescue-$id
+    {
+        cat "$m1n1"
+        printf 'chosen.bootargs=%s\n' "$CMDLINE"
+        printf 'chosen.m5pro,payload-id=%s\n' "$id"
+        cat "$kernel" "$dtb" "$irf"
+    } > "$out"
+    verify_chain "$out" "$(stat -c %s "$m1n1")" >&2
+    echo "$id"
+}
+
+verify_chain() {   # port of omarchy-m5 scripts/mkpayload.sh:94-147 (walks the chain like m1n1)
+    M1N1_SIZE=$2 python3 -I - "$1" <<'EOF'
+import os, sys, zlib
+blob = open(sys.argv[1], "rb").read()
+pos = int(os.environ["M1N1_SIZE"])
+found = []
+while pos < len(blob):
+    p = blob[pos:]
+    if not p.strip(b"\0"):
+        break
+    if p[:2] == b"\x1f\x8b":
+        d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        out = d.decompress(p)
+        size = len(p) - len(d.unused_data)
+        found.append("kernel" if out[0x38:0x3c] == b"ARM\x64" else
+                     "initramfs" if out[:5] in (b"07070", b"07071") else "unknown-gzip")
+        pos += size
+    elif p[:4] == b"\xd0\x0d\xfe\xed":
+        found.append("dtb"); pos += int.from_bytes(p[4:8], "big")
+    elif b"=" in p[:65] and b"\n" in p[:1100]:
+        line = p[:p.index(b"\n")].decode()
+        if not line.startswith(("chosen.", "chainload=", "display=", "mitigations=", "tso=")):
+            sys.exit(f"unknown variable {line!r}")
+        found.append("var"); pos += len(line) + 1
+    else:
+        sys.exit(f"unparseable payload at +0x{pos:x}: {p[:8].hex()}")
+want = ["var", "var", "kernel", "dtb", "initramfs"]
+if found[:5] != want:
+    sys.exit(f"payload chain is {found}, expected {want} first")
+print("    chain ok: m1n1 -> " + " -> ".join(found))
+EOF
+}
+
+install_as_boot() {   # install_as_boot <file>: boot.bin <- file, old boot.bin -> boot.prev.bin
+    local src=$1 m=$ESP_DIR/m1n1
+    if [ "$DRY" = 1 ]; then log "dry-run: would install $src as $m/boot.bin"; return; fi
+    mkdir -p "$m"
+    cp "$src" "$m/boot.bin.new"; sync -f "$m/boot.bin.new" 2>/dev/null || sync
+    if [ -f "$m/boot.bin" ] && ! cmp -s "$m/boot.bin" "$m/boot.bin.new"; then
+        cp -p "$m/boot.bin" "$m/boot.prev.bin.new" && mv -f "$m/boot.prev.bin.new" "$m/boot.prev.bin"
+    fi
+    # FAT has no atomic replace; write-new + fsync + rename keeps a complete file at every
+    # point except inside the rename itself, and boot.prev.bin covers that window.
+    mv -f "$m/boot.bin.new" "$m/boot.bin"; sync
+}
+
+id_of() (   # the payload-id variable sits right after the m1n1 image, in the first few MiB
+    [ -f "$1" ] || exit 1
+    set +o pipefail   # grep -m1 closes the pipe early; head's SIGPIPE is not a failure
+    head -c 16777216 "$1" | grep -a -m1 -o 'chosen\.m5pro,payload-id=[^[:space:]]*' | sed 's/^[^=]*=//'
+)
+
+prune() {
+    local keep=$1 d=$ESP_DIR/m5pro/payloads protect f
+    protect=" $(id_of "$ESP_DIR/m1n1/boot.bin" 2>/dev/null) $(id_of "$ESP_DIR/m1n1/boot.prev.bin" 2>/dev/null) $(id_of "$ESP_DIR/m1n1/fallback.bin" 2>/dev/null) "
+    # newest first; keep $keep plus anything a slot still points at
+    local n=0
+    # ids are "<kernel release>-<hex>": no whitespace, so a line-wise read of ls -t is safe
+    ls -t "$d" 2>/dev/null | { grep '\.bin$' || true; } | sed "s|^|$d/|" | while read -r f; do
+        n=$((n + 1))
+        local id; id=$(basename "$f" .bin)
+        if [ $n -gt "$keep" ] && [[ $protect != *" $id "* ]]; then
+            [ "$DRY" = 1 ] && log "dry-run: would prune $f" || rm -f "$f"
+        fi
+    done
+}
+
+case "$CMD" in
+build)
+    SLOT=boot IRF=""
+    while [ $# -gt 0 ]; do case "$1" in
+        --initramfs) IRF=$2; shift 2 ;; --cmdline) CMDLINE=$2; shift 2 ;; --slot) SLOT=$2; shift 2 ;;
+        *) die "unknown build option $1" ;; esac; done
+    case "$SLOT" in boot|rescue) ;; *) die "--slot boot|rescue" ;; esac
+    esp_mount
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"; cleanup' EXIT
+    id=$(assemble "$tmp/payload.bin" "$SLOT" "$IRF")
+    size=$(stat -c %s "$tmp/payload.bin")
+    log "payload $id ($((size / 1024 / 1024)) MiB)"
+    if [ "$SLOT" = rescue ]; then
+        [ "$DRY" = 1 ] || { mkdir -p "$ESP_DIR/m1n1"; cp "$tmp/payload.bin" "$ESP_DIR/m1n1/rescue.bin"; sync; }
+        log "rescue payload written to m1n1/rescue.bin (select it with: m5pro-update-payload select-file rescue.bin)"
+        exit 0
+    fi
+    if [ "$(id_of "$ESP_DIR/m1n1/boot.bin" 2>/dev/null)" = "$id" ]; then log "boot.bin is already $id"; exit 0; fi
+    free=$(df -Pk "$ESP_DIR" | awk 'NR==2{print $4}')
+    [ "$free" -gt $((size / 1024 * 2 + 1024)) ] || die "ESP has ${free} KiB free, need $((size / 512)) KiB for the store copy and boot.bin.new"
+    if [ "$DRY" != 1 ]; then
+        mkdir -p "$ESP_DIR/m5pro/payloads"
+        cp "$tmp/payload.bin" "$ESP_DIR/m5pro/payloads/$id.bin"
+        printf '%s kernel=%s board=%s cmdline_sha=%s built=%s\n' "$id" "${id%-*}" "$(board)" \
+            "$(printf '%s' "$CMDLINE" | sha256sum | cut -c1-12)" "$(date -u +%FT%TZ)" >> "$ESP_DIR/m5pro/payloads.log"
+    fi
+    install_as_boot "$tmp/payload.bin"
+    [ -f "$ESP_DIR/m1n1/fallback.bin" ] || { [ "$DRY" = 1 ] || cp "$tmp/payload.bin" "$ESP_DIR/m1n1/fallback.bin"; }
+    prune "$KEEP"
+    log "m1n1/boot.bin is now $id; previous kept as m1n1/boot.prev.bin"
+    ;;
+verify)
+    esp_mount
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"; cleanup' EXIT
+    id=$(assemble "$tmp/payload.bin" boot "")
+    if cmp -s "$tmp/payload.bin" "$ESP_DIR/m1n1/boot.bin"; then log "boot.bin matches the installed packages ($id)"; exit 0; fi
+    log "boot.bin is STALE: installed packages build $id, ESP has $(id_of "$ESP_DIR/m1n1/boot.bin" || echo '?')"
+    exit 1
+    ;;
+rollback)
+    esp_mount
+    m=$ESP_DIR/m1n1
+    [ -f "$m/boot.prev.bin" ] || die "no m1n1/boot.prev.bin to roll back to"
+    log "boot.bin $(id_of "$m/boot.bin") <-> boot.prev.bin $(id_of "$m/boot.prev.bin")"
+    [ "$DRY" = 1 ] && exit 0
+    mv -f "$m/boot.bin" "$m/boot.swap" && mv -f "$m/boot.prev.bin" "$m/boot.bin" && mv -f "$m/boot.swap" "$m/boot.prev.bin"; sync
+    ;;
+select|select-file)
+    esp_mount
+    [ $# -ge 1 ] || die "$CMD needs an argument"
+    if [ "$CMD" = select ]; then src=$ESP_DIR/m5pro/payloads/$1.bin; else src=$ESP_DIR/m1n1/$1; fi
+    [ -f "$src" ] || die "no $src"
+    install_as_boot "$src"; log "boot.bin is now $(id_of "$ESP_DIR/m1n1/boot.bin")"
+    ;;
+mark-good)
+    esp_mount
+    running=$(dt_prop m5pro,payload-id)
+    [ -n "$running" ] || { log "running payload has no payload-id (booted over the tether?); nothing to mark"; exit 0; }
+    [ "$(id_of "$ESP_DIR/m1n1/boot.bin")" = "$running" ] || { log "running $running is not boot.bin; not marking"; exit 0; }
+    if [ "$(id_of "$ESP_DIR/m1n1/fallback.bin" 2>/dev/null)" != "$running" ]; then
+        [ "$DRY" = 1 ] || { cp "$ESP_DIR/m1n1/boot.bin" "$ESP_DIR/m1n1/fallback.bin.new" && mv -f "$ESP_DIR/m1n1/fallback.bin.new" "$ESP_DIR/m1n1/fallback.bin"; sync; }
+        log "fallback.bin is now $running"
+    fi
+    ;;
+stage1)
+    # Stage-1 lives in the stub's LocalPolicy and only macOS (paired 1TR) can install it, so
+    # Linux only stages the image on the ESP, where the macOS-side installer picks it up
+    # ("Repair / update boot loader" in installer/CHECKLIST.md). Built with tools/mk-stage1.py.
+    esp_mount
+    uuid=$(dt_prop asahi,efi-system-partition); [ -n "$uuid" ] || uuid=$ESP_PARTUUID
+    [ -n "$uuid" ] || die "ESP PARTUUID unknown"
+    chain=$ROOT/usr/lib/m1n1-m5pro/m1n1-stage1-chain.bin
+    [ -f "$chain" ] || die "missing $chain"
+    new=$(grep -a -m1 -o 'chosen\.asahi,m1n1-stage1-version=[[:print:]]*' "$chain" | sed 's/^[^=]*=//' || true)
+    cur=$(dt_prop asahi,m1n1-stage1-version)
+    if [ -n "$cur" ] && [ "$cur" = "$new" ]; then log "installed stage-1 is already $cur"; exit 0; fi
+    [ "$DRY" = 1 ] && { log "dry-run: would stage stage-1 $new (running: ${cur:-unknown})"; exit 0; }
+    mkdir -p "$ESP_DIR/m5pro/stage1"
+    m5pro-mk-stage1 stage1 --m1n1 "$chain" --esp-partuuid "$uuid" --path m1n1/boot.bin \
+        -o "$ESP_DIR/m5pro/stage1/pending.bin"
+    sha256sum "$ESP_DIR/m5pro/stage1/pending.bin" | sed "s|  .*/|  |" > "$ESP_DIR/m5pro/stage1/pending.bin.sha256"
+    sync
+    log "stage-1 $new staged as m5pro/stage1/pending.bin (running: ${cur:-unknown})."
+    log "Install it from macOS: the installer's 'Update boot loader' (one 1TR ceremony)."
+    ;;
+status)
+    esp_mount
+    echo "ESP:        $ESP_DIR"
+    echo "running:    $(dt_prop m5pro,payload-id || true)"
+    echo "stage-1:    $(dt_prop asahi,m1n1-stage1-version || true)"
+    for s in boot boot.prev fallback rescue; do
+        f=$ESP_DIR/m1n1/$s.bin
+        [ -f "$f" ] && printf '%-11s %s (%s bytes)\n' "$s:" "$(id_of "$f" || echo '?')" "$(stat -c %s "$f")"
+    done
+    ls "$ESP_DIR/m5pro/payloads" 2>/dev/null | sed 's/^/store:      /'
+    ;;
+*) die "unknown command $CMD (build|verify|rollback|select|select-file|mark-good|stage1|status)" ;;
+esac

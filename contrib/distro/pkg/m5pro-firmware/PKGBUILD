@@ -1,0 +1,20 @@
+# Maintainer: m5pro-linux
+# Ships no Apple firmware (not redistributable). It ships the loader that takes the firmware the
+# macOS-side installer extracted onto the ESP (vendorfw/firmware.tar) and exposes it to the kernel
+# at boot, plus the extraction tool for re-running it from a Mac (the macOS side runs it today).
+pkgname=m5pro-firmware
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Loads Apple vendor firmware (trackpad tpmtfw) for MacBook Pro M5 Pro from the ESP"
+arch=(any)
+url="https://github.com/RolandoT98/m5pro-linux"
+license=(MIT)
+depends=(bash tar coreutils util-linux systemd)
+install=m5pro-firmware.install
+source=(m5pro-vendorfw m5pro-vendorfw.service)
+sha256sums=(SKIP SKIP)
+
+package() {
+    install -Dm755 m5pro-vendorfw         "$pkgdir/usr/bin/m5pro-vendorfw"
+    install -Dm644 m5pro-vendorfw.service "$pkgdir/usr/lib/systemd/system/m5pro-vendorfw.service"
+}

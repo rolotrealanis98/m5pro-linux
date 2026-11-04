@@ -1,0 +1,75 @@
+From ec7b1c1504eeaeaed27dd65ff786d67c402f260f Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 06:04:45 -0400
+Subject: [PATCH 07/12] t6050: clang-format the rebased omarchy-m5 patches
+
+---
+ src/dapf.c      |  3 +--
+ src/hv/hv_exc.c | 13 +++++++------
+ src/wdt.c       |  2 +-
+ 3 files changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/src/dapf.c b/src/dapf.c
+index 03080288..80dd53c8 100644
+--- a/src/dapf.c
++++ b/src/dapf.c
+@@ -223,8 +223,7 @@ int dapf_init_all(void)
+          * property describes. AOP DMA is not needed to boot Linux, so skip
+          * it here until the real slice count is known. */
+         if (chip_id == T6050 && !strcmp(entry->path, "/arm-io/dart-aop")) {
+-            printf("dapf: skipping %s on T6050 (known SError, bring-up workaround)\n",
+-                   entry->path);
++            printf("dapf: skipping %s on T6050 (known SError, bring-up workaround)\n", entry->path);
+             entry++;
+             continue;
+         }
+diff --git a/src/hv/hv_exc.c b/src/hv/hv_exc.c
+index 8ae6c0af..dd6cbb02 100644
+--- a/src/hv/hv_exc.c
++++ b/src/hv/hv_exc.c
+@@ -272,6 +272,11 @@ void hv_update_fiq(void)
+             _msr(sr_tkn(sr), regs[rt]);                                                            \
+         return true;
+ 
++#define SYSREG_TMR_CTL(sr, t)                                                                      \
++    case SYSREG_ISS(sr):                                                                           \
++        hv_guest_tmr_ctl(t, is_read, &regs[rt]);                                                   \
++        return true;
++
+ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
+ {
+     u64 reg = iss & (ESR_ISS_MSR_OP0 | ESR_ISS_MSR_OP2 | ESR_ISS_MSR_OP1 | ESR_ISS_MSR_CRn |
+@@ -296,14 +301,10 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
+         SYSREG_PASS(SYS_IMP_APL_CORE_NRG_ACC_DAT);
+         SYSREG_PASS(SYS_IMP_APL_CORE_SRM_NRG_ACC_DAT);
+         /* Architectural timer, for ECV */
+-        case SYSREG_ISS(SYS_CNTV_CTL_EL0):
+-            hv_guest_tmr_ctl(HV_TMR_V, is_read, &regs[rt]);
+-            return true;
++        SYSREG_TMR_CTL(SYS_CNTV_CTL_EL0, HV_TMR_V)
+         SYSREG_MAP(SYS_CNTV_CVAL_EL0, SYS_CNTV_CVAL_EL02)
+         SYSREG_MAP(SYS_CNTV_TVAL_EL0, SYS_CNTV_TVAL_EL02)
+-        case SYSREG_ISS(SYS_CNTP_CTL_EL0):
+-            hv_guest_tmr_ctl(HV_TMR_P, is_read, &regs[rt]);
+-            return true;
++        SYSREG_TMR_CTL(SYS_CNTP_CTL_EL0, HV_TMR_P)
+         SYSREG_MAP(SYS_CNTP_CVAL_EL0, SYS_CNTP_CVAL_EL02)
+         SYSREG_MAP(SYS_CNTP_TVAL_EL0, SYS_CNTP_TVAL_EL02)
+         /* Spammy stuff seen on t600x p-cores */
+diff --git a/src/wdt.c b/src/wdt.c
+index 06bbc6d0..072bacec 100644
+--- a/src/wdt.c
++++ b/src/wdt.c
+@@ -2,8 +2,8 @@
+ 
+ #include "wdt.h"
+ #include "adt.h"
+-#include "types.h"
+ #include "string.h"
++#include "types.h"
+ #include "utils.h"
+ #include "xnuboot.h"
+ 
+-- 
+2.56.0
+

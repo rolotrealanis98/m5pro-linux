@@ -1,0 +1,390 @@
+From 16837f2849c7321653b48a3d874ef74739958c5e Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 07:25:09 -0400
+Subject: [PATCH] j716s: 16-inch M5 Pro board DT, measured pmgr boot state,
+ GCC=1 kernel builds
+
+J716s runs the full 18-core SKU (runtime ADT cpu0-17), same MTP children as J714s; trackpad firmware tpmtfw-j716s.bin. cpufreq, storage-net and pmgr regenerated from the J716s runtime ADT are byte-identical to the committed J714s files; 0 of 273 shared PMGR domains differ at handover. Booted tethered to an initramfs shell with maxcpus=1 (USB gadget up, 10.55.0.2 answers ping).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ dt/t6050-j716s-pmgr-boot-state.json | 275 ++++++++++++++++++++++++++++
+ dt/t6050-j716s.dts                  |  64 +++++++
+ scripts/build-kernel.sh             |   5 +-
+ 3 files changed, 343 insertions(+), 1 deletion(-)
+ create mode 100644 dt/t6050-j716s-pmgr-boot-state.json
+
+diff --git a/dt/t6050-j716s-pmgr-boot-state.json b/dt/t6050-j716s-pmgr-boot-state.json
+new file mode 100644
+index 0000000..de00908
+--- /dev/null
++++ b/dt/t6050-j716s-pmgr-boot-state.json
+@@ -0,0 +1,275 @@
++{
++ "aes": 255,
++ "afr": 251921152,
++ "aic": 255,
++ "aic_gfx": 255,
++ "amcc0": 251659263,
++ "amcc1": 251659263,
++ "amcc10": 251659263,
++ "amcc11": 251659263,
++ "amcc12": 251659263,
++ "amcc13": 251659263,
++ "amcc14": 251659263,
++ "amcc15": 251659263,
++ "amcc2": 251659263,
++ "amcc3": 251659263,
++ "amcc4": 251659263,
++ "amcc5": 251659263,
++ "amcc6": 251659263,
++ "amcc7": 251659263,
++ "amcc8": 251659263,
++ "amcc9": 251659263,
++ "ane_cpu": 251659008,
++ "ane_mpm": 768,
++ "ane_sys": 768,
++ "ane_tdbase": 768,
++ "ans": 251658495,
++ "ap_tmm": 255,
++ "apcie_gp": 255,
++ "apcie_phy_sw": 335544911,
++ "apcie_st0": 767,
++ "apcie_st1": 767,
++ "apcie_sys_gp": 268436239,
++ "apcie_sys_gp_oc": 768,
++ "apcie_sys_st0": 268436239,
++ "apcie_sys_st0_o": 768,
++ "apcie_sys_st1": 268436239,
++ "apcie_sys_st1_o": 768,
++ "aphy_gp_aus5": 268436239,
++ "aphy_gp_aus5_a": 767,
++ "aphy_st0_aus5": 268436239,
++ "aphy_st0_aus5_a": 767,
++ "aphy_st1_aus5": 268436239,
++ "aphy_st1_aus5_a": 767,
++ "atc0_cio": 768,
++ "atc0_cio_auss": 768,
++ "atc0_cio_pcie": 768,
++ "atc0_cio_usb": 768,
++ "atc0_common": 1023,
++ "atc0_common_dp_0": 767,
++ "atc0_common_dp_1": 767,
++ "atc0_common_dp_2": 767,
++ "atc0_common_dp_3": 767,
++ "atc0_pcie": 768,
++ "atc0_phymxwrap": 1023,
++ "atc0_usb": 767,
++ "atc0_usb_aon": 767,
++ "atc1_cio": 768,
++ "atc1_cio_auss": 768,
++ "atc1_cio_pcie": 768,
++ "atc1_cio_usb": 768,
++ "atc1_common": 1023,
++ "atc1_common_dp_0": 767,
++ "atc1_common_dp_1": 767,
++ "atc1_common_dp_2": 767,
++ "atc1_common_dp_3": 767,
++ "atc1_pcie": 768,
++ "atc1_phymxwrap": 1023,
++ "atc1_usb": 1023,
++ "atc1_usb_aon": 767,
++ "atc2_cio": 768,
++ "atc2_cio_auss": 768,
++ "atc2_cio_pcie": 768,
++ "atc2_cio_usb": 768,
++ "atc2_common": 1023,
++ "atc2_common_dp_0": 767,
++ "atc2_common_dp_1": 767,
++ "atc2_common_dp_2": 767,
++ "atc2_common_dp_3": 767,
++ "atc2_pcie": 768,
++ "atc2_phymxwrap": 1023,
++ "atc2_usb": 1023,
++ "atc2_usb_aon": 767,
++ "atc3_cio": 768,
++ "atc3_cio_auss": 768,
++ "atc3_cio_pcie": 768,
++ "atc3_cio_usb": 768,
++ "atc3_common": 768,
++ "atc3_common_dp_0": 580,
++ "atc3_common_dp_1": 580,
++ "atc3_common_dp_2": 580,
++ "atc3_common_dp_3": 580,
++ "atc3_pcie": 768,
++ "atc3_phymxwrap": 768,
++ "atc3_usb": 768,
++ "atc3_usb_aon": 767,
++ "auss": 768,
++ "avd_sys": 251659008,
++ "b2b_ctrl_gfx": 255,
++ "b2b_ctrl_nogate": 255,
++ "b2bc_afc_0": 251658495,
++ "b2bc_afc_0_dfx": 768,
++ "b2bc_afc_1": 251658495,
++ "b2bc_afc_1_dfx": 768,
++ "b2bc_cntl_dfx": 768,
++ "b2bc_dbg_0": 768,
++ "b2bc_dbg_1": 768,
++ "b2bc_dbg_2": 768,
++ "b2bc_dft": 768,
++ "b2bd_afc_0": 251659008,
++ "b2bd_afc_0_dfx": 768,
++ "b2bd_afc_1": 251659008,
++ "b2bd_afc_1_dfx": 768,
++ "b2bd_afr_0": 251659008,
++ "b2bd_afr_1": 251659008,
++ "b2bd_afr_2": 251659008,
++ "b2bd_afr_3": 251659008,
++ "b2bd_afr_dfx_0": 768,
++ "b2bd_afr_dfx_1": 768,
++ "b2bd_afr_dfx_2": 768,
++ "b2bd_afr_dfx_3": 768,
++ "b2bd_cntl_dfx_0": 768,
++ "b2bd_cntl_dfx_1": 768,
++ "b2bd_dbg_0": 768,
++ "b2bd_dbg_1": 768,
++ "b2bd_dbg_2": 768,
++ "b2bd_dbg_3": 768,
++ "b2bd_dbg_4": 768,
++ "b2bg_afc_0": 251658495,
++ "b2bg_afc_0_dfx": 768,
++ "b2bg_afc_1": 251658495,
++ "b2bg_afc_1_dfx": 768,
++ "b2bg_afi_1_dfx": 768,
++ "b2bg_cntl_dfx": 768,
++ "b2bg_dbg_0": 768,
++ "b2bg_dbg_1": 768,
++ "b2bg_dbg_2": 768,
++ "b2bg_dft": 768,
++ "cs": 251659008,
++ "debug_gated": 251658495,
++ "debug_gfx_gated": 251658495,
++ "disp_adma": 768,
++ "disp_cpu": 520093951,
++ "disp_fe": 255,
++ "disp_sys": 255,
++ "dispext0_adma": 768,
++ "dispext0_cpu": 335807055,
++ "dispext0_fe": 255,
++ "dispext0_sys": 255,
++ "dispext1_adma": 768,
++ "dispext1_cpu": 335807055,
++ "dispext1_fe": 255,
++ "dispext1_sys": 255,
++ "dispext2_adma": 768,
++ "dispext2_cpu": 335807055,
++ "dispext2_fe": 255,
++ "dispext2_sys": 255,
++ "dispext3_adma": 768,
++ "dispext3_cpu": 335807055,
++ "dispext3_fe": 255,
++ "dispext3_sys": 255,
++ "fab0_acc_0": 251658495,
++ "fab0_acc_1": 251658495,
++ "fab0_soc": 251659263,
++ "fab1_acc": 251658495,
++ "fab1_soc": 251658495,
++ "fab2_acc": 251658495,
++ "fab4_soc": 251658495,
++ "fab5_soc": 251659263,
++ "fab6_soc": 251658495,
++ "fab7_soc": 251658495,
++ "fab8_soc": 251658495,
++ "fab9_soc": 251659263,
++ "fab_afc_amcc_0": 251658495,
++ "fab_afc_amcc_1": 251658495,
++ "fab_afc_amcc_2": 251658495,
++ "fab_afc_amcc_3": 251658495,
++ "fab_afc_amcc_4": 251658752,
++ "fab_afc_amcc_5": 251658752,
++ "fab_afc_amcc_6": 251658752,
++ "fab_afc_amcc_7": 251658752,
++ "fab_afr_amcc_0": 251659263,
++ "fab_afr_amcc_1": 251659007,
++ "fab_afr_amcc_10": 251659008,
++ "fab_afr_amcc_11": 251659008,
++ "fab_afr_amcc_12": 251659008,
++ "fab_afr_amcc_13": 251659008,
++ "fab_afr_amcc_14": 251659008,
++ "fab_afr_amcc_15": 251659008,
++ "fab_afr_amcc_2": 251659007,
++ "fab_afr_amcc_3": 251659007,
++ "fab_afr_amcc_4": 251659007,
++ "fab_afr_amcc_5": 251659007,
++ "fab_afr_amcc_6": 251659007,
++ "fab_afr_amcc_7": 251659007,
++ "fab_afr_amcc_8": 251659008,
++ "fab_afr_amcc_9": 251659008,
++ "fab_b2bd_afc_0": 251659008,
++ "fab_b2bd_afc_1": 251659008,
++ "fppt": 251658495,
++ "fppt_gfx": 251658495,
++ "fpwm0": 580,
++ "fpwm2": 580,
++ "gfx": 251921152,
++ "global_aux_hpd_0": 580,
++ "global_aux_hpd_1": 580,
++ "gpio": 255,
++ "gpx": 520094719,
++ "i2c0": 255,
++ "i2c1": 255,
++ "i2c2": 255,
++ "i2c3": 255,
++ "i2c4": 255,
++ "i2c5": 255,
++ "i2c6": 580,
++ "i2c7": 580,
++ "i2c8": 255,
++ "isp_sys": 768,
++ "ispsens0": 67109444,
++ "jpg": 251659008,
++ "msg": 255,
++ "msr0": 251659008,
++ "msr0_ase_core": 251659008,
++ "msr1": 251659008,
++ "msr1_ase_core": 251659008,
++ "nub_dock_channel": 255,
++ "nub_gfx_gpio": 767,
++ "nub_gpio": 767,
++ "nub_spmi0": 335544911,
++ "nub_spmi1": 251658495,
++ "nub_spmi2": 335544911,
++ "nub_spmi3": 335544911,
++ "nub_spmi4": 251658495,
++ "nub_spmi_a0": 251658495,
++ "nub_spmi_a1": 251658495,
++ "nub_spmi_a2": 251658752,
++ "nub_spmi_ahb": 255,
++ "pmc": 251658495,
++ "pmgr_soc_ocla": 580,
++ "pmgr_soc_ocla_g": 580,
++ "pmp": 251658495,
++ "pms_c1ppt": 255,
++ "pms_gfx_c1ppt": 255,
++ "pms_sram": 251658495,
++ "prores": 768,
++ "qspi": 255,
++ "scodec": 768,
++ "scodec_streaming": 768,
++ "sep": 520093951,
++ "sio": 520093951,
++ "sio_cpu": 251658495,
++ "soc_dpe": 255,
++ "soc_dpe_gfx": 255,
++ "spi0": 255,
++ "spi1": 255,
++ "spi2": 255,
++ "spi3": 255,
++ "spi4": 255,
++ "spi5": 255,
++ "spi_p": 255,
++ "uart0": 255,
++ "uart1": 255,
++ "uart2": 255,
++ "uart3": 255,
++ "uart4": 767,
++ "uart5": 767,
++ "uart6": 767,
++ "uart_n": 255,
++ "uart_p": 255,
++ "venc0_dma": 768,
++ "venc0_me0": 768,
++ "venc0_me1": 768,
++ "venc0_pipe4": 768,
++ "venc0_pipe5": 768,
++ "venc0_sys": 251659008
++}
+\ No newline at end of file
+diff --git a/dt/t6050-j716s.dts b/dt/t6050-j716s.dts
+index 78994a9..fb2c60a 100644
+--- a/dt/t6050-j716s.dts
++++ b/dt/t6050-j716s.dts
+@@ -15,4 +15,68 @@
+ / {
+ 	compatible = "apple,j716s", "apple,t6050", "apple,arm-platform";
+ 	model = "Apple MacBook Pro (16-inch, M5 Pro, 2026)";
++
++	aliases {
++		/* m1n1 dt_set_ipd(): fills apple,keyboard-layout-id/hid-country-code
++		 * from /arm-io/dockchannel-mtp/mtp-transport/keyboard kblang-calibration */
++		keyboard = &keyboard;
++	};
+ };
++
++/*
++ * J716s is the full 18-core SKU: the runtime ADT lists cpu0-17, six per
++ * cluster, so unlike J714s nothing is fused off here.
++ *
++ * Built-in keyboard + trackpad (MTP): the same mtp-transport children as
++ * J714s (multi-touch CBOR, keyboard, stm, actuator, tp-accel). The trackpad
++ * needs apple/tpmtfw-j716s.bin extracted from the macOS restore bundle.
++ */
++&mtp {
++	status = "okay";
++};
++
++&mtp_mbox {
++	status = "okay";
++};
++
++&mtp_dart {
++	status = "okay";
++};
++
++&mtp_dockchannel {
++	status = "okay";
++};
++
++&mtp_hid {
++	multi-touch {
++		firmware-name = "apple/tpmtfw-j716s.bin";
++	};
++
++	keyboard: keyboard {
++		hid-country-code = <0>;
++		apple,keyboard-layout-id = <0>;
++	};
++
++	stm {
++	};
++
++	actuator {
++	};
++
++	/* ADT calls it tp-accel; the M2/M3 DTs use tp_accel. Which name the
++	 * firmware announces decides which node binds; the other is inert. */
++	tp-accel {
++	};
++
++	tp_accel {
++	};
++
++	/* an extra "mtp" interface exists on the M4 Air (GravityLinux PR #1) */
++	mtp {
++	};
++};
++
++/* SMC sensors: two fans (F0Ac/F1Ac) like J714s; keys not yet probed on J716s. */
++#include "hwmon-common.dtsi"
++#include "hwmon-fan-dual.dtsi"
++#include "hwmon-laptop.dtsi"
+diff --git a/scripts/build-kernel.sh b/scripts/build-kernel.sh
+index be933d2..6db02c8 100755
+--- a/scripts/build-kernel.sh
++++ b/scripts/build-kernel.sh
+@@ -28,7 +28,10 @@ if [ ! -d "$LINUX" ]; then
+ fi
+ 
+ GMAKE="$(command -v gmake || command -v make)"
+-KMAKE=("$GMAKE" -C "$LINUX" ARCH=arm64 LLVM=1 -j"$JOBS")
++KMAKE=("$GMAKE" -C "$LINUX" ARCH=arm64 -j"$JOBS")
++# GCC=1 for hosts with gcc but no ld.lld (Asahi build boxes). Not LLVM=0:
++# the kernel treats any non-empty LLVM as LLVM=1.
++[ "${GCC:-0}" = 1 ] || KMAKE+=(LLVM=1)
+ 
+ if [ "$(uname -s)" = Darwin ]; then
+     # brew LLVM for clang/lld; brew gnu-sed's gnubin first because kernel
+-- 
+2.56.0
+

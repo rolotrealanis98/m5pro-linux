@@ -1,0 +1,42 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# m5pro-vendorfw - make the Apple firmware the macOS installer extracted visible to the kernel.
+#
+# Apple's firmware cannot be redistributed, so this package ships none. The macOS-side installer
+# extracts it from the stub's own restore bundle (omarchy-m5 scripts/extract-tpmtfw.py, which uses
+# asahi-installer's converter) and writes it to the ESP, the one filesystem both macOS and Linux
+# can write (same idea as asahi-installer's ESP vendorfw/ directory, src/osinstall.py:163-167):
+#
+#   ESP/vendorfw/firmware.tar      lib/firmware-relative tree, e.g. apple/tpmtfw-j716s.bin
+#   ESP/vendorfw/firmware.tar.sha256
+#   ESP/vendorfw/source.txt        restore bundle build the blobs came from (e.g. 26C5035r)
+#
+# At boot this unpacks it into /run/m5pro/vendorfw (tmpfs, nothing written under /usr that no
+# package owns) and points the firmware loader's custom search path at it
+# (/sys/module/firmware_class/parameters/path, the runtime form of firmware_class.path=).
+# The trackpad driver loads tpmtfw on every open, i.e. after this runs
+# (omarchy-m5 scripts/mkrootfs-image.py:81-82).
+#
+# The firmware must match the stub's stage-2 (extract-tpmtfw.py:29-30: "the preloaded MTP image and
+# tpmtfw must be a pair"), which is why it is re-read from the ESP on every boot instead of being
+# copied once: refreshing the stub from macOS rewrites ESP/vendorfw and Linux follows.
+set -euo pipefail
+OUT=/run/m5pro/vendorfw
+uuid=$(tr -d '\0' < /proc/device-tree/chosen/asahi,efi-system-partition 2>/dev/null || true)
+if [ -z "$uuid" ] && [ -r /etc/m5pro/boot.conf ]; then
+    uuid=$(sed -n 's/^ESP_PARTUUID="\{0,1\}\([0-9a-fA-F-]*\)"\{0,1\}$/\1/p' /etc/m5pro/boot.conf)
+fi
+[ -n "$uuid" ] || { echo "m5pro-vendorfw: ESP unknown, no firmware loaded" >&2; exit 0; }
+dev=/dev/disk/by-partuuid/${uuid,,}
+mnt=$(mktemp -d /run/m5pro-vendorfw-esp.XXXXXX)
+trap 'umount "$mnt" 2>/dev/null; rmdir "$mnt"' EXIT
+mount -t vfat -o ro "$dev" "$mnt"
+tar=$mnt/vendorfw/firmware.tar
+[ -f "$tar" ] || { echo "m5pro-vendorfw: no vendorfw/firmware.tar on the ESP" >&2; exit 0; }
+if [ -f "$tar.sha256" ]; then
+    (cd "$mnt/vendorfw" && sha256sum -c --quiet firmware.tar.sha256) || { echo "m5pro-vendorfw: checksum mismatch, not loading" >&2; exit 1; }
+fi
+rm -rf "$OUT"; mkdir -p "$OUT"
+tar -xf "$tar" -C "$OUT" --no-same-owner --no-same-permissions
+echo -n "$OUT" > /sys/module/firmware_class/parameters/path
+echo "m5pro-vendorfw: $(find "$OUT" -type f | wc -l) files from $(cat "$mnt/vendorfw/source.txt" 2>/dev/null || echo 'unknown build')"

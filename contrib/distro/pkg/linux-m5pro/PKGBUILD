@@ -1,0 +1,93 @@
+# Maintainer: m5pro-linux
+# Kernel for the MacBook Pro M5 Pro (T6050, J714s/J716s), built exactly the way
+# omarchy-m5 scripts/build-kernel.sh builds the kernel that boots today
+# (m5pro-linux SOURCES.md rows "Linux", "Kernel config", "Kernel release").
+#
+# Output layout (Arch kernel convention, plus what the ESP payload needs):
+#   /usr/lib/modules/$kver/vmlinuz          uncompressed Image (mkinitcpio reads the version from it)
+#   /usr/lib/modules/$kver/Image.gz         what m5pro-update-payload packs into m1n1/boot.bin
+#   /usr/lib/modules/$kver/dtbs/apple/t6050-j71{4,6}s.dtb
+#   /usr/lib/modules/$kver/pkgbase          "linux-m5pro" (90-mkinitcpio-install.hook keys on it)
+#   /etc/mkinitcpio.d/linux-m5pro.preset    default image only, gzip via m5pro-boot's drop-in
+pkgbase=linux-m5pro
+pkgname=linux-m5pro
+_asahi_commit=236788cd2602a24c703fe7bdaddaf73ef77d2027      # asahi-wip-7.2
+_omarchy_commit=15cd70c1fad65322b85be4de4362cbed816a11c1    # betizzel/omarchy-m5 main
+pkgver=7.2.2
+pkgrel=1
+pkgdesc="Linux for MacBook Pro M5 Pro (asahi-wip-7.2 + omarchy-m5 T6050 patches)"
+arch=(aarch64)
+url="https://github.com/AsahiLinux/linux"
+license=(GPL-2.0-only)
+depends=(coreutils kmod mkinitcpio)
+optdepends=('m5pro-boot: rebuilds the ESP boot payload when this package changes'
+            'm5pro-firmware: Apple firmware (trackpad) from the ESP')
+makedepends=(bc cpio gettext git libelf pahole perl python tar xz dtc
+             rust rust-src rust-bindgen)
+options=(!strip !debug)
+source=("linux::git+https://github.com/AsahiLinux/linux.git#commit=${_asahi_commit}"
+        "omarchy-m5::git+https://github.com/betizzel/omarchy-m5.git#commit=${_omarchy_commit}"
+        # m5pro-linux patches/omarchy-m5/0001: J716s board DT + measured PMGR boot state
+        0001-j716s-16-inch-M5-Pro-board-DT-measured-pmgr-boot-sta.patch
+        m5pro-distro.config
+        linux-m5pro.preset)
+sha256sums=(SKIP SKIP SKIP SKIP SKIP)
+
+_kmake() { make -C "$srcdir/linux" ARCH=arm64 KBUILD_BUILD_HOST=archlinux KBUILD_BUILD_USER="$pkgbase" "$@"; }
+
+prepare() {
+    cd "$srcdir/omarchy-m5"
+    patch -Np1 -i "$srcdir/0001-j716s-16-inch-M5-Pro-board-DT-measured-pmgr-boot-sta.patch"
+
+    cd "$srcdir/linux"
+    local p
+    for p in "$srcdir"/omarchy-m5/patches/linux/*.patch; do
+        echo "applying $(basename "$p")"
+        patch -Np1 -i "$p"
+    done
+    # build-kernel.sh:50-56: overlay the T6050 DTs and the config fragments
+    install -m644 "$srcdir"/omarchy-m5/dt/t6050*.dts* arch/arm64/boot/dts/apple/
+    install -m644 "$srcdir"/omarchy-m5/configs/omarchy-*.config "$srcdir/m5pro-distro.config" \
+        arch/arm64/configs/
+    # build-kernel.sh:58-69: register the board DTBs
+    if ! grep -q '>>> omarchy-m5' arch/arm64/boot/dts/apple/Makefile; then
+        printf '%s\n' '# >>> omarchy-m5' \
+            'dtb-$(CONFIG_ARCH_APPLE) += t6050-j714s.dtb' \
+            'dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s.dtb' '# <<< omarchy-m5' \
+            >> arch/arm64/boot/dts/apple/Makefile
+    fi
+    # SOURCES.md "Kernel config"; m5pro-distro.config last so it wins
+    _kmake defconfig asahi.config omarchy-bringup.config omarchy-storage-net.config \
+        omarchy-smc.config m5pro-distro.config
+    # build-kernel.sh:74-78: a module or unset symbol here means a silent boot
+    local sym
+    for sym in CONFIG_DRM CONFIG_DRM_SIMPLEDRM CONFIG_DRM_FBDEV_EMULATION \
+               CONFIG_FRAMEBUFFER_CONSOLE CONFIG_VT_CONSOLE CONFIG_DEVTMPFS_MOUNT \
+               CONFIG_NVME_APPLE CONFIG_APPLE_SART CONFIG_APPLE_DART CONFIG_USB_DWC3 \
+               CONFIG_USB_CONFIGFS CONFIG_USB_CONFIGFS_NCM CONFIG_USB_CONFIGFS_ACM; do
+        grep -qx "$sym=y" .config || { echo "$sym is not =y" >&2; return 1; }
+    done
+    _kmake -s kernelrelease > "$srcdir/kernelrelease"
+    echo "kernel release: $(cat "$srcdir/kernelrelease")"
+}
+
+build() {
+    # GCC: the toolchain that built the kernel that boots today (SOURCES.md, GCC=1)
+    _kmake -j"$(nproc)" Image Image.gz modules dtbs
+}
+
+package() {
+    local kver modulesdir
+    kver=$(cat "$srcdir/kernelrelease")
+    modulesdir="$pkgdir/usr/lib/modules/$kver"
+    cd "$srcdir/linux"
+
+    _kmake INSTALL_MOD_PATH="$pkgdir/usr" INSTALL_MOD_STRIP=1 DEPMOD=/doesnt/exist modules_install
+    _kmake INSTALL_DTBS_PATH="$modulesdir/dtbs" dtbs_install
+    install -Dm644 arch/arm64/boot/Image    "$modulesdir/vmlinuz"
+    install -Dm644 arch/arm64/boot/Image.gz "$modulesdir/Image.gz"
+    echo "$pkgbase" | install -Dm644 /dev/stdin "$modulesdir/pkgbase"
+    rm -f "$modulesdir"/build "$modulesdir"/source
+    sed "s|@KVER@|$kver|" "$srcdir/linux-m5pro.preset" |
+        install -Dm644 /dev/stdin "$pkgdir/etc/mkinitcpio.d/linux-m5pro.preset"
+}

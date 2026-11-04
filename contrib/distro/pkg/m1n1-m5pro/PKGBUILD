@@ -1,0 +1,79 @@
+# Maintainer: m5pro-linux
+# m1n1 for the MacBook Pro M5 Pro: upstream main @ 7cde7d1a + m5pro-linux patches/m1n1/0001-0014
+# (= branch m5-t6050 @ f8c3f941, m5pro-linux SOURCES.md). Two builds from the same tree:
+#
+#   /usr/lib/m1n1-m5pro/m1n1-stage2.bin        CHAINLOADING=0: first object in m1n1/boot.bin
+#                                              (m5pro-update-payload appends kernel/DTB/initramfs)
+#   /usr/lib/m1n1-m5pro/m1n1-stage1-chain.bin  CHAINLOADING=1, bare: the stage-1 source; the
+#                                              macOS side turns it into the iBoot object with
+#                                              m5pro-mk-stage1 (ESP chainload= + 64 KiB padding)
+#
+# Built in two copies of the tree because m1n1's build/build_cfg.h rule has no prerequisites and
+# silently keeps the previous CHAINLOADING setting (omarchy-m5 scripts/build-m1n1.sh:37-48).
+pkgname=m1n1-m5pro
+_commit=7cde7d1a784d851ebfee5579fa363c38b14150c0
+pkgver=1.6.1.m5pro14
+pkgrel=1
+pkgdesc="m1n1 bootloader for MacBook Pro M5 Pro (T6050), stage-2 and stage-1 builds"
+arch=(aarch64)
+url="https://github.com/AsahiLinux/m1n1"
+license=(MIT)
+makedepends=(git clang lld rustup)
+optdepends=('m5pro-boot: packs m1n1-stage2.bin into the ESP payload and stages stage-1 images')
+source=("m1n1::git+https://github.com/AsahiLinux/m1n1.git#commit=${_commit}"
+        0001-t6050-kboot-bring-up-diagnostics-DAPF-window-clamp-P.patch
+        0002-hv-gate-guest-timers-via-IMASK-when-VM_TMR_FIQ_ENA-i.patch
+        0003-string-provide-wcslen-for-llvm-loop-idioms.patch
+        0004-chainload-keep-out-of-the-CTRR-window-optional-armed.patch
+        0005-usb-skip-the-USB-PD-HPM-probe-on-T6050.patch
+        0006-hv-route-AVNCR_EL2-writes-through-GL2-needed-on-T605.patch
+        0007-t6050-clang-format-the-rebased-omarchy-m5-patches.patch
+        0008-hv-amcc-skip-the-IRQ-hook-when-error-handler-has-no-.patch
+        0009-hv-sprr-emulate-S3_0_C11_C9_0-for-T6050-SPTM.patch
+        0010-hv-sprr-keep-the-SPRR-pool-out-of-T6050-s-MTE-tag-st.patch
+        0011-hv-sprr-align-the-guest-RAM-top-to-1-MiB-for-T6050-M.patch
+        0012-wdt-dead-man-switch-for-unattended-hv-runs.patch
+        0013-chainload-relocate-above-the-CTRR-window-instead-of-.patch
+        0014-smp-MAX_CPUS-32-24-to-keep-the-raw-image-under-the-T.patch)
+sha256sums=(SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP)
+
+prepare() {
+    cd "$srcdir/m1n1"
+    git submodule update --init --recursive
+    local p
+    for p in "$srcdir"/00*.patch; do
+        git -c user.name=makepkg -c user.email=makepkg@localhost am -q "$p"
+    done
+    # m1n1 needs the bare-metal Rust target; Arch's rust package does not ship it.
+    rustup target add aarch64-unknown-none-softfloat
+    rustup component add rust-src
+    rm -rf "$srcdir/build-stage2" "$srcdir/build-stage1"
+    cp -a "$srcdir/m1n1" "$srcdir/build-stage2"
+    cp -a "$srcdir/m1n1" "$srcdir/build-stage1"
+}
+
+build() {
+    # RELEASE=0 and the default LOGO: the configuration measured to boot on the J716s
+    # (stage-1 0x420000 bare, 0x430000 padded). Changing either changes the image size,
+    # and stage-1 size is the one constraint that cannot be fixed without a ceremony.
+    make -C "$srcdir/build-stage2" -j"$(nproc)" CHAINLOADING=0 RELEASE=0
+    make -C "$srcdir/build-stage1" -j"$(nproc)" CHAINLOADING=1 RELEASE=0
+}
+
+check() {
+    local s1 s2
+    s1=$(stat -c %s "$srcdir/build-stage1/build/m1n1.bin")
+    s2=$(stat -c %s "$srcdir/build-stage2/build/m1n1.bin")
+    echo "stage-1 (chainloading) 0x$(printf %x "$s1"), stage-2 (plain) 0x$(printf %x "$s2")"
+    # docs/boot-and-recovery.md:174-181: 0x420000 bare boots; refuse anything that would pad
+    # past 0x430000, the largest CHAINLOADING stage-1 measured to boot.
+    [ "$s1" -le $((0x42FF00)) ] || { echo "stage-1 grew past the measured envelope" >&2; return 1; }
+    grep -qa 'chosen.asahi,m1n1-stage1-version=' "$srcdir/build-stage1/build/m1n1.bin"
+    grep -qa 'Chainloading files not supported' "$srcdir/build-stage2/build/m1n1.bin"
+}
+
+package() {
+    install -Dm644 "$srcdir/build-stage2/build/m1n1.bin" "$pkgdir/usr/lib/m1n1-m5pro/m1n1-stage2.bin"
+    install -Dm644 "$srcdir/build-stage1/build/m1n1.bin" "$pkgdir/usr/lib/m1n1-m5pro/m1n1-stage1-chain.bin"
+    install -Dm644 "$srcdir/m1n1/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

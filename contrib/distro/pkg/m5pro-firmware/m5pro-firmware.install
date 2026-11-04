@@ -1,0 +1,1 @@
+post_install() { systemctl enable m5pro-vendorfw.service >/dev/null 2>&1 || true; }

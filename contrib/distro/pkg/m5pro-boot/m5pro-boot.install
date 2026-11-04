@@ -1,0 +1,5 @@
+post_install() {
+    systemctl enable m5pro-boot-ok.service systemd-boot-check-no-failures.service >/dev/null 2>&1 || true
+    echo ">>> m5pro-boot: run 'm5pro-update-payload build' once the kernel and m1n1 are installed."
+}
+post_upgrade() { :; }

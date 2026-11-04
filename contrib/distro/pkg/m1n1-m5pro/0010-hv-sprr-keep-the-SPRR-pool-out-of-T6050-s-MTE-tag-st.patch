@@ -1,0 +1,59 @@
+From 62f7ba74a25e76fd132998d06a308f0d9fa3d0cf Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 08:18:32 -0400
+Subject: [PATCH 10/12] hv: sprr: keep the SPRR pool out of T6050's MTE tag
+ storage
+
+S3_0_C11_C9_0 is TagOffset_EL2: iBoot puts MTE tag storage in the top 1/32 of RAM (1.5 GiB on a 48 GiB J716s). Stealing the 2 GiB pool from the top of RAM put it on top of the tag storage, and SPTM's sptm_init_mte_boundaries panicked: it recomputes TagOffset from the guest's smaller RAM top (expected 0x10ae8900000, actual 0x10b68a00000). Take the tag storage and then the pool off the top, and give the guest the TagOffset SPTM computes for its RAM top.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/hv/hv_sprr.c | 27 ++++++++++++++++++++++++++-
+ 1 file changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/src/hv/hv_sprr.c b/src/hv/hv_sprr.c
+index 87ed6bfd..c274cadb 100644
+--- a/src/hv/hv_sprr.c
++++ b/src/hv/hv_sprr.c
+@@ -227,12 +227,37 @@ static struct sprr_chunk *sprr_chunks;
+ static void *sprr_free_tables;
+ static u64 sprr_pool_base, sprr_pool_top;
+ 
++#define TAGOFFSET_ADDR GENMASK(41, 20)
++
+ u64 hv_sprr_reserve_pool(u64 size)
+ {
++    u64 tagoffset = 0, tag_size = 0;
++
++    /*
++     * T6050: iBoot puts the MTE tag storage at the top of RAM (TagOffset_EL2). Keep the pool
++     * below it, out of the guest's RAM too, so guest tag writes never land in our tables.
++     */
++    if (chip_id == T6050 || chip_id == T6051) {
++        tagoffset = mrs(sys_reg(3, 0, 11, 9, 0));
++        tag_size = cur_boot_args.phys_base + cur_boot_args.mem_size - (tagoffset & TAGOFFSET_ADDR);
++        top_of_memory_alloc(tag_size);
++    }
++
+     size = ALIGN_UP(size, SPRR_CHUNK_TABLES * SPRR_TABLE_SIZE);
+     sprr_pool_base = top_of_memory_alloc(size);
+     sprr_pool_top = sprr_pool_base + size;
+-    return cur_boot_args.phys_base + cur_boot_args.mem_size;
++    u64 top = cur_boot_args.phys_base + cur_boot_args.mem_size;
++
++    /* SPTM recomputes TagOffset from the top of the RAM it is given and panics on a mismatch */
++    if (tag_size) {
++        tagoffset = (tagoffset & ~TAGOFFSET_ADDR) | ALIGN_DOWN(top - tag_size, SZ_1M);
++        for (int i = 0; i < MAX_CPUS; i++)
++            hv_sprr_cpus[i].shadow[HV_VREG_S3_0_C11_C9_0] = tagoffset;
++        printf("hv_sprr: MTE tag storage %ld MiB kept out of the guest, TagOffset_EL2 = 0x%lx\n",
++               tag_size >> 20, tagoffset);
++    }
++
++    return top;
+ }
+ 
+ static u64 *sprr_pool_alloc(void)
+-- 
+2.56.0
+

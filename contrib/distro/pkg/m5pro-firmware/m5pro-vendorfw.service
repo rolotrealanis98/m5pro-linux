@@ -1,0 +1,15 @@
+[Unit]
+Description=Load Apple vendor firmware for the M5 Pro from the ESP
+DefaultDependencies=no
+After=local-fs.target systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+Before=sysinit.target display-manager.service getty.target
+ConditionPathExists=/proc/device-tree/chosen
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/m5pro-vendorfw
+
+[Install]
+WantedBy=sysinit.target

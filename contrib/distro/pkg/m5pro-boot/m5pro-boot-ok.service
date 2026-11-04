@@ -1,0 +1,14 @@
+# After a boot that systemd counts as good, promote the running payload to m1n1/fallback.bin.
+# Pulls in boot-complete.target and runs after it; systemd-boot-check-no-failures.service
+# (RequiredBy= that target, enabled by the install script) fails it when any unit failed.
+[Unit]
+Description=Mark the running M5 Pro boot payload as known-good
+Requires=boot-complete.target
+After=boot-complete.target local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/m5pro-update-payload mark-good
+
+[Install]
+WantedBy=multi-user.target

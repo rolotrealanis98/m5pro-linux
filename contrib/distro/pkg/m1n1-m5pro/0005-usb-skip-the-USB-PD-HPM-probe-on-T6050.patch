@@ -1,0 +1,33 @@
+From 9906d2a70ce9b7efb77e5f031bff8e2909b59729 Mon Sep 17 00:00:00 2001
+From: betim-hodza <bhodza02@proton.me>
+Date: Tue, 20 Oct 2026 06:03:58 -0400
+Subject: [PATCH 05/12] usb: skip the USB-PD HPM probe on T6050
+
+From omarchy-m5 patches/m1n1/0005, rebased onto upstream main (tps6598x_foreach_hpm gained enable_power). Comment corrected: m1n1 speaks gen-4 SPMI since a09a5e26; the probe itself hangs.
+---
+ src/usb.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/src/usb.c b/src/usb.c
+index 344438c0..e72cf113 100644
+--- a/src/usb.c
++++ b/src/usb.c
+@@ -309,7 +309,14 @@ void usb_init(void)
+         return;
+     }
+ 
+-    tps6598x_foreach_hpm(usb_init_match, usb_init_one, NULL, true);
++    /*
++     * T6050 (M5 Pro): probing the sn201202x USB-PD controllers on nub-spmi
++     * hangs usb_init before the proxy gadget comes up (seen by omarchy-m5 on
++     * main with gen-4 SPMI support). The gadget only needs the dwc3 phys
++     * brought up below, so skip the PD manager on T6050.
++     */
++    if (chip_id != T6050)
++        tps6598x_foreach_hpm(usb_init_match, usb_init_one, NULL, true);
+ 
+     for (int idx = 0; idx < USB_IODEV_COUNT; ++idx)
+         usb_phy_bringup(idx); /* Fails on missing devices, just continue */
+-- 
+2.56.0
+

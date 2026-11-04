@@ -1,0 +1,13 @@
+# A new m1n1 package: stage a matching stage-1 on the ESP for the macOS side to install.
+# Never touches the installed stage-1 (only macOS in paired 1TR can).
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Target = usr/lib/m1n1-m5pro/m1n1-stage1-chain.bin
+
+[Action]
+Description = Staging the M5 Pro stage-1 image on the ESP (m5pro/stage1/pending.bin)...
+When = PostTransaction
+Exec = /usr/bin/m5pro-update-payload stage1
+Depends = python

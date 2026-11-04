@@ -1,0 +1,34 @@
+# Maintainer: m5pro-linux
+# Boot glue for the MacBook Pro M5 Pro (T6050): builds the ESP stage-2 payload
+# (m1n1 + bootargs + Image.gz + DTB + initramfs) whenever its inputs change,
+# keeps rollback/fallback slots, and stages new stage-1 images for macOS.
+pkgname=m5pro-boot
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="ESP boot payload management for Linux on MacBook Pro M5 Pro (m1n1 stage-2)"
+arch=(any)
+url="https://github.com/RolandoT98/m5pro-linux"
+license=(MIT)
+depends=(bash coreutils util-linux grep sed python mkinitcpio systemd)
+optdepends=('linux-m5pro: the kernel the payload carries'
+            'm1n1-m5pro: the stage-2 m1n1 the payload starts with')
+backup=(etc/m5pro/boot.conf etc/mkinitcpio.conf.d/m5pro.conf)
+install=m5pro-boot.install
+source=(m5pro-update-payload
+        mk-stage1.py
+        95-m5pro-payload.hook
+        96-m5pro-stage1.hook
+        m5pro-boot-ok.service
+        m5pro-mkinitcpio.conf
+        boot.conf)
+sha256sums=(SKIP SKIP SKIP SKIP SKIP SKIP SKIP)
+
+package() {
+    install -Dm755 m5pro-update-payload "$pkgdir/usr/bin/m5pro-update-payload"
+    install -Dm755 mk-stage1.py         "$pkgdir/usr/bin/m5pro-mk-stage1"
+    install -Dm644 95-m5pro-payload.hook "$pkgdir/usr/share/libalpm/hooks/95-m5pro-payload.hook"
+    install -Dm644 96-m5pro-stage1.hook  "$pkgdir/usr/share/libalpm/hooks/96-m5pro-stage1.hook"
+    install -Dm644 m5pro-boot-ok.service "$pkgdir/usr/lib/systemd/system/m5pro-boot-ok.service"
+    install -Dm644 m5pro-mkinitcpio.conf "$pkgdir/etc/mkinitcpio.conf.d/m5pro.conf"
+    install -Dm644 boot.conf             "$pkgdir/etc/m5pro/boot.conf"
+}

@@ -1,0 +1,97 @@
+From 549ec7c10730b60fab0529ee1f46c7a3da0e54cd Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 08:24:53 -0400
+Subject: [PATCH 12/12] wdt: dead-man switch for unattended hv runs
+
+With m1n1.wdt=keep the primary watchdog stays armed; proxy_process() and hv_tick() now reset its count, so it only bites when m1n1 itself wedges. The register holds at most ~170 s of 24 MHz ticks, shorter than an SPTM guest load, so it has to be petted.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/hv/hv.c |  2 ++
+ src/proxy.c |  2 ++
+ src/wdt.c   | 10 ++++++++++
+ src/wdt.h   |  1 +
+ 4 files changed, 15 insertions(+)
+
+diff --git a/src/hv/hv.c b/src/hv/hv.c
+index bb1dfb3a..f805d457 100644
+--- a/src/hv/hv.c
++++ b/src/hv/hv.c
+@@ -13,6 +13,7 @@
+ #include "string.h"
+ #include "usb.h"
+ #include "utils.h"
++#include "wdt.h"
+ 
+ #define HV_TICK_RATE      1000
+ #define HV_SLOW_TICK_RATE 1
+@@ -560,6 +561,7 @@ void hv_maybe_exit(void)
+ 
+ void hv_tick(struct exc_info *ctx)
+ {
++    wdt_kick();
+     hv_wdt_pet();
+     iodev_handle_events(uartproxy_iodev);
+     if (iodev_can_read(uartproxy_iodev)) {
+diff --git a/src/proxy.c b/src/proxy.c
+index 7ae72a59..011b6337 100644
+--- a/src/proxy.c
++++ b/src/proxy.c
+@@ -27,6 +27,7 @@
+ #include "uartproxy.h"
+ #include "usb.h"
+ #include "utils.h"
++#include "wdt.h"
+ #include "xnuboot.h"
+ 
+ #include "minilzlib/minlzma.h"
+@@ -37,6 +38,7 @@ void rust_free_gigalocker(void *, size_t);
+ 
+ int proxy_process(ProxyRequest *request, ProxyReply *reply)
+ {
++    wdt_kick();
+     enum exc_guard_t guard_save = exc_guard;
+ 
+     reply->opcode = request->opcode;
+diff --git a/src/wdt.c b/src/wdt.c
+index 072bacec..0b974bc1 100644
+--- a/src/wdt.c
++++ b/src/wdt.c
+@@ -12,6 +12,15 @@
+ #define WDT_CTL   0x1c
+ 
+ static u64 wdt_base = 0;
++static bool wdt_kept = false;
++
++// Dead-man switch for unattended runs: the proxy loop and the HV tick reset the count of a
++// watchdog left armed by m1n1.wdt=keep, so only a wedged m1n1 lets it bite.
++void wdt_kick(void)
++{
++    if (wdt_kept)
++        write32(wdt_base + WDT_COUNT, 0);
++}
+ 
+ void wdt_disable(void)
+ {
+@@ -35,6 +44,7 @@ void wdt_disable(void)
+     // The host disarms it once the new proxy answers (hv/wdt-arm.py --off).
+     if (strstr(cur_boot_args.rv1.cmdline, "m1n1.wdt=keep")) {
+         printf("Primary WDT left armed (m1n1.wdt=keep)\n");
++        wdt_kept = true;
+         return;
+     }
+     write32(wdt_base + WDT_CTL, 0);
+diff --git a/src/wdt.h b/src/wdt.h
+index 769a7c04..00633282 100644
+--- a/src/wdt.h
++++ b/src/wdt.h
+@@ -5,5 +5,6 @@
+ 
+ void wdt_disable(void);
+ void wdt_reboot(void);
++void wdt_kick(void);
+ 
+ #endif
+-- 
+2.56.0
+

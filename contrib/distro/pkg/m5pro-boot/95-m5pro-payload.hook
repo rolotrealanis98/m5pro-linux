@@ -1,0 +1,26 @@
+# Rebuild m1n1/boot.bin on the ESP after anything it is made of changes.
+# Runs after 90-mkinitcpio-install.hook (hooks run in filename order), so the
+# initramfs it packs is the one mkinitcpio just generated.
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Target = usr/lib/modules/*/Image.gz
+Target = usr/lib/modules/*/dtbs/apple/t6050-*.dtb
+Target = usr/lib/m1n1-m5pro/m1n1-stage2.bin
+Target = usr/lib/initcpio/*
+Target = etc/mkinitcpio.conf.d/m5pro.conf
+
+[Trigger]
+Type = Package
+Operation = Install
+Operation = Upgrade
+Target = m5pro-boot
+Target = mkinitcpio
+
+[Action]
+Description = Updating the M5 Pro boot payload on the ESP (m1n1/boot.bin)...
+When = PostTransaction
+Exec = /usr/bin/m5pro-update-payload build
+Depends = python
+Depends = util-linux

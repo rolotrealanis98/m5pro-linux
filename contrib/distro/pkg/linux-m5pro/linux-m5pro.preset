@@ -1,0 +1,5 @@
+# mkinitcpio preset for linux-m5pro. One image: there is no boot menu to pick a
+# "fallback" initramfs from; the fallback is m1n1/fallback.bin (a whole payload).
+ALL_kver='@KVER@'
+PRESETS=('default')
+default_image="/boot/initramfs-linux-m5pro.img"

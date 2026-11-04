@@ -1,0 +1,66 @@
+From ec058f70bc16ea300c3d45c8f54b761ce45c14cd Mon Sep 17 00:00:00 2001
+From: betim-hodza <bhodza02@proton.me>
+Date: Tue, 20 Oct 2026 06:04:06 -0400
+Subject: [PATCH 06/12] hv: route AVNCR_EL2 writes through GL2 (needed on
+ T6050/M5)
+
+From omarchy-m5 patches/m1n1/0006, ported by hand onto upstream main, where the AVNCR writes now sit behind SPTM_NESTED_VIRT.
+---
+ src/hv/hv.c | 14 ++++++++++++--
+ src/hv/hv.h |  1 +
+ 2 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/src/hv/hv.c b/src/hv/hv.c
+index 70753f28..bb1dfb3a 100644
+--- a/src/hv/hv.c
++++ b/src/hv/hv.c
+@@ -166,7 +166,7 @@ void hv_init(void)
+         printf("Enabling NV\n");
+         hv_write_hcr(mrs(SYS_HCR_EL2) | HCR_NV2 | HCR_NV);
+         msr(VNCR_EL2, &nvMem[0]);
+-        msr(SYS_IMP_APL_AVNCR_EL2, &anvMem[0]);
++        hv_write_avncr((u64)&anvMem[0]);
+     }
+ 
+     // No guest vectors initially
+@@ -356,7 +356,7 @@ static void hv_init_secondary(struct hv_secondary_info_t *info)
+ 
+     if (hv_sptm_mode == SPTM_NESTED_VIRT) {
+         msr(VNCR_EL2, &nvMem[smp_id()]);
+-        msr(SYS_IMP_APL_AVNCR_EL2, &anvMem[smp_id()]);
++        hv_write_avncr((u64)&anvMem[smp_id()]);
+     }
+ 
+     if (cpu_features->apple_sysregs_unlocked)
+@@ -475,6 +475,16 @@ void hv_write_hacr(u64 val)
+         msr(HACR_EL2, val);
+ }
+ 
++void hv_write_avncr(u64 val)
++{
++    // On T6050 (M5) AVNCR_EL2 is only writable from GL2; a direct EL2 write
++    // UNDEFs. Route it like hv_write_hcr/hv_write_hacr.
++    if (gxf_enabled() && !in_gl12())
++        gl2_call(hv_write_avncr, val, 0, 0, 0);
++    else
++        msr(SYS_IMP_APL_AVNCR_EL2, val);
++}
++
+ u64 hv_get_spsr(void)
+ {
+     if (in_gl12())
+diff --git a/src/hv/hv.h b/src/hv/hv.h
+index 70bb56d4..e57c7be9 100644
+--- a/src/hv/hv.h
++++ b/src/hv/hv.h
+@@ -120,6 +120,7 @@ void hv_do_panic(void);
+ void hv_update_fiq(void);
+ void hv_write_hcr(u64 val);
+ void hv_write_hacr(u64 val);
++void hv_write_avncr(u64 val);
+ u64 hv_get_spsr(void);
+ void hv_set_spsr(u64 val);
+ u64 hv_get_esr(void);
+-- 
+2.56.0
+
