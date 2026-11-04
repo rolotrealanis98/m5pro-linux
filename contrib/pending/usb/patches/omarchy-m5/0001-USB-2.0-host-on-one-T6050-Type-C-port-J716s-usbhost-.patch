@@ -1,0 +1,888 @@
+From c9d20fff668f1bc30708369f255a6f2dbbf9dcb0 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 18:17:53 -0500
+Subject: [PATCH] USB 2.0 host on one T6050 Type-C port (J716s usbhost DTB)
+
+- patches/linux/0010: phy-apple-usb2, the USB2 half of the Type-C PHY
+  (m1n1's bring-up sequence plus the host-mode SIG bits).
+- patches/linux/0011: build tipd/ when only SN201202x is enabled.
+- patches/linux/0012: sn201202x without SPMI interrupts (gen 4 SPMI).
+- dt/t6050-usb-host.dtsi: usb2phy nodes; T6050_USB_HOST_PORT (default 1,
+  left-front) becomes dual-role with a role switch starting in host mode;
+  the two other ports stay peripheral for the CDC-EEM tether.
+- dt/t6050-j716s-usbhost.dts: separate DTB, t6050-j716s.dtb unchanged.
+- configs/omarchy-usb-host.config: xHCI, PHY, Ethernet/Wi-Fi dongles,
+  UAS, SN201202x, all =y (no modules on the target).
+- build-kernel.sh: install the new files, register the DTB (rewriting the
+  marker block so existing trees pick it up), merge the fragment, and
+  require its key symbols so an old .config is regenerated.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ configs/omarchy-usb-host.config               |  50 +++
+ dt/t6050-j716s-usbhost.dts                    |  18 +
+ dt/t6050-usb-host.dtsi                        |  91 +++++
+ ...phy-apple-usb2-only-type-c-phy-t6050.patch | 325 ++++++++++++++++++
+ ...-typec-build-tipd-for-sn201202x-only.patch |  15 +
+ ...c-tipd-sn201202x-polled-no-spmi-irqs.patch | 258 ++++++++++++++
+ scripts/build-kernel.sh                       |  18 +-
+ 7 files changed, 769 insertions(+), 6 deletions(-)
+ create mode 100644 configs/omarchy-usb-host.config
+ create mode 100644 dt/t6050-j716s-usbhost.dts
+ create mode 100644 dt/t6050-usb-host.dtsi
+ create mode 100644 patches/linux/0010-phy-apple-usb2-only-type-c-phy-t6050.patch
+ create mode 100644 patches/linux/0011-usb-typec-build-tipd-for-sn201202x-only.patch
+ create mode 100644 patches/linux/0012-usb-typec-tipd-sn201202x-polled-no-spmi-irqs.patch
+
+diff --git a/configs/omarchy-usb-host.config b/configs/omarchy-usb-host.config
+new file mode 100644
+index 0000000..d71538e
+--- /dev/null
++++ b/configs/omarchy-usb-host.config
+@@ -0,0 +1,50 @@
++# omarchy-m5 / m5pro-linux: USB 2.0 host on the T6050 Type-C ports.
++# Merge AFTER omarchy-storage-net.config. Everything a first test needs is
++# =y: the kernel is shipped as Image.gz without modules_install, so =m
++# drivers are not on the target.
++
++# --- dwc3 dual role (already =y) + xHCI platform host ------------------
++CONFIG_USB_DWC3=y
++CONFIG_USB_DWC3_DUAL_ROLE=y
++CONFIG_USB_XHCI_HCD=y
++CONFIG_USB_XHCI_PLATFORM=y
++CONFIG_USB_ROLE_SWITCH=y
++CONFIG_USB_ANNOUNCE_NEW_DEVICES=y
++
++# --- USB2-only Type-C PHY (new driver, drivers/phy/apple/usb2.c) --------
++CONFIG_PHY_APPLE_USB2=y
++
++# --- Ethernet dongles ---------------------------------------------------
++CONFIG_USB_NET_DRIVERS=y
++CONFIG_USB_USBNET=y
++CONFIG_USB_RTL8152=y
++CONFIG_USB_NET_AX8817X=y
++CONFIG_USB_NET_AX88179_178A=y
++CONFIG_USB_NET_CDCETHER=y
++CONFIG_USB_NET_CDC_NCM=y
++CONFIG_USB_NET_CDC_EEM=y
++CONFIG_USB_NET_RNDIS_HOST=y
++
++# --- Storage, input, hubs (USB_STORAGE/USB_HID already =y) --------------
++CONFIG_USB_STORAGE=y
++CONFIG_USB_UAS=y
++CONFIG_BLK_DEV_SD=y
++CONFIG_VFAT_FS=y
++CONFIG_EXFAT_FS=y
++CONFIG_USB_HID=y
++CONFIG_HID_GENERIC=y
++
++# --- Wi-Fi dongles (need /lib/firmware on the root fs) -----------------
++# cfg80211 depends on RFKILL || !RFKILL: RFKILL=m would cap it at m
++CONFIG_RFKILL=y
++CONFIG_CFG80211=y
++CONFIG_MAC80211=y
++CONFIG_RTL8XXXU=y
++CONFIG_MT7601U=y
++CONFIG_MT76x2U=y
++
++# --- USB-PD controller (milestone 1b; binds only with t6050-usb-pd.dtsi) -
++CONFIG_TYPEC=y
++CONFIG_TYPEC_SN201202X=y
++# CONFIG_TYPEC_TPS6598X is not set
++
+diff --git a/dt/t6050-j716s-usbhost.dts b/dt/t6050-j716s-usbhost.dts
+new file mode 100644
+index 0000000..9c7501a
+--- /dev/null
++++ b/dt/t6050-j716s-usbhost.dts
+@@ -0,0 +1,18 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Apple MacBook Pro (16-inch, M5 Pro, 2026), J716s: the normal board DT
++ * plus USB 2.0 host mode on one Type-C port (t6050-usb-host.dtsi).
++ *
++ * A separate DTB on purpose: t6050-j716s.dtb stays byte-identical, so
++ * rolling back is booting the old DTB.
++ *
++ * To pick another host port, define T6050_USB_HOST_PORT (0 = left-back,
++ * 1 = left-front, 2 = right) before the include below.
++ */
++
++#include "t6050-j716s.dts"
++#include "t6050-usb-host.dtsi"
++
++/ {
++	model = "Apple MacBook Pro (16-inch, M5 Pro, 2026), USB host";
++};
+diff --git a/dt/t6050-usb-host.dtsi b/dt/t6050-usb-host.dtsi
+new file mode 100644
+index 0000000..3e017e0
+--- /dev/null
++++ b/dt/t6050-usb-host.dtsi
+@@ -0,0 +1,91 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * T6050 (M5 Pro/Max) USB-C ports: USB 2.0 host on one port, gadget on the
++ * others. Include AFTER t6050.dtsi (which pulls in t6050-storage-net.dtsi,
++ * where the three dwc3 nodes are defined in peripheral mode).
++ *
++ * Port map (ADT usb-drdN "port-number", omarchy-m5 usb-gadget-net.sh):
++ *   dwc3_0 = usb-drd0 @ 0x2a2280000, port 1, hpm0, left-back
++ *   dwc3_1 = usb-drd1 @ 0x2aa280000, port 2, hpm1, left-front
++ *   dwc3_2 = usb-drd2 @ 0x382280000, port 3, hpm2, right
++ *
++ * Role selection
++ * --------------
++ * T6050_USB_HOST_PORT (default 1 = left-front, the port the Studio tether
++ * does not use) is put in dual-role mode with a USB role switch that starts
++ * in host mode. The other two keep the plain peripheral-mode nodes from
++ * t6050-storage-net.dtsi untouched, so the CDC-EEM tether keeps working.
++ * At runtime the host port's role can be flipped from userspace:
++ *   echo device > /sys/class/usb_role/2aa280000.usb-role-switch/role
++ *   echo host   > /sys/class/usb_role/2aa280000.usb-role-switch/role
++ * Nothing switches roles automatically yet: that needs the SN201202x USB-PD
++ * driver (t6050-usb-pd.dtsi, generated from the ADT), which can then drive
++ * the same role switch through the connector graph.
++ *
++ * USB2 PHY
++ * --------
++ * Only the USB2 half of the Type-C PHY is driven (phy-apple-usb2, new); the
++ * PIPE mux stays on the dummy PHY m1n1 selected, so USB3/USB4/DP are off.
++ * The usb2phy addresses are NOT from the ADT yet: they follow the layout
++ * every earlier Apple SoC uses (usb2phy = dwc3 base + 0x810000; t8103,
++ * t6031, t8132 all match), and must be checked against ADT atc-phyN reg[0]
++ * (scripts gen-usb-dt.py --check).
++ *
++ * VBUS is not ours: the SN201202x PD controller sources it (or not) on its
++ * own. See REPORT.md.
++ */
++
++#ifndef T6050_USB_HOST_PORT
++#define T6050_USB_HOST_PORT 1
++#endif
++
++#define __T6050_USB_CAT(a, b) a##b
++#define T6050_USB_CAT(a, b) __T6050_USB_CAT(a, b)
++#define T6050_USB_HOST_DWC3 T6050_USB_CAT(dwc3_, T6050_USB_HOST_PORT)
++#define T6050_USB_HOST_PHY T6050_USB_CAT(usb2phy_, T6050_USB_HOST_PORT)
++
++&soc {
++	/* [INFERENCE] ADT atc-phy0 reg[0]; dwc3_0 + 0x810000 */
++	usb2phy_0: phy@2a2a90000 {
++		compatible = "apple,t6050-usb2phy";
++		reg = <0x2 0xa2a90000 0x0 0x4000>;
++		#phy-cells = <0>;
++	};
++
++	/* [INFERENCE] ADT atc-phy1 reg[0]; dwc3_1 + 0x810000 */
++	usb2phy_1: phy@2aaa90000 {
++		compatible = "apple,t6050-usb2phy";
++		reg = <0x2 0xaaa90000 0x0 0x4000>;
++		#phy-cells = <0>;
++	};
++
++	/* [INFERENCE] ADT atc-phy2 reg[0]; dwc3_2 + 0x810000 */
++	usb2phy_2: phy@382a90000 {
++		compatible = "apple,t6050-usb2phy";
++		reg = <0x3 0x82a90000 0x0 0x4000>;
++		#phy-cells = <0>;
++	};
++};
++
++/*
++ * The PHY must already be in host mode when dwc3 first resets it (plain
++ * dwc3 calls phy_set_mode() only after its core init), so tell the PHY.
++ */
++&T6050_USB_HOST_PHY {
++	apple,default-mode = "host";
++};
++
++&T6050_USB_HOST_DWC3 {
++	dr_mode = "otg";
++	usb-role-switch;
++	role-switch-default-mode = "host";
++	phys = <&T6050_USB_HOST_PHY>;
++	phy-names = "usb2-phy";
++	/* No USB3 PHY: keep the SuperSpeed side off. */
++	maximum-speed = "high-speed";
++	/*
++	 * Host-side USB 2.0 LPM off: nothing can take the PHY out of suspend
++	 * (same reason as the gadget's snps,usb2-gadget-lpm-disable).
++	 */
++	snps,usb2-lpm-disable;
++};
+diff --git a/patches/linux/0010-phy-apple-usb2-only-type-c-phy-t6050.patch b/patches/linux/0010-phy-apple-usb2-only-type-c-phy-t6050.patch
+new file mode 100644
+index 0000000..e03e258
+--- /dev/null
++++ b/patches/linux/0010-phy-apple-usb2-only-type-c-phy-t6050.patch
+@@ -0,0 +1,325 @@
++phy: apple: USB2-only Type-C port PHY driver for T6050 (phy-apple-usb2). m5pro-linux agents/usb.
++
++diff --git a/drivers/phy/apple/Kconfig b/drivers/phy/apple/Kconfig
++index 8409b67f6..fadbae011 100644
++--- a/drivers/phy/apple/Kconfig
+++++ b/drivers/phy/apple/Kconfig
++@@ -21,3 +21,15 @@ config PHY_APPLE_DPTX
++ 	  such as the M2.
++ 	  This driver provides support for DisplayPort and is used on the
++ 	  Mac mini (M2 and M2 Pro, 2023).
+++
+++config PHY_APPLE_USB2
+++	tristate "Apple Type-C port USB2-only PHY"
+++	depends on ARCH_APPLE || COMPILE_TEST
+++	select GENERIC_PHY
+++	help
+++	  Enable this for USB 2.0 host or device mode on the Type-C ports of
+++	  Apple SoCs whose full Type-C PHY (PHY_APPLE_ATC) is not supported
+++	  yet, such as the M5 Pro (T6050). Only the USB2 PHY is driven; USB3,
+++	  USB4 and DisplayPort stay unavailable.
+++
+++	  If M is selected the module will be called 'phy-apple-usb2'.
++diff --git a/drivers/phy/apple/Makefile b/drivers/phy/apple/Makefile
++index b9e7bf3e4..2613dd42c 100644
++--- a/drivers/phy/apple/Makefile
+++++ b/drivers/phy/apple/Makefile
++@@ -5,3 +5,6 @@ phy-apple-atc-y			:= atc.o
++ 
++ obj-$(CONFIG_PHY_APPLE_DPTX)	+= phy-apple-dptx.o
++ phy-apple-dptx-y		+= dptx.o
+++
+++obj-$(CONFIG_PHY_APPLE_USB2)	+= phy-apple-usb2.o
+++phy-apple-usb2-y		+= usb2.o
++diff --git a/drivers/phy/apple/usb2.c b/drivers/phy/apple/usb2.c
++new file mode 100644
++index 000000000..6cd58bb3b
++--- /dev/null
+++++ b/drivers/phy/apple/usb2.c
++@@ -0,0 +1,286 @@
+++// SPDX-License-Identifier: GPL-2.0-only OR MIT
+++/*
+++ * Apple Type-C port USB2 PHY, USB 2.0 only.
+++ *
+++ * The USB2 half of the Apple Type-C PHY ("atc-phy" in the ADT, whose reg[0]
+++ * is this block) without any of the USB3/USB4/DisplayPort machinery that
+++ * phy-apple-atc drives. It exists for SoCs where the full ATC PHY is not
+++ * supported yet (T6050, M5 Pro), so that a dwc3 controller can run in host
+++ * mode over the USB 2.0 pairs while its PIPE interface stays on the dummy
+++ * PHY that the bootloader (m1n1 usb_phy_bringup()) selected.
+++ *
+++ * Bring-up (.init) is the exact register sequence m1n1 uses on T6050 (which
+++ * is known to work there for device mode), plus the host-mode bits that
+++ * phy-apple-atc sets in USB2PHY_SIG on M1..M4. VBUS detection stays forced
+++ * valid in both modes, like m1n1 and phy-apple-atc do: VBUS itself is owned
+++ * by the USB-PD controller, not by this PHY.
+++ *
+++ * Copyright The Asahi Linux Contributors
+++ */
+++
+++#include <linux/bits.h>
+++#include <linux/delay.h>
+++#include <linux/io.h>
+++#include <linux/mod_devicetable.h>
+++#include <linux/module.h>
+++#include <linux/mutex.h>
+++#include <linux/of.h>
+++#include <linux/phy/phy.h>
+++#include <linux/platform_device.h>
+++#include <linux/string.h>
+++
+++#define USB2PHY_USBCTL			0x00
+++#define USB2PHY_USBCTL_USB_MODE		0x7
+++#define USB2PHY_USBCTL_RUN		2
+++#define USB2PHY_USBCTL_ISOLATION	4
+++
+++#define USB2PHY_CTL			0x04
+++#define USB2PHY_CTL_RESET		BIT(0)
+++#define USB2PHY_CTL_PORT_RESET		BIT(1)
+++#define USB2PHY_CTL_APB_RESET_N		BIT(2)
+++#define USB2PHY_CTL_SIDDQ		BIT(3)
+++
+++#define USB2PHY_SIG			0x08
+++#define USB2PHY_SIG_VBUSDET_FORCE_VAL	BIT(0)
+++#define USB2PHY_SIG_VBUSDET_FORCE_EN	BIT(1)
+++#define USB2PHY_SIG_VBUSVLDEXT_FORCE_VAL BIT(2)
+++#define USB2PHY_SIG_VBUSVLDEXT_FORCE_EN	BIT(3)
+++#define USB2PHY_SIG_HOST		(7 << 12)
+++/* Full USB2PHY_SIG value m1n1 writes on every SoC, T6050 included */
+++#define USB2PHY_SIG_M1N1		0x01c1000f
+++
+++#define USB2PHY_MISCTUNE		0x1c
+++#define USB2PHY_MISCTUNE_APBCLK_GATE_OFF BIT(29)
+++#define USB2PHY_MISCTUNE_REFCLK_GATE_OFF BIT(30)
+++/* MISCTUNE value m1n1 writes (clock gates off, tuning as left by iBoot) */
+++#define USB2PHY_MISCTUNE_M1N1		0x008c0813
+++
+++struct apple_usb2phy {
+++	struct device *dev;
+++	void __iomem *regs;
+++	struct phy *phy;
+++	struct mutex lock;
+++	bool host;
+++	bool powered;
+++};
+++
+++static void apple_usb2phy_hw_on(struct apple_usb2phy *p)
+++{
+++	u32 sig = USB2PHY_SIG_M1N1 & ~USB2PHY_SIG_HOST;
+++
+++	if (p->host)
+++		sig |= USB2PHY_SIG_HOST;
+++
+++	/* m1n1 src/usb.c usb_phy_bringup(), verbatim apart from the HOST bits */
+++	writel(sig, p->regs + USB2PHY_SIG);
+++	writel(USB2PHY_CTL_RESET | USB2PHY_CTL_PORT_RESET, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_CTL) & ~USB2PHY_CTL_RESET, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_CTL) & ~USB2PHY_CTL_PORT_RESET, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(USB2PHY_MISCTUNE_M1N1, p->regs + USB2PHY_MISCTUNE);
+++	writel(USB2PHY_USBCTL_RUN, p->regs + USB2PHY_USBCTL);
+++	udelay(10);
+++}
+++
+++static void apple_usb2phy_hw_off(struct apple_usb2phy *p)
+++{
+++	u32 v;
+++
+++	/* phy-apple-atc atcphy_usb2_power_off() */
+++	v = readl(p->regs + USB2PHY_USBCTL);
+++	v &= ~USB2PHY_USBCTL_USB_MODE;
+++	v |= USB2PHY_USBCTL_ISOLATION;
+++	writel(v, p->regs + USB2PHY_USBCTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_CTL) | USB2PHY_CTL_SIDDQ, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_CTL) | USB2PHY_CTL_PORT_RESET, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_CTL) | USB2PHY_CTL_RESET, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_CTL) & ~USB2PHY_CTL_APB_RESET_N, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_MISCTUNE) | USB2PHY_MISCTUNE_APBCLK_GATE_OFF |
+++	       USB2PHY_MISCTUNE_REFCLK_GATE_OFF, p->regs + USB2PHY_MISCTUNE);
+++}
+++
+++/*
+++ * The full reset sequence runs in .init, not .power_on: dwc3 calls
+++ * phy_init() before its core soft reset and phy_power_on() after it, and
+++ * the PHY must be up (in the right mode) before dwc3 resets (the order
+++ * phy-apple-atc + dwc3-apple use on M1..M4).
+++ *
+++ * It runs even if the bootloader left the PHY running: the eUSB2 repeater
+++ * between PHY and connector is reset out of band by the USB-PD controller on
+++ * every CC (dis)connect, and only a PHY reset re-synchronises the two (see
+++ * dwc3-apple.c). Unbinding and rebinding dwc3 therefore re-syncs the port.
+++ */
+++static int apple_usb2phy_init(struct phy *phy)
+++{
+++	struct apple_usb2phy *p = phy_get_drvdata(phy);
+++
+++	guard(mutex)(&p->lock);
+++
+++	apple_usb2phy_hw_on(p);
+++	p->powered = true;
+++	dev_dbg(p->dev, "on, %s mode, SIG=%#x\n", p->host ? "host" : "device",
+++		readl(p->regs + USB2PHY_SIG));
+++	return 0;
+++}
+++
+++static int apple_usb2phy_exit(struct phy *phy)
+++{
+++	struct apple_usb2phy *p = phy_get_drvdata(phy);
+++
+++	guard(mutex)(&p->lock);
+++
+++	apple_usb2phy_hw_off(p);
+++	p->powered = false;
+++	return 0;
+++}
+++
+++static int apple_usb2phy_power_on(struct phy *phy)
+++{
+++	struct apple_usb2phy *p = phy_get_drvdata(phy);
+++
+++	guard(mutex)(&p->lock);
+++
+++	/* Normally a no-op: .init already brought the PHY up. */
+++	if (!p->powered) {
+++		apple_usb2phy_hw_on(p);
+++		p->powered = true;
+++	}
+++	return 0;
+++}
+++
+++static int apple_usb2phy_power_off(struct phy *phy)
+++{
+++	/*
+++	 * Keep the PHY running until .exit: after a power-off only the full
+++	 * reset sequence brings it back, and dwc3 also calls power_off on
+++	 * paths (suspend) where it does not call init again.
+++	 */
+++	return 0;
+++}
+++
+++static int apple_usb2phy_set_mode(struct phy *phy, enum phy_mode mode, int submode)
+++{
+++	struct apple_usb2phy *p = phy_get_drvdata(phy);
+++	bool host;
+++
+++	switch (mode) {
+++	case PHY_MODE_USB_HOST:
+++	case PHY_MODE_USB_HOST_LS:
+++	case PHY_MODE_USB_HOST_FS:
+++	case PHY_MODE_USB_HOST_HS:
+++		host = true;
+++		break;
+++	case PHY_MODE_USB_DEVICE:
+++	case PHY_MODE_USB_DEVICE_LS:
+++	case PHY_MODE_USB_DEVICE_FS:
+++	case PHY_MODE_USB_DEVICE_HS:
+++		host = false;
+++		break;
+++	case PHY_MODE_USB_OTG:
+++		return 0;
+++	default:
+++		return -EINVAL;
+++	}
+++
+++	guard(mutex)(&p->lock);
+++
+++	if (host == p->host)
+++		return 0;
+++	p->host = host;
+++
+++	/*
+++	 * phy-apple-atc flips only the SIG bits here, with the PHY running and
+++	 * the dwc3 core held in reset. Plain dwc3 calls set_mode after its core
+++	 * init, so mirror the bit flip but keep everything else as it is; the
+++	 * initial mode should come from "apple,default-mode" so that the PHY is
+++	 * already in the right mode when dwc3 first resets it.
+++	 */
+++	if (p->powered) {
+++		u32 sig = readl(p->regs + USB2PHY_SIG);
+++
+++		if (host)
+++			sig |= USB2PHY_SIG_HOST;
+++		else
+++			sig &= ~USB2PHY_SIG_HOST;
+++		writel(sig, p->regs + USB2PHY_SIG);
+++	}
+++	dev_info(p->dev, "switched to %s mode\n", host ? "host" : "device");
+++	return 0;
+++}
+++
+++static const struct phy_ops apple_usb2phy_ops = {
+++	.owner = THIS_MODULE,
+++	.init = apple_usb2phy_init,
+++	.exit = apple_usb2phy_exit,
+++	.power_on = apple_usb2phy_power_on,
+++	.power_off = apple_usb2phy_power_off,
+++	.set_mode = apple_usb2phy_set_mode,
+++};
+++
+++static int apple_usb2phy_probe(struct platform_device *pdev)
+++{
+++	struct device *dev = &pdev->dev;
+++	struct phy_provider *provider;
+++	struct apple_usb2phy *p;
+++	const char *mode;
+++
+++	p = devm_kzalloc(dev, sizeof(*p), GFP_KERNEL);
+++	if (!p)
+++		return -ENOMEM;
+++
+++	p->dev = dev;
+++	mutex_init(&p->lock);
+++
+++	p->regs = devm_platform_ioremap_resource(pdev, 0);
+++	if (IS_ERR(p->regs))
+++		return PTR_ERR(p->regs);
+++
+++	/* The bootloader leaves the PHY in device mode (m1n1's USB gadget). */
+++	p->host = false;
+++	if (!of_property_read_string(dev->of_node, "apple,default-mode", &mode)) {
+++		if (!strcmp(mode, "host"))
+++			p->host = true;
+++		else if (strcmp(mode, "device"))
+++			return dev_err_probe(dev, -EINVAL, "bad apple,default-mode \"%s\"\n",
+++					     mode);
+++	}
+++
+++	p->phy = devm_phy_create(dev, NULL, &apple_usb2phy_ops);
+++	if (IS_ERR(p->phy))
+++		return PTR_ERR(p->phy);
+++	phy_set_drvdata(p->phy, p);
+++
+++	provider = devm_of_phy_provider_register(dev, of_phy_simple_xlate);
+++	if (IS_ERR(provider))
+++		return PTR_ERR(provider);
+++
+++	dev_info(dev, "USB2 PHY, default %s mode, USBCTL=%#x CTL=%#x SIG=%#x\n",
+++		 p->host ? "host" : "device", readl(p->regs + USB2PHY_USBCTL),
+++		 readl(p->regs + USB2PHY_CTL), readl(p->regs + USB2PHY_SIG));
+++	return 0;
+++}
+++
+++static const struct of_device_id apple_usb2phy_of_match[] = {
+++	{ .compatible = "apple,t6050-usb2phy" },
+++	{}
+++};
+++MODULE_DEVICE_TABLE(of, apple_usb2phy_of_match);
+++
+++static struct platform_driver apple_usb2phy_driver = {
+++	.probe = apple_usb2phy_probe,
+++	.driver = {
+++		.name = "phy-apple-usb2",
+++		.of_match_table = apple_usb2phy_of_match,
+++	},
+++};
+++module_platform_driver(apple_usb2phy_driver);
+++
+++MODULE_DESCRIPTION("Apple Type-C port USB2-only PHY");
+++MODULE_LICENSE("Dual MIT/GPL");
+diff --git a/patches/linux/0011-usb-typec-build-tipd-for-sn201202x-only.patch b/patches/linux/0011-usb-typec-build-tipd-for-sn201202x-only.patch
+new file mode 100644
+index 0000000..60ab4c4
+--- /dev/null
++++ b/patches/linux/0011-usb-typec-build-tipd-for-sn201202x-only.patch
+@@ -0,0 +1,15 @@
++usb: typec: descend into tipd/ when only SN201202x is enabled. m5pro-linux agents/usb.
++
++diff --git a/drivers/usb/typec/Makefile b/drivers/usb/typec/Makefile
++index 8a6a1c663..eebe658de 100644
++--- a/drivers/usb/typec/Makefile
+++++ b/drivers/usb/typec/Makefile
++@@ -5,7 +5,7 @@ typec-$(CONFIG_ACPI)		+= port-mapper.o
++ obj-$(CONFIG_TYPEC)		+= altmodes/
++ obj-$(CONFIG_TYPEC_TCPM)	+= tcpm/
++ obj-$(CONFIG_TYPEC_UCSI)	+= ucsi/
++-obj-$(CONFIG_TYPEC_TPS6598X)	+= tipd/
+++obj-$(CONFIG_TYPEC_TPS6598X_CORE)	+= tipd/
++ obj-$(CONFIG_TYPEC_ANX7411)	+= anx7411.o
++ obj-$(CONFIG_TYPEC_HD3SS3220)	+= hd3ss3220.o
++ obj-$(CONFIG_TYPEC_STUSB160X) 	+= stusb160x.o
+diff --git a/patches/linux/0012-usb-typec-tipd-sn201202x-polled-no-spmi-irqs.patch b/patches/linux/0012-usb-typec-tipd-sn201202x-polled-no-spmi-irqs.patch
+new file mode 100644
+index 0000000..d410bc9
+--- /dev/null
++++ b/patches/linux/0012-usb-typec-tipd-sn201202x-polled-no-spmi-irqs.patch
+@@ -0,0 +1,258 @@
++usb: typec: tipd: sn201202x: work without SPMI interrupts (gen 4 SPMI). m5pro-linux agents/usb.
++
++diff --git a/drivers/usb/typec/tipd/core.c b/drivers/usb/typec/tipd/core.c
++index 0687cc28d..a0e78a23d 100644
++--- a/drivers/usb/typec/tipd/core.c
+++++ b/drivers/usb/typec/tipd/core.c
++@@ -1774,6 +1774,11 @@ int tipd_init(struct tps6598x *tps)
++ 		INIT_DELAYED_WORK(&tps->wq_poll, tps6598x_poll_work);
++ 		queue_delayed_work(system_power_efficient_wq, &tps->wq_poll,
++ 				   msecs_to_jiffies(POLL_INTERVAL));
+++		/*
+++		 * ret may still hold a failed partner registration from above,
+++		 * which the IRQ path overwrites and only logs; do the same here.
+++		 */
+++		ret = 0;
++ 	}
++ 
++ 	if (ret)
++diff --git a/drivers/usb/typec/tipd/spmi.c b/drivers/usb/typec/tipd/spmi.c
++index 15976d15d..f3c353121 100644
++--- a/drivers/usb/typec/tipd/spmi.c
+++++ b/drivers/usb/typec/tipd/spmi.c
++@@ -1,6 +1,8 @@
++ // SPDX-License-Identifier: GPL-2.0
++ 
+++#include <linux/delay.h>
++ #include <linux/interrupt.h>
+++#include <linux/ktime.h>
++ #include <linux/of_device.h>
++ #include <linux/of_irq.h>
++ #include <linux/regmap.h>
++@@ -10,6 +12,46 @@
++ 
++ #define tps_to_sn(tps) container_of_const((tps), struct sn201202x, cd.tps)
++ 
+++/*
+++ * Register selection without the "select" interrupt, for SPMI controllers
+++ * whose interrupt block is not supported (Apple gen 4, M4/M5 nub-spmi).
+++ * Same protocol as m1n1 src/tps6598x.c: write the register number with a
+++ * zero-write, then read register 0 until it reads back the number (bit 7
+++ * set means "selection in progress"). Bounded, unlike m1n1's loop.
+++ */
+++#define SN201202X_POLL_SELECT_US	100000
+++
+++static int regmap_sn201202x_select_reg_polled(struct spmi_device *sdev, u8 reg)
+++{
+++	struct tps6598x *tps = spmi_device_get_drvdata(sdev);
+++	ktime_t timeout;
+++	int err;
+++	u8 val;
+++
+++	err = spmi_register_zero_write(sdev, reg);
+++	if (err)
+++		return err;
+++
+++	timeout = ktime_add_us(ktime_get(), SN201202X_POLL_SELECT_US);
+++	for (;;) {
+++		err = spmi_register_read(sdev, 0, &val);
+++		if (err)
+++			return err;
+++		if (val == reg)
+++			return 0;
+++		if (val != (reg | 0x80)) {
+++			dev_err_ratelimited(tps->dev,
+++					    "select %#04x: register 0 reads %#04x\n", reg, val);
+++			return -EIO;
+++		}
+++		if (ktime_after(ktime_get(), timeout)) {
+++			dev_err_ratelimited(tps->dev, "select %#04x: timed out\n", reg);
+++			return -ETIMEDOUT;
+++		}
+++		usleep_range(500, 1000);
+++	}
+++}
+++
++ static int regmap_sn201202x_select_reg(struct spmi_device *sdev, u8 reg)
++ {
++ 	int err;
++@@ -23,6 +65,9 @@ static int regmap_sn201202x_select_reg(struct spmi_device *sdev, u8 reg)
++ 		WARN_ON(1);
++ 		return -EINVAL;
++ 	}
+++	if (sn->poll_select)
+++		return regmap_sn201202x_select_reg_polled(sdev, reg);
+++
++ 	reinit_completion(&sn->select_completion);
++ 	err = spmi_register_zero_write(sdev, reg);
++ 	if (err)
++@@ -161,6 +206,33 @@ static const struct of_device_id sn201202x_of_match[] = {
++ 	{}
++ };
++ 
+++static int sn201202x_get_irq(struct spmi_device *device, const char *name)
+++{
+++	int irq = of_irq_get_byname(device->dev.of_node, name);
+++
+++	if (irq == -EPROBE_DEFER)
+++		return irq;
+++	/* absent (no property / no such name / unmapped) -> 0 = poll */
+++	return irq > 0 ? irq : 0;
+++}
+++
+++static int sn201202x_wakeup(struct sn201202x *sn)
+++{
+++	int err;
+++
+++	reinit_completion(&sn->wake_completion);
+++	err = spmi_command_wakeup(sn->sdev);
+++	if (err)
+++		return err;
+++	if (sn->poll_wake) {
+++		msleep(10);	/* m1n1 waits 10 ms after WAKEUP */
+++		return 0;
+++	}
+++	if (!wait_for_completion_timeout(&sn->wake_completion, msecs_to_jiffies(100)))
+++		return -ETIMEDOUT;
+++	return 0;
+++}
+++
++ static int sn201202x_probe(struct spmi_device *device)
++ {
++ 	const struct of_device_id *match;
++@@ -173,7 +245,7 @@ static int sn201202x_probe(struct spmi_device *device)
++ 	match = of_match_device(sn201202x_of_match, &device->dev);
++ 	if (!match)
++ 		return -EINVAL;
++-	data = tipd_hw_variants[(enum tipd_hw_variant)match->data];
+++	data = tipd_hw_variants[(enum tipd_hw_variant)(uintptr_t)match->data];
++ 
++ 	sn = devm_kzalloc(&device->dev, data->tps_struct_size, GFP_KERNEL);
++ 	if (!sn)
++@@ -185,46 +257,65 @@ static int sn201202x_probe(struct spmi_device *device)
++ 	tps->dev = &device->dev;
++ 	tps->data = data;
++ 
++-	tps->irq = of_irq_get_byname(device->dev.of_node, "irq");
++-	if (tps->irq < 0)
++-		return tps->irq;
++-	irq_select = of_irq_get_byname(device->dev.of_node, "select");
+++	/*
+++	 * All four interrupts are optional: without them (no "interrupts" in
+++	 * the DT node, as on SPMI controllers whose interrupt block Linux
+++	 * cannot drive) register selection is polled, sleep/wake use fixed
+++	 * delays and tipd core polls the event registers.
+++	 */
+++	ret = sn201202x_get_irq(device, "irq");
+++	if (ret < 0)
+++		return ret;
+++	tps->irq = ret;
+++	irq_select = sn201202x_get_irq(device, "select");
++ 	if (irq_select < 0)
++ 		return irq_select;
++-	irq_sleep = of_irq_get_byname(device->dev.of_node, "sleep");
+++	irq_sleep = sn201202x_get_irq(device, "sleep");
++ 	if (irq_sleep < 0)
++ 		return irq_sleep;
++-	irq_wake = of_irq_get_byname(device->dev.of_node, "wake");
+++	irq_wake = sn201202x_get_irq(device, "wake");
++ 	if (irq_wake < 0)
++ 		return irq_wake;
++ 
+++	sn->poll_select = !irq_select;
+++	sn->poll_sleep = !irq_sleep;
+++	sn->poll_wake = !irq_wake;
+++	if (sn->poll_select || !tps->irq)
+++		dev_info(&device->dev, "no SPMI interrupts, polling (select%s, events%s)\n",
+++			 sn->poll_select ? " polled" : " irq",
+++			 tps->irq ? " irq" : " polled");
+++
++ 	init_completion(&sn->select_completion);
++ 	init_completion(&sn->sleep_completion);
++ 	init_completion(&sn->wake_completion);
++ 
++-	ret = devm_request_irq(&device->dev, irq_select, sn201202x_irq,
++-			       0, NULL, &sn->select_completion);
++-	if (ret)
++-		return ret;
++-	ret = devm_request_irq(&device->dev, irq_sleep, sn201202x_irq,
++-			       0, NULL, &sn->sleep_completion);
++-	if (ret)
++-		return ret;
++-	ret = devm_request_irq(&device->dev, irq_wake, sn201202x_irq,
++-			       0, NULL, &sn->wake_completion);
++-	if (ret)
++-		return ret;
+++	if (irq_select) {
+++		ret = devm_request_irq(&device->dev, irq_select, sn201202x_irq,
+++				       0, NULL, &sn->select_completion);
+++		if (ret)
+++			return ret;
+++	}
+++	if (irq_sleep) {
+++		ret = devm_request_irq(&device->dev, irq_sleep, sn201202x_irq,
+++				       0, NULL, &sn->sleep_completion);
+++		if (ret)
+++			return ret;
+++	}
+++	if (irq_wake) {
+++		ret = devm_request_irq(&device->dev, irq_wake, sn201202x_irq,
+++				       0, NULL, &sn->wake_completion);
+++		if (ret)
+++			return ret;
+++	}
++ 
++ 	spmi_device_set_drvdata(device, tps);
++ 	tps->regmap = devm_regmap_init_sn201202x(device, &tps6598x_regmap_config);
++ 	if (IS_ERR(tps->regmap))
++ 		return PTR_ERR(tps->regmap);
++ 
++-	ret = spmi_command_wakeup(device);
+++	ret = sn201202x_wakeup(sn);
++ 	if (ret)
++ 		return ret;
++-	if (!wait_for_completion_timeout(&sn->wake_completion, msecs_to_jiffies(100)))
++-		return -ETIMEDOUT;
++ 
++ 	ret = tipd_init(tps);
++ 	if (ret)
++@@ -247,12 +338,9 @@ static int __maybe_unused sn201202x_resume(struct device *dev)
++ 	struct sn201202x *sn = tps_to_sn(tps);
++ 	int err;
++ 
++-	reinit_completion(&sn->wake_completion);
++-	err = spmi_command_wakeup(sn->sdev);
+++	err = sn201202x_wakeup(sn);
++ 	if (err)
++ 		return err;
++-	if (!wait_for_completion_timeout(&sn->wake_completion, msecs_to_jiffies(100)))
++-		return -ETIMEDOUT;
++ 	return tipd_resume(tps);
++ }
++ 
++@@ -269,7 +357,9 @@ static int __maybe_unused sn201202x_suspend(struct device *dev)
++ 	err = spmi_command_sleep(sn->sdev);
++ 	if (err)
++ 		goto out_resume;
++-	if (!wait_for_completion_timeout(&sn->sleep_completion, msecs_to_jiffies(100)))
+++	if (sn->poll_sleep)
+++		msleep(10);
+++	else if (!wait_for_completion_timeout(&sn->sleep_completion, msecs_to_jiffies(100)))
++ 		dev_err(dev, "Waiting for sleep complete irq timed out");
++ 
++ 	return 0;
++diff --git a/drivers/usb/typec/tipd/tps6598x.h b/drivers/usb/typec/tipd/tps6598x.h
++index 6cf669418..c1ec9ea67 100644
++--- a/drivers/usb/typec/tipd/tps6598x.h
+++++ b/drivers/usb/typec/tipd/tps6598x.h
++@@ -390,6 +390,10 @@ struct sn201202x {
++ 	struct completion sleep_completion;
++ 	struct completion wake_completion;
++ 	struct spmi_device *sdev;
+++	/* SPMI controller gives no IRQs (Apple gen 4): poll instead */
+++	bool poll_select;
+++	bool poll_sleep;
+++	bool poll_wake;
++ };
++ 
++ extern const struct tipd_data *tipd_hw_variants[];
+diff --git a/scripts/build-kernel.sh b/scripts/build-kernel.sh
+index 6db02c8..48332b4 100755
+--- a/scripts/build-kernel.sh
++++ b/scripts/build-kernel.sh
+@@ -19,7 +19,7 @@ DTS_DIR="$LINUX/arch/arm64/boot/dts/apple"
+ # defconfig alone leaves DRM=m and DRM_SIMPLEDRM unset, which yields a
+ # kernel that boots but shows nothing on the panel. Fragments are merged
+ # in order; ours wins.
+-KCONFIG="${KCONFIG:-defconfig asahi.config omarchy-bringup.config omarchy-storage-net.config omarchy-smc.config}"
++KCONFIG="${KCONFIG:-defconfig asahi.config omarchy-bringup.config omarchy-storage-net.config omarchy-smc.config omarchy-usb-host.config}"
+ JOBS="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}"
+ 
+ if [ ! -d "$LINUX" ]; then
+@@ -50,23 +50,27 @@ echo "==> Overlaying dt/ into $DTS_DIR"
+ install -m 0644 dt/t6050.dtsi dt/t6050-pmgr.dtsi dt/t6050-jxxx.dtsi \
+     dt/t6050-storage-net.dtsi dt/t6050-cpufreq.dtsi dt/t6050-smc.dtsi \
+     dt/t6050-j714s.dts dt/t6050-j716s.dts \
++    dt/t6050-usb-host.dtsi dt/t6050-j716s-usbhost.dts \
+     "$DTS_DIR/"
+ 
+ install -m 0644 configs/omarchy-bringup.config configs/omarchy-storage-net.config configs/omarchy-smc.config \
++    configs/omarchy-usb-host.config \
+     "$LINUX/arch/arm64/configs/"
+ 
+ MK="$DTS_DIR/Makefile"
+ BEGIN='# >>> omarchy-m5'
+ END='# <<< omarchy-m5'
+-if ! grep -qF "$BEGIN" "$MK"; then
+-    echo "==> Registering t6050 DTBs in $MK"
+-    cat >> "$MK" <<'EOF'
++# Rewrite the block every time, so a DTB added here also reaches a tree that
++# already has an older block.
++sed -i.bak "/^$BEGIN\$/,/^$END\$/d" "$MK" && rm -f "$MK.bak"
++echo "==> Registering t6050 DTBs in $MK"
++cat >> "$MK" <<'EOF'
+ # >>> omarchy-m5
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j714s.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s.dtb
++dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s-usbhost.dtb
+ # <<< omarchy-m5
+ EOF
+-fi
+ 
+ # The console symbols below are load-bearing: with any of them unset the
+ # kernel boots and prints nothing on the panel, which looks identical to a
+@@ -75,7 +79,9 @@ REQUIRED_Y="CONFIG_DRM CONFIG_DRM_SIMPLEDRM CONFIG_DRM_FBDEV_EMULATION
+             CONFIG_FRAMEBUFFER_CONSOLE CONFIG_VT_CONSOLE CONFIG_DEVTMPFS_MOUNT
+             CONFIG_NVME_APPLE CONFIG_APPLE_SART CONFIG_APPLE_DART
+             CONFIG_USB_DWC3 CONFIG_USB_CONFIGFS CONFIG_USB_CONFIGFS_NCM
+-            CONFIG_USB_CONFIGFS_ACM"
++            CONFIG_USB_CONFIGFS_ACM
++            CONFIG_PHY_APPLE_USB2 CONFIG_USB_XHCI_PLATFORM CONFIG_USB_RTL8152
++            CONFIG_USB_NET_AX88179_178A CONFIG_USB_NET_CDCETHER"
+ 
+ config_ok() {
+     [ -f "$LINUX/.config" ] || return 1
+-- 
+2.56.0
+

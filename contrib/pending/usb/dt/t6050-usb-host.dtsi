@@ -1,0 +1,91 @@
+// SPDX-License-Identifier: GPL-2.0+ OR MIT
+/*
+ * T6050 (M5 Pro/Max) USB-C ports: USB 2.0 host on one port, gadget on the
+ * others. Include AFTER t6050.dtsi (which pulls in t6050-storage-net.dtsi,
+ * where the three dwc3 nodes are defined in peripheral mode).
+ *
+ * Port map (ADT usb-drdN "port-number", omarchy-m5 usb-gadget-net.sh):
+ *   dwc3_0 = usb-drd0 @ 0x2a2280000, port 1, hpm0, left-back
+ *   dwc3_1 = usb-drd1 @ 0x2aa280000, port 2, hpm1, left-front
+ *   dwc3_2 = usb-drd2 @ 0x382280000, port 3, hpm2, right
+ *
+ * Role selection
+ * --------------
+ * T6050_USB_HOST_PORT (default 1 = left-front, the port the Studio tether
+ * does not use) is put in dual-role mode with a USB role switch that starts
+ * in host mode. The other two keep the plain peripheral-mode nodes from
+ * t6050-storage-net.dtsi untouched, so the CDC-EEM tether keeps working.
+ * At runtime the host port's role can be flipped from userspace:
+ *   echo device > /sys/class/usb_role/2aa280000.usb-role-switch/role
+ *   echo host   > /sys/class/usb_role/2aa280000.usb-role-switch/role
+ * Nothing switches roles automatically yet: that needs the SN201202x USB-PD
+ * driver (t6050-usb-pd.dtsi, generated from the ADT), which can then drive
+ * the same role switch through the connector graph.
+ *
+ * USB2 PHY
+ * --------
+ * Only the USB2 half of the Type-C PHY is driven (phy-apple-usb2, new); the
+ * PIPE mux stays on the dummy PHY m1n1 selected, so USB3/USB4/DP are off.
+ * The usb2phy addresses are NOT from the ADT yet: they follow the layout
+ * every earlier Apple SoC uses (usb2phy = dwc3 base + 0x810000; t8103,
+ * t6031, t8132 all match), and must be checked against ADT atc-phyN reg[0]
+ * (scripts gen-usb-dt.py --check).
+ *
+ * VBUS is not ours: the SN201202x PD controller sources it (or not) on its
+ * own. See REPORT.md.
+ */
+
+#ifndef T6050_USB_HOST_PORT
+#define T6050_USB_HOST_PORT 1
+#endif
+
+#define __T6050_USB_CAT(a, b) a##b
+#define T6050_USB_CAT(a, b) __T6050_USB_CAT(a, b)
+#define T6050_USB_HOST_DWC3 T6050_USB_CAT(dwc3_, T6050_USB_HOST_PORT)
+#define T6050_USB_HOST_PHY T6050_USB_CAT(usb2phy_, T6050_USB_HOST_PORT)
+
+&soc {
+	/* [INFERENCE] ADT atc-phy0 reg[0]; dwc3_0 + 0x810000 */
+	usb2phy_0: phy@2a2a90000 {
+		compatible = "apple,t6050-usb2phy";
+		reg = <0x2 0xa2a90000 0x0 0x4000>;
+		#phy-cells = <0>;
+	};
+
+	/* [INFERENCE] ADT atc-phy1 reg[0]; dwc3_1 + 0x810000 */
+	usb2phy_1: phy@2aaa90000 {
+		compatible = "apple,t6050-usb2phy";
+		reg = <0x2 0xaaa90000 0x0 0x4000>;
+		#phy-cells = <0>;
+	};
+
+	/* [INFERENCE] ADT atc-phy2 reg[0]; dwc3_2 + 0x810000 */
+	usb2phy_2: phy@382a90000 {
+		compatible = "apple,t6050-usb2phy";
+		reg = <0x3 0x82a90000 0x0 0x4000>;
+		#phy-cells = <0>;
+	};
+};
+
+/*
+ * The PHY must already be in host mode when dwc3 first resets it (plain
+ * dwc3 calls phy_set_mode() only after its core init), so tell the PHY.
+ */
+&T6050_USB_HOST_PHY {
+	apple,default-mode = "host";
+};
+
+&T6050_USB_HOST_DWC3 {
+	dr_mode = "otg";
+	usb-role-switch;
+	role-switch-default-mode = "host";
+	phys = <&T6050_USB_HOST_PHY>;
+	phy-names = "usb2-phy";
+	/* No USB3 PHY: keep the SuperSpeed side off. */
+	maximum-speed = "high-speed";
+	/*
+	 * Host-side USB 2.0 LPM off: nothing can take the PHY out of suspend
+	 * (same reason as the gadget's snps,usb2-gadget-lpm-disable).
+	 */
+	snps,usb2-lpm-disable;
+};

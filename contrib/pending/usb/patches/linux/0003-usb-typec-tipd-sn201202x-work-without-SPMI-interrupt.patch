@@ -1,0 +1,288 @@
+From 123149e3bc078bdff2de53311c27fff3e9c08698 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 18:10:15 -0500
+Subject: [PATCH 3/5] usb: typec: tipd: sn201202x: work without SPMI interrupts
+
+The SN201202x front end requires four interrupts from its SPMI controller
+(irq, select, sleep, wake). Apple's gen 4 SPMI controllers (M4/M5
+nub-spmi) are driven polled in Linux because their interrupt registers
+are unknown, so the driver can never probe there.
+
+Make all four optional. Without "select", poll register 0 after the
+zero-write like m1n1 does, bounded to 100 ms; without "wake"/"sleep",
+wait 10 ms after the command (m1n1's delay); without "irq", tps->irq is
+0 and tipd core polls the event registers every 500 ms. -EPROBE_DEFER is
+still passed through, so a DT that names interrupts on a controller
+without an irq domain defers instead of silently polling.
+
+In tipd core, clear ret in the polling branch: it can still hold a failed
+partner registration, which the IRQ branch overwrites and only logs, but
+which made the polled probe fail. Also cast the match data through
+uintptr_t (W=1 -Wvoid-pointer-to-enum-cast).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/usb/typec/tipd/core.c     |   5 ++
+ drivers/usb/typec/tipd/spmi.c     | 144 ++++++++++++++++++++++++------
+ drivers/usb/typec/tipd/tps6598x.h |   4 +
+ 3 files changed, 126 insertions(+), 27 deletions(-)
+
+diff --git a/drivers/usb/typec/tipd/core.c b/drivers/usb/typec/tipd/core.c
+index 0687cc28d..a0e78a23d 100644
+--- a/drivers/usb/typec/tipd/core.c
++++ b/drivers/usb/typec/tipd/core.c
+@@ -1774,6 +1774,11 @@ int tipd_init(struct tps6598x *tps)
+ 		INIT_DELAYED_WORK(&tps->wq_poll, tps6598x_poll_work);
+ 		queue_delayed_work(system_power_efficient_wq, &tps->wq_poll,
+ 				   msecs_to_jiffies(POLL_INTERVAL));
++		/*
++		 * ret may still hold a failed partner registration from above,
++		 * which the IRQ path overwrites and only logs; do the same here.
++		 */
++		ret = 0;
+ 	}
+ 
+ 	if (ret)
+diff --git a/drivers/usb/typec/tipd/spmi.c b/drivers/usb/typec/tipd/spmi.c
+index 15976d15d..f3c353121 100644
+--- a/drivers/usb/typec/tipd/spmi.c
++++ b/drivers/usb/typec/tipd/spmi.c
+@@ -1,6 +1,8 @@
+ // SPDX-License-Identifier: GPL-2.0
+ 
++#include <linux/delay.h>
+ #include <linux/interrupt.h>
++#include <linux/ktime.h>
+ #include <linux/of_device.h>
+ #include <linux/of_irq.h>
+ #include <linux/regmap.h>
+@@ -10,6 +12,46 @@
+ 
+ #define tps_to_sn(tps) container_of_const((tps), struct sn201202x, cd.tps)
+ 
++/*
++ * Register selection without the "select" interrupt, for SPMI controllers
++ * whose interrupt block is not supported (Apple gen 4, M4/M5 nub-spmi).
++ * Same protocol as m1n1 src/tps6598x.c: write the register number with a
++ * zero-write, then read register 0 until it reads back the number (bit 7
++ * set means "selection in progress"). Bounded, unlike m1n1's loop.
++ */
++#define SN201202X_POLL_SELECT_US	100000
++
++static int regmap_sn201202x_select_reg_polled(struct spmi_device *sdev, u8 reg)
++{
++	struct tps6598x *tps = spmi_device_get_drvdata(sdev);
++	ktime_t timeout;
++	int err;
++	u8 val;
++
++	err = spmi_register_zero_write(sdev, reg);
++	if (err)
++		return err;
++
++	timeout = ktime_add_us(ktime_get(), SN201202X_POLL_SELECT_US);
++	for (;;) {
++		err = spmi_register_read(sdev, 0, &val);
++		if (err)
++			return err;
++		if (val == reg)
++			return 0;
++		if (val != (reg | 0x80)) {
++			dev_err_ratelimited(tps->dev,
++					    "select %#04x: register 0 reads %#04x\n", reg, val);
++			return -EIO;
++		}
++		if (ktime_after(ktime_get(), timeout)) {
++			dev_err_ratelimited(tps->dev, "select %#04x: timed out\n", reg);
++			return -ETIMEDOUT;
++		}
++		usleep_range(500, 1000);
++	}
++}
++
+ static int regmap_sn201202x_select_reg(struct spmi_device *sdev, u8 reg)
+ {
+ 	int err;
+@@ -23,6 +65,9 @@ static int regmap_sn201202x_select_reg(struct spmi_device *sdev, u8 reg)
+ 		WARN_ON(1);
+ 		return -EINVAL;
+ 	}
++	if (sn->poll_select)
++		return regmap_sn201202x_select_reg_polled(sdev, reg);
++
+ 	reinit_completion(&sn->select_completion);
+ 	err = spmi_register_zero_write(sdev, reg);
+ 	if (err)
+@@ -161,6 +206,33 @@ static const struct of_device_id sn201202x_of_match[] = {
+ 	{}
+ };
+ 
++static int sn201202x_get_irq(struct spmi_device *device, const char *name)
++{
++	int irq = of_irq_get_byname(device->dev.of_node, name);
++
++	if (irq == -EPROBE_DEFER)
++		return irq;
++	/* absent (no property / no such name / unmapped) -> 0 = poll */
++	return irq > 0 ? irq : 0;
++}
++
++static int sn201202x_wakeup(struct sn201202x *sn)
++{
++	int err;
++
++	reinit_completion(&sn->wake_completion);
++	err = spmi_command_wakeup(sn->sdev);
++	if (err)
++		return err;
++	if (sn->poll_wake) {
++		msleep(10);	/* m1n1 waits 10 ms after WAKEUP */
++		return 0;
++	}
++	if (!wait_for_completion_timeout(&sn->wake_completion, msecs_to_jiffies(100)))
++		return -ETIMEDOUT;
++	return 0;
++}
++
+ static int sn201202x_probe(struct spmi_device *device)
+ {
+ 	const struct of_device_id *match;
+@@ -173,7 +245,7 @@ static int sn201202x_probe(struct spmi_device *device)
+ 	match = of_match_device(sn201202x_of_match, &device->dev);
+ 	if (!match)
+ 		return -EINVAL;
+-	data = tipd_hw_variants[(enum tipd_hw_variant)match->data];
++	data = tipd_hw_variants[(enum tipd_hw_variant)(uintptr_t)match->data];
+ 
+ 	sn = devm_kzalloc(&device->dev, data->tps_struct_size, GFP_KERNEL);
+ 	if (!sn)
+@@ -185,46 +257,65 @@ static int sn201202x_probe(struct spmi_device *device)
+ 	tps->dev = &device->dev;
+ 	tps->data = data;
+ 
+-	tps->irq = of_irq_get_byname(device->dev.of_node, "irq");
+-	if (tps->irq < 0)
+-		return tps->irq;
+-	irq_select = of_irq_get_byname(device->dev.of_node, "select");
++	/*
++	 * All four interrupts are optional: without them (no "interrupts" in
++	 * the DT node, as on SPMI controllers whose interrupt block Linux
++	 * cannot drive) register selection is polled, sleep/wake use fixed
++	 * delays and tipd core polls the event registers.
++	 */
++	ret = sn201202x_get_irq(device, "irq");
++	if (ret < 0)
++		return ret;
++	tps->irq = ret;
++	irq_select = sn201202x_get_irq(device, "select");
+ 	if (irq_select < 0)
+ 		return irq_select;
+-	irq_sleep = of_irq_get_byname(device->dev.of_node, "sleep");
++	irq_sleep = sn201202x_get_irq(device, "sleep");
+ 	if (irq_sleep < 0)
+ 		return irq_sleep;
+-	irq_wake = of_irq_get_byname(device->dev.of_node, "wake");
++	irq_wake = sn201202x_get_irq(device, "wake");
+ 	if (irq_wake < 0)
+ 		return irq_wake;
+ 
++	sn->poll_select = !irq_select;
++	sn->poll_sleep = !irq_sleep;
++	sn->poll_wake = !irq_wake;
++	if (sn->poll_select || !tps->irq)
++		dev_info(&device->dev, "no SPMI interrupts, polling (select%s, events%s)\n",
++			 sn->poll_select ? " polled" : " irq",
++			 tps->irq ? " irq" : " polled");
++
+ 	init_completion(&sn->select_completion);
+ 	init_completion(&sn->sleep_completion);
+ 	init_completion(&sn->wake_completion);
+ 
+-	ret = devm_request_irq(&device->dev, irq_select, sn201202x_irq,
+-			       0, NULL, &sn->select_completion);
+-	if (ret)
+-		return ret;
+-	ret = devm_request_irq(&device->dev, irq_sleep, sn201202x_irq,
+-			       0, NULL, &sn->sleep_completion);
+-	if (ret)
+-		return ret;
+-	ret = devm_request_irq(&device->dev, irq_wake, sn201202x_irq,
+-			       0, NULL, &sn->wake_completion);
+-	if (ret)
+-		return ret;
++	if (irq_select) {
++		ret = devm_request_irq(&device->dev, irq_select, sn201202x_irq,
++				       0, NULL, &sn->select_completion);
++		if (ret)
++			return ret;
++	}
++	if (irq_sleep) {
++		ret = devm_request_irq(&device->dev, irq_sleep, sn201202x_irq,
++				       0, NULL, &sn->sleep_completion);
++		if (ret)
++			return ret;
++	}
++	if (irq_wake) {
++		ret = devm_request_irq(&device->dev, irq_wake, sn201202x_irq,
++				       0, NULL, &sn->wake_completion);
++		if (ret)
++			return ret;
++	}
+ 
+ 	spmi_device_set_drvdata(device, tps);
+ 	tps->regmap = devm_regmap_init_sn201202x(device, &tps6598x_regmap_config);
+ 	if (IS_ERR(tps->regmap))
+ 		return PTR_ERR(tps->regmap);
+ 
+-	ret = spmi_command_wakeup(device);
++	ret = sn201202x_wakeup(sn);
+ 	if (ret)
+ 		return ret;
+-	if (!wait_for_completion_timeout(&sn->wake_completion, msecs_to_jiffies(100)))
+-		return -ETIMEDOUT;
+ 
+ 	ret = tipd_init(tps);
+ 	if (ret)
+@@ -247,12 +338,9 @@ static int __maybe_unused sn201202x_resume(struct device *dev)
+ 	struct sn201202x *sn = tps_to_sn(tps);
+ 	int err;
+ 
+-	reinit_completion(&sn->wake_completion);
+-	err = spmi_command_wakeup(sn->sdev);
++	err = sn201202x_wakeup(sn);
+ 	if (err)
+ 		return err;
+-	if (!wait_for_completion_timeout(&sn->wake_completion, msecs_to_jiffies(100)))
+-		return -ETIMEDOUT;
+ 	return tipd_resume(tps);
+ }
+ 
+@@ -269,7 +357,9 @@ static int __maybe_unused sn201202x_suspend(struct device *dev)
+ 	err = spmi_command_sleep(sn->sdev);
+ 	if (err)
+ 		goto out_resume;
+-	if (!wait_for_completion_timeout(&sn->sleep_completion, msecs_to_jiffies(100)))
++	if (sn->poll_sleep)
++		msleep(10);
++	else if (!wait_for_completion_timeout(&sn->sleep_completion, msecs_to_jiffies(100)))
+ 		dev_err(dev, "Waiting for sleep complete irq timed out");
+ 
+ 	return 0;
+diff --git a/drivers/usb/typec/tipd/tps6598x.h b/drivers/usb/typec/tipd/tps6598x.h
+index 6cf669418..c1ec9ea67 100644
+--- a/drivers/usb/typec/tipd/tps6598x.h
++++ b/drivers/usb/typec/tipd/tps6598x.h
+@@ -390,6 +390,10 @@ struct sn201202x {
+ 	struct completion sleep_completion;
+ 	struct completion wake_completion;
+ 	struct spmi_device *sdev;
++	/* SPMI controller gives no IRQs (Apple gen 4): poll instead */
++	bool poll_select;
++	bool poll_sleep;
++	bool poll_wake;
+ };
+ 
+ extern const struct tipd_data *tipd_hw_variants[];
+-- 
+2.56.0
+

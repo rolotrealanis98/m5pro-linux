@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: GPL-2.0+ OR MIT
+/*
+ * Apple MacBook Pro (16-inch, M5 Pro, 2026), J716s: the normal board DT
+ * plus USB 2.0 host mode on one Type-C port (t6050-usb-host.dtsi).
+ *
+ * A separate DTB on purpose: t6050-j716s.dtb stays byte-identical, so
+ * rolling back is booting the old DTB.
+ *
+ * To pick another host port, define T6050_USB_HOST_PORT (0 = left-back,
+ * 1 = left-front, 2 = right) before the include below.
+ */
+
+#include "t6050-j716s.dts"
+#include "t6050-usb-host.dtsi"
+
+/ {
+	model = "Apple MacBook Pro (16-inch, M5 Pro, 2026), USB host";
+};

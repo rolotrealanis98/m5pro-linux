@@ -1,0 +1,33 @@
+From e18ed970aedd4062015277693f201a689c4cd6b4 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 18:10:14 -0500
+Subject: [PATCH 2/5] usb: typec: descend into tipd/ when only SN201202x is
+ enabled
+
+drivers/usb/typec/Makefile adds tipd/ only for CONFIG_TYPEC_TPS6598X (the
+I2C front end). With TYPEC_SN201202X=y and TYPEC_TPS6598X unset the
+directory is never built, and with TYPEC_TPS6598X=m the built-in
+sn201202x.o is compiled but never linked into vmlinux (obj-m dir).
+Key the directory on TYPEC_TPS6598X_CORE, which both front ends select.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/usb/typec/Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/usb/typec/Makefile b/drivers/usb/typec/Makefile
+index 8a6a1c663..eebe658de 100644
+--- a/drivers/usb/typec/Makefile
++++ b/drivers/usb/typec/Makefile
+@@ -5,7 +5,7 @@ typec-$(CONFIG_ACPI)		+= port-mapper.o
+ obj-$(CONFIG_TYPEC)		+= altmodes/
+ obj-$(CONFIG_TYPEC_TCPM)	+= tcpm/
+ obj-$(CONFIG_TYPEC_UCSI)	+= ucsi/
+-obj-$(CONFIG_TYPEC_TPS6598X)	+= tipd/
++obj-$(CONFIG_TYPEC_TPS6598X_CORE)	+= tipd/
+ obj-$(CONFIG_TYPEC_ANX7411)	+= anx7411.o
+ obj-$(CONFIG_TYPEC_HD3SS3220)	+= hd3ss3220.o
+ obj-$(CONFIG_TYPEC_STUSB160X) 	+= stusb160x.o
+-- 
+2.56.0
+
