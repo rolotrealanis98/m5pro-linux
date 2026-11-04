@@ -14,13 +14,13 @@ This repo holds only what was made or changed here. Upstream sources are pinned 
 | m1n1 installed as the stub's boot object (macOS 27.2 stays at Full Security) | works |
 | m1n1 proxy over USB-C to the Studio, through the CalDigit TS5 Plus | works |
 | Chainloading m1n1 builds (`chainload.py -r -n`) | works |
-| Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots, untethered from the ESP |
+| Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots, untethered from the ESP (1 CPU there, see below) or tethered (18 CPUs) |
 | Framebuffer console, built-in keyboard, NVMe read/write, USB gadget network | works |
 | Arch Linux ARM root on the internal SSD (GPT entry 5 = `nvme0n1p5`) | works, systemd `running` |
 | SMP (secondary cores) | **works, 18 cores** (2026-11-04): stub rebuilt on macOS 27.3 beta 1, whose stage-2 mBoot carries Apple's fix for raw boot objects on M5 Pro/Max/Ultra (release notes, mBoot > Resolved Issues). No m1n1 or kernel change needed; `maxcpus=1` dropped. Any stub must be built from macOS >= 27.3 beta 1. [`docs/smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) |
 | Trackpad | firmware extracted and shipped; first boot logs `dockchannel-hid: input iface multitouch start timed out` (2026-11-04). Keyboard works. Next: dmesg from the Arch root. |
 | GPU, display driver (DCP), Wi-Fi/BT (N1), audio | not started |
-| Untethered boot (kernel on the ESP) | **works** (2026-11-04): stage-1 = CHAINLOADING m1n1 with patches 0013+0014, `chainload=<ESP PARTUUID>;m1n1/boot.bin` appended, padded to a 64 KiB multiple (0x430000); stage-2 on the ESP = plain m1n1 + kernel + DTB + initramfs. Power-on lands in the Arch root on 18 cores, no cable. [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md) |
+| Untethered boot (kernel on the ESP) | boots the Arch root with no cable (2026-11-04), **but on 1 CPU**: stage-2 is relocated above the CTRR window (patch 0013) while the secondaries' RVBAR stays locked to the stage-1 base, so they reset into stage-1's old vectors and kboot prunes them. Fix in progress: a relocated m1n1 plants a trampoline at the locked RVBAR (stage-2 only, ESP file update, no ceremony). [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md) |
 
 ## Layout
 

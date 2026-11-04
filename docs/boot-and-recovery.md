@@ -177,7 +177,20 @@ regression with the ESP variable appended and the file padded to 0x430000
 (`~/Work/stage1-serve/chain-esp-small.bin`): it loads stage-2 from the ESP and boots Linux on 18
 cores. Installed as stage-1 through the macOS route
 (`stage1-install.sh` + ceremony) on 2026-11-04 ~17:40: **the M5 boots Linux untethered**, power-on
-to the Arch login on 18 cores. Whether the fix was the size (0x4F0000 -> 0x430000), the 64 KiB
+to the Arch login. Correction from the first SSH session into that root: it runs on **1 CPU**
+(`smp: Brought up 1 node, 1 CPU`; the cmdline gained `idle=nop arm64.nowfxt` from kboot). Cause:
+the secondaries' RVBAR is locked by iBoot to the stage-1 image base; chainload.py chainloads in
+place (same base, so RVBAR points at the new image and SMP works, hence the 18 penguins), but the
+ESP stage-2 is relocated above the CTRR window by patch 0013, so released cores reset into
+stage-1's old vector table, m1n1 prints "Failed!" and prunes them (aurora-silicon 8bd67a82 notes
+the same). Fix: when RVBAR is locked and differs from `_vectors_start`, the relocated m1n1 writes a
+trampoline (`ldr x16, =_vectors_start; br x16`) into slot 0 at the locked address before releasing
+each core; it lives in stage-2, so it ships as an ESP file update over the SSH bridge, no ceremony.
+
+Access without a tether: `~/Work/eem-vm/eem-vm.py` (README there) boots a Debian guest under QEMU
+with the M5's EEM gadgets passed through and proxies SSH to root@10.55.0.2; `--shell`, `--keep`.
+Console logins for root and alarm were enabled on 2026-11-04 with a temporary password Rolando
+knows; change it. Whether the fix was the size (0x4F0000 -> 0x430000), the 64 KiB
 alignment of the appended-variable image, or both, is not separated; both are kept.
 
 Tooling that came out of it (all in `host/macos/`):
