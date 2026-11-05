@@ -1,0 +1,27 @@
+# Software-rendered desktop on the J716s Arch root (no GPU driver).
+# Install: sudo pacman -S --needed $(grep -v '^#' packages.txt | awk '{print $1}')
+# Repos: Arch Linux ARM core/extra (mesa, vulkan-*, sway, foot ...),
+#        pkgs.omarchy.org edge/aarch64 (hyprland, omarchy, omarchy-settings).
+# Availability on ALARM aarch64 not checked package by package: run
+#   pacman -Si <name>
+# first; anything missing is optional except mesa.
+
+mesa                 # EGL/GLES/GL incl. llvmpipe and the kms_swrast GBM path (required)
+libglvnd             # GL dispatch (pulled by mesa on Arch)
+vulkan-icd-loader    # Vulkan loader
+vulkan-swrast        # lavapipe (Vulkan on the CPU); only for Vulkan apps
+mesa-utils           # eglinfo / glxinfo: check the renderer string
+vulkan-tools         # vulkaninfo --summary
+wayland-utils        # wayland-info
+drm_info             # dumps the simpledrm device: connector, mode, formats, planes
+glmark2              # GLES benchmark (glmark2-es2-wayland / -drm)
+xorg-xwayland        # X11 apps under Hyprland/sway
+foot                 # CPU-rendered terminal (wl_shm); lightest choice on llvmpipe
+sway                 # fallback session with the pixman renderer (see sway/)
+swaybg
+btop                 # watch CPU cost while testing
+# From the omarchy repo (already on an Omarchy install):
+# hyprland uwsm omarchy omarchy-settings
+# Do NOT install: mesa-asahi / vulkan-asahi from asahi-alarm. They add nothing
+# without an AGX kernel driver; if already installed they still fall back to
+# llvmpipe, but vulkan-asahi then adds an ICD that finds no device.

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Start sway on simpledrm with the pixman renderer (no EGL, no llvmpipe for the
+# compositor itself; GL clients still use llvmpipe). Run from a TTY login.
+# Install: /usr/local/bin/sway-softrender
+export WLR_RENDERER=pixman
+# simpledrm has no cursor plane.
+export WLR_NO_HARDWARE_CURSORS=1
+export XDG_CURRENT_DESKTOP=sway
+export XDG_SESSION_TYPE=wayland
+exec sway "$@"

@@ -1,0 +1,11 @@
+# J716s fallback session: sway with the wlroots pixman renderer (pure CPU 2D,
+# no GL emulation). Install: ~/.config/sway/config.d/50-m5-softrender and make
+# sure ~/.config/sway/config has: include ~/.config/sway/config.d/*
+# Start it with /usr/local/bin/sway-softrender (sets WLR_RENDERER=pixman).
+
+# The simpledrm output; one fixed mode, scale 2 -> 1728x1080 logical.
+output * scale 2
+output * bg #1e1e2e solid_color
+
+# No GPU: keep it flat.
+default_border pixel 2
