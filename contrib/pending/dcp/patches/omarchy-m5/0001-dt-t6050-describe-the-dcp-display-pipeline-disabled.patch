@@ -1,0 +1,435 @@
+diff --git a/dt/t6050-dcp.dtsi b/dt/t6050-dcp.dtsi
+new file mode 100644
+index 0000000..3024001
+--- /dev/null
++++ b/dt/t6050-dcp.dtsi
+@@ -0,0 +1,383 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * T6050 display pipeline: the internal-panel DCP (dcp + disp0) and the four
++ * external display coprocessors (dcpext0-3 + dispext0-3).
++ *
++ * DESCRIBED, NOT ENABLED. Every node below is status = "disabled" and must
++ * stay that way until a drm/apple build supports this SoC's DCP firmware ABI
++ * (macOS 27.x stub; drm/apple in asahi-wip-7.2 knows 12.3, 13.5 and 14.7
++ * only). Enabling a DART here lets the Linux apple-dart driver take over a
++ * translation table the running DCP firmware depends on; enabling a DCP with
++ * an unsupported ABI is refused by drm/apple before it touches the hardware
++ * (dcp_check_firmware_version()), so the boot framebuffer stays on simpledrm.
++ * m1n1 only fills reserved memory and flips these nodes to "okay" for SoCs it
++ * knows (kboot.c dt_set_display()); for "apple,t6050" it prints "unknown
++ * compatible, skip display reserved-memory setup" and leaves them alone.
++ *
++ * Source: runtime ADT of a J716s (arm-io ranges: bus 0x0 -> 0x200000000, so
++ * ADT reg 0x8ae00000 is MMIO 0x48ae00000). Per node:
++ *   dcp        reg[0] 0x48ae00000+0x88000 (ASC; mailbox at +0x8000),
++ *              reg[1] 0x48a850000+0x4000, interrupts [1044,1043,1046,1045,
++ *              1048,1047,1050,1049] (mailbox = 1043..1046, the same
++ *              [n+1,n,n+3,n+2] order as mtp/smc), compatible iop,ascwrap-v6,
++ *              power-gates [606], iommu-parent = mapper-dcp (SID 23) +
++ *              mapper-dcp-exclave (SID 24)
++ *   disp0      reg 0x488000000+0x4000000, 0x48a240000+0x10000,
++ *              0x48a3ac000+0x4000, 0x48a800000+0x800000, 0x286700000+0x114000,
++ *              compatible disp0,t605x
++ *   dart-dcp   0x48a340000+0x20000, dart,t8110, IRQ 990, sid 23,
++ *              exclave-sid 24, l1 table pre-populated by iBoot for 23 and 24
++ *   dart-disp0 0x48a300000+0xc000, dart,t8110, IRQ 990; mappers: disp0 SID 0,
++ *              disp0-piodma SID 16, disp0-scl SID 3 and disp0-sca SID 4
++ *              (exclave-sid = 3, 4: the exclave-drawn privacy indicator
++ *              planes; never hand those streams to Linux)
++ * m1n1 already sets PROTECT_TTBR_TCR on dart-disp0 for every SoC
++ * (dt_set_display() -> dart_lock_adt()), so that DART is locked at handoff.
++ *
++ * Not described on purpose:
++ *   - apple,bw-scratch for the internal DCP: the T6050 offset inside the
++ *     0x286700000 PMC window is not known (aurora-silicon's j716c tree uses
++ *     <&pmc 0 5 0x2c000> for dcpext0 only). drm/apple refuses to probe
++ *     without it, which is the intended state for now.
++ *   - power-domains/resets on the DCP nodes: disp_cpu boots under auto-PM
++ *     (0x1f0000ff in t6050-j716s-pmgr-boot-state.json); a runtime-PM
++ *     power-off would write PS while DCP owns the panel.
++ *   - /arm-io/i2c7 (0x50502c000, IRQ 1382) and its child disp-bklt (I2C
++ *     address 0x44, no compatible): the backlight LED driver sits there, but
++ *     the ADT gives macOS no AP-side driver for it and /backlight carries
++ *     dcp-brightness-node = 1. Treat the bus as DCP-owned; an AP master on
++ *     it would race the firmware's local-dimming updates.
++ *   - Type-C/DisplayPort routing for dcpext0-3 (atc phys, crossbar, hpm):
++ *     see aurora-silicon/linux j716c/t6050-platform t6050.dtsi for a worked
++ *     dcpext0 route.
++ */
++
++/ {
++	aliases {
++		/* Names m1n1's kboot.c looks up: "dcp", "disp0", "disp0-piodma",
++		 * "dcpextN". Harmless while the nodes are disabled. */
++		dcp = &dcp;
++		disp0 = &display;
++		disp0-piodma = &disp0_piodma;
++		dcpext0 = &dcpext0;
++		dcpext1 = &dcpext1;
++		dcpext2 = &dcpext2;
++		dcpext3 = &dcpext3;
++	};
++
++	/* Outside /soc: it has no registers (dtc simple_bus_reg). */
++	display: display-subsystem {
++		compatible = "apple,display-subsystem";
++		/* scanout stream: mapper-disp0, SID 0 */
++		iommus = <&dart_disp0 0>;
++		status = "disabled";
++	};
++};
++
++&soc {
++	/* ---------------- internal panel: dcp + disp0 ---------------- */
++
++	dart_dcp: iommu@48a340000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x4 0x8a340000 0x0 0x20000>;
++		interrupt-parent = <&aic>;
++		/* dart-dcp and dart-disp0 share ADT interrupt 990 */
++		interrupts = <AIC_IRQ 990 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		/* ADT vm-base 1 TiB, vm-size 3 TiB */
++		apple,dma-range = <0x100 0x0 0x300 0x0>;
++		status = "disabled";
++	};
++
++	dart_disp0: iommu@48a300000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		/* reg[0] only; the ADT's second bank (0x48a314000) and the shared
++		 * 0x2803f0000 page are not this driver's */
++		reg = <0x4 0x8a300000 0x0 0xc000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 990 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x0 0x300 0x0>;
++		status = "disabled";
++	};
++
++	dcp_mbox: mbox@48ae08000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x4 0x8ae08000 0x0 0x4000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1043 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1044 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1045 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1046 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++		status = "disabled";
++	};
++
++	dcp: dcp@48ae00000 {
++		compatible = "apple,t6050-dcp", "apple,dcp";
++		/* disp-0..4 mirror /arm-io/disp0 reg[0..4] in ADT order: the
++		 * firmware's map_reg callbacks index this table. */
++		reg = <0x4 0x8ae00000 0x0 0x4000>,
++		      <0x4 0x88000000 0x0 0x4000000>,
++		      <0x4 0x8a240000 0x0 0x10000>,
++		      <0x4 0x8a3ac000 0x0 0x4000>,
++		      <0x4 0x8a800000 0x0 0x800000>,
++		      <0x2 0x86700000 0x0 0x114000>;
++		reg-names = "coproc", "disp-0", "disp-1", "disp-2", "disp-3",
++			    "disp-4";
++		mboxes = <&dcp_mbox>;
++		mbox-names = "mbox";
++		iommus = <&dart_dcp 23>;
++		apple,dcp-index = <0>;
++		status = "disabled";
++
++		/* required bus properties for the 'piodma' subdevice */
++		#address-cells = <2>;
++		#size-cells = <2>;
++
++		disp0_piodma: piodma {
++			iommus = <&dart_disp0 16>;
++		};
++	};
++
++	/* ---------------- external: dcpext0-3 + dispext0-3 ----------------
++	 * Same layout per engine: ASC at dcpextN reg[0] (mailbox +0x8000),
++	 * DCP SID 23 on dart-dcpextN, scanout SID 0 and PIODMA SID 16 on
++	 * dart-dispextN. ADT IRQs: dcpext0 1123..1126 (DARTs 1070),
++	 * dcpext1 1195..1198 (1142), dcpext2 1267..1270 (1214),
++	 * dcpext3 1339..1342 (1286). */
++
++	dart_dcpext0: iommu@2b2340000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x2 0xb2340000 0x0 0x20000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1070 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x0 0x300 0x0>;
++		status = "disabled";
++	};
++
++	dart_dispext0: iommu@2b2300000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x2 0xb2300000 0x0 0xc000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1070 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x0 0x300 0x0>;
++		status = "disabled";
++	};
++
++	dcpext0_mbox: mbox@2b2e08000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x2 0xb2e08000 0x0 0x4000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1123 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1124 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1125 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1126 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++		status = "disabled";
++	};
++
++	dcpext0: dcp@2b2e00000 {
++		compatible = "apple,t6050-dcpext", "apple,dcpext";
++		reg = <0x2 0xb2e00000 0x0 0x4000>,
++		      <0x2 0xb0000000 0x0 0x4000000>,
++		      <0x2 0xb2240000 0x0 0x10000>,
++		      <0x2 0xb23ac000 0x0 0x4000>,
++		      <0x2 0xb2800000 0x0 0x800000>,
++		      <0x2 0x86700000 0x0 0x114000>;
++		reg-names = "coproc", "disp-0", "disp-1", "disp-2", "disp-3",
++			    "disp-4";
++		mboxes = <&dcpext0_mbox>;
++		mbox-names = "mbox";
++		iommus = <&dart_dcpext0 23>;
++		apple,dcp-index = <1>;
++		status = "disabled";
++
++		#address-cells = <2>;
++		#size-cells = <2>;
++
++		piodma {
++			iommus = <&dart_dispext0 16>;
++		};
++	};
++
++	dart_dcpext1: iommu@392340000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x3 0x92340000 0x0 0x20000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1142 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x0 0x300 0x0>;
++		status = "disabled";
++	};
++
++	dart_dispext1: iommu@392300000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x3 0x92300000 0x0 0xc000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1142 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x0 0x300 0x0>;
++		status = "disabled";
++	};
++
++	dcpext1_mbox: mbox@392e08000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x3 0x92e08000 0x0 0x4000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1195 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1196 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1197 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1198 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++		status = "disabled";
++	};
++
++	dcpext1: dcp@392e00000 {
++		compatible = "apple,t6050-dcpext", "apple,dcpext";
++		reg = <0x3 0x92e00000 0x0 0x4000>,
++		      <0x3 0x90000000 0x0 0x4000000>,
++		      <0x3 0x92240000 0x0 0x10000>,
++		      <0x3 0x923ac000 0x0 0x4000>,
++		      <0x3 0x92800000 0x0 0x800000>,
++		      <0x2 0x86700000 0x0 0x114000>;
++		reg-names = "coproc", "disp-0", "disp-1", "disp-2", "disp-3",
++			    "disp-4";
++		mboxes = <&dcpext1_mbox>;
++		mbox-names = "mbox";
++		iommus = <&dart_dcpext1 23>;
++		apple,dcp-index = <2>;
++		status = "disabled";
++
++		#address-cells = <2>;
++		#size-cells = <2>;
++
++		piodma {
++			iommus = <&dart_dispext1 16>;
++		};
++	};
++
++	dart_dcpext2: iommu@302340000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x3 0x02340000 0x0 0x20000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1214 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x0 0x300 0x0>;
++		status = "disabled";
++	};
++
++	dart_dispext2: iommu@302300000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x3 0x02300000 0x0 0xc000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1214 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x0 0x300 0x0>;
++		status = "disabled";
++	};
++
++	dcpext2_mbox: mbox@302e08000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x3 0x02e08000 0x0 0x4000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1267 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1268 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1269 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1270 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++		status = "disabled";
++	};
++
++	dcpext2: dcp@302e00000 {
++		compatible = "apple,t6050-dcpext", "apple,dcpext";
++		reg = <0x3 0x02e00000 0x0 0x4000>,
++		      <0x3 0x00000000 0x0 0x4000000>,
++		      <0x3 0x02240000 0x0 0x10000>,
++		      <0x3 0x023ac000 0x0 0x4000>,
++		      <0x3 0x02800000 0x0 0x800000>,
++		      <0x2 0x86700000 0x0 0x114000>;
++		reg-names = "coproc", "disp-0", "disp-1", "disp-2", "disp-3",
++			    "disp-4";
++		mboxes = <&dcpext2_mbox>;
++		mbox-names = "mbox";
++		iommus = <&dart_dcpext2 23>;
++		apple,dcp-index = <3>;
++		status = "disabled";
++
++		#address-cells = <2>;
++		#size-cells = <2>;
++
++		piodma {
++			iommus = <&dart_dispext2 16>;
++		};
++	};
++
++	dart_dcpext3: iommu@306340000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x3 0x06340000 0x0 0x20000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1286 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x0 0x300 0x0>;
++		status = "disabled";
++	};
++
++	dart_dispext3: iommu@306300000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x3 0x06300000 0x0 0xc000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1286 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x0 0x300 0x0>;
++		status = "disabled";
++	};
++
++	dcpext3_mbox: mbox@306e08000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x3 0x06e08000 0x0 0x4000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 1339 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1340 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1341 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1342 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++		status = "disabled";
++	};
++
++	dcpext3: dcp@306e00000 {
++		compatible = "apple,t6050-dcpext", "apple,dcpext";
++		reg = <0x3 0x06e00000 0x0 0x4000>,
++		      <0x3 0x04000000 0x0 0x4000000>,
++		      <0x3 0x06240000 0x0 0x10000>,
++		      <0x3 0x063ac000 0x0 0x4000>,
++		      <0x3 0x06800000 0x0 0x800000>,
++		      <0x2 0x86700000 0x0 0x114000>;
++		reg-names = "coproc", "disp-0", "disp-1", "disp-2", "disp-3",
++			    "disp-4";
++		mboxes = <&dcpext3_mbox>;
++		mbox-names = "mbox";
++		iommus = <&dart_dcpext3 23>;
++		apple,dcp-index = <4>;
++		status = "disabled";
++
++		#address-cells = <2>;
++		#size-cells = <2>;
++
++		piodma {
++			iommus = <&dart_dispext3 16>;
++		};
++	};
++};
+diff --git a/dt/t6050-j716s.dts b/dt/t6050-j716s.dts
+index fb2c60a..f878c5a 100644
+--- a/dt/t6050-j716s.dts
++++ b/dt/t6050-j716s.dts
+@@ -80,3 +80,20 @@
+ #include "hwmon-common.dtsi"
+ #include "hwmon-fan-dual.dtsi"
+ #include "hwmon-laptop.dtsi"
++
++/*
++ * Internal panel, for the DCP node in t6050-dcp.dtsi (disabled there).
++ * 3456x2234 at 254.6 ppi (ADT /arm-io/disp0 dot-pitch-float) = 344.8 x
++ * 222.9 mm; m1n1 hides a 74-line notch, 2160 lines = 215.5 mm. Max SDR
++ * brightness: ADT /backlight user-accessible-max-nits = 0x2580000 / 65536 =
++ * 600 nits (/backlight-override allows 1000). Same geometry as J316.
++ */
++&dcp {
++	panel: panel {
++		compatible = "apple,panel-j716", "apple,panel-mini-led", "apple,panel";
++		width-mm = <345>;
++		height-mm = <223>;
++		adj-height-mm = <216>;
++		apple,max-brightness = <600>;
++	};
++};
+diff --git a/dt/t6050.dtsi b/dt/t6050.dtsi
+index 22ef313..0ebf526 100644
+--- a/dt/t6050.dtsi
++++ b/dt/t6050.dtsi
+@@ -608,3 +608,4 @@
+ #include "t6050-storage-net.dtsi"
+ #include "t6050-cpufreq.dtsi"
+ #include "t6050-smc.dtsi"
++#include "t6050-dcp.dtsi"
+diff --git a/scripts/build-kernel.sh b/scripts/build-kernel.sh
+index 6db02c8..26f1b02 100755
+--- a/scripts/build-kernel.sh
++++ b/scripts/build-kernel.sh
+@@ -49,6 +49,7 @@ fi
+ echo "==> Overlaying dt/ into $DTS_DIR"
+ install -m 0644 dt/t6050.dtsi dt/t6050-pmgr.dtsi dt/t6050-jxxx.dtsi \
+     dt/t6050-storage-net.dtsi dt/t6050-cpufreq.dtsi dt/t6050-smc.dtsi \
++    dt/t6050-dcp.dtsi \
+     dt/t6050-j714s.dts dt/t6050-j716s.dts \
+     "$DTS_DIR/"
+ 

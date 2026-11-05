@@ -1,0 +1,80 @@
+diff --git a/configs/omarchy-dcp-test.config b/configs/omarchy-dcp-test.config
+new file mode 100644
+index 0000000..3fb5153
+--- /dev/null
++++ b/configs/omarchy-dcp-test.config
+@@ -0,0 +1,15 @@
++# omarchy-m5 DCP stage-1 test fragment - NOT part of the default build.
++#
++# Builds drm/apple into the kernel (the target loads no modules) so that,
++# with a test DTB that sets the internal DCP node to "okay", the driver
++# probes, prints the DCP firmware ABI it was handed, and declines it:
++# T6050 has no implemented IOMFB ABI (patches/linux/0020 in the DCP agent
++# series), so the probe returns -ENODEV before any MMIO/mailbox/IOMMU
++# access and simpledrm keeps the console. Boot with appledrm.report_coproc=1
++# to also read (never write) the coprocessor's CPU_CONTROL register.
++#
++# Use: KCONFIG="... omarchy-dcp-test.config" scripts/build-kernel.sh
++CONFIG_DRM_APPLE=y
++# HDMI/DP audio would need CONFIG_SND=y; irrelevant to the internal panel.
++# CONFIG_DRM_APPLE_AUDIO is not set
++CONFIG_BACKLIGHT_CLASS_DEVICE=y
+diff --git a/dt/t6050-j716s-dcptest.dts b/dt/t6050-j716s-dcptest.dts
+new file mode 100644
+index 0000000..0cc56e1
+--- /dev/null
++++ b/dt/t6050-j716s-dcptest.dts
+@@ -0,0 +1,22 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * J716s with the internal DCP node enabled - DCP STAGE-1 TEST ONLY.
++ *
++ * Only &dcp goes "okay": its mailbox, both DARTs and the display-subsystem
++ * stay disabled, so fw_devlink creates no supplier links and nothing but
++ * drm/apple's platform probe runs. With the omarchy-dcp-test.config
++ * fragment that probe prints the firmware ABI it was given and declines it
++ * (T6050 has none implemented); appledrm.report_coproc=1 adds one read of
++ * the ASC CPU_CONTROL register. The console stays on simpledrm.
++ * Never install this DTB as the default.
++ */
++
++#include "t6050-j716s.dts"
++
++/ {
++	model = "Apple MacBook Pro (16-inch, M5 Pro, 2026) [DCP stage-1 test]";
++};
++
++&dcp {
++	status = "okay";
++};
+diff --git a/scripts/build-kernel.sh b/scripts/build-kernel.sh
+index 26f1b02..f620baf 100755
+--- a/scripts/build-kernel.sh
++++ b/scripts/build-kernel.sh
+@@ -49,11 +49,12 @@ fi
+ echo "==> Overlaying dt/ into $DTS_DIR"
+ install -m 0644 dt/t6050.dtsi dt/t6050-pmgr.dtsi dt/t6050-jxxx.dtsi \
+     dt/t6050-storage-net.dtsi dt/t6050-cpufreq.dtsi dt/t6050-smc.dtsi \
+-    dt/t6050-dcp.dtsi \
++    dt/t6050-dcp.dtsi dt/t6050-j716s-dcptest.dts \
+     dt/t6050-j714s.dts dt/t6050-j716s.dts \
+     "$DTS_DIR/"
+ 
+ install -m 0644 configs/omarchy-bringup.config configs/omarchy-storage-net.config configs/omarchy-smc.config \
++    configs/omarchy-dcp-test.config \
+     "$LINUX/arch/arm64/configs/"
+ 
+ MK="$DTS_DIR/Makefile"
+@@ -68,6 +69,12 @@ dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s.dtb
+ # <<< omarchy-m5
+ EOF
+ fi
++# Opt-in DCP stage-1 test DTB, registered on its own so trees set up before
++# it pick it up too. Never the default DTB.
++if ! grep -qF 't6050-j716s-dcptest.dtb' "$MK"; then
++    sed -i.bak 's|^# <<< omarchy-m5$|dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s-dcptest.dtb\n# <<< omarchy-m5|' "$MK" \
++        && rm -f "$MK.bak"
++fi
+ 
+ # The console symbols below are load-bearing: with any of them unset the
+ # kernel boots and prints nothing on the panel, which looks identical to a

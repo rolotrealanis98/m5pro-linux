@@ -1,0 +1,157 @@
+diff --git a/configs/omarchy-softrender.config b/configs/omarchy-softrender.config
+new file mode 100644
+index 0000000..8a12069
+--- /dev/null
++++ b/configs/omarchy-softrender.config
+@@ -0,0 +1,20 @@
++# omarchy-m5: software-rendered Wayland desktop on simpledrm (no GPU driver)
++#
++# Merged after omarchy-bringup.config. The Arch root carries no kernel modules,
++# so everything here is =y.
++#
++# Display: m1n1's boot framebuffer through simpledrm (already =y in bring-up).
++CONFIG_DRM=y
++CONFIG_DRM_SIMPLEDRM=y
++# The legacy fbdev simplefb driver would grab the same framebuffer first.
++# CONFIG_FB_SIMPLE is not set
++#
++# dma-buf plumbing that Mesa's software drivers and Wayland clients use:
++# udmabuf lets llvmpipe/lavapipe export shared-memory buffers as dma-bufs
++# (linux-dmabuf instead of wl_shm copies, where Mesa supports it); the system
++# heap serves PipeWire/GStreamer and screen capture; sync_file carries
++# explicit-sync fences between client and compositor.
++CONFIG_DMABUF_HEAPS=y
++CONFIG_DMABUF_HEAPS_SYSTEM=y
++CONFIG_UDMABUF=y
++CONFIG_SYNC_FILE=y
+diff --git a/dt/t6050-gpu.dtsi b/dt/t6050-gpu.dtsi
+new file mode 100644
+index 0000000..764b508
+--- /dev/null
++++ b/dt/t6050-gpu.dtsi
+@@ -0,0 +1,98 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Apple T6050 (M5 Pro) GPU: AGX G17S, described from the J716s runtime ADT.
++ * Every node is disabled. No in-tree driver matches these compatibles, m1n1
++ * (m5-t6050) stops in dt_set_gpu() with "unsupported chip" on T6050, and the
++ * nodes exist only so a future driver has a reviewed hardware description.
++ *
++ * ADT (/arm-io ranges: bus 0x20_2000_0000 -> 0x22_2000_0000):
++ *   /arm-io/sgx       compatible gpu,t6050; reg 0x2300000000+0x3fdc000,
++ *                     0x2300d00000+0x177000 (the "fender" window, inside reg0);
++ *                     interrupts 2448 2449 2450 2451 450 2806 2463 2465 with
++ *                     interrupts-valid 0xdf (index 5, IRQ 2806, not valid);
++ *                     power-gates 616 GFX_SGX, 615 GFX_BUSY (children of the
++ *                     GFX pwrstate at pmgr3+0x110, which hangs off AFR + GPX);
++ *                     agx-address-space-mgmt-mode 1, gptbat-ready 1.
++ *   /arm-io/gfx-asc   iop,ascwrap-v6, role GFX,  reg 0x2302600000+0x88000 and
++ *                     0x2302050000+0x8 (iop-vbar); IRQs 2798 2797 2800 2799;
++ *                     power-gate 614 GFX_ASC; nub rtbuddy-v2, firmware-name
++ *                     GFX, pre-loaded = 1.
++ *   /arm-io/gfx1-asc  iop,ascwrap-v6, role GFX1, reg 0x2302e00000+0x88000 and
++ *                     0x2302850000+0x60000; IRQs 2802 2801 2804 2803;
++ *                     power-gate 657 GFX_ASC1; firmware-name GFX1, pre-loaded.
++ *   Both ASCs use iommu-parent mapper-gfx-asc (iommu-mapper,gfx): the GPU's own
++ *   UAT, no DART and no exclave SID (unlike AOP, DCP and ISP on this SoC).
++ *
++ * The mailbox register block at ASC + 0x8000 and the interrupt order (ADT
++ * lists [n+1, n, n+3, n+2]; sorted they are send-empty, send-not-empty,
++ * recv-empty, recv-not-empty) follow the T602x AGX and the DCP description in
++ * this tree; both are inferred for ascwrap-v6, not measured.
++ *
++ * Firmware and carve-outs left by iBoot (all outside Linux RAM, which runs
++ * 0x10003b6c000..0x10bc8a00000 on the 2026-11-04 boot, so nothing here needs
++ * a reserved-memory node today):
++ *   GFX  __TEXT 0x10000ff0000+0x50000, __DATA 0x10002518000+0xc0000,
++ *        __DATA_SHARED_RO 0x100025d8000+0x8000
++ *   GFX1 __TEXT 0x10001040000+0x54000, __DATA 0x100025e0000+0xb4000,
++ *        __DATA_SHARED_RO 0x10002694000+0x8000
++ *   gfx-handoff 0x10bfff20000+0x4000, gfx-shared-l2 0x10bfff24000+0x4000,
++ *   gfx-shared 0x10bfff28000+0x80000, gpu-region (TTBAT, ttbat-phys-addr-base
++ *   0x42fffea << 14) 0x10bfffa8000+0x4000, /arm-io/sapt table 0x10bd12e4000
++ *   (policy 2, 3145728 two-bit entries).
++ */
++
++&soc {
++	gfx_mbox: mbox@2302608000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x23 0x02608000 0x0 0x4000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 2797 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 2798 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 2799 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 2800 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		power-domains = <&ps_gfx>;
++		#mbox-cells = <0>;
++		status = "disabled";
++	};
++
++	gfx1_mbox: mbox@2302e08000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x23 0x02e08000 0x0 0x4000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 2801 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 2802 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 2803 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 2804 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		power-domains = <&ps_gfx>;
++		#mbox-cells = <0>;
++		status = "disabled";
++	};
++
++	gpu: gpu@2302600000 {
++		compatible = "apple,agx-t6050";
++		reg = <0x23 0x02600000 0x0 0x88000>,
++		      <0x23 0x00000000 0x0 0x3fdc000>,
++		      <0x23 0x02e00000 0x0 0x88000>;
++		reg-names = "asc", "sgx", "asc1";
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 2448 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 2449 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 2450 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 2451 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 450 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 2463 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 2465 IRQ_TYPE_LEVEL_HIGH>;
++		mboxes = <&gfx_mbox>, <&gfx1_mbox>;
++		mbox-names = "gfx", "gfx1";
++		power-domains = <&ps_gfx>;
++
++		/* No driver supports any T6050 GPU firmware; the loader must fill these. */
++		apple,firmware-version = <0 0 0>;
++		apple,firmware-compat = <0 0 0>;
++		status = "disabled";
++	};
++};
+diff --git a/dt/t6050.dtsi b/dt/t6050.dtsi
+index 22ef313..bb06655 100644
+--- a/dt/t6050.dtsi
++++ b/dt/t6050.dtsi
+@@ -608,3 +608,4 @@
+ #include "t6050-storage-net.dtsi"
+ #include "t6050-cpufreq.dtsi"
+ #include "t6050-smc.dtsi"
++#include "t6050-gpu.dtsi"
+diff --git a/scripts/build-kernel.sh b/scripts/build-kernel.sh
+index 6db02c8..74e9606 100755
+--- a/scripts/build-kernel.sh
++++ b/scripts/build-kernel.sh
+@@ -48,11 +48,11 @@ fi
+ 
+ echo "==> Overlaying dt/ into $DTS_DIR"
+ install -m 0644 dt/t6050.dtsi dt/t6050-pmgr.dtsi dt/t6050-jxxx.dtsi \
+-    dt/t6050-storage-net.dtsi dt/t6050-cpufreq.dtsi dt/t6050-smc.dtsi \
++    dt/t6050-storage-net.dtsi dt/t6050-cpufreq.dtsi dt/t6050-smc.dtsi dt/t6050-gpu.dtsi \
+     dt/t6050-j714s.dts dt/t6050-j716s.dts \
+     "$DTS_DIR/"
+ 
+-install -m 0644 configs/omarchy-bringup.config configs/omarchy-storage-net.config configs/omarchy-smc.config \
++install -m 0644 configs/omarchy-bringup.config configs/omarchy-storage-net.config configs/omarchy-smc.config configs/omarchy-softrender.config \
+     "$LINUX/arch/arm64/configs/"
+ 
+ MK="$DTS_DIR/Makefile"

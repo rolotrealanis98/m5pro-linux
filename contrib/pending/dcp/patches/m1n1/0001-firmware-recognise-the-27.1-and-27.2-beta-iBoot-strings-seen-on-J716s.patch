@@ -1,0 +1,52 @@
+From: DCP design agent (omarchy-m5 / m5pro-linux)
+Subject: [PATCH] firmware: recognise the 27.1 and 27.2 beta iBoot strings seen on J716s
+
+The J716s stub (build 26C5035r) reports mBoot-20457.60.65.0.1, which is not
+in the table, so os_firmware is V_UNKNOWN (log: "OS FW version: unknown").
+V_UNKNOWN sorts below V15_0B1, so display_configure()'s "unsupported
+firmware, skipping configuration" guard does not fire: if a boot ever takes
+one of display_init()'s reconfigure branches (external display at boot,
+dummy framebuffer), m1n1 would drive a 27.x DCP with its 13.x-era iBoot
+protocol. Recognised, the version is >= V15_0B1 and m1n1 leaves DCP alone.
+
+It also makes apple,firmware-version / asahi,os-fw-version meaningful for
+the kernel (drm/apple prints them when it declines the DCP).
+
+Version labels are inferred: 26C = the x.2 line (25C = 26.2) and the .60
+iBoot train is the x.2 beta train (26.2 beta = 13822.60.24.x); .41 is the
+x.1 release train. Confirm with the stub's SystemVersion.plist.
+
+Base: ~/Work/m1n1 m5-t6050 459a3af2 (also applies to AsahiLinux/m1n1 main
+70757dc7).
+---
+diff --git a/src/firmware.c b/src/firmware.c
+index f597c05c..f421daaa 100644
+--- a/src/firmware.c
++++ b/src/firmware.c
+@@ -208,6 +208,13 @@ const struct fw_version_info fw_versions[NUM_FW_VERSIONS] = {
+     [V26_7]      = {V26_7,      "26.7",        {26, 7, 0},     3, "mBoot-18000.161.10.701.1"},
+     [V26_7_1]    = {V26_7_1,    "26.7.1",      {26, 7, 1},     3, "mBoot-18000.161.10.702.1"},
+     [V27_0]      = {V27_0,      "27.0",        {27, 0, 0},     3, "mBoot-20457.1.29"},
++    // The next two are observed on a J716s (T6050), not taken from a release list.
++    // 20457.41.x: ADT firmware-version of the host macOS (the .41 train is the
++    // x.1 release in every 26.x/27.x pairing above).
++    [V27_1]      = {V27_1,      "27.1",        {27, 1, 0},     3, "mBoot-20457.41.2"},
++    // 20457.60.65.0.1: the paired stub of build 26C5035r. Build letter C and the
++    // .60 train both mean the x.2 beta line (26.2 beta: 13822.60.24.x).
++    [V27_2B]     = {V27_2B,     "27.2 beta",   {27, 1, 98, 1}, 4, "mBoot-20457.60.65.0.1"},
+     // clang-format on
+ };
+ 
+diff --git a/src/firmware.h b/src/firmware.h
+index 67b8d05d..ae1dcb97 100644
+--- a/src/firmware.h
++++ b/src/firmware.h
+@@ -191,6 +191,8 @@ enum fw_version {
+     V26_7,
+     V26_7_1,
+     V27_0,
++    V27_1,
++    V27_2B,
+     NUM_FW_VERSIONS,
+ };
+ 

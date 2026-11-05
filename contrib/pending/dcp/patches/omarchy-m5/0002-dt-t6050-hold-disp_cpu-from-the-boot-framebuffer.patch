@@ -1,0 +1,23 @@
+diff --git a/dt/t6050-jxxx.dtsi b/dt/t6050-jxxx.dtsi
+index 3440b62..ca3bd79 100644
+--- a/dt/t6050-jxxx.dtsi
++++ b/dt/t6050-jxxx.dtsi
+@@ -24,8 +24,16 @@
+ 		framebuffer0: framebuffer@0 {
+ 			compatible = "apple,simple-framebuffer", "simple-framebuffer";
+ 			reg = <0 0 0 0>; /* To be filled by loader */
+-			/* TODO(adt): power-domains for disp_cpu/dptx_phy once the
+-			 * t6050 pmgr domain offsets are known */
++			/*
++			 * disp_cpu (pmgr1 0x280900000 +0x1a8; parents disp_fe -> disp_sys)
++			 * feeds the scanout engine. Holding it from simpledrm keeps
++			 * the boot framebuffer alive without pd_ignore_unused.
++			 * disp_cpu boots under auto-PM (0x1f0000ff), so attaching
++			 * writes nothing (patches/linux/0003); only a genpd
++			 * power-off (unbind, system suspend) would. T6050 has no
++			 * separate dptx_phy domain in the ADT pmgr device list.
++			 */
++			power-domains = <&ps_disp_cpu>;
+ 			/* Format properties will be added by loader */
+ 			status = "disabled";
+ 		};
