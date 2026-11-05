@@ -1,0 +1,62 @@
+# 18-CPU untethered boot, 2026-11-04 18:08 (GCC kernel 7.2.2-01023-g666335fea5e3, stub rebuilt on macOS 27.3 beta 1)
+# Redacted excerpt. MAC addresses -> xx:xx:xx:xx:xx:xx, UUIDs -> <uuid>, ids -> <id>,
+# build host -> builder@host. Lines are copied verbatim otherwise; "..." marks omitted lines.
+# source: dmesg read over SSH from the Arch root
+[    0.000000] Booting Linux on physical CPU 0x0000040000 [0x611f0641]
+[    0.000000] Linux version 7.2.2-01023-g666335fea5e3-dirty (builder@host) (gcc (GCC) 16.1.1 20260430, GNU ld (GNU Binutils) 2.46.0) #1 SMP PREEMPT Tue Oct 20 07:18:35 EDT 2026
+[    0.000000] KASLR enabled
+[    0.000000] random: crng init done
+[    0.000000] Machine model: Apple MacBook Pro (16-inch, M5 Pro, 2026)
+...
+[    0.000000] pcpu-alloc: s106136 r8192 d33128 u147456 alloc=9*16384
+[    0.000000] pcpu-alloc: [0] 00 [0] 01 [0] 02 [0] 03 [0] 04 [0] 05 [0] 06 [0] 07 
+[    0.000000] pcpu-alloc: [0] 08 [0] 09 [0] 10 [0] 11 [0] 12 [0] 13 [0] 14 [0] 15 
+[    0.000000] pcpu-alloc: [0] 16 [0] 17 
+[    0.000000] Kernel command line: earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5 idle=nop arm64.nowfxt
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=18, Nodes=1
+...
+[    0.638622] smp: Bringing up secondary CPUs ...
+[    0.685350] Detected PIPT I-cache on CPU1
+[    0.685375] CPU1: Booted secondary processor 0x0000040001 [0x611f0641]
+[    0.685470] Detected PIPT I-cache on CPU2
+[    0.685494] CPU2: Booted secondary processor 0x0000040002 [0x611f0641]
+[    0.685577] Detected PIPT I-cache on CPU3
+[    0.685601] CPU3: Booted secondary processor 0x0000040003 [0x611f0641]
+[    0.685690] Detected PIPT I-cache on CPU4
+[    0.685714] CPU4: Booted secondary processor 0x0000040004 [0x611f0641]
+[    0.685801] Detected PIPT I-cache on CPU5
+[    0.685826] CPU5: Booted secondary processor 0x0000040005 [0x611f0641]
+[    0.685934] Detected PIPT I-cache on CPU6
+[    0.686000] CPU6: Booted secondary processor 0x0000040100 [0x611f0641]
+[    0.686160] Detected PIPT I-cache on CPU7
+[    0.686206] CPU7: Booted secondary processor 0x0000040101 [0x611f0641]
+[    0.686338] Detected PIPT I-cache on CPU8
+[    0.686385] CPU8: Booted secondary processor 0x0000040102 [0x611f0641]
+[    0.686522] Detected PIPT I-cache on CPU9
+[    0.686569] CPU9: Booted secondary processor 0x0000040103 [0x611f0641]
+[    0.686699] Detected PIPT I-cache on CPU10
+[    0.686747] CPU10: Booted secondary processor 0x0000040104 [0x611f0641]
+[    0.686872] Detected PIPT I-cache on CPU11
+[    0.686919] CPU11: Booted secondary processor 0x0000040105 [0x611f0641]
+[    0.687057] Detected PIPT I-cache on CPU12
+[    0.687126] CPU12: Booted secondary processor 0x0000010200 [0x611f0651]
+[    0.687289] Detected PIPT I-cache on CPU13
+[    0.687341] CPU13: Booted secondary processor 0x0000010201 [0x611f0651]
+[    0.687466] Detected PIPT I-cache on CPU14
+[    0.687518] CPU14: Booted secondary processor 0x0000010202 [0x611f0651]
+[    0.687657] Detected PIPT I-cache on CPU15
+[    0.687709] CPU15: Booted secondary processor 0x0000010203 [0x611f0651]
+[    0.687843] Detected PIPT I-cache on CPU16
+[    0.687895] CPU16: Booted secondary processor 0x0000010204 [0x611f0651]
+[    0.688022] Detected PIPT I-cache on CPU17
+[    0.688075] CPU17: Booted secondary processor 0x0000010205 [0x611f0651]
+[    0.688137] smp: Brought up 1 node, 18 CPUs
+[    1.903390] SMP: Total of 18 processors activated.
+...
+[   12.432134] configfs-gadget.m5_0 gadget.0: HOST MAC xx:xx:xx:xx:xx:xx
+[   12.472526] configfs-gadget.m5_0 gadget.0: MAC xx:xx:xx:xx:xx:xx
+[   12.714452] configfs-gadget.m5_1 gadget.1: HOST MAC xx:xx:xx:xx:xx:xx
+[   12.717013] configfs-gadget.m5_1 gadget.1: MAC xx:xx:xx:xx:xx:xx
+[   12.878089] configfs-gadget.m5_2 gadget.2: HOST MAC xx:xx:xx:xx:xx:xx
+[   12.880550] configfs-gadget.m5_2 gadget.2: MAC xx:xx:xx:xx:xx:xx
+[   13.180616] EXT4-fs (nvme0n1p5): mounted filesystem <uuid> r/w with ordered data mode. Quota mode: none.

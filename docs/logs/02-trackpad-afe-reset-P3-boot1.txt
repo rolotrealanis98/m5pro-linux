@@ -1,0 +1,82 @@
+# Trackpad: host-driven AFE reset, P3 payload boot 1, 2026-11-05 (LLVM kernel 7.2.2-g8bcfb21b951d + patch 0016, trackpad DTB)
+# Redacted excerpt. MAC addresses -> xx:xx:xx:xx:xx:xx, UUIDs -> <uuid>, ids -> <id>,
+# build host -> builder@host. Lines are copied verbatim otherwise; "..." marks omitted lines.
+# source: dmesg over SSH, filtered to dockchannel-hid / MTP lines
+[    0.000000] Booting Linux on physical CPU 0x0000040000 [0x611f0641]
+[    0.000000] Linux version 7.2.2-g8bcfb21b951d (builder@host) (Homebrew clang version 23.1.4, Homebrew LLD 23.1.4) #2 SMP PREEMPT Thu Nov  5 05:37:47 EST 2026
+[    0.000000] Kernel command line: earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5 idle=nop arm64.nowfxt
+...
+[    6.239720] platform 294600000.mtp: Adding to iommu group 0
+[    8.170129] rtkit-helper 294600000.mtp: RTKit: Initializing (protocol version 12)
+[    8.205317] rtkit-helper 294600000.mtp: RTKit: Unknown system endpoint: 0x0a
+[    8.241552] rtkit-helper 294600000.mtp: RTKit: syslog message: main.c:199: MTP Says Hello
+[    8.277853] rtkit-helper 294600000.mtp: RTKit: syslog message: main.c:199: Version: AppleMTPFirmwareMac-6320.86.1~81
+[    8.280615] rtkit-helper 294600000.mtp: RTKit: syslog message: main.c:199: Personality: MTP_SYS
+[    8.282889] rtkit-helper 294600000.mtp: RTKit: syslog message: main.c:199: SDK: 26C5035e
+[    8.285282] rtkit-helper 294600000.mtp: RTKit: syslog message: main.c:199: Built on: 2026-10-28__21:47:21
+[    8.322226] rtkit-helper 294600000.mtp: RTKit: syslog message: kb_transport.c:270: IPD HIDSPI attached
+[    8.322250] rtkit-helper 294600000.mtp: RTKit: syslog message: touch_pwr_mgr.c:208: [TPM] Mac Power Manager State Machine Initialized ret(0) status(0)
+[    8.324710] rtkit-helper 294600000.mtp: RTKit: syslog message: act_mgr.c:563: Called act_mgr_init()
+[    8.352130] rtkit-helper 294600000.mtp: RTKit: syslog message: comm.c:200: Initializing comm interface <0- "comm">
+[    8.353915] dockchannel-hid 294b28000.input: Initialized, awaiting packets
+[    8.354557] rtkit-helper 294600000.mtp: RTKit: syslog message: comm.c:200: Initializing comm interface <1- "multi-touch">
+[    8.355741] dockchannel-hid 294b28000.input: Product name for stm: Apple Internal Keyboard / Trackpad
+[    8.357184] rtkit-helper 294600000.mtp: RTKit: syslog message: comm.c:200: Initializing comm interface <2- "keyboard">
+[    8.358420] dockchannel-hid 294b28000.input: New interface stm
+[    8.358471] dockchannel-hid 294b28000.input: Product name for multi-touch: Apple Internal Keyboard / Trackpad
+[    8.358503] dockchannel-hid 294b28000.input: Product name for keyboard: Apple Internal Keyboard / Trackpad
+[    8.358533] dockchannel-hid 294b28000.input: Product name for tp-accel: Apple Internal Keyboard / Trackpad
+[    8.358563] dockchannel-hid 294b28000.input: Product name for actuator: Apple Internal Keyboard / Trackpad
+[    8.358596] dockchannel-hid 294b28000.input: Product name for mtp: Apple Internal Keyboard / Trackpad
+[    8.359613] rtkit-helper 294600000.mtp: RTKit: syslog message: comm.c:200: Initializing comm interface <3- "stm">
+[    8.360966] dockchannel-hid 294b28000.input: Interface stm is now ready
+[    8.361202] hid-generic 0019:0000:0000.0001: hidraw0: HOST HID v0.00 Device [Apple MTP stm] on 294b28000.input.3 (stm)
+[    8.362152] rtkit-helper 294600000.mtp: RTKit: syslog message: comm.c:200: Initializing comm interface <4- "actuator">
+[    8.362163] rtkit-helper 294600000.mtp: RTKit: syslog message: comm.c:200: Initializing comm interface <5- "tp-accel">
+[    8.362173] rtkit-helper 294600000.mtp: RTKit: syslog message: comm.c:200: Initializing comm interface <6- "mtp">
+[    8.362183] rtkit-helper 294600000.mtp: RTKit: syslog message: stm.c:75: ST IF complete enumeration: SENT (0x0)
+[    8.362192] rtkit-helper 294600000.mtp: RTKit: syslog message: touch_iface.c:171: Grape interface initializing
+[    8.362203] rtkit-helper 294600000.mtp: RTKit: syslog message: touch_iface.c:179: Grape interface initialized
+[    8.362208] rtkit-helper 294600000.mtp: RTKit: syslog message: touch_mgr.c:65: Touch IF complete enumeration: SENT
+[    8.362219] rtkit-helper 294600000.mtp: RTKit: syslog message: keyboard.c:63: Keyboard initialized
+[    8.362229] rtkit-helper 294600000.mtp: RTKit: syslog message: stm_cr.c:93: ST management interface configuration completed
+[    8.362239] rtkit-helper 294600000.mtp: RTKit: syslog message: stm.c:89: ST management ready
+[    8.374085] dockchannel-hid 294b28000.input: New interface multi-touch
+[    8.374128] dockchannel-hid 294b28000.input: New interface keyboard
+[    8.374169] dockchannel-hid 294b28000.input: New interface actuator
+[    8.374207] dockchannel-hid 294b28000.input: New interface tp-accel
+[    8.374226] rtkit-helper 294600000.mtp: RTKit: syslog message: keyboard_cr.c:73: Keyboard interface configuration completed
+[    8.374244] dockchannel-hid 294b28000.input: New interface mtp
+[    8.374262] dockchannel-hid 294b28000.input: Interface keyboard is now ready
+[    8.374272] rtkit-helper 294600000.mtp: RTKit: syslog message: keyboard.c:77: Keyboard ready
+[    8.374480] rtkit-helper 294600000.mtp: RTKit: syslog message: actuator_cr.c:84: Actuator interface configuration completed
+[    8.374513] dockchannel-hid 294b28000.input: Interface actuator is now ready
+[    8.374537] rtkit-helper 294600000.mtp: RTKit: syslog message: actuator.c:71: Actuator ready
+[    8.374626] input: Apple MTP keyboard as /devices/platform/soc/294b14000.fifo/294b28000.input/0019:05AC:035A.0002/input/input1
+[    8.374729] rtkit-helper 294600000.mtp: RTKit: syslog message: accel_cr.c:73: Accel interface configuration completed
+[    8.374763] dockchannel-hid 294b28000.input: Interface tp-accel is now ready
+[    8.374786] rtkit-helper 294600000.mtp: RTKit: syslog message: accel.c:71: Accel ready
+[    8.374990] rtkit-helper 294600000.mtp: RTKit: syslog message: mtp_cr.c:299: MTP interface is ready
+[    8.375005] rtkit-helper 294600000.mtp: RTKit: syslog message: mtp_cr.c:306: MTP management interface configuration completed
+[    8.375007] dockchannel-hid 294b28000.input: Interface mtp is now ready
+[    8.402092] rtkit-helper 294600000.mtp: RTKit: syslog message: touch_iface.c:458: Grape interface configuration completed
+[    8.402280] input: Apple MTP multi-touch as /devices/platform/soc/294b14000.fifo/294b28000.input/0019:05AC:035A.0006/input/input2
+[    8.553412] apple 0019:05AC:035A.0002: input,hidraw1: HOST HID v5.10 Keyboard [Apple MTP keyboard] on 294b28000.input.2 (keyboard)
+[    8.553434] magicmouse 0019:05AC:035A.0006: input,hidraw2: HOST HID v5.10 Mouse [Apple MTP multi-touch] on 294b28000.input.1 (multi-touch)
+[   19.422186] dockchannel-hid 294b28000.input: Starting interface multi-touch
+[   19.466323] rtkit-helper 294600000.mtp: RTKit: syslog message: hal.c:170: Registering DRAM Shared Buffer #0. Addr=100ffc00000, Size=2097152
+[   19.746285] dockchannel-hid 294b28000.input: multi-touch: host-driven AFE reset, power method 2
+[   20.421491] dockchannel-hid 294b28000.input: Sending firmware for multi-touch
+[   20.421882] dockchannel-hid 294b28000.input: Resetting multi-touch
+[   20.422468] dockchannel-hid 294b28000.input: multi-touch: AFE reset asserted
+[   20.476361] dockchannel-hid 294b28000.input: multi-touch: AFE reset released
+[   20.756389] rtkit-helper 294600000.mtp: RTKit: syslog message: bootloader.c:537: (*)New AFE[0] cbor image received
+[   20.840972] rtkit-helper 294600000.mtp: RTKit: syslog message: touch_pwr_mgr.c:229: [TPM] Mac Power Manager State Machine Started
+[   20.841133] dockchannel-hid 294b28000.input: Interface multi-touch is now ready
+[   20.842094] rtkit-helper 294600000.mtp: RTKit: syslog message: touch_iface.c:495: Touch interface ready
+[   20.952425] rtkit-helper 294600000.mtp: RTKit: syslog message: touch_iface.c:512: Touch MT ready
+[   20.989752] rtkit-helper 294600000.mtp: RTKit: syslog message: touch_pwr_mgr_fsm.c:300: Sending Cumulus Report to enter Dependent Mode (9A)
+
+# gpioinfo / debugfs gpio on the same boot (from the run notes):
+gpiochip1: 64 GPIOs, parent: platform/macsmc-low-gpio, macsmc-pmu-low-gpio, can sleep:
+ gpio-28  (                    |afe-reset           ) out hi ACTIVE LOW

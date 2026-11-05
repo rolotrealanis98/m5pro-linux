@@ -137,3 +137,20 @@ The studio DTB is byte-for-byte the base DT minus the trackpad diff (checked wit
 - B2 reboot series 2026-11-05 ~11:30 UTC: 3 consecutive Linux (watchdog) reboots, macsmc-reboot reported NO boot
   errors on any of them (the "PMU logged" line only prints when a count is non-zero), scratchpad stayed
   `20 30 00 30`, NVMe at 8.9-11.6 s, trackpad "Touch MT ready" every boot, 18 CPUs. Boot-failure-counter issue CLOSED.
+
+## Round 3 (2026-11-05, partial; agent stopped by Rolando before hand-back; coordinator summary)
+- Baseline on B2 (old DTB): 18 CPUs, trackpad ready, logs integration-20261105-062910-r3-baseline-B2.
+- SMC T1-T5 on B2 (integration-20261105-062933-r3-smc-T1-T5-B2/T1-T5.txt): macsmc RTKit init, macsmc-gpio
+  (gP01) and macsmc-low-gpio (gp01) probed, "Apple SMC power/lid events" input, macsmc-rtc registered and set the
+  clock, macsmc-reboot poweroff-only active, hwmon macsmc_hwmon present. PASS as far as recorded (T4/T5 files present).
+- USB step 1 on B2 (integration-20261105-063307-r3-usb-step1-B2/step1.txt): three UDCs, gadgets m5_0/m5_2 configured
+  high-speed, usb0/usb2 up, no xhci/phy/tipd lines with the old DTB. PASS (no regression).
+- SMC T6 (battery/charger): the agent built payloads/r3/B2-power-T6.bin (sha 9d892b26...) = B2 without
+  `initcall_blacklist=macsmc_power_driver_init`, deployed it and rebooted. RESULT: HARD HANG at ~7.8 s, last line
+  `i2c_dev: i2c /dev entries driver` right after `input: Apple SMC power/lid events`, i.e. in/around the
+  macsmc-power probe; no oops/panic text on the panel (photo 2026-11-05). FAIL. macsmc-power stays blacklisted;
+  this confirms the October macsmc-power crash is real and lives in probe. Next: bisect inside macsmc-power
+  (which SMC key read hangs; add dev_info before each key; test with the debug initramfs netconsole once available).
+- cpufreq stage 1 and Stage C (usbhost DTB) were NOT reached.
+- Parking for Rolando's trip: he restores boot.bin.b2 (or boot.bin.prev = P3) from macOS and sets Startup Disk to
+  Macintosh HD; Linux resumes Sunday 2026-11-08.

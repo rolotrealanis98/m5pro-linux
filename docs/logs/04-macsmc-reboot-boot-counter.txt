@@ -1,0 +1,20 @@
+# iBoot boot-failure counter: macsmc-reboot (patch 0017) on the B2 payload, 2026-11-05
+# Redacted excerpt. MAC addresses -> xx:xx:xx:xx:xx:xx, UUIDs -> <uuid>, ids -> <id>,
+# build host -> builder@host. Lines are copied verbatim otherwise; "..." marks omitted lines.
+# A. A B2 boot (dmesg over SSH, captured 2026-11-05 11:29 UTC). Poweroff goes through the SMC,
+#    restart stays on the watchdog:
+[    0.000000] Linux version 7.2.2-g61c807bf41a1-dirty (builder@host) (Homebrew clang version 23.1.4, Homebrew LLD 23.1.4) #3 SMP PREEMPT Thu Nov  5 06:18:11 EST 2026
+...
+[    8.786479] macsmc-reboot macsmc-reboot: Handling poweroff requests via SMC (restart left to other handlers)
+
+# B. First Linux reboot after the fix. Transcribed from the run record
+#    (contrib/pending/integration/RESULTS.md); the raw dmesg of that boot was not saved:
+PMU logged 1 boot error(s) and 0 panic(s)      (message text only; prefix and timestamp not recorded)
+#    PMU scratchpad 0xf800..0xf80f, read-only dump:
+#      after a macOS boot:              20 30 00 00 ...
+#      after that first Linux reboot:   0xf802 (counts) -> 0x00, 0xf803 (boot_error_stage) = 0x30
+#
+# C. B2 reboot series, 2026-11-05 ~11:30 UTC: three consecutive Linux (watchdog) reboots.
+#    No "PMU logged" line on any of them (the driver prints it only for a non-zero count);
+#    scratchpad stayed 20 30 00 30; NVMe up at 8.9-11.6 s; "Touch MT ready" and 18 CPUs each boot.
+#    With the first boot above, the counter fix is verified over four boots.

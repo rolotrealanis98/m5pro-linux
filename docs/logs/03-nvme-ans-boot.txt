@@ -1,0 +1,42 @@
+# NVMe / ANS at boot: the failure without patch 0016, and a fixed boot (B2, 2026-11-05)
+# Redacted excerpt. MAC addresses -> xx:xx:xx:xx:xx:xx, UUIDs -> <uuid>, ids -> <id>,
+# build host -> builder@host. Lines are copied verbatim otherwise; "..." marks omitted lines.
+# A. Failure (2026-11-05 round 1, before patch 0016). No log file was captured: there was no
+#    shell. The text below is as recorded in contrib/pending/integration/RESULTS.md and seen on
+#    the panel / the initramfs shell (message text only; timestamps and device prefix not recorded):
+ANS did not boot
+Reset failure status: -62
+#    The root never appeared. A manual unbind/bind of nvme-apple from the initramfs shell brought
+#    the disk up (nvme0n1 p1-p6) and switch_root reached the Arch root. The known-good GCC payload
+#    failed the same way on the next boot.
+#
+# B. Fixed boot: B2 payload (kernel 7.2.2-g61c807bf41a1-dirty + 0016 + 0017, old DTB), dmesg over SSH,
+#    filtered to nvme lines. The RTKit handshake now has 10 s; NVMe is up at ~9 s.
+[    0.000000] Linux version 7.2.2-g61c807bf41a1-dirty (builder@host) (Homebrew clang version 23.1.4, Homebrew LLD 23.1.4) #3 SMP PREEMPT Thu Nov  5 06:18:11 EST 2026
+...
+[    8.744429] nvme-apple 45dcc0000.nvme: RTKit: Initializing (protocol version 12)
+[    8.777667] nvme-apple 45dcc0000.nvme: RTKit: Unknown system endpoint: 0x0a
+[    9.047970] nvme-apple 45dcc0000.nvme: RTKit: syslog message: apcie.c:1035: power up done[0]: PMU=Kazoo, PWR=0
+[    9.047978] nvme-apple 45dcc0000.nvme: RTKit: syslog message: apcie.c:1035: power up done[1]: PMU=Undefined, PWR=0
+[    9.047984] nvme-apple 45dcc0000.nvme: RTKit: syslog message: apcie.c:1514: APCIe 1 is configured as unused.
+[    9.047991] nvme-apple 45dcc0000.nvme: RTKit: syslog message: asi.c:180: asi0: asi CMD size chosen is: 1
+[    9.047997] nvme-apple 45dcc0000.nvme: RTKit: syslog message: asi.c:180: asi1: asi CMD size chosen is: 1
+[    9.048003] nvme-apple 45dcc0000.nvme: RTKit: syslog message: asi.c:180: asi2: asi CMD size chosen is: 1
+[    9.048009] nvme-apple 45dcc0000.nvme: RTKit: syslog message: asi.c:180: asi3: asi CMD size chosen is: 1
+[    9.052085] nvme-apple 45dcc0000.nvme: RTKit: syslog message: cmd.c:8551: boot: mode normal
+[    9.052518] nvme-apple 45dcc0000.nvme: RTKit: syslog message: power_budget.c:1001: PowerBudget: set on boot setByHost=1, is_warm_boot=0
+[    9.052814] nvme-apple 45dcc0000.nvme: RTKit: syslog message: power_budget.c:130: PowerBudget V5V1 bu=200 pc=1 rc=1 ppm=0 pbio=0 ess=0
+[    9.052821] nvme-apple 45dcc0000.nvme: RTKit: syslog message: power_budget.c:144: e=100 p=100/0/100 rmp=100 rsp=25/0/25 ressmp=0 ressspn=0/0 sio=0 comp=0
+[    9.053105] nvme-apple 45dcc0000.nvme: RTKit: syslog message: power_budget.c:269: PowerBudget: num dies horizontal change 1 -> 1
+[    9.053111] nvme-apple 45dcc0000.nvme: RTKit: syslog message: power_budget.c:130: PowerBudget V5V1 bu=0 pc=0 rc=0 ppm=0 pbio=0 ess=0
+[    9.053129] nvme-apple 45dcc0000.nvme: RTKit: syslog message: power_budget.c:144: e=0 p=0/0/0 rmp=0 rsp=0/0/0 ressmp=0 ressspn=0/0 sio=0 comp=0
+[    9.054165] nvme nvme0: passthrough uses implicit buffer lengths
+[    9.074591]  nvme0n1: p1 p2 p3 p4 p5 p6
+[   12.960459] nvme-apple 45dcc0000.nvme: RTKit: syslog message: util.c:4198: attempting to read element=PANICLOG not yet written, returning ERR_ABORT
+[   14.223675] EXT4-fs (nvme0n1p5): Supports (experimental) DIO atomic writes awu_min: 4096, awu_max: 4096
+[   14.275072] EXT4-fs (nvme0n1p5): mounted filesystem <uuid> r/w with ordered data mode. Quota mode: none.
+[   18.162146] nvme-apple 45dcc0000.nvme: RTKit: syslog message: util.c:4198: attempting to read element=PANICLOG not yet written, returning ERR_ABORT
+... (40 more identical 'PANICLOG not yet written' lines omitted)
+[   18.615669] EXT4-fs (nvme0n1p5): re-mounted <uuid>.
+[   19.797306] EXT4-fs (nvme0n1p5): resizing filesystem from 42724609 to 42724609 blocks
+[   21.932285] FAT-fs (nvme0n1p4): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.
