@@ -105,3 +105,18 @@ The studio DTB is byte-for-byte the base DT minus the trackpad diff (checked wit
 - USB host DTB: only after USB step 1.
 - All of it waits on the Stage A failure being explained.
 - Never: suspend, CPU hotplug, removing `idle=nop arm64.nowfxt`.
+
+## Round 1 resolution (2026-11-05, coordinator)
+- Root cause of "no SSH": NOT the kernel build. The ANS (storage coprocessor) firmware sometimes needs ~3 s to finish its
+  asi init; `apple_rtkit_wait_for_completion` waits 1 s, nvme-apple logs `ANS did not boot` / `Reset failure status: -62`
+  and the root never appears. The known-good gcc payload failed identically on the next boot. A manual rebind of
+  nvme-apple from the initramfs shell brought the disk up (nvme0n1 p1-p6) and `switch_root` reached the Arch root.
+- Fixes: kernel patch 0016 (RTKit handshake wait 1 s -> 10 s); host/macos/mk-debug-initramfs.sh (60 s root wait,
+  dropbear on the gadget link, automatic nvme-apple rebind every 12 s after an "ANS did not" message).
+- P3 = LLVM trackpad kernel (7.2.2-g8bcfb21b951d) + 0016 + trackpad DTB + debug initramfs, sha256
+  fccf71bcad938f34312e89b9f8c46e4431f78536d742f98c884d5eeca57f9806. Deployed 2026-11-05 10:40 UTC.
+- TRACKPAD PASS 3/3 boots: "host-driven AFE reset, power method 2" -> "AFE reset released" -> "Touch MT ready" at
+  ~19-21 s each boot; macsmc-low-gpio line 28 `afe-reset` out hi ACTIVE LOW; 894,576 bytes of events on event2 in
+  40 s of swiping (raw hidraw2 247,168 bytes; keyboard event1 3,984 bytes). NVMe at 8.3-10.7 s on all three boots.
+- The LLVM/clang kernel build is therefore validated on hardware (18 CPUs, SSH, trackpad).
+- ESP now: boot.bin = P3; boot.bin.prev = boot.bin.known-good = a2407e83 (gcc, no trackpad fix); boot.bin.prev-1cpu = prev2 = 66c917bf.

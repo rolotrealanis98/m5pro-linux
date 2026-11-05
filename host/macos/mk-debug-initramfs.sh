@@ -89,8 +89,17 @@ echo
 
 ROOT=\$(\$BB sed -n 's/.*\\bm5\\.root=\\([^ ]*\\).*/\\1/p' /proc/cmdline)
 if [ -n "\$ROOT" ]; then
+    # T6050 2026-11-05: the ANS (storage coprocessor) firmware sometimes needs
+    # ~3 s to come up, the RTKit transport waits 1 s and nvme-apple gives up
+    # for good ("ANS did not boot", "Reset failure status: -62"). A rebind
+    # of the driver a few seconds later succeeds, so retry every 12 s.
+    NVME=45dcc0000.nvme; DRV=/sys/bus/platform/drivers/nvme-apple
     i=0; while [ ! -b "\$ROOT" ] && [ \$i -lt $((WAIT * 10)) ]; do
         [ \$((i % 100)) -eq 0 ] && echo "debug: waiting for \$ROOT (\$((i / 10)) s)"
+        if [ \$i -gt 0 ] && [ \$((i % 120)) -eq 0 ] && [ -d \$DRV ] && \$BB dmesg | \$BB grep -q "ANS did not"; then
+            echo "debug: ANS did not boot in time, rebinding \$NVME"
+            echo \$NVME > \$DRV/unbind 2>/dev/null; \$BB sleep 1; echo \$NVME > \$DRV/bind 2>/dev/null
+        fi
         \$BB sleep 0.1; i=\$((i+1))
     done
     if [ -b "\$ROOT" ]; then
