@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
 # Run ON THE M5 in macOS: register IMAGE as the stub's stage-1 boot object (finish-install.sh, then
 # the 1TR ceremony), and keep every image in ~/Work/m1n1/stage1/ on the stub System volume under
 # /m1n1/ so a stage-1 that boot-loops can be swapped from a 1TR Terminal (power-hold -> Options ->

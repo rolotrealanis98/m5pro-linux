@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: MIT
 # 1TR helper, served from the Studio. In the recovery Terminal (power-hold -> Options -> Utilities -> Terminal):
 #   export STUDIO_IP=<studio-ip>      # the Studio's LAN address
 #   sh <(curl -s $STUDIO_IP:8000/stage1.sh) <image>      e.g. probe-macosbuild | boot-plain | chain-esp-macosbuild

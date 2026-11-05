@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
 # Build (1) the stage-2 payload for the ESP and (2) a one-shot initramfs that writes it there.
 # No network path exists from a macOS host to the M5, so the payload rides inside an initramfs
 # booted over the tether with rdinit=/esp-install.sh: it mounts /dev/nvme0n1p4, copies the payload

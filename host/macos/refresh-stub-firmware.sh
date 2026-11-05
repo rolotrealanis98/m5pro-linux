@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
 # Run ON THE M5, booted into macOS, after a macOS update: bring the Omarchy stub's OS loader
 # (iBoot/mBoot stage 2, "OS FW version" in m1n1) up to the macOS that is now installed.
 #

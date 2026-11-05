@@ -1,4 +1,5 @@
 #!/bin/bash
+# SPDX-License-Identifier: MIT
 # macOS-side tether helpers for the M5, for when the Studio is booted into macOS instead of
 # Omarchy. Same layout as the Linux side: m1n1 at ~/Work/m1n1 (branch m5-t6050, venv in .venv),
 # omarchy-m5 at ~/Work/omarchy-m5 (branch j716s). The M5 in m1n1 enumerates as USB 1209:316d

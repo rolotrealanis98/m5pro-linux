@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # /etc/sudoers.d/m5pro  (on the M5, macOS): let the m5pro-linux host scripts run without a password
 # over ssh. Install once, from the M5:
 #   sudo install -m 0440 -o root -g wheel ~/Work/m5pro-linux/host/macos/sudoers-m5pro /etc/sudoers.d/m5pro

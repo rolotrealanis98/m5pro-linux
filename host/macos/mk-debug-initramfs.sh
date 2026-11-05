@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # mk-debug-initramfs.sh - make the omarchy-m5 bring-up initramfs debuggable.
 #
 # Appends an overlay cpio to an existing initramfs (the kernel unpacks

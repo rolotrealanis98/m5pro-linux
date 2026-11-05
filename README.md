@@ -61,3 +61,8 @@ commit that removed it.
 omarchy-m5 (betim-hodza) did the T6050 bring-up this builds on: the stub install scripts, the
 J714s device trees, the kernel patches and the original m1n1 patches. m1n1 and linux-asahi are
 the Asahi Linux project's work.
+
+## License
+
+Kernel patches are GPL-2.0-only, m1n1 patches and everything else MIT; material taken from
+omarchy-m5 and Asahi keeps its origin and terms. Details: [`LICENSE.md`](LICENSE.md).

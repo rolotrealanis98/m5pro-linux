@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 # Read files off the Studio's Omarchy root (btrfs "asahi-root" on disk0s5, subvolumes @ and @home)
 # from macOS, without mounting: pure-Python btrfs via dissect.btrfs. Needs sudo for the raw device
 # and a Python <= 3.14 venv: python3.12 -m venv ~/Work/btrfs-venv && pip install dissect.btrfs backports.zstd
