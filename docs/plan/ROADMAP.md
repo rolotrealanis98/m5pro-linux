@@ -248,3 +248,9 @@ W1 CONFIG_RUST (Fedora container) ──> T2.2 audio stage B (also needs AOP/exc
 W4 distro: needs W0 + T1.5; packages FRICTION P1/P4 as m5pro-boot
 Tier 3: external triggers only
 ```
+
+
+## Addendum 2026-11-05 evening (community feedback, see docs/community-2026-11-05.md)
+- R1 (Sun 11-08) adds: the PMP window double dump for Joshua/Aurora (tethered, read-only, fault-tolerant).
+- Next kernel adds CONFIG_ZRAM=y (+zstd backend); cpufreq stage 1 may start on schedutil (validated on J714c).
+- USB rounds: evaluate Omacom m1n1 160b644c's T6050 USB-PD setup instead of our patch 0005 skip (port power).
