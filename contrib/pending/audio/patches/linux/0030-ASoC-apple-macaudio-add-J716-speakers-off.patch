@@ -1,0 +1,53 @@
+From: omarchy-m5 audio agent <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 00:00:00 +0000
+Subject: [PATCH 0030] ASoC: apple: macaudio: add J716 (16-inch M5 Pro/Max), speakers off
+
+The J716s runtime ADT describes the same speaker hardware as J316/J416/J516:
+six SN012776 amps on i2c1 (0x38 left woofer 1, 0x39 left woofer 2,
+0x3a left tweeter) and i2c3 (0x3b right woofer 1, 0x3c right woofer 2,
+0x3d right tweeter), speaker-config amp_gain 15 for all six, V/I sense
+slots 0/2, 4/6 ... 20/22. The chassis and acoustic ID (AID41) are new, so
+per the table rules it gets its own compatible and must not claim
+apple,j316-macaudio.
+
+Speakers are not enabled: enable_speakers = false keeps the "Speakers"
+link out of the card unless please_blow_up_my_speakers=1 is passed, and the
+amp gain limit is 10 (16 dBV) instead of the ADT's 15 (18.5 dBV) until a
+speakersafetyd profile for AID41 has been validated on the machine.
+
+Not tested on hardware: there is no CPU-side DAI for T6050 yet (the MCA is
+owned by the AOP firmware on M4/M5), so this only takes effect once that
+transport exists.
+
+---
+diff --git a/sound/soc/apple/macaudio.c b/sound/soc/apple/macaudio.c
+index 2f26adc5b..28177b5a7 100644
+--- a/sound/soc/apple/macaudio.c
++++ b/sound/soc/apple/macaudio.c
+@@ -1584,6 +1584,17 @@ struct macaudio_platform_cfg macaudio_j493_cfg = {
+ 	true,	AMP_SN012776,	SPKR_2W,	true,	15,	-20,
+ };
+ 
++/*
++ * MacBook Pro (16-inch, M5 Pro/Max), AID41. Same amp and layout as j316
++ * (6x SN012776 on i2c1/i2c3 @ 0x38-0x3d, 2W+1T per side, sense slots in
++ * ADT order), but a new chassis and acoustic ID: speaker thermal parameters are
++ * unvalidated. Speakers stay off unless please_blow_up_my_speakers=1; the amp
++ * gain is held below the ADT value (15) until a profile is validated.
++ */
++struct macaudio_platform_cfg macaudio_j716_cfg = {
++	false,	AMP_SN012776,	SPKR_2W1T,	true,	10,	-20,
++};
++
+ struct macaudio_platform_cfg macaudio_fallback_cfg = {
+ 	false,	AMP_NONE,	SPKR_NONE,	false,	0,	0,
+ };
+@@ -1643,6 +1654,8 @@ static const struct of_device_id macaudio_snd_device_id[]  = {
+ 	/* j575    AID33   sn012776    15      1x 1W    Compat: apple,j375-macaudio */
+ 	/* j613    AID20   sn012776    15      2x 1W+1T Compat: apple,j413-macaudio */
+ 	/* j615    AID21   sn012776    15      2x 2W+1T Compat: apple,j415-macaudio */
++	/* j716    AID41   sn012776    10      2x 2W+1T speakers off by default */
++	{ .compatible = "apple,j716-macaudio", .data = &macaudio_j716_cfg },
+ 	/* Fallback, jack only */
+ 	{ .compatible = "apple,macaudio"},
+ 	{ }

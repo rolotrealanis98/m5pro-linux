@@ -1,0 +1,108 @@
+From: omarchy-m5 audio agent <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 00:00:00 +0000
+Subject: [PATCH 0031] ASoC: apple: macaudio: per-machine speaker volume ceiling
+
+speakersafetyd unlocks the speaker volume controls to 0 dB. That is right
+for machines whose speaker model is validated, but a new machine needs a
+hard ceiling below that while its profile is being checked on hardware.
+
+Add max_vol (dB, <= 0) to macaudio_platform_cfg, applied as the
+snd_soc_limit_volume() maximum while the controls are unlocked, and a
+read-only module parameter speaker_max_db that can only lower it further.
+The locked state (no speakersafetyd) is unchanged. All existing machines
+have max_vol = 0, so their behaviour does not change. J716 gets -30 dB.
+
+speakersafetyd keeps working: it converts dB to raw values through
+alsa-lib, which clamps to the control's reported maximum.
+
+Applies on top of 0030.
+
+---
+diff --git a/sound/soc/apple/macaudio.c b/sound/soc/apple/macaudio.c
+index 28177b5a7..fee4b0299 100644
+--- a/sound/soc/apple/macaudio.c
++++ b/sound/soc/apple/macaudio.c
+@@ -81,6 +81,12 @@ struct macaudio_platform_cfg {
+ 	bool stereo;
+ 	int amp_gain;
+ 	int safe_vol;
++	/*
++	 * Ceiling in dB for the speaker volume controls while speakersafetyd
++	 * holds them unlocked. 0 means no ceiling (0 dB). For bring-up of
++	 * machines whose speaker profile is not validated yet.
++	 */
++	int max_vol;
+ };
+ 
+ static const char *volume_control_names[] = {
+@@ -147,6 +153,10 @@ static int please_blow_up_my_speakers;
+ module_param(please_blow_up_my_speakers, int, 0644);
+ MODULE_PARM_DESC(please_blow_up_my_speakers, "Allow unsafe or untested operating configurations");
+ 
++static int speaker_max_db;
++module_param(speaker_max_db, int, 0444);
++MODULE_PARM_DESC(speaker_max_db, "Lower the unlocked speaker volume ceiling to this many dB (<= 0; can only lower it)");
++
+ SND_SOC_DAILINK_DEFS(primary,
+ 	DAILINK_COMP_ARRAY(COMP_CPU("mca-pcm-0")), // CPU
+ 	DAILINK_COMP_ARRAY(COMP_DUMMY()), // CODEC
+@@ -228,6 +238,17 @@ static struct macaudio_link_props macaudio_fe_link_props[] = {
+ 	}
+ };
+ 
++/* Unlocked ceiling in dB: the lower of the machine's and the module's, <= 0 */
++static int macaudio_max_vol(struct macaudio_snd_data *ma)
++{
++	int cap = min(ma->cfg->max_vol, 0);
++
++	if (speaker_max_db < cap)
++		cap = max(speaker_max_db, -100);
++
++	return cap;
++}
++
+ static void macaudio_vlimit_unlock(struct macaudio_snd_data *ma, bool unlock)
+ {
+ 	int ret, max;
+@@ -244,19 +265,19 @@ static void macaudio_vlimit_unlock(struct macaudio_snd_data *ma, bool unlock)
+ 		return;
+ 	case AMP_TAS5770:
+ 		if (unlock)
+-			max = TAS5770_0DB;
++			max = TAS5770_DB(macaudio_max_vol(ma));
+ 		else
+ 			max = 1; //TAS5770_DB(ma->cfg->safe_vol);
+ 		break;
+ 	case AMP_SN012776:
+ 		if (unlock)
+-			max = SN012776_0DB;
++			max = SN012776_DB(macaudio_max_vol(ma));
+ 		else
+ 			max = 1; //SN012776_DB(ma->cfg->safe_vol);
+ 		break;
+ 	case AMP_SSM3515:
+ 		if (unlock)
+-			max = SSM3515_0DB;
++			max = SSM3515_DB(macaudio_max_vol(ma));
+ 		else
+ 			max = SSM3515_DB(ma->cfg->safe_vol);
+ 		break;
+@@ -266,6 +287,9 @@ static void macaudio_vlimit_unlock(struct macaudio_snd_data *ma, bool unlock)
+ 	if (ret < 0)
+ 		dev_err(ma->card.dev, "Failed to %slock volume %s: %d\n",
+ 			unlock ? "un" : "", name, ret);
++	else if (unlock && macaudio_max_vol(ma) < 0)
++		dev_info(ma->card.dev, "Speaker volume ceiling %d dB\n",
++			 macaudio_max_vol(ma));
+ }
+ 
+ static void macaudio_vlimit_update(struct macaudio_snd_data *ma)
+@@ -1592,7 +1616,7 @@ struct macaudio_platform_cfg macaudio_j493_cfg = {
+  * gain is held below the ADT value (15) until a profile is validated.
+  */
+ struct macaudio_platform_cfg macaudio_j716_cfg = {
+-	false,	AMP_SN012776,	SPKR_2W1T,	true,	10,	-20,
++	false,	AMP_SN012776,	SPKR_2W1T,	true,	10,	-20,	-30,
+ };
+ 
+ struct macaudio_platform_cfg macaudio_fallback_cfg = {

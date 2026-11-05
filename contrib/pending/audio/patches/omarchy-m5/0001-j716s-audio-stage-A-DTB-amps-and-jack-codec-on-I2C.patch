@@ -1,0 +1,400 @@
+From: omarchy-m5 audio agent <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 00:00:00 +0000
+Subject: [PATCH] j716s: audio stage A DTB (amps + jack codec on I2C), audio config
+
+- dt/t6050-j716s-audio.dts: NEW, separate DTB (t6050-j716s.dtb stays
+  byte-identical). Enables the existing i2c1/i2c2/i2c3 and adds the six
+  SN012776 amps (i2c1 0x38/0x39/0x3a, i2c3 0x3b/0x3c/0x3d) and the CS42L84
+  jack codec (i2c2 0x4b) from the J716s runtime ADT. No sound card: T6050
+  has no CPU-side DAI yet, so the amps stay in hardware shutdown.
+- dt/t6050-audio.dtsi: NEW, T6050 audio architecture notes from the ADT
+  (I2S/MCA owned by the AOP firmware, AOPAudioService streams, ADMAC
+  base-ns/leap-ns/leap-s, secure mic path) and a stage B skeleton compiled
+  only with -DT6050_AUDIO_STAGE_B (proposed bindings, no driver).
+- configs/omarchy-audio.config: NEW, built-in pinctrl, I2C, ASoC, TAS2764,
+  CS42L84, macaudio, dynamic debug.
+- scripts/build-kernel.sh: install the new files, merge the fragment,
+  register t6050-j716s-audio.dtb (also in trees registered earlier).
+
+Base: j716s @ 2c87598. Conflicts textually with the USB agent's
+build-kernel.sh hunks (same install list / DTB block); resolve by keeping
+both file lists and both DTB lines.
+
+---
+diff --git a/configs/omarchy-audio.config b/configs/omarchy-audio.config
+new file mode 100644
+index 0000000..d94bad0
+--- /dev/null
++++ b/configs/omarchy-audio.config
+@@ -0,0 +1,27 @@
++# omarchy-m5: audio stage A (t6050-j716s-audio.dtb). I2C buses 1-3, the six
++# SN012776 speaker amps and the CS42L84 jack codec, all built in (the rootfs
++# carries no modules). No sound card is created: T6050 has no CPU-side DAI
++# yet (the I2S ports belong to the AOP firmware), so the amps stay in
++# hardware shutdown (SDZ, AP GPIO 107, driven low by tas2764).
++#
++# PINCTRL_APPLE_GPIO is =m in asahi.config, so on today's kernels no Apple
++# pinctrl driver is bound at all (dmesg: "sync_state() pending due to
++# 29c000000.pinctrl"). Building it in binds pinctrl_ap/aop/nub and lets the
++# PMGR domains that wait on them reach sync_state; omarchy patch 0004 keeps
++# pd_ignore_unused honoured there. Watch for that in the first boot.
++CONFIG_PINCTRL_APPLE_GPIO=y
++CONFIG_I2C_APPLE=y
++CONFIG_SOUND=y
++CONFIG_SND=y
++CONFIG_SND_SOC=y
++CONFIG_SND_SOC_TAS2764=y
++CONFIG_SND_SOC_CS42L84=y
++# Machine driver: inert without a "sound" node; built in so patches
++# 0030/0031 (J716 config, speakers off, volume ceiling) are in the image.
++CONFIG_SND_SOC_APPLE_MACAUDIO=y
++# For the stage A checks (codec plug-detect debug lines, regmap dumps).
++CONFIG_DYNAMIC_DEBUG=y
++CONFIG_DEBUG_FS=y
++CONFIG_GPIO_CDEV=y
++# Not yet: CONFIG_SND_SOC_APPLE_AOP_AUDIO / CONFIG_APPLE_AOP need CONFIG_RUST,
++# which omarchy-bringup.config turns off, and do not handle T6050 streams.
+diff --git a/dt/t6050-audio.dtsi b/dt/t6050-audio.dtsi
+new file mode 100644
+index 0000000..d9d05b6
+--- /dev/null
++++ b/dt/t6050-audio.dtsi
+@@ -0,0 +1,95 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Apple T6050 "M5 Pro": audio-related SoC nodes.
++ *
++ * From the J716s runtime ADT (arm-io reg + 0x2_0000_0000):
++ *
++ *   i2c1 0x305014000 IRQ 1376  SCL/SDA AP pins 60/61  pmgr I2C1 (0x2c8)
++ *   i2c2 0x305018000 IRQ 1377  SCL/SDA AP pins 62/63  pmgr I2C2 (0x2d0)
++ *   i2c3 0x30501c000 IRQ 1378  SCL/SDA AP pins 64/65  pmgr I2C3 (0x2d8)
++ *
++ * Those controllers are already in t6050.dtsi (disabled) and match. No
++ * pinctrl-0 is added: iBoot muxes these pins (it drives the amps for the
++ * boot chime), the pin function number is not confirmed for T6050, and the
++ * existing nodes work the same way the SPI ones do. Add
++ * APPLE_PINMUX(60..65, 1) pin groups only if the bus fails after a resume.
++ *
++ * The amps and the jack codec sit on these AP-owned buses exactly as on
++ * J316/J416/J516. What changed is the I2S side: unlike M1-M3 there is no
++ * "mca" node and no AP PMGR domain for audio at all. AUDIO_P, AUDIO_MCA0-5_M,
++ * AUDIO_BASE_NS_A, AUDIO_LEAP_* and PDM*_AUDIO_REF are all no_ps children of
++ * AOP_FILTER, i.e. powered and clocked by the AOP firmware. Playback and
++ * capture streams are "iop-adma-stream,mca" children of
++ * /arm-io/iop-audio-controller (iop-audio-service-name = AOPAudioService):
++ *
++ *   'spkr' audio-speaker      TX base-ns tx0 (6 ch, 32 bit, <=48 kHz)
++ *                             RX base-ns rx0 (12 ch V/I sense, 16 bit)
++ *   'tap ' audio-speaker-tap  RX base-ns rx1
++ *   'cout' audio-codec-output TX base-ns tx2 (2 ch, 32 bit, <=96 kHz)
++ *   'cin ' audio-codec-input  RX base-ns rx2 (1 ch)
++ *   'lpbk' audio-mca-loopback TX/RX base-ns tx3/rx3
++ *   'hpai' audio-hp-mic       RX leap-s rx0, iop-audio-s (secure), exclave
++ *                             service com.apple.service.HPMicAudioDriver
++ *
++ *   admac-base-ns 0x293800000/0x34000 IRQ 637, DART dart-aop SID 8
++ *   admac-leap-ns 0x293300000/0x34000 IRQ 639, DART dart-aop mapper 476
++ *   admac-leap-s  0x293200000/0x34000 IRQ 638, no AP DART (exclave)
++ *   dart-aop      0x290fc0000/0xc000  IRQ 616
++ *
++ * So the AP cannot drive the I2S ports with mca.c; it has to ask the AOP's
++ * audio service to run the stream and feed admac-base-ns. Nothing in Linux
++ * does that yet, hence the CPU side below is only a design skeleton,
++ * compiled only with -DT6050_AUDIO_STAGE_B.
++ */
++
++#include <dt-bindings/gpio/gpio.h>
++
++#ifdef T6050_AUDIO_STAGE_B
++&soc {
++	/*
++	 * DESIGN SKELETON, NO DRIVER. Proposed bindings; do not enable.
++	 *
++	 * apple,t6050-admac: the base-ns ADMAC. Same ring/descriptor registers
++	 * as apple-admac (desc write 0x10000 + n*4 TX / 0x14000 + n*4 RX,
++	 * report read +0x100) but the per-channel control banks moved: TX
++	 * channel n at 0x8000 + n*0x200, RX channel n at 0xc000 + n*0x200
++	 * (apple-admac interleaves TX/RX at 0x8000 + ch*0x200). 13 TX + 13 RX.
++	 */
++	aop_dart: iommu@290fc0000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x2 0x90fc0000 0x0 0x4000>;
++		#iommu-cells = <1>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 616 IRQ_TYPE_LEVEL_HIGH>;
++		status = "disabled";
++	};
++
++	admac_base_ns: dma-controller@293800000 {
++		compatible = "apple,t6050-admac";
++		reg = <0x2 0x93800000 0x0 0x34000>;
++		#dma-cells = <1>;
++		dma-channels = <26>;
++		interrupts-extended = <&aic AIC_IRQ 637 IRQ_TYPE_LEVEL_HIGH>;
++		iommus = <&aop_dart 8>;
++		status = "disabled";
++	};
++};
++
++/ {
++	/*
++	 * apple,t6050-aop-audio-streams: an ASoC CPU-DAI provider that opens
++	 * the AOP AOPAudioService streams by FourCC (sound-dai cell = index in
++	 * apple,stream-ids) and moves PCM data with admac_base_ns. Needs the
++	 * AOP EPIC transport (drivers/soc/apple/aop.rs, Rust) on T6050 first.
++	 */
++	aop_audio_streams: audio-streams {
++		compatible = "apple,t6050-aop-audio-streams";
++		#sound-dai-cells = <1>;
++		apple,stream-ids = "spkr", "cout", "cin ";
++		dmas = <&admac_base_ns 0>, <&admac_base_ns 13>,
++		       <&admac_base_ns 2>, <&admac_base_ns 15>;
++		dma-names = "spkr-tx", "spkr-sense", "cout-tx", "cin-rx";
++		status = "disabled";
++	};
++};
++#endif
+diff --git a/dt/t6050-j716s-audio.dts b/dt/t6050-j716s-audio.dts
+new file mode 100644
+index 0000000..42c9ca5
+--- /dev/null
++++ b/dt/t6050-j716s-audio.dts
+@@ -0,0 +1,197 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Apple MacBook Pro (16-inch, M5 Pro, 2026), J716s: the normal board DT plus
++ * the audio I2C devices on the existing i2c1/i2c2/i2c3 nodes, stage A.
++ * t6050-audio.dtsi holds the T6050 audio architecture notes and the
++ * stage B skeleton (built only with -DT6050_AUDIO_STAGE_B).
++ *
++ * A separate DTB on purpose: t6050-j716s.dtb stays byte-identical, so rolling
++ * back is booting the old DTB.
++ *
++ * Stage A = I2C only. The six SN012776 amps and the CS42L84 jack codec bind
++ * to their I2C drivers; there is no sound card because T6050 has no CPU-side
++ * DAI yet (see t6050-audio.dtsi). With no card nothing ever powers an amp:
++ * tas2764 requests the shared SDZ line (AP GPIO 107) as output-low, i.e.
++ * hardware shutdown, and only drives it high from the ASoC component probe,
++ * which needs a card. The codec probe reads its device ID and arms tip/ring
++ * plug detection, which works without a card (snd_soc_jack_report() ignores
++ * a NULL jack).
++ *
++ * Board facts from the J716s runtime ADT (no identifiers):
++ *   i2c1/audio-speaker               0x38 sn012776 (primary; speaker-config)
++ *   i2c1/audio-speaker-left-woofer-2 0x39 sn012776
++ *   i2c1/audio-speaker-left-tweeter  0x3a sn012776
++ *   i2c3/audio-speaker-right-woofer-1 0x3b, -right-woofer-2 0x3c,
++ *        -right-tweeter 0x3d, all sn012776
++ *   i2c2/audio-codec-output          0x4b cs42l84
++ *   amp  function-reset GPIO gpio0 107, interrupt gpio0 106,
++ *        speaker-id GPIOs gpio0 136/137, speaker-protection = 1,
++ *        speaker-config: amp_gain 15 x6, sense slot pairs 0/2 4/6 8/10
++ *        12/14 16/18 20/22, amp-tx-zd-config 0xfff0f0f0 / 0xff0f0f0f
++ *   codec function-reset GPIO gpio0 139, interrupt gpio0 134,
++ *        ring sense on (inverted), DC-ID on, 24 bit
++ *   product/audio acoustic-id 41 (J516 is 29), speaker-thiele-small:
++ *        6 speakers spA0-spA5, Re 3.29-3.39 ohm
++ * gpio0 (phandle 459) = pinctrl_ap. Same addresses, buses and polarities
++ * as t603x-j514-j516.dtsi; the GPIO pins differ (J516: SDZ 28, amp IRQ 29,
++ * codec IRQ 30, codec reset nub 58). Polarities follow J516 (the ADT GPIO
++ * flag words have the same shape).
++ *
++ * Sense slots: the ADT speaker-config order (LW1 RW1 LW2 RW2 LT RT, amp n
++ * sends I at slot 4n and V at 4n+2), as Aurora Silicon's J616s (M4 Pro 16")
++ * DT does and tested amp by amp on the same AOP stream. J516 in Asahi uses
++ * LW1 RW1 LT RT LW2 RW2 instead; both satisfy the amp-tx-zd-config bus
++ * keeper masks (left amps in slots 0-3/8-11/16-19). The speakersafetyd
++ * profile (userspace/speakersafetyd/apple/j716.conf) and the DSP graph
++ * output order follow this ADT order; change all three together or none.
++ */
++
++#include "t6050-j716s.dts"
++#include "t6050-audio.dtsi"
++
++/ {
++	model = "Apple MacBook Pro (16-inch, M5 Pro, 2026), audio stage A";
++};
++
++&i2c1 {
++	status = "okay";
++
++	speaker_left_woof1: codec@38 {
++		compatible = "ti,sn012776", "ti,tas2764";
++		reg = <0x38>;
++		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "Left Woofer 1";
++		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
++		ti,imon-slot-no = <0>;
++		ti,vmon-slot-no = <2>;
++	};
++
++	speaker_left_woof2: codec@39 {
++		compatible = "ti,sn012776", "ti,tas2764";
++		reg = <0x39>;
++		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "Left Woofer 2";
++		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
++		ti,imon-slot-no = <8>;
++		ti,vmon-slot-no = <10>;
++	};
++
++	speaker_left_tweet: codec@3a {
++		compatible = "ti,sn012776", "ti,tas2764";
++		reg = <0x3a>;
++		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "Left Tweeter";
++		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
++		ti,imon-slot-no = <16>;
++		ti,vmon-slot-no = <18>;
++	};
++};
++
++&i2c2 {
++	status = "okay";
++
++	jack_codec: codec@4b {
++		compatible = "cirrus,cs42l84";
++		reg = <0x4b>;
++		reset-gpios = <&pinctrl_ap 139 GPIO_ACTIVE_HIGH>;
++		#sound-dai-cells = <0>;
++		interrupts-extended = <&pinctrl_ap 134 IRQ_TYPE_LEVEL_LOW>;
++		sound-name-prefix = "Jack";
++	};
++};
++
++&i2c3 {
++	status = "okay";
++
++	speaker_right_woof1: codec@3b {
++		compatible = "ti,sn012776", "ti,tas2764";
++		reg = <0x3b>;
++		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "Right Woofer 1";
++		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
++		ti,imon-slot-no = <4>;
++		ti,vmon-slot-no = <6>;
++	};
++
++	speaker_right_woof2: codec@3c {
++		compatible = "ti,sn012776", "ti,tas2764";
++		reg = <0x3c>;
++		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "Right Woofer 2";
++		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
++		ti,imon-slot-no = <12>;
++		ti,vmon-slot-no = <14>;
++	};
++
++	speaker_right_tweet: codec@3d {
++		compatible = "ti,sn012776", "ti,tas2764";
++		reg = <0x3d>;
++		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "Right Tweeter";
++		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
++		ti,imon-slot-no = <20>;
++		ti,vmon-slot-no = <22>;
++	};
++};
++
++#ifdef T6050_AUDIO_STAGE_B
++/*
++ * DESIGN SKELETON for when the AOP stream transport exists. The working
++ * reference is Aurora Silicon's J616s (T6040) port: aop_spkr.rs + the J616
++ * macaudio variant (I2S NB_IF, 250-bit frame at 12 MHz, jack as a second
++ * card on the 'cout'/'cin ' streams). Port that, then revisit this node. The machine
++ * compatible is J716-only on purpose: a kernel without patch 0030 falls back
++ * to "apple,macaudio" (jack only, no speakers) instead of the J316 profile.
++ * Even with 0030, speakers stay off unless macaudio.please_blow_up_my_speakers=1
++ * and are capped by 0031 (-30 dB) while speakersafetyd holds them unlocked.
++ */
++/ {
++	sound: sound {
++		compatible = "apple,j716-macaudio", "apple,macaudio";
++		model = "MacBook Pro J716";
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		dai-link@0 {
++			reg = <0>;
++			link-name = "Speakers";
++			/* ADT amp-tx-zd-config rows 0 (LW1) and 1 (RW1) */
++			dai-tdm-idle-mode-0 = "zero";
++			dai-tdm-idle-mode-1 = "zero";
++			dai-tdm-slot-tx-idle-mask-0 = <0xf0f0f0>;
++			dai-tdm-slot-tx-idle-mask-1 = <0x0f0f0f>;
++
++			cpu {
++				sound-dai = <&aop_audio_streams 0>;
++			};
++			codec {
++				/* ADT order, as Aurora's J616s */
++				sound-dai = <&speaker_left_woof1>,
++					    <&speaker_right_woof1>,
++					    <&speaker_left_woof2>,
++					    <&speaker_right_woof2>,
++					    <&speaker_left_tweet>,
++					    <&speaker_right_tweet>;
++			};
++		};
++
++		dai-link@1 {
++			reg = <1>;
++			link-name = "Headphone Jack";
++
++			cpu {
++				sound-dai = <&aop_audio_streams 1>;
++			};
++			codec {
++				sound-dai = <&jack_codec>;
++			};
++		};
++	};
++};
++#endif
+diff --git a/scripts/build-kernel.sh b/scripts/build-kernel.sh
+index 6db02c8..45d9b45 100755
+--- a/scripts/build-kernel.sh
++++ b/scripts/build-kernel.sh
+@@ -19,7 +19,7 @@ DTS_DIR="$LINUX/arch/arm64/boot/dts/apple"
+ # defconfig alone leaves DRM=m and DRM_SIMPLEDRM unset, which yields a
+ # kernel that boots but shows nothing on the panel. Fragments are merged
+ # in order; ours wins.
+-KCONFIG="${KCONFIG:-defconfig asahi.config omarchy-bringup.config omarchy-storage-net.config omarchy-smc.config}"
++KCONFIG="${KCONFIG:-defconfig asahi.config omarchy-bringup.config omarchy-storage-net.config omarchy-smc.config omarchy-audio.config}"
+ JOBS="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}"
+ 
+ if [ ! -d "$LINUX" ]; then
+@@ -50,9 +50,11 @@ echo "==> Overlaying dt/ into $DTS_DIR"
+ install -m 0644 dt/t6050.dtsi dt/t6050-pmgr.dtsi dt/t6050-jxxx.dtsi \
+     dt/t6050-storage-net.dtsi dt/t6050-cpufreq.dtsi dt/t6050-smc.dtsi \
+     dt/t6050-j714s.dts dt/t6050-j716s.dts \
++    dt/t6050-audio.dtsi dt/t6050-j716s-audio.dts \
+     "$DTS_DIR/"
+ 
+ install -m 0644 configs/omarchy-bringup.config configs/omarchy-storage-net.config configs/omarchy-smc.config \
++    configs/omarchy-audio.config \
+     "$LINUX/arch/arm64/configs/"
+ 
+ MK="$DTS_DIR/Makefile"
+@@ -64,9 +66,14 @@ if ! grep -qF "$BEGIN" "$MK"; then
+ # >>> omarchy-m5
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j714s.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s.dtb
++dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s-audio.dtb
+ # <<< omarchy-m5
+ EOF
+ fi
++# Trees registered before the audio DTB existed: add it inside the block.
++if ! grep -qF t6050-j716s-audio.dtb "$MK"; then
++    sed -i "/^$END\$/i dtb-\$(CONFIG_ARCH_APPLE) += t6050-j716s-audio.dtb" "$MK"
++fi
+ 
+ # The console symbols below are load-bearing: with any of them unset the
+ # kernel boots and prints nothing on the panel, which looks identical to a
