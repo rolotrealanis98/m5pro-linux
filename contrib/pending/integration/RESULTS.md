@@ -120,3 +120,17 @@ The studio DTB is byte-for-byte the base DT minus the trackpad diff (checked wit
   40 s of swiping (raw hidraw2 247,168 bytes; keyboard event1 3,984 bytes). NVMe at 8.3-10.7 s on all three boots.
 - The LLVM/clang kernel build is therefore validated on hardware (18 CPUs, SSH, trackpad).
 - ESP now: boot.bin = P3; boot.bin.prev = boot.bin.known-good = a2407e83 (gcc, no trackpad fix); boot.bin.prev-1cpu = prev2 = 66c917bf.
+
+## Round 2 prelude (2026-11-05, coordinator): iBoot boot-failure counter
+- The Stage B payload B1 (923f506a..., kernel 7.2.2-g61c807bf41a1-dirty) did boot fine; the "needs to be
+  reinstalled" recovery after its deploy was iBoot's boot-failure counter, not the kernel. POWER_RESET_MACSMC
+  was =m (no modules on the root), so Linux never wrote boot_stage / boot_error_count / panic_count in the
+  PMU scratchpad; every watchdog restart from Linux counted as a failed boot and only a macOS boot cleared it.
+- Fix (kernel patch 0017, on top of platform patch 0040): POWER_RESET_MACSMC=y, smc_reboot node enabled with
+  the abbey scratchpad cells (boot_stage 0xf801, counts 0xf802, shutdown_flag 0xf80f bit 3),
+  apple,poweroff-only (restart stays on the watchdog) but boot_stage is still set to 0 before a restart.
+- Verified on hardware: read-only dump of 0xf800..0xf80f = `20 30 00 00 ...` after a macOS boot; after one
+  Linux reboot the driver logged `PMU logged 1 boot error(s) and 0 panic(s)` and cleared it (0xf802 -> 0x00,
+  boot_error_stage 0xf803 = 0x30). Cell offsets confirmed.
+- B2 = B1 + 0016 (already in) + 0017, debug initramfs, gated args. sha256 55d95928... (old DTB),
+  8a2c516e... (usbhost DTB). Deployed; boot.bin.prev = P3, boot.bin.b1 = B1, boot.bin.p3 = P3.
