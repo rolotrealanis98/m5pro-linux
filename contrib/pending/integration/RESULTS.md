@@ -134,3 +134,6 @@ The studio DTB is byte-for-byte the base DT minus the trackpad diff (checked wit
   boot_error_stage 0xf803 = 0x30). Cell offsets confirmed.
 - B2 = B1 + 0016 (already in) + 0017, debug initramfs, gated args. sha256 55d95928... (old DTB),
   8a2c516e... (usbhost DTB). Deployed; boot.bin.prev = P3, boot.bin.b1 = B1, boot.bin.p3 = P3.
+- B2 reboot series 2026-11-05 ~11:30 UTC: 3 consecutive Linux (watchdog) reboots, macsmc-reboot reported NO boot
+  errors on any of them (the "PMU logged" line only prints when a count is non-zero), scratchpad stayed
+  `20 30 00 30`, NVMe at 8.9-11.6 s, trackpad "Touch MT ready" every boot, 18 CPUs. Boot-failure-counter issue CLOSED.
