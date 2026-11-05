@@ -1,0 +1,75 @@
+# Firmware for the USB dongles in REPORT.md, as paths inside linux-firmware
+# (gitlab.com/kernel-firmware/linux-firmware, checked at 703a4d9, 2026-11-04)
+# and wireless-regdb. Install target on the Arch root: /usr/lib/firmware/<path>.
+# For first-enumeration probing, the same files must ALSO be in the initramfs
+# (/lib/firmware/<path>) or in CONFIG_EXTRA_FIRMWARE (see README.md).
+# Names verified against the request_firmware()/MODULE_FIRMWARE strings in
+# asahi-wip-7.2 @ 236788cd2. "=>" marks a WHENCE Link name the driver asks for.
+
+## Always (cfg80211 regulatory database) - package wireless-regdb, not linux-firmware
+regulatory.db
+regulatory.db.p7s
+
+## MediaTek MT7921AU/MT7921AUN (mt7921u) - FIRST CHOICE - pkg linux-firmware-mediatek
+mediatek/WIFI_MT7961_patch_mcu_1_2_hdr.bin
+mediatek/WIFI_RAM_CODE_MT7961_1.bin
+# its Bluetooth function (btusb + btmtk), combo dongles only
+mediatek/BT_RAM_CODE_MT7961_1_2_hdr.bin
+mediatek/BT_RAM_CODE_MT7961_1a_2_hdr.bin    # only if the chip reports the "1a" flavor
+
+## MediaTek MT7925 USB (mt7925u, Wi-Fi 7) - pkg linux-firmware-mediatek
+mediatek/mt7925/WIFI_MT7925_PATCH_MCU_1_1_hdr.bin
+mediatek/mt7925/WIFI_RAM_CODE_MT7925_1_1.bin
+mediatek/mt7925/BT_RAM_CODE_MT7925_1_1_hdr.bin
+
+## MediaTek Wi-Fi 5/4 USB - pkg linux-firmware-mediatek
+mediatek/mt7662.bin              # mt76x2u (MT7612U) asks for mt7662.bin => mediatek/mt7662.bin
+mediatek/mt7662_rom_patch.bin    # and mt7662_rom_patch.bin => mediatek/mt7662_rom_patch.bin
+mediatek/mt7610u.bin             # mt76x0u (MT7610U)
+mediatek/mt7601u.bin             # mt7601u (tries mediatek/ first)
+
+## Realtek rtw89 USB (Wi-Fi 6/6E/7) - pkg linux-firmware-realtek
+# the driver tries _fw-N.bin from the highest format it knows down to _fw.bin
+rtw89/rtw8852b_fw-2.bin          # RTL8832BU / RTL8852BU
+rtw89/rtw8852b_fw-1.bin
+rtw89/rtw8852b_fw.bin
+rtw89/rtw8852c_fw-2.bin          # RTL8832CU / RTL8852CU
+rtw89/rtw8852c_fw-1.bin
+rtw89/rtw8852c_fw.bin
+rtw89/rtw8851b_fw-1.bin          # RTL8851BU
+rtw89/rtw8851b_fw.bin
+rtw89/rtw8852a_fw-1.bin          # RTL8852AU
+rtw89/rtw8852a_fw.bin
+rtw89/rtw8922a_fw-4.bin          # RTL8922AU (Wi-Fi 7)
+rtw89/rtw8922a_fw-3.bin
+rtw89/rtw8922a_fw-2.bin
+rtw89/rtw8922a_fw-1.bin
+rtw89/rtw8922a_fw.bin
+
+## Realtek rtw88 USB (Wi-Fi 5) - pkg linux-firmware-realtek
+rtw88/rtw8821c_fw.bin            # RTL8811CU / RTL8821CU
+rtw88/rtw8822b_fw.bin            # RTL8812BU / RTL8822BU
+rtw88/rtw8822c_fw.bin            # RTL8822CU
+rtw88/rtw8812a_fw.bin            # RTL8812AU
+rtw88/rtw8821a_fw.bin            # RTL8811AU / RTL8821AU
+rtw88/rtw8814a_fw.bin            # RTL8814AU
+
+## Atheros AR9271 / AR7010 (ath9k_htc) - SAFE FALLBACK - pkg linux-firmware-atheros
+ath9k_htc/htc_9271-1.4.0.fw
+ath9k_htc/htc_7010-1.4.0.fw
+
+## Realtek Bluetooth (btusb + btrtl; driver appends .bin) - pkg linux-firmware-realtek
+rtl_bt/rtl8761bu_fw.bin          # RTL8761BU dongles (TP-Link UB500, ASUS USB-BT500) - BT FIRST CHOICE
+rtl_bt/rtl8852bu_fw.bin          # BT half of RTL8852BU combos
+rtl_bt/rtl8852cu_fw.bin          # BT half of RTL8852CU combos
+rtl_bt/rtl8852cu_fw_v2.bin
+rtl_bt/rtl8851bu_fw.bin
+rtl_bt/rtl8922au_fw.bin          # BT half of RTL8922AU combos (config required)
+rtl_bt/rtl8922au_config.bin
+rtl_bt/rtl8821c_fw.bin           # BT half of RTL8821CU combos
+rtl_bt/rtl8821c_config.bin
+rtl_bt/rtl8822b_fw.bin
+rtl_bt/rtl8822b_config.bin
+rtl_bt/rtl8822cu_fw.bin
+
+## CSR8510 A10 Bluetooth (btusb) - no firmware file needed

@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: GPL-2.0+ OR MIT
+/*
+ * Apple N1 ("centauri"; ADT /product wifi-chipset = "proxima") on the T6050
+ * internal PCIe host apcie0, port 0 - DESCRIPTIVE ONLY, everything disabled.
+ *
+ * Nothing in asahi-wip-7.2 binds "apple,t6050-pcie" or the N1 functions, and
+ * our m1n1 neither trains apcie0 nor fills the N1 firmware/addresses, so this
+ * stays status = "disabled". It records the J716s ADT values (hardware
+ * description only) in the shape Aurora Silicon's bare-metal J716c DT uses
+ * (aurora-silicon/linux j716c/dt b54638d, 2026-11-03), so a later port of
+ * their pcie-apple T6050 adoption + centauri drivers starts from checked
+ * numbers. AIC cells follow omarchy's t6050.dtsi (2 cells, no die cell).
+ *
+ * ADT -> CPU: raw addresses below 0x3c0000000 are offset by 0x2_0000_0000
+ * (arm-io ranges); ECAM and the BAR windows are identity.
+ */
+
+#include <dt-bindings/gpio/gpio.h>
+
+&soc {
+	/*
+	 * ADT dart-apcie0: dart,t8110, raw 0x210000000 size 0x20000, AIC 1524,
+	 * page 16K, sid-count 19, mappers control/alpha/beta/piodma.
+	 * Aurora maps the N1's functions 0-2 to DART streams 1-3.
+	 */
+	pcie0_dart: iommu@410000000 {
+		compatible = "apple,t6050-dart", "apple,t8110-dart";
+		reg = <0x4 0x10000000 0x0 0x20000>;
+		interrupt-parent = <&aic>;
+		interrupts = <AIC_IRQ 1524 IRQ_TYPE_LEVEL_HIGH>;
+		#iommu-cells = <1>;
+		power-domains = <&ps_apcie_sys_gp>;
+		status = "disabled";
+	};
+
+	/*
+	 * ADT apcie0: apcie,t6050, #ports 4, 40 reg entries. The entries below
+	 * are ADT reg[0] (ECAM), reg[1] (rc), reg[16] (port 0, 0x8000),
+	 * reg[18] (port 0 PHY), reg[19] (port 0 intr2axi); the roles are
+	 * Aurora's decoding and match the ADT addresses exactly.
+	 * Port IRQs AIC 1523/1531/1539/1547 (+1558/1559); only port 0 here.
+	 * ADT msi-vector-offset 1824, 128 vectors, bridge0 base 0 / bridge1
+	 * base 32; Aurora uses AIC 1888..1951 with apple,msi-vector-base 64.
+	 */
+	pcie0: pcie@1cb0000000 {
+		compatible = "apple,t6050-pcie";
+		device_type = "pci";
+		reg = <0x1c 0xb0000000 0x0 0x10000000>,
+		      <0x4 0x14000000 0x0 0x4000>,
+		      <0x4 0x10028000 0x0 0x8000>,
+		      <0x4 0x17010000 0x0 0x4000>,
+		      <0x4 0x10024000 0x0 0x4000>;
+		reg-names = "config", "rc", "port0", "phy0", "intr2axi0";
+
+		interrupt-parent = <&aic>;
+		interrupts = <AIC_IRQ 1523 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "port0";
+
+		msi-controller;
+		msi-parent = <&pcie0>;
+		msi-ranges = <&aic AIC_IRQ 1888 IRQ_TYPE_EDGE_RISING 64>;
+
+		iommu-map = <0x100 &pcie0_dart 1 3>;
+		iommu-map-mask = <0xffff>;
+
+		bus-range = <0 4>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges = <0x02000000 0x0 0x80000000 0xb 0x80000000 0x0 0x40000000>,
+			 <0x43000000 0xb 0xc0000000 0xb 0xc0000000 0x0 0x20000000>;
+
+		/* ADT power-gates: APCIE_GP/APCIE_SYS_GP, APHY_GP_AUS5(_A),
+		 * APCIE_PHY_SW, plus ST0/ST1/GE and ANS gates shared with storage */
+		power-domains = <&ps_apcie_sys_gp>, <&ps_aphy_gp_aus5>;
+		status = "disabled";
+
+		/*
+		 * ADT pci-bridge0: apcie-port 0, maximum-link-speed 3 (Gen3; the
+		 * N1 ROM links at Gen1), PERST# gpio0 pin 0x50, CLKREQ gpio0 0x4c,
+		 * power/reset via SMC key gP13 on smc-pmu (the key the M1 BCM4378
+		 * port uses as pwren), warm reset via SMC key bpli, ASPM 2,
+		 * keep-root-port-on, centauri-builtin, enable-ptm.
+		 */
+		n1_port: pci@0,0 {
+			device_type = "pci";
+			reg = <0x0 0x0 0x0 0x0 0x0>;
+			bus-range = <1 1>;
+			reset-gpios = <&pinctrl_ap 0x50 GPIO_ACTIVE_LOW>;
+			pwren-gpios = <&smc_gpio 13 GPIO_ACTIVE_HIGH>;
+
+			#address-cells = <3>;
+			#size-cells = <2>;
+			ranges;
+
+			/* centauri-control: shared firmware bootstrap (ROM 0x1900,
+			 * running 0x1901). Needs loader-supplied firmware-name
+			 * (personalized FTAB), apple,centauri-platform-id
+			 * ((board << 16) | 0x6050) and apple,centauri-protocol = 27. */
+			n1_control: control@0,0 {
+				compatible = "pci106b,1900";
+				reg = <0x10000 0x0 0x0 0x0 0x0>;
+			};
+
+			/* centauri-alpha: Wi-Fi; the loader fills the address */
+			n1_wifi: wifi@0,1 {
+				compatible = "pci106b,1902";
+				reg = <0x10100 0x0 0x0 0x0 0x0>;
+				local-mac-address = [00 00 00 00 00 00];
+			};
+
+			/* centauri-beta: Bluetooth (ADT /arm-io/bluetooth,
+			 * transport-encoding 9); the loader fills the address */
+			n1_bluetooth: bluetooth@0,2 {
+				compatible = "pci106b,1903";
+				reg = <0x10200 0x0 0x0 0x0 0x0>;
+				local-bd-address = [00 00 00 00 00 00];
+			};
+		};
+	};
+};

@@ -1,0 +1,24 @@
+# Arch Linux ARM (aarch64) packages for USB Wi-Fi/BT on the J716s root.
+# The kernel is custom and all-built-in: install NO kernel/module packages
+# (linux-aarch64, *-dkms, broadcom-wl, etc. are useless or harmful here).
+
+# --- firmware (ALARM linux-firmware 20261019 is split; PKGBUILD installs
+#     uncompressed files with `make install`, then `dedup` symlinks) -------
+wireless-regdb             # /usr/lib/firmware/regulatory.db{,.p7s}
+linux-firmware-mediatek    # MT7921/MT7925/MT76x2U/MT7610U/MT7601U Wi-Fi + MediaTek BT
+linux-firmware-realtek     # rtw88/rtw89 Wi-Fi + rtl_bt Bluetooth
+linux-firmware-atheros     # ath9k_htc (AR9271/AR7010)
+
+# --- Wi-Fi userspace (pick ONE manager) ------------------------------------
+iwd                        # recommended: standalone, small, no wpa_supplicant
+iw                         # diagnostics (iw dev, iw reg get/reload)
+# networkmanager           # optional GUI/nmcli stack; set wifi.backend=iwd
+# wpa_supplicant           # only if you prefer NM's default backend
+
+# --- Bluetooth -------------------------------------------------------------
+bluez                      # bluetoothd
+bluez-utils                # bluetoothctl, btmgmt
+
+# --- helpers ---------------------------------------------------------------
+usb_modeswitch             # only for "multi-state" Realtek dongles that enumerate as a CD-ROM first
+usbutils                   # lsusb (missing on the current root: diag lsusb.txt)
