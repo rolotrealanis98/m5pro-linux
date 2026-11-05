@@ -1,0 +1,340 @@
+From: m5pro-linux platform agent
+Subject: [PATCH 0001] j716s: keyboard backlight, SMC power-off, thermal zones (stage A)
+
+- dt/t6050-j716s-platform.dtsi (new), included from t6050-j716s.dts before
+  the hwmon includes:
+  * fpwm0 @ 0x505040000 (ADT /arm-io/pwm0, PMGR FPWM0 = ps_fpwm0) and a
+    pwm-leds "kbd_backlight" on channel 0, period 40000 ns (ADT default-hz
+    25000), as on every Asahi MacBook.
+  * &smc_reboot enabled with apple,poweroff-only (kernel patch 0040) and no
+    PMU scratchpad cells: power-off via SMC, restart stays on the watchdog.
+  * &smc_hwmon #thermal-sensor-cells, pinned channel order (TH0x, TB0T,
+    TCHP, TW0P first) plus 8 candidate SoC keys labelled "unverified";
+    needs kernel patch 0041 for stable channel numbers.
+  * thermal-zones: nand, battery, charger, wifi, cpu-p, cpu-m, gpu;
+    monitoring only (no trips, polling-delay 0).
+  * #cooling-cells on all 18 CPUs (cpufreq cooling devices, unbound).
+- configs/omarchy-platform.config (new): PWM_APPLE=y, POWER_RESET_MACSMC=y,
+  thermal OF/cpufreq cooling, PM_DEBUG for pm_test, HIBERNATION off.
+- scripts/build-kernel.sh: install the optional platform DT files when
+  present and merge KCONFIG_EXTRA (default omarchy-platform.config) after
+  KCONFIG. Hunks avoid the lines the USB agent's 0001 rewrites.
+
+Base: omarchy-m5 j716s @ 2c87598. Also applies on top of the SMC agent's
+0001/0002, the trackpad DT patch, the cpufreq 0001 and the USB 0001.
+Note: build-kernel.sh only regenerates .config when a REQUIRED_Y symbol is
+missing; delete vendor/linux/.config (or run olddefconfig after merging)
+to pick up the new fragment.
+---
+diff --git a/configs/omarchy-platform.config b/configs/omarchy-platform.config
+new file mode 100644
+index 0000000..8a8e75a
+--- /dev/null
++++ b/configs/omarchy-platform.config
+@@ -0,0 +1,40 @@
++# omarchy-m5 / m5pro-linux platform layer for J716s (M5 Pro, 16-inch):
++# keyboard backlight, SMC power-off, thermal zones, suspend debugging.
++# Merged after omarchy-smc.config (scripts/build-kernel.sh KCONFIG_EXTRA).
++# The rootfs gets no modules, so everything used here is =y.
++
++# Keyboard backlight: fpwm0 + pwm-leds (asahi.config/defconfig have PWM_APPLE=m).
++CONFIG_PWM=y
++CONFIG_PWM_APPLE=y
++CONFIG_NEW_LEDS=y
++CONFIG_LEDS_CLASS=y
++CONFIG_LEDS_PWM=y
++
++# SMC power-off. The DT node carries apple,poweroff-only (kernel patch 0040),
++# so restart stays on the watchdog exactly as before. This supersedes the
++# "deliberately not built in" note in omarchy-smc.config for power-off only.
++# Escape hatch without a rebuild: initcall_blacklist=macsmc_reboot_driver_init
++CONFIG_POWER_RESET=y
++CONFIG_POWER_RESET_MACSMC=y
++
++# Thermal zones on the SMC hwmon temperatures + cpufreq cooling.
++CONFIG_THERMAL=y
++CONFIG_THERMAL_OF=y
++CONFIG_THERMAL_HWMON=y
++CONFIG_CPU_THERMAL=y
++CONFIG_CPU_FREQ_THERMAL=y
++CONFIG_THERMAL_GOV_STEP_WISE=y
++CONFIG_THERMAL_DEFAULT_GOV_STEP_WISE=y
++CONFIG_THERMAL_EMULATION=y
++CONFIG_SENSORS_MACSMC_HWMON=y
++
++# Suspend: s2idle only, with the PM test hooks (/sys/power/pm_test) and
++# debug messages the staged suspend tests need. Hibernation is removed: it
++# needs the secondaries offlined (spin-table CPUs cannot be) and would resume
++# through a boot chain that does not know about it.
++CONFIG_SUSPEND=y
++CONFIG_PM_SLEEP=y
++CONFIG_PM_DEBUG=y
++CONFIG_PM_ADVANCED_DEBUG=y
++# CONFIG_HIBERNATION is not set
++# CONFIG_PM_AUTOSLEEP is not set
+diff --git a/dt/t6050-j716s-platform.dtsi b/dt/t6050-j716s-platform.dtsi
+new file mode 100644
+index 0000000..a7ab2f6
+--- /dev/null
++++ b/dt/t6050-j716s-platform.dtsi
+@@ -0,0 +1,208 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * J716s (16-inch MacBook Pro, M5 Pro) "laptop feel" layer: keyboard
++ * backlight, SMC power-off, SMC temperature sensors exposed as thermal
++ * zones (monitoring only) and CPU cooling devices.
++ *
++ * Included from t6050-j716s.dts before the hwmon-*.dtsi includes. Needs the
++ * kernel patches from the platform agent:
++ *   0040 macsmc-reboot apple,poweroff-only
++ *   0041 macsmc-hwmon stable temperature channel numbers
++ * and configs/omarchy-platform.config (PWM_APPLE=y, POWER_RESET_MACSMC=y).
++ *
++ * Every value below is from the J716s runtime ADT
++ * (adt-runtime-j716s.bin, hardware-description properties only).
++ */
++
++#include <dt-bindings/leds/common.h>
++
++/ {
++	/*
++	 * Keyboard backlight. ADT /arm-io/pwm0/kbd-backlight: device_type
++	 * "pwm0", reg 0 (channel 0), default-hz 25000 -> period 40000 ns,
++	 * the same 40 us every Asahi MacBook DT uses (t8103-j313,
++	 * t600x-j314-j316, t603x-j514-j516, t8132-j604). The SMC has no
++	 * keyboard light key on this machine (no LKSB/KBLR in the J714s key
++	 * dump), so the PWM is the whole path, as on M1-M4.
++	 */
++	led-controller {
++		compatible = "pwm-leds";
++
++		led-0 {
++			pwms = <&fpwm0 0 40000>;
++			label = "kbd_backlight";
++			function = LED_FUNCTION_KBD_BACKLIGHT;
++			color = <LED_COLOR_ID_WHITE>;
++			max-brightness = <255>;
++			default-state = "keep";
++		};
++	};
++
++	/*
++	 * SMC temperatures as thermal zones. Channel N of &smc_hwmon is the
++	 * N-th temperature-* child (stable with kernel patch 0041; the order is
++	 * pinned in &smc_hwmon below). Stage A: no trips and polling-delay 0,
++	 * so nothing acts on these zones and nothing polls the SMC in the
++	 * background; /sys/class/thermal/thermal_zone*\/temp reads on demand.
++	 * Trips and cooling maps are a separate stage
++	 * (t6050-j716s-thermal-trips.dtsi), only after the keys are verified.
++	 */
++	thermal-zones {
++		nand-thermal {
++			polling-delay = <0>;
++			polling-delay-passive = <0>;
++			thermal-sensors = <&smc_hwmon 0>;	/* TH0x */
++		};
++
++		battery-thermal {
++			polling-delay = <0>;
++			polling-delay-passive = <0>;
++			thermal-sensors = <&smc_hwmon 1>;	/* TB0T */
++		};
++
++		charger-thermal {
++			polling-delay = <0>;
++			polling-delay-passive = <0>;
++			thermal-sensors = <&smc_hwmon 2>;	/* TCHP */
++		};
++
++		wifi-thermal {
++			polling-delay = <0>;
++			polling-delay-passive = <0>;
++			thermal-sensors = <&smc_hwmon 3>;	/* TW0P */
++		};
++
++		cpu-p-thermal {
++			polling-delay = <0>;
++			polling-delay-passive = <0>;
++			thermal-sensors = <&smc_hwmon 4>;	/* Tp00, unverified */
++		};
++
++		cpu-m-thermal {
++			polling-delay = <0>;
++			polling-delay-passive = <0>;
++			thermal-sensors = <&smc_hwmon 6>;	/* Tm00, unverified */
++		};
++
++		gpu-thermal {
++			polling-delay = <0>;
++			polling-delay-passive = <0>;
++			thermal-sensors = <&smc_hwmon 8>;	/* Tg08, unverified */
++		};
++	};
++};
++
++&soc {
++	/*
++	 * ADT /arm-io/pwm0: compatible "fpwm,s5l8920x", reg 0x505040000
++	 * size 0x4000 (SIO block, next to i2c0 0x505010000 and serial0
++	 * 0x505200000), clock-gates 187 = PMGR FPWM0 (ps 0x2809002a8,
++	 * parent SIO) -> ps_fpwm0 in t6050-pmgr.dtsi (handover 0x244:
++	 * clock-gated, so the keyboard is dark until this probes).
++	 * ADT /arm-io/pwm1 ("pwm,s5l8920x", clock-gate FPWM1) repeats the same
++	 * reg and has no consumer; it is not described.
++	 */
++	fpwm0: pwm@505040000 {
++		compatible = "apple,t6050-fpwm", "apple,s5l-fpwm";
++		reg = <0x5 0x05040000 0x0 0x4000>;
++		power-domains = <&ps_fpwm0>;
++		clocks = <&clkref>;
++		#pwm-cells = <2>;
++	};
++};
++
++/*
++ * Power-off through the SMC (MBSE = offw, then off1), restart left on the
++ * watchdog (apple,poweroff-only, kernel patch 0040) because the SMC 'phra'
++ * restart is not yet shown to come back through iBoot -> m1n1 stage-1.
++ * The PMU scratchpad cells (boot_stage 0xf801, shutdown_flag 0xf80f bit 3,
++ * counters 0xf802) are dropped: their T6050 offsets are inferred from
++ * chapel/stowe, and boot_stage feeds iBoot's boot-failure accounting, so
++ * nothing here writes the PMIC. Without shutdown_flag, off1 may reboot
++ * instead of powering off (driver comment, M1): TEST-PLAN P2 finds out.
++ */
++&smc_reboot {
++	status = "okay";
++	apple,poweroff-only;
++	/delete-property/ nvmem-cells;
++	/delete-property/ nvmem-cell-names;
++};
++
++/*
++ * The first four children pin the channel order of the Asahi sensors
++ * (hwmon-common.dtsi / hwmon-laptop.dtsi fill them in later), so temp1-4
++ * stay TH0x/TB0T/TCHP/TW0P as on every other Apple laptop. The rest are
++ * candidates read once per request (flt, flags 0x85 in the J714s dump):
++ * which of them tracks the P cluster, the M clusters and the GPU is to be
++ * measured (TEST-PLAN T1) before any trip uses them.
++ */
++&smc_hwmon {
++	#thermal-sensor-cells = <1>;
++
++	temperature-TH0x {			/* channel 0 */
++	};
++	temperature-TB0T {			/* channel 1 */
++	};
++	temperature-TCHP {			/* channel 2 */
++	};
++	temperature-TW0P {			/* channel 3 */
++	};
++	temperature-Tp00 {			/* channel 4 */
++		apple,key-id = "Tp00";
++		label = "P-cluster Tp00 (unverified)";
++	};
++	temperature-Tp0C {			/* channel 5 */
++		apple,key-id = "Tp0C";
++		label = "P-cluster Tp0C (unverified)";
++	};
++	temperature-Tm00 {			/* channel 6 */
++		apple,key-id = "Tm00";
++		label = "M-cluster Tm00 (unverified)";
++	};
++	temperature-Tm1E {			/* channel 7 */
++		apple,key-id = "Tm1E";
++		label = "M-cluster Tm1E (unverified)";
++	};
++	temperature-Tg08 {			/* channel 8 */
++		apple,key-id = "Tg08";
++		label = "GPU Tg08 (unverified)";
++	};
++	temperature-Ts00 {			/* channel 9 */
++		apple,key-id = "Ts00";
++		label = "SoC Ts00 (unverified)";
++	};
++	temperature-TPMP {			/* channel 10 */
++		apple,key-id = "TPMP";
++		label = "TPMP (unverified)";
++	};
++	temperature-TCMb {			/* channel 11 */
++		apple,key-id = "TCMb";
++		label = "TCMb (unverified)";
++	};
++};
++
++/*
++ * cpufreq cooling devices (apple-soc-cpufreq sets CPUFREQ_IS_COOLING_DEV;
++ * of_cpufreq_cooling_register() needs #cooling-cells on the policy CPU).
++ * Registers three cooling devices (cpu0 M0, cpu6 M1, cpu12 P) that no zone
++ * binds in stage A; their cur_state can be written by hand to test
++ * throttling (TEST-PLAN T3).
++ */
++&cpu_m0_0 { #cooling-cells = <2>; };
++&cpu_m0_1 { #cooling-cells = <2>; };
++&cpu_m0_2 { #cooling-cells = <2>; };
++&cpu_m0_3 { #cooling-cells = <2>; };
++&cpu_m0_4 { #cooling-cells = <2>; };
++&cpu_m0_5 { #cooling-cells = <2>; };
++&cpu_m1_0 { #cooling-cells = <2>; };
++&cpu_m1_1 { #cooling-cells = <2>; };
++&cpu_m1_2 { #cooling-cells = <2>; };
++&cpu_m1_3 { #cooling-cells = <2>; };
++&cpu_m1_4 { #cooling-cells = <2>; };
++&cpu_m1_5 { #cooling-cells = <2>; };
++&cpu_p0 { #cooling-cells = <2>; };
++&cpu_p1 { #cooling-cells = <2>; };
++&cpu_p2 { #cooling-cells = <2>; };
++&cpu_p3 { #cooling-cells = <2>; };
++&cpu_p4 { #cooling-cells = <2>; };
++&cpu_p5 { #cooling-cells = <2>; };
+diff --git a/dt/t6050-j716s.dts b/dt/t6050-j716s.dts
+index fb2c60a..39ebd7d 100644
+--- a/dt/t6050-j716s.dts
++++ b/dt/t6050-j716s.dts
+@@ -23,6 +23,13 @@
+ 	};
+ };
+ 
++/*
++ * Keyboard backlight, SMC power-off, thermal zones (monitoring only), CPU
++ * cooling devices. Before the hwmon-*.dtsi includes below: it pins the
++ * order of the SMC temperature channels the thermal zones refer to.
++ */
++#include "t6050-j716s-platform.dtsi"
++
+ /*
+  * J716s is the full 18-core SKU: the runtime ADT lists cpu0-17, six per
+  * cluster, so unlike J714s nothing is fused off here.
+diff --git a/scripts/build-kernel.sh b/scripts/build-kernel.sh
+index 6db02c8..4addf58 100755
+--- a/scripts/build-kernel.sh
++++ b/scripts/build-kernel.sh
+@@ -46,6 +46,17 @@ if [ "$(uname -s)" = Darwin ]; then
+             "HOSTCFLAGS_file2alias.o=-D_POSIX_C_SOURCE=200809L")
+ fi
+ 
++# Optional layers added by later patches (platform: keyboard backlight, SMC
++# power-off, thermal). Each file is installed only when it exists, and the
++# extra config fragment is merged after $KCONFIG (set KCONFIG_EXTRA= to skip).
++for f in dt/t6050-j716s-platform.dtsi dt/t6050-j716s-thermal-trips.dtsi; do
++    if [ -f "$f" ]; then install -m 0644 "$f" "$LINUX/arch/arm64/boot/dts/apple/"; fi
++done
++KCONFIG_EXTRA="${KCONFIG_EXTRA-omarchy-platform.config}"
++for f in $KCONFIG_EXTRA; do
++    if [ -f "configs/$f" ]; then install -m 0644 "configs/$f" "$LINUX/arch/arm64/configs/"; fi
++done
++
+ echo "==> Overlaying dt/ into $DTS_DIR"
+ install -m 0644 dt/t6050.dtsi dt/t6050-pmgr.dtsi dt/t6050-jxxx.dtsi \
+     dt/t6050-storage-net.dtsi dt/t6050-cpufreq.dtsi dt/t6050-smc.dtsi \
+@@ -89,9 +100,9 @@ ensure_config() {
+         return
+     fi
+     if ! config_ok; then
+-        echo "==> Generating config: $KCONFIG"
++        echo "==> Generating config: $KCONFIG $KCONFIG_EXTRA"
+         # shellcheck disable=SC2086 -- KCONFIG is a list of make targets
+-        "${KMAKE[@]}" $KCONFIG
++        "${KMAKE[@]}" $KCONFIG $KCONFIG_EXTRA
+     fi
+     for sym in $REQUIRED_Y; do
+         grep -qx "$sym=y" "$LINUX/.config" \

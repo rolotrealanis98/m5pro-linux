@@ -1,0 +1,6 @@
+# m5pro-linux (J716s): keyboard backlight (pwm-leds "kbd_backlight" on fpwm0).
+# Not required: brightnessctl and upower go through logind/root, and systemd
+# already restores the level (systemd-backlight@leds:kbd_backlight). This
+# only lets members of group "video" write it directly (e.g. from a
+# Hyprland bind without brightnessctl).
+ACTION=="add", SUBSYSTEM=="leds", KERNEL=="kbd_backlight", RUN+="/usr/bin/chgrp video /sys/class/leds/%k/brightness", RUN+="/usr/bin/chmod g+w /sys/class/leds/%k/brightness"

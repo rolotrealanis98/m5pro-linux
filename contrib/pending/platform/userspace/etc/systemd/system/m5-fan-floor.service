@@ -1,0 +1,12 @@
+# OPTIONAL, not enabled by default. See /usr/local/bin/m5-fan-floor.
+[Unit]
+Description=J716s fan floor (hands fans back to the SMC when cool or stopped)
+ConditionKernelCommandLine=macsmc_hwmon.fan_control=1
+
+[Service]
+ExecStart=/usr/local/bin/m5-fan-floor
+ExecStopPost=/bin/sh -c 'for t in /sys/class/hwmon/hwmon*/fan*_target; do echo 0 > "$t" 2>/dev/null; done; true'
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

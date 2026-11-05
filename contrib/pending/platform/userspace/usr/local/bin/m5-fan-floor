@@ -1,0 +1,57 @@
+#!/bin/sh
+# m5-fan-floor: OPTIONAL fan floor for J716s. Default policy is "do nothing":
+# the SMC runs both fans on its own (seen at stage 0 with no OS driver).
+# Use this only if TEST-PLAN F1 shows the fans do NOT ramp under sustained
+# load on Linux. Needs macsmc_hwmon.fan_control=1 (taints the kernel) and the
+# F0md/F1md mode keys (SMC agent's DT). Writing a target puts that fan in
+# manual mode; writing 0 hands it back to the SMC, which this script does
+# on every cool-down and on exit.
+#
+# Curve (on the hottest of the configured channels, m-degC):
+#   < START             -> 0 (SMC automatic)
+#   START .. FULL       -> linear from fan min to fan max
+#   >= FULL             -> fan max
+set -u
+START=${M5_FAN_START:-80000}
+FULL=${M5_FAN_FULL:-95000}
+LABELS=${M5_FAN_LABELS:-"P-cluster Tp00 (unverified)|M-cluster Tm00 (unverified)"}
+INTERVAL=${M5_FAN_INTERVAL:-2}
+
+H=
+for h in /sys/class/hwmon/hwmon*; do
+    [ "$(cat "$h/name" 2>/dev/null)" = macsmc_hwmon ] && H=$h
+done
+[ -n "$H" ] || { echo "m5-fan-floor: no macsmc_hwmon" >&2; exit 1; }
+[ -w "$H/fan1_target" ] || { echo "m5-fan-floor: fan1_target not writable (boot with macsmc_hwmon.fan_control=1)" >&2; exit 1; }
+
+release() {
+    for t in "$H"/fan*_target; do echo 0 > "$t" 2>/dev/null; done
+}
+trap 'release; exit 0' INT TERM EXIT
+
+hottest() {
+    max=0
+    for l in "$H"/temp*_label; do
+        lab=$(cat "$l")
+        case "|$LABELS|" in *"|$lab|"*) ;; *) continue ;; esac
+        v=$(cat "${l%_label}_input" 2>/dev/null) || continue
+        [ "$v" -gt "$max" ] && max=$v
+    done
+    echo "$max"
+}
+
+while :; do
+    t=$(hottest)
+    for f in "$H"/fan*_target; do
+        b=${f%_target}
+        mn=$(cat "${b}_min"); mx=$(cat "${b}_max")
+        if [ "$t" -lt "$START" ]; then
+            echo 0 > "$f"
+        elif [ "$t" -ge "$FULL" ]; then
+            echo "$mx" > "$f"
+        else
+            echo $(( mn + (mx - mn) * (t - START) / (FULL - START) )) > "$f"
+        fi
+    done
+    sleep "$INTERVAL"
+done

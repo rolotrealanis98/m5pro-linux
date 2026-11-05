@@ -1,0 +1,55 @@
+From: m5pro-linux platform agent
+Subject: [PATCH 0041] hwmon: macsmc: keep temperature channel numbers stable
+
+macsmc-hwmon registers with HWMON_C_REGISTER_TZ, so a DT thermal zone
+names an SMC temperature by channel: thermal-sensors = <&smc_hwmon N>.
+Today a temperature node whose key the SMC firmware lacks is skipped and
+every later channel moves down by one, so a zone silently binds to the
+wrong sensor on a machine (or SMC firmware) that lacks one key. That is
+likely on new SoCs whose key set is copied from a sibling board (T6050
+J716s uses the J714s key dump).
+
+Keep the slot instead: the channel gets only a label "<node> absent" and
+no temp_input, so hwmon's thermal glue skips it and the channel number
+stays the index of the node among the temperature-* children.
+
+Base: asahi-wip-7.2 236788cd2 (applies with or without the SMC agent's
+0010; the hunks are disjoint).
+---
+diff --git a/drivers/hwmon/macsmc-hwmon.c b/drivers/hwmon/macsmc-hwmon.c
+--- a/drivers/hwmon/macsmc-hwmon.c
++++ b/drivers/hwmon/macsmc-hwmon.c
+@@ -647,6 +647,14 @@
+ 		if (!hwmon->temp.sensors)
+ 			return -ENOMEM;
+ 
++		/*
++		 * Temperature channels are thermal zone sensors: a DT
++		 * "thermal-sensors = <&smc_hwmon N>" names channel N, so the
++		 * channel number must be the index of the node among the
++		 * temperature children, whatever this SMC firmware lacks. A
++		 * sensor whose key is missing keeps its slot with only a label
++		 * (no temp_input, so no thermal zone binds to it).
++		 */
+ 		for_each_child_of_node_with_prefix(hwmon_node, key_node, "temperature-") {
+ 			sensor = &hwmon->temp.sensors[hwmon->temp.count];
+ 			if (!macsmc_hwmon_create_sensor(hwmon->dev, hwmon->smc, key_node, sensor)) {
+@@ -654,9 +662,16 @@
+ 
+ 				if (*sensor->label)
+ 					sensor->attrs |= HWMON_T_LABEL;
+-
+-				hwmon->temp.count++;
++			} else {
++				memset(sensor, 0, sizeof(*sensor));
++				scnprintf(sensor->label, sizeof(sensor->label),
++					  "%pOFn absent", key_node);
++				sensor->attrs = HWMON_T_LABEL;
++				dev_info(hwmon->dev, "%pOFn: key not available, channel %d kept empty\n",
++					 key_node, hwmon->temp.count + 1);
+ 			}
++
++			hwmon->temp.count++;
+ 		}
+ 	}
+ 

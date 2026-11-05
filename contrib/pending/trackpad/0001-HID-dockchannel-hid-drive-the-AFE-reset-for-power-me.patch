@@ -1,0 +1,227 @@
+From e2156105c652b729cc33f146b1ce58efc852a6de Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 18:39:35 -0500
+Subject: [PATCH 1/2] HID: dockchannel-hid: drive the AFE reset for power
+ method 2
+
+The M5-era MTP firmware (AppleMTPFirmwareMac-6320.x, ring transport)
+accepts only the nine-byte power request (method 2) and neither drives
+the trackpad analog front end (AFE) reset nor asks the host to. macOS
+runs the ADT function-afe-reset on the host between the "will change"
+and "has changed" halves (power-sequence: off = assert, 50 ms; on =
+release). Without it the AFE keeps whatever state the previous boot
+left, and the CBOR bootload fails intermittently with "Failed to attach
+to AFE (-6)" / "No HINT_L".
+
+Read apple,power-method from each interface node (default 2 in ring
+mode, 1 otherwise, i.e. unchanged). For method 2, look up an optional
+apple,afe-reset-gpios on the multi-touch node itself at first start
+(as-is, so its level does not change before the first transition is
+announced) and drive it between will/has: assert + 50 ms for OFF,
+release + 50 ms settle for ON. A missing property or a GPIO that is not
+available leaves the existing sequence untouched. The child-node lookup
+keeps the transport probe (and so the keyboard) independent of the SMC
+GPIO provider.
+
+A firmware GPIO request named afe-reset in ring mode reuses the
+host-held line, pulsed for 50 ms as macOS does; FIFO mode is unchanged.
+
+Compile-tested only.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/hid/dockchannel-hid/dockchannel-hid.c | 115 ++++++++++++++++--
+ 1 file changed, 105 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/hid/dockchannel-hid/dockchannel-hid.c b/drivers/hid/dockchannel-hid/dockchannel-hid.c
+index 51391c1c4..43af7e5bb 100644
+--- a/drivers/hid/dockchannel-hid/dockchannel-hid.c
++++ b/drivers/hid/dockchannel-hid/dockchannel-hid.c
+@@ -87,6 +87,24 @@ struct dchid_init_hdr {
+ #define CMD_ENABLE_INTERFACE 0xb4
+ #define CMD_ACK_GPIO_CMD 0xa1
+ 
++/*
++ * Interface power requests (CMD_RESET_INTERFACE). Power method 1 is the
++ * four-byte form { 0x40, 1, iface, state }. Power method 2 is the nine-byte
++ * form { 0x40, 2, iface, state, has_changed, 0, 0, 0, 0 }: every transition
++ * is announced with has_changed = 0 ("will change") and confirmed with
++ * has_changed = 1 ("has changed"). With method 2 the coprocessor no longer
++ * pulses the trackpad AFE reset itself; macOS drives function-afe-reset
++ * between the two halves, following the multi-touch power-sequence
++ * { enable delay 0 ms, disable delay 50 ms, enable type 0, disable type 1 }:
++ * power-off asserts the reset and waits 50 ms, power-on releases it.
++ */
++#define DCHID_POWER_METHOD_1	1
++#define DCHID_POWER_METHOD_2	2
++#define DCHID_POWER_STATE_OFF	0
++#define DCHID_POWER_STATE_ON	2
++#define DCHID_AFE_RESET_HOLD_US	(50 * USEC_PER_MSEC)
++#define DCHID_AFE_SETTLE_US	(50 * USEC_PER_MSEC)
++
+ struct dchid_init_block_hdr {
+ 	__le16 type;
+ 	__le16 length;
+@@ -174,6 +192,10 @@ struct dchid_iface {
+ 	char gpio_name[MAX_GPIO_NAME];
+ 	int gpio_id;
+ 
++	u32 power_method;
++	/* Host-driven AFE reset line (power method 2), from the iface's OF node */
++	struct gpio_desc *afe_reset;
++
+ 	struct mutex out_mutex;
+ 	spinlock_t out_lock;
+ 	int out_error;
+@@ -267,6 +289,19 @@ dchid_get_interface(struct dockchannel_hid *dchid, int index, const char *name)
+ 			dev_warn(dchid->dev, "No OF node for subdevice %s, ignoring\n", name);
+ 			return NULL;
+ 		}
++
++		/* The ring-era firmware only accepts the nine-byte method 2 form. */
++		iface->power_method = dchid->use_ring ? DCHID_POWER_METHOD_2 :
++							DCHID_POWER_METHOD_1;
++		of_property_read_u32(iface->of_node, "apple,power-method",
++				     &iface->power_method);
++		if (iface->power_method != DCHID_POWER_METHOD_1 &&
++		    iface->power_method != DCHID_POWER_METHOD_2) {
++			dev_warn(dchid->dev, "Unsupported power method %u for %s\n",
++				 iface->power_method, name);
++			iface->power_method = dchid->use_ring ? DCHID_POWER_METHOD_2 :
++								DCHID_POWER_METHOD_1;
++		}
+ 	}
+ 
+ 	iface->wq = alloc_ordered_workqueue("dchid-%s", WQ_MEM_RECLAIM, iface->name);
+@@ -453,23 +488,74 @@ static int dchid_enable_interface(struct dchid_iface *iface)
+ 
+ static int dchid_reset_interface(struct dchid_iface *iface, int state)
+ {
+-	u8 msg[] = { CMD_RESET_INTERFACE, 1, iface->index, state };
+-	u8 msg2[] = { CMD_RESET_INTERFACE, 2, iface->index, state, 0, 0, 0, 0, 0 };
++	struct dockchannel_hid *dchid = iface->dchid;
++	u8 msg[] = { CMD_RESET_INTERFACE, DCHID_POWER_METHOD_1, iface->index, state };
++	u8 msg2[] = { CMD_RESET_INTERFACE, DCHID_POWER_METHOD_2, iface->index, state,
++		      0, 0, 0, 0, 0 };
+ 	int ret;
+ 
+-	if (!iface->dchid->use_ring)
+-		return dchid_comm_cmd(iface->dchid, msg, sizeof(msg));
++	if (iface->power_method == DCHID_POWER_METHOD_1)
++		return dchid_comm_cmd(dchid, msg, sizeof(msg));
+ 
+ 	/*
+ 	 * T8132 boot capture: state 0 then 2, each with byte 4 equal to 0
+ 	 * then 1. This is only the observed provisioning sequence, not a
+ 	 * contract for suspend, wake, or arbitrary interface power changes.
+ 	 */
+-	ret = dchid_comm_cmd(iface->dchid, msg2, sizeof(msg2));
++	ret = dchid_comm_cmd(dchid, msg2, sizeof(msg2));
+ 	if (ret < 0)
+ 		return ret;
++
++	/*
++	 * Between "will change" and "has changed" the host drives the AFE
++	 * reset (ADT function-afe-reset; the M5-era MTP firmware neither
++	 * drives it nor asks for it). Without a line, keep the old behaviour.
++	 */
++	if (iface->afe_reset) {
++		bool off = state == DCHID_POWER_STATE_OFF;
++
++		ret = gpiod_set_value_cansleep(iface->afe_reset, off);
++		if (ret < 0) {
++			dev_err(dchid->dev, "%s: failed to %s AFE reset: %d\n",
++				iface->name, off ? "assert" : "release", ret);
++			return ret;
++		}
++		dev_info(dchid->dev, "%s: AFE reset %s\n", iface->name,
++			 off ? "asserted" : "released");
++		fsleep(off ? DCHID_AFE_RESET_HOLD_US : DCHID_AFE_SETTLE_US);
++	}
++
+ 	msg2[4] = 1;
+-	return dchid_comm_cmd(iface->dchid, msg2, sizeof(msg2));
++	return dchid_comm_cmd(dchid, msg2, sizeof(msg2));
++}
++
++/*
++ * The AFE reset line is optional and only used with power method 2. It is
++ * looked up on the interface's own node, so the parent probe never waits
++ * for (or defers on) the SMC GPIO provider, and it is requested as-is so
++ * its level does not change before the first transition is announced. Any
++ * failure leaves afe_reset NULL, i.e. the pre-existing behaviour; a later
++ * start retries the lookup.
++ */
++static void dchid_get_afe_reset(struct dchid_iface *iface)
++{
++	struct device *dev = iface->dchid->dev;
++	struct gpio_desc *gpio;
++
++	if (iface->afe_reset || iface->power_method != DCHID_POWER_METHOD_2 ||
++	    !of_property_present(iface->of_node, "apple,afe-reset-gpios"))
++		return;
++
++	gpio = devm_fwnode_gpiod_get(dev, of_fwnode_handle(iface->of_node),
++				     "apple,afe-reset", GPIOD_ASIS, "afe-reset");
++	if (IS_ERR(gpio)) {
++		dev_warn(dev, "%s: AFE reset line unavailable (%pe), continuing without it\n",
++			 iface->name, gpio);
++		return;
++	}
++
++	dev_info(dev, "%s: host-driven AFE reset, power method 2\n", iface->name);
++	iface->afe_reset = gpio;
+ }
+ 
+ static int dchid_register_ring(struct dockchannel_hid *dchid)
+@@ -615,6 +701,11 @@ static int dchid_request_gpio(struct dchid_iface *iface)
+ 	 * SMC reset keys. Do not substitute a guessed software pulse.
+ 	 */
+ 	if (iface->dchid->use_ring) {
++		/* A request for the AFE line reuses the host-held descriptor. */
++		if (iface->afe_reset && !strcmp(iface->gpio_name, "afe-reset")) {
++			iface->gpio = iface->afe_reset;
++			return 0;
++		}
+ 		dev_err_once(iface->dchid->dev, "T8132 SMC reset GPIO operation is not established\n");
+ 		return -EOPNOTSUPP;
+ 	}
+@@ -671,6 +762,7 @@ static int dchid_start_interface(struct dchid_iface *iface)
+ 
+ 	/* Only multi-touch has firmware */
+ 	if (fw && size) {
++		dchid_get_afe_reset(iface);
+ 
+ 		/* Send firmware to the device */
+ 		dev_info(iface->dchid->dev, "Sending firmware for %s\n", iface->name);
+@@ -682,10 +774,10 @@ static int dchid_start_interface(struct dchid_iface *iface)
+ 
+ 		/* After loading firmware, multi-touch needs a reset */
+ 		dev_info(iface->dchid->dev, "Resetting %s\n", iface->name);
+-		ret = dchid_reset_interface(iface, 0);
++		ret = dchid_reset_interface(iface, DCHID_POWER_STATE_OFF);
+ 		if (ret < 0)
+ 			goto err;
+-		ret = dchid_reset_interface(iface, 2);
++		ret = dchid_reset_interface(iface, DCHID_POWER_STATE_ON);
+ 		if (ret < 0)
+ 			goto err;
+ 	}
+@@ -1083,9 +1175,12 @@ static void dchid_handle_gpio(struct dockchannel_hid *dchid, void *data, size_t
+ 
+ 	switch (cmd->cmd) {
+ 	case 3:
+-		/* Pulse.  */
++		/* Pulse. macOS holds a requested pulse for 50 ms. */
+ 		gpiod_set_value_cansleep(iface->gpio, 1);
+-		msleep(10); /* Random guess... */
++		if (dchid->use_ring)
++			fsleep(DCHID_AFE_RESET_HOLD_US);
++		else
++			msleep(10); /* Random guess... */
+ 		gpiod_set_value_cansleep(iface->gpio, 0);
+ 		retcode = 0;
+ 		break;
+-- 
+2.56.0
+

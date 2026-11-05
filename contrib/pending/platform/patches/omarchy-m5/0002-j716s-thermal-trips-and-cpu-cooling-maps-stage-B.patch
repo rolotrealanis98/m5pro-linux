@@ -1,0 +1,117 @@
+From: m5pro-linux platform agent
+Subject: [PATCH 0002] j716s: thermal trips and CPU cooling maps (stage B)
+
+Apply only after TEST-PLAN T1 (which key follows which cluster) and T3
+(manual cooling-device throttling works). Passive 95 C -> cpufreq cooling
+of the P cluster (cpu12) or both M clusters (cpu0, cpu6); hot 105 C
+(notification only); battery hot 50 C (notification only). No critical
+trips until power-off is verified (TEST-PLAN P2).
+
+Base: omarchy-m5 j716s @ 2c87598 + this series' 0001.
+---
+diff --git a/dt/t6050-j716s-platform.dtsi b/dt/t6050-j716s-platform.dtsi
+index a7ab2f6..06573da 100644
+--- a/dt/t6050-j716s-platform.dtsi
++++ b/dt/t6050-j716s-platform.dtsi
+@@ -206,3 +206,6 @@
+ &cpu_p3 { #cooling-cells = <2>; };
+ &cpu_p4 { #cooling-cells = <2>; };
+ &cpu_p5 { #cooling-cells = <2>; };
++
++/* Stage B (TEST-PLAN T1 done): trips + cooling maps. */
++#include "t6050-j716s-thermal-trips.dtsi"
+diff --git a/dt/t6050-j716s-thermal-trips.dtsi b/dt/t6050-j716s-thermal-trips.dtsi
+new file mode 100644
+index 0000000..8061b34
+--- /dev/null
++++ b/dt/t6050-j716s-thermal-trips.dtsi
+@@ -0,0 +1,89 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * J716s thermal stage B: trips and CPU cooling maps on top of the
++ * monitoring-only zones in t6050-j716s-platform.dtsi.
++ *
++ * Do not include this until TEST-PLAN T1 has shown which SMC key follows
++ * which cluster; replace the channel numbers in cpu-p-thermal /
++ * cpu-m-thermal (platform dtsi) if T1 picks other keys. Critical trips stay
++ * out until TEST-PLAN P2 shows SMC power-off really powers off: a critical
++ * trip calls orderly power-off, which without a working power-off handler
++ * only halts with every core busy-polling (idle=nop), i.e. keeps heating.
++ *
++ * Values: Apple Silicon P cores routinely sit at 90-100 C under sustained
++ * load in macOS; the passive trip is a safety net above that, not a policy.
++ * The SMC still runs the fans on its own (it did at stage 0: F0Ac/F1Ac
++ * ~2300-2500 rpm with no OS driver).
++ */
++
++#include <dt-bindings/thermal/thermal.h>
++
++/ {
++	thermal-zones {
++		cpu-p-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <250>;
++
++			trips {
++				cpu_p_alert: cpu-p-alert {
++					temperature = <95000>;
++					hysteresis = <3000>;
++					type = "passive";
++				};
++
++				cpu_p_hot: cpu-p-hot {
++					temperature = <105000>;
++					hysteresis = <2000>;
++					type = "hot";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&cpu_p_alert>;
++					cooling-device = <&cpu_p0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
++		};
++
++		cpu-m-thermal {
++			polling-delay = <1000>;
++			polling-delay-passive = <250>;
++
++			trips {
++				cpu_m_alert: cpu-m-alert {
++					temperature = <95000>;
++					hysteresis = <3000>;
++					type = "passive";
++				};
++
++				cpu_m_hot: cpu-m-hot {
++					temperature = <105000>;
++					hysteresis = <2000>;
++					type = "hot";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&cpu_m_alert>;
++					cooling-device = <&cpu_m0_0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu_m1_0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
++		};
++
++		/* Battery: notification only (userspace sees a uevent). */
++		battery-thermal {
++			polling-delay = <5000>;
++
++			trips {
++				battery_hot: battery-hot {
++					temperature = <50000>;
++					hysteresis = <2000>;
++					type = "hot";
++				};
++			};
++		};
++	};
++};

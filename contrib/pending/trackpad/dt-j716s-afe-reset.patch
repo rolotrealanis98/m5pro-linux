@@ -1,0 +1,78 @@
+diff --git a/dt/t6050-j716s.dts b/dt/t6050-j716s.dts
+index fb2c60a..66ccdd0 100644
+--- a/dt/t6050-j716s.dts
++++ b/dt/t6050-j716s.dts
+@@ -9,6 +9,7 @@
+ 
+ /dts-v1/;
+ 
++#include <dt-bindings/gpio/gpio.h>
+ #include "t6050.dtsi"
+ #include "t6050-jxxx.dtsi"
+ 
+@@ -50,6 +51,30 @@
+ &mtp_hid {
+ 	multi-touch {
+ 		firmware-name = "apple/tpmtfw-j716s.bin";
++
++		/*
++		 * Trackpad AFE reset, driven by the host (power method 2).
++		 * ADT /arm-io/dockchannel-mtp/mtp-transport/multi-touch:
++		 *   function-afe-reset = <smc-pmu 'pKW8' 'pcIO' 0x00010000 0x011c0000>
++		 * pcIO word 1 = bank << 24 | pin << 16: bank 1, pin 0x1c. Bank 0 is
++		 * the "gP" chip (sd_pwr_en = pcIO 0, 0x00190000 = gP19, i.e.
++		 * smc_gpio 25 as on t603x), bank 1 the "gp" chip (every bank-1 pin in
++		 * this ADT - 0x0e, 0x1c, 0x1d - has a gpXX key, and gp has only
++		 * 01/02/03/0e/1c/1d), so this is key gp1c = smc_gpio_low 28.
++		 * Word 0 bit 16 is set only on the two reset functions (afe/stm)
++		 * and clear on the power enables, read here as "asserted low",
++		 * matching every earlier MTP AFE reset (t8112/t602x/t603x:
++		 * GPIO_ACTIVE_LOW).
++		 * The 6320.x MTP firmware accepts only the nine-byte power request
++		 * and sends no GPIO request for this line; macOS runs the
++		 * power-sequence on the host: off = assert + 50 ms, on = release.
++		 * post-init-providers keeps the transport (keyboard) from waiting
++		 * for the SMC GPIO chip; the driver looks the line up on open and
++		 * falls back to the old sequence if it is missing.
++		 */
++		apple,power-method = <2>;
++		apple,afe-reset-gpios = <&smc_gpio_low 28 GPIO_ACTIVE_LOW>;
++		post-init-providers = <&smc_gpio_low>;
+ 	};
+ 
+ 	keyboard: keyboard {
+diff --git a/dt/t6050-smc.dtsi b/dt/t6050-smc.dtsi
+index b14c1ac..4be0e7c 100644
+--- a/dt/t6050-smc.dtsi
++++ b/dt/t6050-smc.dtsi
+@@ -139,6 +139,10 @@
+ 	 * firmware region is 0x140000, and the driver rejects any shmem
+ 	 * buffer outside this window, drivers/mfd/macsmc.c:320).
+ 	 * smc_gpio is deliberately defined here although nothing consumes it yet.
++	 * smc_gpio_low is the second SMC GPIO bank (keys "gp01".."gp1d" next to
++	 * "gP01".."gP1d", docs/research/smc-keys-j714s.json); the MTP AFE/STM
++	 * reset lines (ADT pcIO bank 1, pins 0x1c/0x1d) live there, as on
++	 * t6030/t6031 (smc_gpio_low 25/26). Unit addresses follow t6030.dtsi.
+ 	 */
+ 	smc: smc@28c600000 {
+ 		compatible = "apple,t6050-smc", "apple,t8103-smc";
+@@ -147,12 +151,18 @@
+ 		reg-names = "smc", "sram";
+ 		mboxes = <&smc_mbox>;
+ 
+-		smc_gpio: gpio {
++		smc_gpio: gpio@67500000 {
+ 			compatible = "apple,smc-gpio";
+ 			gpio-controller;
+ 			#gpio-cells = <2>;
+ 		};
+ 
++		smc_gpio_low: gpio@67700000 {
++			compatible = "apple,smc-low-gpio";
++			gpio-controller;
++			#gpio-cells = <2>;
++		};
++
+ 		smc_hwmon: hwmon {
+ 			compatible = "apple,smc-hwmon";
+ 		};

@@ -1,0 +1,132 @@
+From: m5pro-linux platform agent
+Subject: [PATCH 0040] power: reset: macsmc-reboot: add apple,poweroff-only
+
+Let a board take SMC power-off without SMC restart. On T6050 (M5 Pro) an
+SMC 'phra' restart is not yet shown to come back through iBoot -> m1n1
+stage-1 the way the watchdog restart does, and remote reboots depend on
+the watchdog path. With apple,poweroff-only the driver registers only the
+power-off (prepare) handlers, and its reboot notifier ignores SYS_RESTART,
+so a restart is exactly what it is today (apple_wdt, priority 128).
+
+Also document the NVMEM cells as optional (the driver already treats a
+missing cell as non-fatal): without them the PMU scratchpad (boot_stage,
+shutdown_flag, error counters) is not written, which is what T6050 needs
+until those offsets are verified.
+
+Base: asahi-wip-7.2 236788cd2 (applies with or without omarchy-m5 0001-0009
+and the SMC agent's 0010-0012).
+---
+diff --git a/Documentation/devicetree/bindings/power/reset/apple,smc-reboot.yaml b/Documentation/devicetree/bindings/power/reset/apple,smc-reboot.yaml
+index ce5ed8849..209e3b153 100644
+--- a/Documentation/devicetree/bindings/power/reset/apple,smc-reboot.yaml
++++ b/Documentation/devicetree/bindings/power/reset/apple,smc-reboot.yaml
+@@ -10,6 +10,8 @@ description:
+   The Apple System Management Controller (SMC) provides reboot functionality
+   on Apple Silicon SoCs. It uses NVMEM cells to store and track various
+   system state information related to boot, shutdown, and panic events.
++  The NVMEM cells are optional; without them the PMU scratchpad is left
++  untouched.
+ 
+ maintainers:
+   - Sven Peter <sven@kernel.org>
+@@ -32,9 +34,14 @@ properties:
+       - const: boot_error_count
+       - const: panic_count
+ 
++  apple,poweroff-only:
++    type: boolean
++    description:
++      Only handle power-off. Restart requests are left to other restart
++      handlers (such as the watchdog), and the SMC is not told about them.
++      For bring-up of SoCs where an SMC-initiated restart is unverified.
++
+ required:
+   - compatible
+-  - nvmem-cells
+-  - nvmem-cell-names
+ 
+ additionalProperties: false
+diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
+index 7688cfd4e..7bbafdd09 100644
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -9,6 +9,7 @@
+ #include <linux/mfd/macsmc.h>
+ #include <linux/module.h>
+ #include <linux/nvmem-consumer.h>
++#include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/reboot.h>
+ #include <linux/slab.h>
+@@ -37,6 +38,7 @@ struct macsmc_reboot {
+ 	struct device *dev;
+ 	struct apple_smc *smc;
+ 	struct notifier_block reboot_notify;
++	bool poweroff_only;
+ 
+ 	union {
+ 		struct macsmc_reboot_nvmem nvm;
+@@ -133,6 +135,9 @@ static int macsmc_reboot_notify(struct notifier_block *this, unsigned long actio
+ 
+ 	switch (action) {
+ 	case SYS_RESTART:
++		/* Restart is left to another handler (e.g. the watchdog). */
++		if (reboot->poweroff_only)
++			return NOTIFY_DONE;
+ 		val = SMC_KEY(rest);
+ 		shutdown_flag = 0;
+ 		break;
+@@ -218,6 +223,14 @@ static int macsmc_reboot_probe(struct platform_device *pdev)
+ 
+ 	reboot->dev = &pdev->dev;
+ 	reboot->smc = smc;
++	/*
++	 * Boards where an SMC restart is not yet known to be safe (or not known
++	 * to come back through the boot chain the same way as a watchdog reset)
++	 * can keep restart on the lower-priority watchdog handler and only take
++	 * power-off here.
++	 */
++	reboot->poweroff_only = of_property_read_bool(pdev->dev.of_node,
++						      "apple,poweroff-only");
+ 
+ 	platform_set_drvdata(pdev, reboot);
+ 
+@@ -258,21 +271,28 @@ static int macsmc_reboot_probe(struct platform_device *pdev)
+ 		return dev_err_probe(&pdev->dev, ret,
+ 				     "Failed to register power-off handler\n");
+ 
+-	ret = devm_register_sys_off_handler(&pdev->dev, SYS_OFF_MODE_RESTART_PREPARE,
+-					    SYS_OFF_PRIO_HIGH, macsmc_prepare_atomic, reboot);
+-	if (ret)
+-		return dev_err_probe(&pdev->dev, ret,
+-				     "Failed to register restart prepare handler\n");
+-	ret = devm_register_sys_off_handler(&pdev->dev, SYS_OFF_MODE_RESTART, SYS_OFF_PRIO_HIGH,
+-					    macsmc_restart, reboot);
+-	if (ret)
+-		return dev_err_probe(&pdev->dev, ret, "Failed to register restart handler\n");
++	if (!reboot->poweroff_only) {
++		ret = devm_register_sys_off_handler(&pdev->dev, SYS_OFF_MODE_RESTART_PREPARE,
++						    SYS_OFF_PRIO_HIGH, macsmc_prepare_atomic,
++						    reboot);
++		if (ret)
++			return dev_err_probe(&pdev->dev, ret,
++					     "Failed to register restart prepare handler\n");
++		ret = devm_register_sys_off_handler(&pdev->dev, SYS_OFF_MODE_RESTART,
++						    SYS_OFF_PRIO_HIGH, macsmc_restart, reboot);
++		if (ret)
++			return dev_err_probe(&pdev->dev, ret,
++					     "Failed to register restart handler\n");
++	}
+ 
+ 	ret = devm_register_reboot_notifier(&pdev->dev, &reboot->reboot_notify);
+ 	if (ret)
+ 		return dev_err_probe(&pdev->dev, ret, "Failed to register reboot notifier\n");
+ 
+-	dev_info(&pdev->dev, "Handling reboot and poweroff requests via SMC\n");
++	if (reboot->poweroff_only)
++		dev_info(&pdev->dev, "Handling poweroff requests via SMC (restart left to other handlers)\n");
++	else
++		dev_info(&pdev->dev, "Handling reboot and poweroff requests via SMC\n");
+ 
+ 	return 0;
+ }

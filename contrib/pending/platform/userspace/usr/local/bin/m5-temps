@@ -1,0 +1,20 @@
+#!/bin/sh
+# m5-temps: read-only dump of every SMC temperature/fan the kernel exposes
+# and of the thermal zones / cooling devices. Safe to run any time.
+for h in /sys/class/hwmon/hwmon*; do
+    [ "$(cat "$h/name" 2>/dev/null)" = macsmc_hwmon ] || continue
+    for l in "$h"/temp*_label "$h"/fan*_label; do
+        [ -e "$l" ] || continue
+        b=${l%_label}
+        v=$(cat "${b}_input" 2>/dev/null || echo -)
+        printf '%-8s %-30s %s\n' "$(basename "$b")" "$(cat "$l")" "$v"
+    done
+done
+for z in /sys/class/thermal/thermal_zone*; do
+    [ -e "$z/type" ] || continue
+    printf '%-16s %-18s %s\n' "$(basename "$z")" "$(cat "$z/type")" "$(cat "$z/temp" 2>/dev/null || echo -)"
+done
+for c in /sys/class/thermal/cooling_device*; do
+    [ -e "$c/type" ] || continue
+    printf '%-16s %-18s %s/%s\n' "$(basename "$c")" "$(cat "$c/type")" "$(cat "$c/cur_state")" "$(cat "$c/max_state")"
+done
