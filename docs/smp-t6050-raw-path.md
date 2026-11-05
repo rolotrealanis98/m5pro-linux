@@ -11,22 +11,18 @@ the WD1 watchdog armed (`wdt-arm.py`), so a hang reboots into stage-1 by itself.
   but executes nothing: not at its locked RVBAR (m1n1 base), not at the start of any CTXR slice
   of iBoot's 48 KiB WFI sled. A watchdog arm inside the stub never fired either, so this is not
   a cache artefact.
-- The macOS side does nothing more than m1n1 does. `AppleARMCPU::startCPU` calls the device-tree
-  platform function `function-enable_core` = `ApplePMGRFunctionEnableCPUCore` =
-  `ApplePMGR::configMiscCores(mask, true)`, whose only hardware effect is the two PMGR writes
-  (`CPU_START+0x4 |= die bits`, `+0x8+4*cluster = core bits`) through
-  `AppleT6050PMGR::writeACCReg32`. Cluster enable (`configCPUComplexPowerState`) only clears
-  `CLUSTER_PSTATE_M2_APSC_DIS` (bit 23 of DVFS block + 0x20020), which is already clear on all
-  three clusters here. Five release-order variants (stop-bit W1C first, PMGR ps on first,
+- The macOS side does nothing more than m1n1 does. The ADT's CPU nodes start a core through the
+  platform function `function-enable_core`, whose only hardware effect is the two PMGR writes
+  (`CPU_START+0x4 |= die bits`, `+0x8+4*cluster = core bits`) that m1n1 already makes. Cluster
+  enable only clears bit 23 of DVFS block + 0x20020, which is already clear on all three clusters
+  here (see the table below). Five release-order variants (stop-bit W1C first, PMGR ps on first,
   cluster bit first, poking +0x10/+0x14) changed nothing.
 - The one structural difference between this boot and a macOS boot is in
   `/chosen/memory-map`: the raw image is recorded as a boot kernel collection with an **empty
   executable region** (`BootKC-rx` size 0, the whole image in `BootKC-rw`, no SPTM/TXM). CTRR-A
   and CTRR-B are therefore locked around the dummy sled instead of around kernel text. On a
   kernelcache boot `BootKC-rx` is the kernel text and SPTM's entry sits inside it.
-  SPTM's per-core init (`sptm-ctrr-check.txt`) verifies on every secondary that CTRR-A/B and
-  CTXR-A..D match values stashed from the boot core, i.e. iBoot programs them per core before
-  release. Whether the ROM/LLB reset handler refuses a vector outside CTRR-A is **not proven**;
+  Whether the ROM/LLB reset handler refuses a vector outside CTRR-A is **not proven**;
   M4 and M4 Pro reportedly start secondaries on the same raw path (Yureka, 2026-10-02), so if
   this is the gate it is T6050- or firmware-generation-specific.
 
@@ -206,8 +202,6 @@ Omarchy partition, so this is the Linux-side `linux.py` command from
 | DVFS block | `0x21Xe00000`; PSTATE `+0x20020` = 0x400106 / 0x400102 (bit 22 set, bit 23 clear) |
 | SMP-RO window | `[top_of_kernel_data - 0xc000, top)`; CTRR-A = CTRR-B = window; CTXR-A/B/C = 3 x 0x4000 slices; CTXR-D = iBoot runtime just below m1n1 |
 | `/chosen/memory-map` | `BootKC-rx` size 0, `BootKC-rw` = whole image (0x4d0000), `BootKC-entry` = base + 0x800 |
-| kernelcache | `configMiscCores` body 0xfffffe0009883b94 (ApplePMGR vtable +0xd28); `enableCPUComplex` +0xd38; `enableCPUCluster` +0x898; T6050 `writeACCReg32` 0xfffffe0009cf0d5c (+0x1068) |
-| SPTM | `sptm_register_cpu` 0xfffffff0270cd934; per-cpu init + CTRR/CTXR validation 0xfffffff0270cff20; `sptm_resume_cpu` 0xfffffff0270d1b64 |
 
 Tools: `scripts/kc/` (kernelcache/SPTM helpers), `scripts/probes/` (hardware probes),
-`scripts/wait-m1n1.sh` (wait for the M5 to come back after a watchdog reset), `docs/re/`.
+`scripts/wait-m1n1.sh` (wait for the M5 to come back after a watchdog reset).

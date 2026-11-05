@@ -32,7 +32,7 @@ This repo holds only what was made or changed here. Upstream sources are pinned 
 | `host/macos/` | The same tether from the Studio booted into macOS: `m5.sh`, stub refresh/recreate, ESP installer, Omarchy-volume reader. |
 | `host/` | Studio-side (Omarchy) config: udev rules for the m1n1 device and the M5's USB network, the NAT script. |
 | `scripts/` | Tether helpers used on the Studio (tmux-driven proxy sessions, watchdog-guarded rounds). They expect the omarchy-m5 checkout at `~/Work/omarchy-m5`. `scripts/probes/` are the SMP hardware probes, `scripts/kc/` the kernelcache/SPTM disassembly helpers. |
-| `docs/` | [`boot-and-recovery.md`](docs/boot-and-recovery.md) (rebuild, boot, provision, recover), [`smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) (the SMP investigation), `docs/re/` (disassembly excerpts). |
+| `docs/` | [`boot-and-recovery.md`](docs/boot-and-recovery.md) (rebuild, boot, provision, recover), [`smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) (the SMP investigation). |
 
 ## Rebuild m1n1
 
@@ -48,6 +48,13 @@ The result is byte-identical to the branch the Mac was booted with.
 - The Mac's ADT dump (`adt-runtime-j716s.bin`): it carries the serial number and MAC addresses.
 - Disk images, the Arch/Alpine tarballs, initramfs and kernel builds.
 - Keys and passwords.
+
+Reverse-engineering notes (disassembly excerpts of Apple binaries made while chasing SMP) are kept
+outside this repository and are not published. Nothing in this tree is copied from them: the
+register writes, ADT properties and SMC keys documented here come from hardware measurements, the
+ADT and public sources. Earlier commits of this repository still contain a `docs/re/` folder with
+those excerpts; if your project works clean-room, do not check out or read history before the
+commit that removed it.
 
 ## Credits
 

@@ -3,8 +3,8 @@
 Small capstone scripts used on 2026-10-20 to read the macOS 27.2 (26B5112a) kernelcache and
 `sptm.t6050.release` extracted from the M5. They need `~/Work/m1n1/.venv` (capstone installed)
 and are run from this directory: `../../../m1n1/.venv/bin/python fn.py <kernelcache> <VA>`.
-The kernelcache and SPTM blobs are not in this repo (Apple boot objects); the disassembly excerpts
-that mattered are in `docs/re/`.
+The kernelcache and SPTM blobs are not in this repo (Apple boot objects), and neither is any
+disassembly output: reverse-engineering notes are kept outside this repository.
 
 | Script | What |
 |---|---|

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Clear CLUSTER_PSTATE_M2_APSC_DIS (bit 23 of cpm-impl-reg + 0x20020) on the given clusters,
-the way AppleT6050PMGR::configCPUComplexPowerState(complex, true) does, and show the result.
+"""Clear CLUSTER_PSTATE_M2_APSC_DIS (bit 23 of cpm-impl-reg + 0x20020) on the given clusters
+(m1n1's name for the complex-enable bit), and show the result.
 Run smp-reset-crumb.py afterwards to see whether a released core now executes its RVBAR.
     apsc-enable-release.py [cluster ...]     # default: 0
 """

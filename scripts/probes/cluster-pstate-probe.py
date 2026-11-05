@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 """Read-only: per-cluster ACC CLUSTER_PSTATE (cpm-impl-reg + 0x20020) and the PMGR CPU_START
-block on the T6050, from the m1n1 proxy. XNU's AppleT6050PMGR::configCPUComplexPowerState
-clears bit 23 (m1n1: CLUSTER_PSTATE_M2_APSC_DIS) of this register to enable a complex;
-m1n1's cpufreq has no T6050 table so it never touches it. Arm the watchdog first:
+block on the T6050, from the m1n1 proxy. Bit 23 (m1n1: CLUSTER_PSTATE_M2_APSC_DIS) of this
+register disables a complex's APSC on earlier SoCs; m1n1's cpufreq has no T6050 table so it never touches it. Arm the watchdog first:
     wdt-arm.py 60 && cluster-pstate-probe.py && wdt-arm.py --off
 """
 from m1n1.setup import *

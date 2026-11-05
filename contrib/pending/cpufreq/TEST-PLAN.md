@@ -43,8 +43,8 @@ limit, record); no hang; watch macsmc temps; stop if fans peg or > 100 C.
 
 ## Rollback / decisions
 Hang at "DVFS for CPUs 12-17" or first policy12 write: forced power-off; old DTB or new DTB + maxcpus=12; report Stage 0
-dvfs-regs. "APSC is disabled": cluster ignores requests; old DTB / cpufreq.off=1; report cmd (macOS clears b23 in
-configCPUComplexPowerState; never via +0x440f8). cur p never follows req p: report dvfs-regs + cpuhz; cap with
+dvfs-regs. "APSC is disabled": cluster ignores requests; old DTB / cpufreq.off=1; report cmd (b23 is the
+complex-enable bit; it is never set via +0x440f8). cur p never follows req p: report dvfs-regs + cpuhz; cap with
 scaling_max_freq. Hang under all-core load: next boot cpufreq.default_governor=powersave or cpufreq.off=1. Worse:
 cpufreq.off=1, then maxcpus=12, then maxcpus=1. Never: remove idle=nop arm64.nowfxt; write cpuN/online; test suspend;
 write DVFS registers.
