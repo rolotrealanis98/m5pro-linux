@@ -1,0 +1,126 @@
+--- /Users/rolo/Documents/GitHub/m5pro-linux/host/macos/mk-debug-initramfs.sh	2026-11-05 06:49:00
++++ mk-debug-initramfs.sh	2026-11-05 07:45:39
+@@ -13,11 +13,24 @@
+ #   * authorizes ~/.ssh/mbp.pub for root and unlocks the root account in
+ #     /etc/shadow (dropbear refuses locked accounts even for key auth).
+ #
++#   * (2026-11-05 planning prototype, UNTESTED) streams the kernel log over
++#     netconsole on the gadget link(s) as soon as the Studio side answers
++#     (UDP 6666 to 10.55.0.1 / 10.55.2.1, Ethernet broadcast, so no MAC is
++#     needed), prints the stage-1 A/B decision (chosen m5pro,boot-slot,
++#     m5pro,pmu-scrpad), can insmod modules shipped with --module only after
++#     netconsole is up (m5.insmod=name[,name...]; the probe-hang bisect), and
++#     with m5.rootfail=panic:SECS turns "root never mounted" into a panic after
++#     SECS s of sshd so the stage-1 fallback takes over (touch /tmp/hold to
++#     stay). Needs CONFIG_NETCONSOLE=y + NETCONSOLE_DYNAMIC=y (see
++#     m5-debug.config); without them it only logs that netconsole is missing.
++#
+ # Nothing here changes what happens on a successful boot: dropbear is killed
+-# right before switch_root, exactly where the old init handed over.
++# right before switch_root, exactly where the old init handed over. The
++# netconsole targets stay enabled in the kernel across switch_root.
+ #
+ # Usage: mk-debug-initramfs.sh [--base IN.cpio.gz] [--out OUT.cpio.gz]
+ #                              [--pubkey ~/.ssh/mbp.pub] [--cache DIR] [--wait SECONDS]
++#                              [--module FILE.ko]...
+ set -euo pipefail
+ 
+ BASE=$HOME/Work/omarchy-m5/build/initramfs-tp.cpio.gz
+@@ -25,6 +38,7 @@
+ PUBKEY=$HOME/.ssh/mbp.pub
+ CACHE=$HOME/Work/omarchy-m5/build/cache/apk-debug
+ WAIT=60
++MODULES=()
+ while [ $# -gt 0 ]; do
+     case "$1" in
+         --base) BASE=$2; shift 2 ;;
+@@ -32,6 +46,7 @@
+         --pubkey) PUBKEY=$2; shift 2 ;;
+         --cache) CACHE=$2; shift 2 ;;
+         --wait) WAIT=$2; shift 2 ;;
++        --module) MODULES+=("$2"); shift 2 ;;
+         *) echo "unknown argument: $1" >&2; exit 2 ;;
+     esac
+ done
+@@ -56,7 +71,11 @@
+ rm -f "$T/ov/.PKGINFO" "$T"/ov/.SIGN.* 2>/dev/null || true
+ [ -x "$T/ov/usr/sbin/dropbear" ] || { echo "dropbear binary not found in packages" >&2; exit 1; }
+ 
+-mkdir -p "$T/ov/etc/dropbear" "$T/ov/root/.ssh" "$T/ov/dev/pts" "$T/ov/var/run"
++mkdir -p "$T/ov/etc/dropbear" "$T/ov/root/.ssh" "$T/ov/dev/pts" "$T/ov/var/run" "$T/ov/lib/modules/m5"
++for m in ${MODULES[@]+"${MODULES[@]}"}; do
++    [ -f "$m" ] || { echo "module missing: $m" >&2; exit 1; }
++    cp "$m" "$T/ov/lib/modules/m5/"
++done
+ chmod 700 "$T/ov/root" "$T/ov/root/.ssh"
+ cp "$PUBKEY" "$T/ov/root/.ssh/authorized_keys"; chmod 600 "$T/ov/root/.ssh/authorized_keys"
+ # Alpine ships root:*:: (locked). Empty hash = no password login, key auth OK.
+@@ -88,6 +107,43 @@
+ [ -x /usr/sbin/usb-gadget-net ] && /usr/sbin/usb-gadget-net
+ /usr/sbin/dropbear -R -E -p 22 2>/tmp/dropbear.log && echo "debug: dropbear listening on the gadget link"
+ 
++arg() { \$BB sed -n "s/.*\\b\$1=\\([^ ]*\\).*/\\1/p" /proc/cmdline; }
++CH=/proc/device-tree/chosen
++SLOT=\$(\$BB cat \$CH/m5pro,boot-slot 2>/dev/null | \$BB tr -d '\\0')
++SCR=\$(\$BB cat \$CH/m5pro,pmu-scrpad 2>/dev/null | \$BB tr -d '\\0')
++echo "debug: stage-1 slot=\${SLOT:-unknown} pmu-scrpad=\${SCR:-unknown} (boot_stage, counts, error_stage)"
++
++# netconsole over the gadget link(s). The Studio side (eem-vm guest, see
++# FRICTION.md) has to have the interface up to receive anything, so wait up
++# to 20 s for it to answer ping before enabling the targets.
++NC=/sys/kernel/config/netconsole
++\$BB mount -t configfs configfs /sys/kernel/config 2>/dev/null
++if [ -d \$NC ]; then
++    i=0; while [ \$i -lt 20 ] && ! \$BB ping -c1 -W1 10.55.0.1 >/dev/null 2>&1 && \\
++                                 ! \$BB ping -c1 -W1 10.55.2.1 >/dev/null 2>&1; do i=\$((i+1)); done
++    for t in "usb0 10.55.0.2 10.55.0.1" "usb2 10.55.2.2 10.55.2.1"; do
++        set -- \$t
++        [ -d /sys/class/net/\$1 ] || continue
++        \$BB mkdir -p \$NC/\$1
++        echo \$1 > \$NC/\$1/dev_name; echo \$2 > \$NC/\$1/local_ip
++        echo \$3 > \$NC/\$1/remote_ip; echo 6666 > \$NC/\$1/remote_port
++        echo 1 > \$NC/\$1/enabled 2>/dev/null && echo "debug: netconsole \$1 -> \$3:6666"
++    done
++    echo 8 > /proc/sys/kernel/printk
++    echo "m5-debug: netconsole up, slot=\${SLOT:-unknown} pmu=\${SCR:-unknown} \$(\$BB uname -r)" > /dev/kmsg
++else
++    echo "debug: kernel has no netconsole configfs (CONFIG_NETCONSOLE_DYNAMIC)"
++fi
++
++# Probe-hang bisect: modules load only now, with netconsole and sshd up, so
++# the last dev_info before a hard hang reaches the Studio.
++for m in \$(arg m5.insmod | \$BB tr , ' '); do
++    f=/lib/modules/m5/\$m.ko
++    [ -f \$f ] || { echo "debug: no \$f"; continue; }
++    echo "m5-debug: insmod \$m" > /dev/kmsg; \$BB sleep 1
++    \$BB insmod \$f \$(arg m5.insmod_args | \$BB tr , ' ') && echo "m5-debug: \$m loaded" > /dev/kmsg
++done
++
+ ROOT=\$(\$BB sed -n 's/.*\\bm5\\.root=\\([^ ]*\\).*/\\1/p' /proc/cmdline)
+ if [ -n "\$ROOT" ]; then
+     # T6050 2026-11-05: the ANS (storage coprocessor) firmware sometimes needs
+@@ -107,6 +163,7 @@
+         echo "debug: \$ROOT appeared after \$((i / 10)) s"
+         if \$BB mount -t ext4 -o noatime "\$ROOT" /mnt 2>/dev/null; then
+             \$BB killall dropbear 2>/dev/null
++            \$BB umount /sys/kernel/config 2>/dev/null
+             \$BB umount /dev/pts 2>/dev/null
+             \$BB umount /proc /sys /dev /tmp 2>/dev/null
+             exec \$BB switch_root /mnt /sbin/init
+@@ -115,6 +172,16 @@
+     fi
+     echo "m5.root=\$ROOT did not mount after $WAIT s; staying in initramfs (sshd up)"
+     \$BB dmesg > /tmp/dmesg.txt 2>/dev/null
++    RF=\$(arg m5.rootfail)
++    case "\$RF" in panic:*)
++        # Trial payloads: give the Studio RF seconds to look, then panic. The
++        # panic restart leaves boot_stage at 0x30, iBoot counts a boot error and
++        # stage-1 boots chainload.fallback next time. touch /tmp/hold to stay.
++        S=\${RF#panic:}
++        echo "debug: root failed; panicking in \$S s for the stage-1 fallback (touch /tmp/hold to stay)"
++        ( \$BB sleep \$S; [ -e /tmp/hold ] || { echo "m5-debug: root never mounted, panicking for fallback" > /dev/kmsg; echo c > /proc/sysrq-trigger; } ) &
++        ;;
++    esac
+ fi
+ exec \$BB sh
+ EOF

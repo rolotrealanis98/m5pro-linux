@@ -1,0 +1,34 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# m5-boot-slot - make a stage-1 fallback permanent (PLANNING PROTOTYPE, UNTESTED).
+# Stage-1 m1n1 (patch 0016) boots chainload.fallback (m1n1/boot.bin.prev) when iBoot logged a
+# failed boot, and says so in /proc/device-tree/chosen/m5pro,boot-slot. m1n1 cannot write the
+# ESP, so without this the next clean reboot would try the failing boot.bin again and alternate.
+# Runs once per boot, after the ESP is reachable; m5-deploy.sh does the same from the Studio.
+# Only a payload still on trial (m1n1/TRIAL holds its sha256, written by m5-deploy.sh) is
+# demoted: a forced power-off of a good payload also makes iBoot count a failed boot, and that
+# must cost one boot on boot.bin.prev, not the payload. A primary-slot boot that gets this far
+# confirms the trial.
+set -u
+D=/boot/m1n1
+slot=$(tr -d '\0' < /proc/device-tree/chosen/m5pro,boot-slot 2>/dev/null)
+scr=$(tr -d '\0' < /proc/device-tree/chosen/m5pro,pmu-scrpad 2>/dev/null)
+echo "m5-boot-slot: slot=${slot:-none} pmu-scrpad=${scr:-none}"
+trial=$(cat "$D/TRIAL" 2>/dev/null)
+case "$slot" in
+primary*)
+    [ -n "$trial" ] && [ "$(sha256sum "$D/boot.bin" | cut -d' ' -f1)" = "$trial" ] && {
+        rm -f "$D/TRIAL"; sync; echo "m5-boot-slot: trial payload confirmed"; } ;;
+fallback-after-failure)
+    if [ -z "$trial" ] || [ "$(sha256sum "$D/boot.bin" | cut -d' ' -f1)" != "$trial" ]; then
+        echo "m5-boot-slot: fallback after a failure of a confirmed payload (forced power-off?); boot.bin kept"
+        exit 0
+    fi
+    ls "$D" >/dev/null 2>&1 || { echo "m5-boot-slot: ESP not mounted"; exit 1; }
+    [ -f "$D/boot.bin.prev" ] || exit 1
+    if cmp -s "$D/boot.bin" "$D/boot.bin.prev"; then exit 0; fi
+    ts=$(date +%Y%m%d-%H%M%S)
+    mv "$D/boot.bin" "$D/boot.bin.failed-$ts" && cp "$D/boot.bin.prev" "$D/boot.bin" && rm -f "$D/TRIAL" && sync
+    echo "$ts demoted boot.bin after a failed boot (pmu $scr)" >> "$D/DEPLOY.log"; sync
+    echo "m5-boot-slot: demoted the failing boot.bin to boot.bin.failed-$ts" ;;
+esac

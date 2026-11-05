@@ -1,0 +1,414 @@
+From d52d4dd9e37f1d31183387b507d8198b2c31e404 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Thu, 5 Nov 2026 07:44:05 -0500
+Subject: [PATCH] chainload: A/B fallback on iBoot's PMU boot-error count,
+ optional watchdog
+
+UNTESTED on hardware; compile-checked for CHAINLOADING=1 and plain builds.
+
+A chainloading stage-1 now reads iBoot's legacy PMU scratchpad (primary
+"pmu,spmi" node, info-leg_scrpad) before it chainloads. iBoot increments
+boot_error_count when it finds boot_stage != 0 at power-on, i.e. when the
+previous boot did not end in a clean shutdown/restart (Linux macsmc-reboot
+writes 0 from its reboot notifier; hangs, watchdog bites, power-button holds
+and panic restarts leave 0x2f/0x30). A non-zero count therefore means the
+last attempt failed, and the slot named by the new variable
+
+  chainload.fallback=<PARTUUID>;<path>
+
+is tried first. Either slot that cannot be read is followed by the other
+before falling back to the proxy.
+
+  chainload.wdt=<secs>      arm the SoC watchdog (<= 170 s) right before the
+                            hand-over and tell the next m1n1 to keep it armed
+                            (" m1n1.wdt=keep" appended to its boot_args
+                            cmdline); Linux apple_wdt sees RESET_EN and keeps
+                            it fed. 0/absent = today's behaviour.
+  chainload.pmu-clear=0     leave a non-zero count for Linux to report and
+                            clear (default: stage-1 clears it after reading,
+                            so a payload that dies before macsmc-reboot can
+                            never walk iBoot into its "needs to be
+                            reinstalled" recovery).
+
+The choice and the raw bytes go to the next stage as chosen.m5pro,boot-slot
+and chosen.m5pro,pmu-scrpad. Old stage-2 builds ignore nothing they need;
+an old stage-1 ignores the new variables ("Unknown variable").
+
+Image size is unchanged (0x420000 raw, text ends 0x83854 of 0x90000).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Makefile        |  1 +
+ src/chainload.c | 12 +++++++
+ src/chainload.h |  3 ++
+ src/payload.c   | 95 +++++++++++++++++++++++++++++++++++++++++++++++++
+ src/pmu.c       | 84 +++++++++++++++++++++++++++++++++++++++++++
+ src/pmu.h       | 26 ++++++++++++++
+ src/wdt.c       | 19 ++++++++++
+ src/wdt.h       |  3 ++
+ 8 files changed, 243 insertions(+)
+ create mode 100644 src/pmu.c
+ create mode 100644 src/pmu.h
+
+diff --git a/Makefile b/Makefile
+index 336edc94..6bf78640 100644
+--- a/Makefile
++++ b/Makefile
+@@ -174,6 +174,7 @@ OBJECTS := \
+ 	payload.o \
+ 	pcie.o \
+ 	pmgr.o \
++	pmu.o \
+ 	proxy.o \
+ 	ringbuffer.o \
+ 	rtkit.o \
+diff --git a/src/chainload.c b/src/chainload.c
+index dd355601..e86260d6 100644
+--- a/src/chainload.c
++++ b/src/chainload.c
+@@ -16,6 +16,8 @@
+ int rust_load_image(const char *spec, void **image, size_t *size);
+ #endif
+ 
++bool chainload_wdt_keep = false;
++
+ extern u8 _chainload_stub_start[];
+ extern u8 _chainload_stub_end[];
+ 
+@@ -113,6 +115,16 @@ int chainload_image(void *image, size_t size, char **vars, size_t var_cnt)
+     *new_boot_args = cur_boot_args;
+     new_boot_args->top_of_kernel_data = max(top_kdata, new_base + image_size);
+ 
++    // The next m1n1's wdt_disable() leaves the watchdog armed only when its boot_args cmdline
++    // says so. rv1's 256 bytes are the common prefix of every boot_args revision.
++    if (chainload_wdt_keep) {
++        char *cmd = new_boot_args->rv1.cmdline;
++        const char *keep = " m1n1.wdt=keep";
++        size_t len = strnlen(cmd, CMDLINE_LENGTH_RV1);
++        if (!strstr(cmd, "m1n1.wdt=keep") && len + strlen(keep) < CMDLINE_LENGTH_RV1)
++            memcpy(cmd + len, keep, strlen(keep) + 1);
++    }
++
+     // Copy chainload stub
+     void *stub = new_image + image_size;
+     memcpy(stub, _chainload_stub_start, stub_size);
+diff --git a/src/chainload.h b/src/chainload.h
+index 18665215..2e0b29c5 100644
+--- a/src/chainload.h
++++ b/src/chainload.h
+@@ -8,4 +8,7 @@
+ int chainload_image(void *base, size_t size, char **vars, size_t var_cnt);
+ int chainload_load(const char *spec, char **vars, size_t var_cnt);
+ 
++/* Set by a stage-1 that armed the watchdog: tell the next m1n1 to leave it armed. */
++extern bool chainload_wdt_keep;
++
+ #endif
+diff --git a/src/payload.c b/src/payload.c
+index 954be568..809186bc 100644
+--- a/src/payload.c
++++ b/src/payload.c
+@@ -12,8 +12,11 @@
+ #include "heapblock.h"
+ #include "kboot.h"
+ #include "mitigations.h"
++#include "pmu.h"
+ #include "smp.h"
++#include "string.h"
+ #include "utils.h"
++#include "wdt.h"
+ 
+ #include "libfdt/libfdt.h"
+ #include "minilzlib/minlzma.h"
+@@ -43,6 +46,11 @@ static char expect_compatible[256];
+ static struct kernel_header *kernel = NULL;
+ static void *fdt = NULL;
+ static char *chainload_spec = NULL;
++#ifdef CHAINLOADING
++static char *chainload_fallback = NULL; // chainload.fallback=<PARTUUID>;<path>
++static u32 chainload_wdt = 0;           // chainload.wdt=<seconds>, 0 = leave the watchdog off
++static bool chainload_pmu_clear = true; // chainload.pmu-clear=0 leaves iBoot's counts to Linux
++#endif
+ 
+ static void *load_one_payload(void *start, size_t size);
+ 
+@@ -199,6 +207,14 @@ static bool check_var(u8 **p)
+             chosen[chosen_cnt++] = (char *)*p;
+     } else if (IS_VAR("chainload=")) {
+         chainload_spec = val;
++#ifdef CHAINLOADING
++    } else if (IS_VAR("chainload.fallback=")) {
++        chainload_fallback = val;
++    } else if (IS_VAR("chainload.wdt=")) {
++        chainload_wdt = atol(val);
++    } else if (IS_VAR("chainload.pmu-clear=")) {
++        chainload_pmu_clear = val[0] == '1';
++#endif
+     } else if (IS_VAR("display=")) {
+         display_configure(val);
+     } else if (IS_VAR("mitigations=")) {
+@@ -288,6 +304,81 @@ bool payload_logo(void **custom_128, void **custom_256)
+     return false;
+ }
+ 
++#ifdef CHAINLOADING
++/*
++ * A/B selection for a chainloading stage-1, keyed on iBoot's own boot-failure bookkeeping in
++ * the PMU scratchpad. iBoot finds boot_stage != 0 at power-on whenever the previous boot did
++ * not end in a clean shutdown/restart (Linux macsmc-reboot writes 0 from its reboot notifier;
++ * a hang, a power-button hold, a watchdog bite or a panic restart leave 0x2f/0x30) and then
++ * increments boot_error_count before it loads us. So a non-zero count here means "the last
++ * attempt failed": boot chainload.fallback first. Either way, if a slot cannot be read
++ * (missing file, FAT/GPT error) try the other one before giving up to the proxy.
++ *
++ * The decision and the raw scratchpad bytes are handed to the next stage as chosen.* vars
++ * (Linux: /proc/device-tree/chosen/m5pro,boot-slot and m5pro,pmu-scrpad). m1n1 cannot write
++ * the ESP; making a fallback permanent (demoting the bad boot.bin) is the booted root's job.
++ */
++static int chainload_run(void)
++{
++    static char slot_var[48];
++    static char pmu_var[48];
++    u8 sp[3] = {0}; // boot_stage, boot_error_count | panic_count << 4, boot_error_stage
++    bool pmu_ok = pmu_scrpad_read(PMU_SCRPAD_BOOT_STAGE, sp, sizeof(sp)) >= 0;
++    bool failed = pmu_ok && sp[1] != 0;
++
++    if (pmu_ok) {
++        printf("chainload: PMU boot_stage 0x%02x, boot errors %d, panics %d, error stage 0x%02x\n",
++               sp[0], sp[1] & 0xf, sp[1] >> 4, sp[2]);
++        snprintf(pmu_var, sizeof(pmu_var), "chosen.m5pro,pmu-scrpad=%02x%02x%02x", sp[0], sp[1],
++                 sp[2]);
++        if (chosen_cnt < MAX_CHOSEN_VARS)
++            chosen[chosen_cnt++] = pmu_var;
++    } else {
++        printf("chainload: PMU scratchpad unreadable, booting the primary slot\n");
++    }
++
++    // Keep iBoot's count from climbing to its "needs to be reinstalled" threshold when the
++    // failing payload never gets as far as macsmc-reboot (which clears it in Linux).
++    if (failed && chainload_pmu_clear) {
++        u8 zero = 0;
++        if (pmu_scrpad_write(PMU_SCRPAD_ERROR_COUNTS, &zero, 1) >= 0)
++            printf("chainload: cleared the PMU boot error/panic counts\n");
++    }
++
++    const char *specs[2] = {chainload_spec, chainload_fallback};
++    const char *names[2] = {"primary", "fallback"};
++    if (failed && chainload_fallback) {
++        printf("chainload: the previous boot failed, trying the fallback slot first\n");
++        specs[0] = chainload_fallback;
++        specs[1] = chainload_spec;
++        names[0] = "fallback";
++        names[1] = "primary";
++    }
++
++    if (chosen_cnt < MAX_CHOSEN_VARS)
++        chosen[chosen_cnt++] = slot_var;
++
++    for (int i = 0; i < 2; i++) {
++        if (!specs[i])
++            continue;
++        snprintf(slot_var, sizeof(slot_var), "chosen.m5pro,boot-slot=%s%s", names[i],
++                 failed ? "-after-failure" : "");
++        printf("chainload: slot %s: %s\n", names[i], specs[i]);
++        if (chainload_wdt && wdt_arm(chainload_wdt) >= 0)
++            chainload_wdt_keep = true;
++        if (chainload_load(specs[i], chosen, chosen_cnt) >= 0)
++            return 0;
++        printf("chainload: slot %s failed\n", names[i]);
++        if (chainload_wdt_keep) {
++            wdt_disable(); // back to the proxy: do not reset under a human at the tether
++            chainload_wdt_keep = false;
++        }
++    }
++
++    return -1;
++}
++#endif
++
+ int payload_run(void)
+ {
+     const char *target = adt_getprop(adt, 0, "target-type", NULL);
+@@ -310,7 +401,11 @@ int payload_run(void)
+         p = load_one_payload(p, 0);
+ 
+     if (chainload_spec) {
++#ifdef CHAINLOADING
++        return chainload_run();
++#else
+         return chainload_load(chainload_spec, chosen, chosen_cnt);
++#endif
+     }
+ 
+     if (kernel && fdt) {
+diff --git a/src/pmu.c b/src/pmu.c
+new file mode 100644
+index 00000000..c55f1194
+--- /dev/null
++++ b/src/pmu.c
+@@ -0,0 +1,84 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++
++#include "pmu.h"
++#include "adt.h"
++#include "spmi.h"
++#include "string.h"
++#include "utils.h"
++
++/*
++ * Find the primary SPMI PMU (compatible "pmu,spmi", is-primary = 1) the way the proxyclient's
++ * m1n1.hw.pmu.PMU.find_primary_pmu() does, and access iBoot's legacy scratchpad through it.
++ * The bus generation (gen 4 on T6050) is picked up by spmi_init() from the bus node.
++ */
++static spmi_dev_t *pmu_find(u8 *usid, u16 *scrpad)
++{
++    char path[64];
++    int arm_io = adt_path_offset(adt, "/arm-io");
++    if (arm_io < 0)
++        return NULL;
++
++    int bus = arm_io;
++    ADT_FOREACH_CHILD(adt, bus)
++    {
++        const char *bus_name = adt_get_name(adt, bus);
++        if (strncmp(bus_name, "nub-spmi", 8) && strncmp(bus_name, "spmi", 4))
++            continue;
++
++        int dev = bus;
++        ADT_FOREACH_CHILD(adt, dev)
++        {
++            u32 primary = 0, base = 0, reglen = 0;
++
++            if (!adt_is_compatible(adt, dev, "pmu,spmi"))
++                continue;
++            if (ADT_GETPROP(adt, dev, "is-primary", &primary) < 0 || primary != 1)
++                continue;
++            if (ADT_GETPROP(adt, dev, "info-leg_scrpad", &base) < 0)
++                continue;
++
++            // "reg" of an SPMI child is raw: the first word is the USID, not an MMIO range
++            const u32 *reg = adt_getprop(adt, dev, "reg", &reglen);
++            if (!reg || reglen < 4)
++                continue;
++
++            *usid = reg[0] & 0xf;
++            *scrpad = base;
++            snprintf(path, sizeof(path), "/arm-io/%s", bus_name);
++            return spmi_init(path);
++        }
++    }
++
++    printf("pmu: no primary SPMI PMU with info-leg_scrpad in the ADT\n");
++    return NULL;
++}
++
++int pmu_scrpad_read(u16 off, u8 *buf, size_t len)
++{
++    u8 usid;
++    u16 scrpad;
++    spmi_dev_t *spmi = pmu_find(&usid, &scrpad);
++    if (!spmi)
++        return -1;
++
++    int ret = spmi_ext_read_long(spmi, usid, scrpad + off, buf, len);
++    spmi_shutdown(spmi);
++    if (ret < 0)
++        printf("pmu: scratchpad read at 0x%x failed (%d)\n", scrpad + off, ret);
++    return ret;
++}
++
++int pmu_scrpad_write(u16 off, const u8 *buf, size_t len)
++{
++    u8 usid;
++    u16 scrpad;
++    spmi_dev_t *spmi = pmu_find(&usid, &scrpad);
++    if (!spmi)
++        return -1;
++
++    int ret = spmi_ext_write_long(spmi, usid, scrpad + off, buf, len);
++    spmi_shutdown(spmi);
++    if (ret < 0)
++        printf("pmu: scratchpad write at 0x%x failed (%d)\n", scrpad + off, ret);
++    return ret;
++}
+diff --git a/src/pmu.h b/src/pmu.h
+new file mode 100644
+index 00000000..1725e343
+--- /dev/null
++++ b/src/pmu.h
+@@ -0,0 +1,26 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++
++#ifndef __PMU_H__
++#define __PMU_H__
++
++#include "types.h"
++
++/*
++ * iBoot's legacy PMU scratchpad (ADT: the primary "pmu,spmi" node, info-leg_scrpad).
++ * Offsets from that base, as Linux macsmc-reboot uses them (t6050-smc.dtsi):
++ *   +0x1 boot_stage: 0x2f iBoot handed over, 0x30 OS kernel running, 0x00 clean shutdown/restart
++ *   +0x2 bits 0-3 boot_error_count, bits 4-7 panic_count
++ *   +0x3 boot_error_stage: the boot_stage a failed boot died in
++ *   +0xf bit 3 shutdown_flag
++ * iBoot counts a boot as failed when it finds boot_stage != 0 at power-on, and after a few of
++ * them shows the "needs to be reinstalled" recovery.
++ */
++#define PMU_SCRPAD_BOOT_STAGE       0x1
++#define PMU_SCRPAD_ERROR_COUNTS     0x2
++#define PMU_SCRPAD_BOOT_ERROR_STAGE 0x3
++
++/* Read/write len (1..8) bytes at info-leg_scrpad + off on the primary PMU. 0 on success. */
++int pmu_scrpad_read(u16 off, u8 *buf, size_t len);
++int pmu_scrpad_write(u16 off, const u8 *buf, size_t len);
++
++#endif
+diff --git a/src/wdt.c b/src/wdt.c
+index 0b974bc1..446322e1 100644
+--- a/src/wdt.c
++++ b/src/wdt.c
+@@ -68,6 +68,25 @@ void wdt_disable(void)
+     }
+ }
+ 
++// Arm the primary watchdog to reset the SoC after secs seconds (24 MHz count; the 32-bit
++// alarm caps it at ~178 s, so clamp to 170). Used by a chainloading stage-1 before it hands
++// over, so a stage-2/kernel that never gets far enough to take the watchdog over (Linux
++// apple_wdt sees RESET_EN and keeps it fed) resets the machine instead of hanging.
++int wdt_arm(u32 secs)
++{
++    if (!wdt_base)
++        return -1;
++    if (secs > 170)
++        secs = 170;
++
++    write32(wdt_base + WDT_CTL, 0);
++    write32(wdt_base + WDT_ALARM, secs * 24000000);
++    write32(wdt_base + WDT_COUNT, 0);
++    write32(wdt_base + WDT_CTL, 4);
++    printf("Primary WDT armed: reset in %u s unless the next stage takes it over\n", secs);
++    return 0;
++}
++
+ void wdt_reboot(void)
+ {
+     if (!wdt_base)
+diff --git a/src/wdt.h b/src/wdt.h
+index 00633282..20fc731b 100644
+--- a/src/wdt.h
++++ b/src/wdt.h
+@@ -3,8 +3,11 @@
+ #ifndef __WDT_H__
+ #define __WDT_H__
+ 
++#include "types.h"
++
+ void wdt_disable(void);
+ void wdt_reboot(void);
+ void wdt_kick(void);
++int wdt_arm(u32 secs);
+ 
+ #endif
+-- 
+2.56.0
+

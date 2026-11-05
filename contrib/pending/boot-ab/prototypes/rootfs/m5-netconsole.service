@@ -1,0 +1,14 @@
+# Re-arm netconsole in the Arch root if the gadget netdev was recreated after switch_root
+# (PLANNING PROTOTYPE, UNTESTED). The initramfs targets survive switch_root otherwise.
+[Unit]
+Description=netconsole to the Studio over the USB gadget link
+After=network.target sys-kernel-config.mount
+ConditionPathIsDirectory=/sys/kernel/config/netconsole
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'for t in "usb0 10.55.0.2 10.55.0.1" "usb2 10.55.2.2 10.55.2.1"; do set -- $t; [ -d /sys/class/net/$1 ] || continue; n=/sys/kernel/config/netconsole/$1; mkdir -p $n; [ "$(cat $n/enabled)" = 1 ] && continue; echo $1 > $n/dev_name; echo $2 > $n/local_ip; echo $3 > $n/remote_ip; echo 6666 > $n/remote_port; echo 1 > $n/enabled; done'
+
+[Install]
+WantedBy=multi-user.target
