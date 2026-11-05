@@ -1,0 +1,2004 @@
+diff --git a/configs/omarchy-smc.config b/configs/omarchy-smc.config
+index 6d5604c..62f488e 100644
+--- a/configs/omarchy-smc.config
++++ b/configs/omarchy-smc.config
+@@ -17,7 +17,14 @@ CONFIG_RTC_DRV_MACSMC=y
+ CONFIG_INPUT_MACSMC_INPUT=y
+ CONFIG_GPIO_MACSMC=y
+ CONFIG_SENSORS_MACSMC_HWMON=y
+-# CONFIG_MACSMC_POWER (battery) is not built in: it panicked the M5 at boot
+-# (2026-10-02, cause not yet read off the panel). Off until diagnosed.
++#
++# Battery/charger is built in again, gated per boot: it panicked the M5 at
++# boot once (2026-10-02, panel not read). The kernel carries the macsmc-power
++# work-init race fix (patches/linux/0011); until the TEST-PLAN battery step
++# (T6) has passed, boot with
++#   initcall_blacklist=macsmc_power_driver_init
++# which keeps the driver from registering at all (everything else in this
++# fragment is unaffected). Drop the argument to test it.
++CONFIG_MACSMC_POWER=y
+ CONFIG_SPMI_APPLE=y
+ CONFIG_NVMEM_APPLE_SPMI=y
+diff --git a/configs/omarchy-usb-host.config b/configs/omarchy-usb-host.config
+new file mode 100644
+index 0000000..d71538e
+--- /dev/null
++++ b/configs/omarchy-usb-host.config
+@@ -0,0 +1,50 @@
++# omarchy-m5 / m5pro-linux: USB 2.0 host on the T6050 Type-C ports.
++# Merge AFTER omarchy-storage-net.config. Everything a first test needs is
++# =y: the kernel is shipped as Image.gz without modules_install, so =m
++# drivers are not on the target.
++
++# --- dwc3 dual role (already =y) + xHCI platform host ------------------
++CONFIG_USB_DWC3=y
++CONFIG_USB_DWC3_DUAL_ROLE=y
++CONFIG_USB_XHCI_HCD=y
++CONFIG_USB_XHCI_PLATFORM=y
++CONFIG_USB_ROLE_SWITCH=y
++CONFIG_USB_ANNOUNCE_NEW_DEVICES=y
++
++# --- USB2-only Type-C PHY (new driver, drivers/phy/apple/usb2.c) --------
++CONFIG_PHY_APPLE_USB2=y
++
++# --- Ethernet dongles ---------------------------------------------------
++CONFIG_USB_NET_DRIVERS=y
++CONFIG_USB_USBNET=y
++CONFIG_USB_RTL8152=y
++CONFIG_USB_NET_AX8817X=y
++CONFIG_USB_NET_AX88179_178A=y
++CONFIG_USB_NET_CDCETHER=y
++CONFIG_USB_NET_CDC_NCM=y
++CONFIG_USB_NET_CDC_EEM=y
++CONFIG_USB_NET_RNDIS_HOST=y
++
++# --- Storage, input, hubs (USB_STORAGE/USB_HID already =y) --------------
++CONFIG_USB_STORAGE=y
++CONFIG_USB_UAS=y
++CONFIG_BLK_DEV_SD=y
++CONFIG_VFAT_FS=y
++CONFIG_EXFAT_FS=y
++CONFIG_USB_HID=y
++CONFIG_HID_GENERIC=y
++
++# --- Wi-Fi dongles (need /lib/firmware on the root fs) -----------------
++# cfg80211 depends on RFKILL || !RFKILL: RFKILL=m would cap it at m
++CONFIG_RFKILL=y
++CONFIG_CFG80211=y
++CONFIG_MAC80211=y
++CONFIG_RTL8XXXU=y
++CONFIG_MT7601U=y
++CONFIG_MT76x2U=y
++
++# --- USB-PD controller (milestone 1b; binds only with t6050-usb-pd.dtsi) -
++CONFIG_TYPEC=y
++CONFIG_TYPEC_SN201202X=y
++# CONFIG_TYPEC_TPS6598X is not set
++
+diff --git a/dt/t6050-cpufreq.dtsi b/dt/t6050-cpufreq.dtsi
+index 869c3ec..47f9a2a 100644
+--- a/dt/t6050-cpufreq.dtsi
++++ b/dt/t6050-cpufreq.dtsi
+@@ -1,8 +1,9 @@
+ // SPDX-License-Identifier: GPL-2.0+ OR MIT
+ /*
+  * T6050 CPU cluster DVFS (apple-soc-cpufreq).
+- * GENERATED from the runtime ADT (build/adt-runtime-j714s.bin) by
++ * GENERATED from the runtime ADT (adt-runtime-j716s.bin) by
+  * gen-cpufreq-dt.py; see there for the measured p-state/frequency mapping.
++ * M clusters: measured. P cluster: p-state mapping assumed, not yet measured.
+  */
+ 
+ / {
+@@ -93,6 +94,13 @@
+ 			opp-microvolt = <1070000>;
+ 			clock-latency-ns = <8000>;
+ 		};
++		opp16 {
++			opp-hz = /bits/ 64 <4380000000>;
++			opp-level = <16>;
++			opp-microvolt = <1070000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
+ 	};
+ 
+ 	m1_opp: opp-table-m1 {
+@@ -182,25 +190,165 @@
+ 			opp-microvolt = <1070000>;
+ 			clock-latency-ns = <8000>;
+ 		};
++		opp16 {
++			opp-hz = /bits/ 64 <4380000000>;
++			opp-level = <16>;
++			opp-microvolt = <1070000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
++	};
++
++	p_opp: opp-table-p {
++		compatible = "operating-points-v2";
++
++		opp02 {
++			opp-hz = /bits/ 64 <1308000000>;
++			opp-level = <2>;
++			opp-microvolt = <760000>;
++			clock-latency-ns = <8000>;
++		};
++		opp03 {
++			opp-hz = /bits/ 64 <1620000000>;
++			opp-level = <3>;
++			opp-microvolt = <785000>;
++			clock-latency-ns = <8000>;
++		};
++		opp04 {
++			opp-hz = /bits/ 64 <1980000000>;
++			opp-level = <4>;
++			opp-microvolt = <820000>;
++			clock-latency-ns = <8000>;
++		};
++		opp05 {
++			opp-hz = /bits/ 64 <2292000000>;
++			opp-level = <5>;
++			opp-microvolt = <855000>;
++			clock-latency-ns = <8000>;
++		};
++		opp06 {
++			opp-hz = /bits/ 64 <2580000000>;
++			opp-level = <6>;
++			opp-microvolt = <885000>;
++			clock-latency-ns = <8000>;
++		};
++		opp07 {
++			opp-hz = /bits/ 64 <2880000000>;
++			opp-level = <7>;
++			opp-microvolt = <920000>;
++			clock-latency-ns = <8000>;
++		};
++		opp08 {
++			opp-hz = /bits/ 64 <3180000000>;
++			opp-level = <8>;
++			opp-microvolt = <950000>;
++			clock-latency-ns = <8000>;
++		};
++		opp09 {
++			opp-hz = /bits/ 64 <3432000000>;
++			opp-level = <9>;
++			opp-microvolt = <980000>;
++			clock-latency-ns = <8000>;
++		};
++		opp10 {
++			opp-hz = /bits/ 64 <3648000000>;
++			opp-level = <10>;
++			opp-microvolt = <1010000>;
++			clock-latency-ns = <8000>;
++		};
++		opp11 {
++			opp-hz = /bits/ 64 <3828000000>;
++			opp-level = <11>;
++			opp-microvolt = <1030000>;
++			clock-latency-ns = <8000>;
++		};
++		opp12 {
++			opp-hz = /bits/ 64 <3984000000>;
++			opp-level = <12>;
++			opp-microvolt = <1050000>;
++			clock-latency-ns = <8000>;
++		};
++		opp13 {
++			opp-hz = /bits/ 64 <4104000000>;
++			opp-level = <13>;
++			opp-microvolt = <1065000>;
++			clock-latency-ns = <8000>;
++		};
++		opp14 {
++			opp-hz = /bits/ 64 <4188000000>;
++			opp-level = <14>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++		};
++		opp15 {
++			opp-hz = /bits/ 64 <4236000000>;
++			opp-level = <15>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++		};
++		opp16 {
++			opp-hz = /bits/ 64 <4284000000>;
++			opp-level = <16>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++		};
++		opp17 {
++			opp-hz = /bits/ 64 <4308000000>;
++			opp-level = <17>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++		};
++		opp18 {
++			opp-hz = /bits/ 64 <4332000000>;
++			opp-level = <18>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
++		opp19 {
++			opp-hz = /bits/ 64 <4428000000>;
++			opp-level = <19>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
++		opp20 {
++			opp-hz = /bits/ 64 <4512000000>;
++			opp-level = <20>;
++			opp-microvolt = <1120000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
++		opp21 {
++			opp-hz = /bits/ 64 <4608000000>;
++			opp-level = <21>;
++			opp-microvolt = <1120000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
+ 	};
+ 
+ };
+ 
+ &soc {
+ 	cpufreq_m0: performance-controller@210e20000 {
+-		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq",
+-			     "apple,cluster-cpufreq";
++		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+ 		reg = <0x2 0x10e20000 0x0 0x1000>;
+ 		#performance-domain-cells = <0>;
+ 	};
+ 
+ 	cpufreq_m1: performance-controller@211e20000 {
+-		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq",
+-			     "apple,cluster-cpufreq";
++		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+ 		reg = <0x2 0x11e20000 0x0 0x1000>;
+ 		#performance-domain-cells = <0>;
+ 	};
+ 
++	cpufreq_p: performance-controller@212e20000 {
++		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
++		reg = <0x2 0x12e20000 0x0 0x1000>;
++		#performance-domain-cells = <0>;
++	};
++
+ };
+ 
+ &cpu_m0_0 {
+@@ -262,3 +410,33 @@
+ 	operating-points-v2 = <&m1_opp>;
+ 	performance-domains = <&cpufreq_m1>;
+ };
++
++&cpu_p0 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p1 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p2 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p3 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p4 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p5 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
+diff --git a/dt/t6050-j714s.dts b/dt/t6050-j714s.dts
+index 7a16b25..c516699 100644
+--- a/dt/t6050-j714s.dts
++++ b/dt/t6050-j714s.dts
+@@ -82,3 +82,19 @@
+ #include "hwmon-common.dtsi"
+ #include "hwmon-fan-dual.dtsi"
+ #include "hwmon-laptop.dtsi"
++
++/*
++ * The T6050 SMC spells the fan mode keys F0md/F1md (ui8, flags 0xd0); F0Md/
++ * F1Md from hwmon-fan*.dtsi do not exist and would drop fan control (and,
++ * without the macsmc-hwmon optional-key fix, both fans). Manual fan control
++ * stays off unless macsmc_hwmon.fan_control=1.
++ */
++&smc_hwmon {
++	fan-F0Ac {
++		apple,fan-mode = "F0md";
++	};
++
++	fan-F1Ac {
++		apple,fan-mode = "F1md";
++	};
++};
+diff --git a/dt/t6050-j716s-usbhost.dts b/dt/t6050-j716s-usbhost.dts
+new file mode 100644
+index 0000000..9c7501a
+--- /dev/null
++++ b/dt/t6050-j716s-usbhost.dts
+@@ -0,0 +1,18 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Apple MacBook Pro (16-inch, M5 Pro, 2026), J716s: the normal board DT
++ * plus USB 2.0 host mode on one Type-C port (t6050-usb-host.dtsi).
++ *
++ * A separate DTB on purpose: t6050-j716s.dtb stays byte-identical, so
++ * rolling back is booting the old DTB.
++ *
++ * To pick another host port, define T6050_USB_HOST_PORT (0 = left-back,
++ * 1 = left-front, 2 = right) before the include below.
++ */
++
++#include "t6050-j716s.dts"
++#include "t6050-usb-host.dtsi"
++
++/ {
++	model = "Apple MacBook Pro (16-inch, M5 Pro, 2026), USB host";
++};
+diff --git a/dt/t6050-j716s.dts b/dt/t6050-j716s.dts
+index fb2c60a..3156aa7 100644
+--- a/dt/t6050-j716s.dts
++++ b/dt/t6050-j716s.dts
+@@ -9,6 +9,7 @@
+ 
+ /dts-v1/;
+ 
++#include <dt-bindings/gpio/gpio.h>
+ #include "t6050.dtsi"
+ #include "t6050-jxxx.dtsi"
+ 
+@@ -50,6 +51,30 @@
+ &mtp_hid {
+ 	multi-touch {
+ 		firmware-name = "apple/tpmtfw-j716s.bin";
++
++		/*
++		 * Trackpad AFE reset, driven by the host (power method 2).
++		 * ADT /arm-io/dockchannel-mtp/mtp-transport/multi-touch:
++		 *   function-afe-reset = <smc-pmu 'pKW8' 'pcIO' 0x00010000 0x011c0000>
++		 * pcIO word 1 = bank << 24 | pin << 16: bank 1, pin 0x1c. Bank 0 is
++		 * the "gP" chip (sd_pwr_en = pcIO 0, 0x00190000 = gP19, i.e.
++		 * smc_gpio 25 as on t603x), bank 1 the "gp" chip (every bank-1 pin in
++		 * this ADT - 0x0e, 0x1c, 0x1d - has a gpXX key, and gp has only
++		 * 01/02/03/0e/1c/1d), so this is key gp1c = smc_gpio_low 28.
++		 * Word 0 bit 16 is set only on the two reset functions (afe/stm)
++		 * and clear on the power enables, read here as "asserted low",
++		 * matching every earlier MTP AFE reset (t8112/t602x/t603x:
++		 * GPIO_ACTIVE_LOW).
++		 * The 6320.x MTP firmware accepts only the nine-byte power request
++		 * and sends no GPIO request for this line; macOS runs the
++		 * power-sequence on the host: off = assert + 50 ms, on = release.
++		 * post-init-providers keeps the transport (keyboard) from waiting
++		 * for the SMC GPIO chip; the driver looks the line up on open and
++		 * falls back to the old sequence if it is missing.
++		 */
++		apple,power-method = <2>;
++		apple,afe-reset-gpios = <&smc_gpio_low 28 GPIO_ACTIVE_LOW>;
++		post-init-providers = <&smc_gpio_low>;
+ 	};
+ 
+ 	keyboard: keyboard {
+@@ -76,7 +101,27 @@
+ 	};
+ };
+ 
+-/* SMC sensors: two fans (F0Ac/F1Ac) like J714s; keys not yet probed on J716s. */
++/*
++ * SMC sensors: two fans (F0Ac/F1Ac) and the laptop temperature/power keys,
++ * as on J714s (docs/research/smc-keys-j714s.json). Not yet re-probed on
++ * J716s: a key it lacks drops only that sensor.
++ */
+ #include "hwmon-common.dtsi"
+ #include "hwmon-fan-dual.dtsi"
+ #include "hwmon-laptop.dtsi"
++
++/*
++ * The T6050 SMC spells the fan mode keys F0md/F1md (ui8, flags 0xd0); F0Md/
++ * F1Md from hwmon-fan*.dtsi do not exist and would drop fan control (and,
++ * without the macsmc-hwmon optional-key fix, both fans). Manual fan control
++ * stays off unless macsmc_hwmon.fan_control=1.
++ */
++&smc_hwmon {
++	fan-F0Ac {
++		apple,fan-mode = "F0md";
++	};
++
++	fan-F1Ac {
++		apple,fan-mode = "F1md";
++	};
++};
+diff --git a/dt/t6050-smc.dtsi b/dt/t6050-smc.dtsi
+index b14c1ac..778335b 100644
+--- a/dt/t6050-smc.dtsi
++++ b/dt/t6050-smc.dtsi
+@@ -10,7 +10,10 @@
+  * (see PLAN.md for the property each number comes from).  Structure copied
+  * from t6030.dtsi:937-998 / t6031-die0.dtsi:107-169 / t8122.dtsi:775-889.
+  *
+- * Board files add hwmon sensors (hwmon-*.dtsi) on top of &smc_hwmon.
++ * Board files add hwmon sensors (hwmon-*.dtsi) on top of &smc_hwmon. The
++ * T6050 SMC has no F0Md/F1Md: its fan mode keys are F0md/F1md (ui8,
++ * writable), so every T6050 board overrides apple,fan-mode after including
++ * hwmon-fan*.dtsi (see the board files).
+  */
+ 
+ #include <dt-bindings/spmi/spmi.h>
+@@ -18,8 +21,10 @@
+ &soc {
+ 	/*
+ 	 * ADT /arm-io/nub-spmi0: compatible "aapl,spmi", gen = 4,
+-	 * reg[0] = 0x8a014000 (-> 0x28a014000, ADT size 0x4000; the Linux
+-	 * driver only touches the first 0x100, like t6031).
++	 * reg[0] = 0x8a014000 (-> 0x28a014000), ADT size 0x4000. The full
++	 * ADT size is used: the gen 4 FIFO registers below sit at 0x200-0x220,
++	 * outside the 0x100 window t6031 maps for its gen 1 layout (a 0x100
++	 * resource only worked because ioremap maps a whole 16K page).
+ 	 * interrupts = [256, 726, 281, ...]: 256 is the controller-internal
+ 	 * SPMI_IRQ_NOTIFY hwirq (identical in all five SPMI nodes), 726 is the
+ 	 * AIC line (same index convention as wdt: ADT interrupts[0] = 721).
+@@ -36,7 +41,7 @@
+ 	 */
+ 	nub_spmi0: spmi@28a014000 {
+ 		compatible = "apple,t6050-spmi";
+-		reg = <0x2 0x8a014000 0x0 0x100>;
++		reg = <0x2 0x8a014000 0x0 0x4000>;
+ 		#address-cells = <2>;
+ 		#size-cells = <0>;
+ 		#interrupt-cells = <2>;
+@@ -139,6 +144,10 @@
+ 	 * firmware region is 0x140000, and the driver rejects any shmem
+ 	 * buffer outside this window, drivers/mfd/macsmc.c:320).
+ 	 * smc_gpio is deliberately defined here although nothing consumes it yet.
++	 * smc_gpio_low is the second SMC GPIO bank (keys "gp01".."gp1d" next to
++	 * "gP01".."gP1d", docs/research/smc-keys-j714s.json); the MTP AFE/STM
++	 * reset lines (ADT pcIO bank 1, pins 0x1c/0x1d) live there, as on
++	 * t6030/t6031 (smc_gpio_low 25/26). Unit addresses follow t6030.dtsi.
+ 	 */
+ 	smc: smc@28c600000 {
+ 		compatible = "apple,t6050-smc", "apple,t8103-smc";
+@@ -147,12 +156,18 @@
+ 		reg-names = "smc", "sram";
+ 		mboxes = <&smc_mbox>;
+ 
+-		smc_gpio: gpio {
++		smc_gpio: gpio@67500000 {
+ 			compatible = "apple,smc-gpio";
+ 			gpio-controller;
+ 			#gpio-cells = <2>;
+ 		};
+ 
++		smc_gpio_low: gpio@67700000 {
++			compatible = "apple,smc-low-gpio";
++			gpio-controller;
++			#gpio-cells = <2>;
++		};
++
+ 		smc_hwmon: hwmon {
+ 			compatible = "apple,smc-hwmon";
+ 		};
+diff --git a/dt/t6050-usb-host.dtsi b/dt/t6050-usb-host.dtsi
+new file mode 100644
+index 0000000..3e017e0
+--- /dev/null
++++ b/dt/t6050-usb-host.dtsi
+@@ -0,0 +1,91 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * T6050 (M5 Pro/Max) USB-C ports: USB 2.0 host on one port, gadget on the
++ * others. Include AFTER t6050.dtsi (which pulls in t6050-storage-net.dtsi,
++ * where the three dwc3 nodes are defined in peripheral mode).
++ *
++ * Port map (ADT usb-drdN "port-number", omarchy-m5 usb-gadget-net.sh):
++ *   dwc3_0 = usb-drd0 @ 0x2a2280000, port 1, hpm0, left-back
++ *   dwc3_1 = usb-drd1 @ 0x2aa280000, port 2, hpm1, left-front
++ *   dwc3_2 = usb-drd2 @ 0x382280000, port 3, hpm2, right
++ *
++ * Role selection
++ * --------------
++ * T6050_USB_HOST_PORT (default 1 = left-front, the port the Studio tether
++ * does not use) is put in dual-role mode with a USB role switch that starts
++ * in host mode. The other two keep the plain peripheral-mode nodes from
++ * t6050-storage-net.dtsi untouched, so the CDC-EEM tether keeps working.
++ * At runtime the host port's role can be flipped from userspace:
++ *   echo device > /sys/class/usb_role/2aa280000.usb-role-switch/role
++ *   echo host   > /sys/class/usb_role/2aa280000.usb-role-switch/role
++ * Nothing switches roles automatically yet: that needs the SN201202x USB-PD
++ * driver (t6050-usb-pd.dtsi, generated from the ADT), which can then drive
++ * the same role switch through the connector graph.
++ *
++ * USB2 PHY
++ * --------
++ * Only the USB2 half of the Type-C PHY is driven (phy-apple-usb2, new); the
++ * PIPE mux stays on the dummy PHY m1n1 selected, so USB3/USB4/DP are off.
++ * The usb2phy addresses are NOT from the ADT yet: they follow the layout
++ * every earlier Apple SoC uses (usb2phy = dwc3 base + 0x810000; t8103,
++ * t6031, t8132 all match), and must be checked against ADT atc-phyN reg[0]
++ * (scripts gen-usb-dt.py --check).
++ *
++ * VBUS is not ours: the SN201202x PD controller sources it (or not) on its
++ * own. See REPORT.md.
++ */
++
++#ifndef T6050_USB_HOST_PORT
++#define T6050_USB_HOST_PORT 1
++#endif
++
++#define __T6050_USB_CAT(a, b) a##b
++#define T6050_USB_CAT(a, b) __T6050_USB_CAT(a, b)
++#define T6050_USB_HOST_DWC3 T6050_USB_CAT(dwc3_, T6050_USB_HOST_PORT)
++#define T6050_USB_HOST_PHY T6050_USB_CAT(usb2phy_, T6050_USB_HOST_PORT)
++
++&soc {
++	/* [INFERENCE] ADT atc-phy0 reg[0]; dwc3_0 + 0x810000 */
++	usb2phy_0: phy@2a2a90000 {
++		compatible = "apple,t6050-usb2phy";
++		reg = <0x2 0xa2a90000 0x0 0x4000>;
++		#phy-cells = <0>;
++	};
++
++	/* [INFERENCE] ADT atc-phy1 reg[0]; dwc3_1 + 0x810000 */
++	usb2phy_1: phy@2aaa90000 {
++		compatible = "apple,t6050-usb2phy";
++		reg = <0x2 0xaaa90000 0x0 0x4000>;
++		#phy-cells = <0>;
++	};
++
++	/* [INFERENCE] ADT atc-phy2 reg[0]; dwc3_2 + 0x810000 */
++	usb2phy_2: phy@382a90000 {
++		compatible = "apple,t6050-usb2phy";
++		reg = <0x3 0x82a90000 0x0 0x4000>;
++		#phy-cells = <0>;
++	};
++};
++
++/*
++ * The PHY must already be in host mode when dwc3 first resets it (plain
++ * dwc3 calls phy_set_mode() only after its core init), so tell the PHY.
++ */
++&T6050_USB_HOST_PHY {
++	apple,default-mode = "host";
++};
++
++&T6050_USB_HOST_DWC3 {
++	dr_mode = "otg";
++	usb-role-switch;
++	role-switch-default-mode = "host";
++	phys = <&T6050_USB_HOST_PHY>;
++	phy-names = "usb2-phy";
++	/* No USB3 PHY: keep the SuperSpeed side off. */
++	maximum-speed = "high-speed";
++	/*
++	 * Host-side USB 2.0 LPM off: nothing can take the PHY out of suspend
++	 * (same reason as the gadget's snps,usb2-gadget-lpm-disable).
++	 */
++	snps,usb2-lpm-disable;
++};
+diff --git a/patches/linux/0010-hid-dockchannel-afe-reset-power-method-2.patch b/patches/linux/0010-hid-dockchannel-afe-reset-power-method-2.patch
+new file mode 100644
+index 0000000..2f8cd93
+--- /dev/null
++++ b/patches/linux/0010-hid-dockchannel-afe-reset-power-method-2.patch
+@@ -0,0 +1,227 @@
++From e2156105c652b729cc33f146b1ce58efc852a6de Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Wed, 4 Nov 2026 18:39:35 -0500
++Subject: [PATCH 1/2] HID: dockchannel-hid: drive the AFE reset for power
++ method 2
++
++The M5-era MTP firmware (AppleMTPFirmwareMac-6320.x, ring transport)
++accepts only the nine-byte power request (method 2) and neither drives
++the trackpad analog front end (AFE) reset nor asks the host to. macOS
++runs the ADT function-afe-reset on the host between the "will change"
++and "has changed" halves (power-sequence: off = assert, 50 ms; on =
++release). Without it the AFE keeps whatever state the previous boot
++left, and the CBOR bootload fails intermittently with "Failed to attach
++to AFE (-6)" / "No HINT_L".
++
++Read apple,power-method from each interface node (default 2 in ring
++mode, 1 otherwise, i.e. unchanged). For method 2, look up an optional
++apple,afe-reset-gpios on the multi-touch node itself at first start
++(as-is, so its level does not change before the first transition is
++announced) and drive it between will/has: assert + 50 ms for OFF,
++release + 50 ms settle for ON. A missing property or a GPIO that is not
++available leaves the existing sequence untouched. The child-node lookup
++keeps the transport probe (and so the keyboard) independent of the SMC
++GPIO provider.
++
++A firmware GPIO request named afe-reset in ring mode reuses the
++host-held line, pulsed for 50 ms as macOS does; FIFO mode is unchanged.
++
++Compile-tested only.
++
++Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
++---
++ drivers/hid/dockchannel-hid/dockchannel-hid.c | 115 ++++++++++++++++--
++ 1 file changed, 105 insertions(+), 10 deletions(-)
++
++diff --git a/drivers/hid/dockchannel-hid/dockchannel-hid.c b/drivers/hid/dockchannel-hid/dockchannel-hid.c
++index 51391c1c4..43af7e5bb 100644
++--- a/drivers/hid/dockchannel-hid/dockchannel-hid.c
+++++ b/drivers/hid/dockchannel-hid/dockchannel-hid.c
++@@ -87,6 +87,24 @@ struct dchid_init_hdr {
++ #define CMD_ENABLE_INTERFACE 0xb4
++ #define CMD_ACK_GPIO_CMD 0xa1
++ 
+++/*
+++ * Interface power requests (CMD_RESET_INTERFACE). Power method 1 is the
+++ * four-byte form { 0x40, 1, iface, state }. Power method 2 is the nine-byte
+++ * form { 0x40, 2, iface, state, has_changed, 0, 0, 0, 0 }: every transition
+++ * is announced with has_changed = 0 ("will change") and confirmed with
+++ * has_changed = 1 ("has changed"). With method 2 the coprocessor no longer
+++ * pulses the trackpad AFE reset itself; macOS drives function-afe-reset
+++ * between the two halves, following the multi-touch power-sequence
+++ * { enable delay 0 ms, disable delay 50 ms, enable type 0, disable type 1 }:
+++ * power-off asserts the reset and waits 50 ms, power-on releases it.
+++ */
+++#define DCHID_POWER_METHOD_1	1
+++#define DCHID_POWER_METHOD_2	2
+++#define DCHID_POWER_STATE_OFF	0
+++#define DCHID_POWER_STATE_ON	2
+++#define DCHID_AFE_RESET_HOLD_US	(50 * USEC_PER_MSEC)
+++#define DCHID_AFE_SETTLE_US	(50 * USEC_PER_MSEC)
+++
++ struct dchid_init_block_hdr {
++ 	__le16 type;
++ 	__le16 length;
++@@ -174,6 +192,10 @@ struct dchid_iface {
++ 	char gpio_name[MAX_GPIO_NAME];
++ 	int gpio_id;
++ 
+++	u32 power_method;
+++	/* Host-driven AFE reset line (power method 2), from the iface's OF node */
+++	struct gpio_desc *afe_reset;
+++
++ 	struct mutex out_mutex;
++ 	spinlock_t out_lock;
++ 	int out_error;
++@@ -267,6 +289,19 @@ dchid_get_interface(struct dockchannel_hid *dchid, int index, const char *name)
++ 			dev_warn(dchid->dev, "No OF node for subdevice %s, ignoring\n", name);
++ 			return NULL;
++ 		}
+++
+++		/* The ring-era firmware only accepts the nine-byte method 2 form. */
+++		iface->power_method = dchid->use_ring ? DCHID_POWER_METHOD_2 :
+++							DCHID_POWER_METHOD_1;
+++		of_property_read_u32(iface->of_node, "apple,power-method",
+++				     &iface->power_method);
+++		if (iface->power_method != DCHID_POWER_METHOD_1 &&
+++		    iface->power_method != DCHID_POWER_METHOD_2) {
+++			dev_warn(dchid->dev, "Unsupported power method %u for %s\n",
+++				 iface->power_method, name);
+++			iface->power_method = dchid->use_ring ? DCHID_POWER_METHOD_2 :
+++								DCHID_POWER_METHOD_1;
+++		}
++ 	}
++ 
++ 	iface->wq = alloc_ordered_workqueue("dchid-%s", WQ_MEM_RECLAIM, iface->name);
++@@ -453,23 +488,74 @@ static int dchid_enable_interface(struct dchid_iface *iface)
++ 
++ static int dchid_reset_interface(struct dchid_iface *iface, int state)
++ {
++-	u8 msg[] = { CMD_RESET_INTERFACE, 1, iface->index, state };
++-	u8 msg2[] = { CMD_RESET_INTERFACE, 2, iface->index, state, 0, 0, 0, 0, 0 };
+++	struct dockchannel_hid *dchid = iface->dchid;
+++	u8 msg[] = { CMD_RESET_INTERFACE, DCHID_POWER_METHOD_1, iface->index, state };
+++	u8 msg2[] = { CMD_RESET_INTERFACE, DCHID_POWER_METHOD_2, iface->index, state,
+++		      0, 0, 0, 0, 0 };
++ 	int ret;
++ 
++-	if (!iface->dchid->use_ring)
++-		return dchid_comm_cmd(iface->dchid, msg, sizeof(msg));
+++	if (iface->power_method == DCHID_POWER_METHOD_1)
+++		return dchid_comm_cmd(dchid, msg, sizeof(msg));
++ 
++ 	/*
++ 	 * T8132 boot capture: state 0 then 2, each with byte 4 equal to 0
++ 	 * then 1. This is only the observed provisioning sequence, not a
++ 	 * contract for suspend, wake, or arbitrary interface power changes.
++ 	 */
++-	ret = dchid_comm_cmd(iface->dchid, msg2, sizeof(msg2));
+++	ret = dchid_comm_cmd(dchid, msg2, sizeof(msg2));
++ 	if (ret < 0)
++ 		return ret;
+++
+++	/*
+++	 * Between "will change" and "has changed" the host drives the AFE
+++	 * reset (ADT function-afe-reset; the M5-era MTP firmware neither
+++	 * drives it nor asks for it). Without a line, keep the old behaviour.
+++	 */
+++	if (iface->afe_reset) {
+++		bool off = state == DCHID_POWER_STATE_OFF;
+++
+++		ret = gpiod_set_value_cansleep(iface->afe_reset, off);
+++		if (ret < 0) {
+++			dev_err(dchid->dev, "%s: failed to %s AFE reset: %d\n",
+++				iface->name, off ? "assert" : "release", ret);
+++			return ret;
+++		}
+++		dev_info(dchid->dev, "%s: AFE reset %s\n", iface->name,
+++			 off ? "asserted" : "released");
+++		fsleep(off ? DCHID_AFE_RESET_HOLD_US : DCHID_AFE_SETTLE_US);
+++	}
+++
++ 	msg2[4] = 1;
++-	return dchid_comm_cmd(iface->dchid, msg2, sizeof(msg2));
+++	return dchid_comm_cmd(dchid, msg2, sizeof(msg2));
+++}
+++
+++/*
+++ * The AFE reset line is optional and only used with power method 2. It is
+++ * looked up on the interface's own node, so the parent probe never waits
+++ * for (or defers on) the SMC GPIO provider, and it is requested as-is so
+++ * its level does not change before the first transition is announced. Any
+++ * failure leaves afe_reset NULL, i.e. the pre-existing behaviour; a later
+++ * start retries the lookup.
+++ */
+++static void dchid_get_afe_reset(struct dchid_iface *iface)
+++{
+++	struct device *dev = iface->dchid->dev;
+++	struct gpio_desc *gpio;
+++
+++	if (iface->afe_reset || iface->power_method != DCHID_POWER_METHOD_2 ||
+++	    !of_property_present(iface->of_node, "apple,afe-reset-gpios"))
+++		return;
+++
+++	gpio = devm_fwnode_gpiod_get(dev, of_fwnode_handle(iface->of_node),
+++				     "apple,afe-reset", GPIOD_ASIS, "afe-reset");
+++	if (IS_ERR(gpio)) {
+++		dev_warn(dev, "%s: AFE reset line unavailable (%pe), continuing without it\n",
+++			 iface->name, gpio);
+++		return;
+++	}
+++
+++	dev_info(dev, "%s: host-driven AFE reset, power method 2\n", iface->name);
+++	iface->afe_reset = gpio;
++ }
++ 
++ static int dchid_register_ring(struct dockchannel_hid *dchid)
++@@ -615,6 +701,11 @@ static int dchid_request_gpio(struct dchid_iface *iface)
++ 	 * SMC reset keys. Do not substitute a guessed software pulse.
++ 	 */
++ 	if (iface->dchid->use_ring) {
+++		/* A request for the AFE line reuses the host-held descriptor. */
+++		if (iface->afe_reset && !strcmp(iface->gpio_name, "afe-reset")) {
+++			iface->gpio = iface->afe_reset;
+++			return 0;
+++		}
++ 		dev_err_once(iface->dchid->dev, "T8132 SMC reset GPIO operation is not established\n");
++ 		return -EOPNOTSUPP;
++ 	}
++@@ -671,6 +762,7 @@ static int dchid_start_interface(struct dchid_iface *iface)
++ 
++ 	/* Only multi-touch has firmware */
++ 	if (fw && size) {
+++		dchid_get_afe_reset(iface);
++ 
++ 		/* Send firmware to the device */
++ 		dev_info(iface->dchid->dev, "Sending firmware for %s\n", iface->name);
++@@ -682,10 +774,10 @@ static int dchid_start_interface(struct dchid_iface *iface)
++ 
++ 		/* After loading firmware, multi-touch needs a reset */
++ 		dev_info(iface->dchid->dev, "Resetting %s\n", iface->name);
++-		ret = dchid_reset_interface(iface, 0);
+++		ret = dchid_reset_interface(iface, DCHID_POWER_STATE_OFF);
++ 		if (ret < 0)
++ 			goto err;
++-		ret = dchid_reset_interface(iface, 2);
+++		ret = dchid_reset_interface(iface, DCHID_POWER_STATE_ON);
++ 		if (ret < 0)
++ 			goto err;
++ 	}
++@@ -1083,9 +1175,12 @@ static void dchid_handle_gpio(struct dockchannel_hid *dchid, void *data, size_t
++ 
++ 	switch (cmd->cmd) {
++ 	case 3:
++-		/* Pulse.  */
+++		/* Pulse. macOS holds a requested pulse for 50 ms. */
++ 		gpiod_set_value_cansleep(iface->gpio, 1);
++-		msleep(10); /* Random guess... */
+++		if (dchid->use_ring)
+++			fsleep(DCHID_AFE_RESET_HOLD_US);
+++		else
+++			msleep(10); /* Random guess... */
++ 		gpiod_set_value_cansleep(iface->gpio, 0);
++ 		retcode = 0;
++ 		break;
++-- 
++2.56.0
++
+diff --git a/patches/linux/0011-hwmon-macsmc-keep-fans-with-missing-optional-keys.patch b/patches/linux/0011-hwmon-macsmc-keep-fans-with-missing-optional-keys.patch
+new file mode 100644
+index 0000000..9e7b8e0
+--- /dev/null
++++ b/patches/linux/0011-hwmon-macsmc-keep-fans-with-missing-optional-keys.patch
+@@ -0,0 +1,76 @@
++hwmon: (macsmc) keep a fan whose optional keys are missing
++
++macsmc_hwmon_create_fan() returned an error, dropping the whole fan, when
++any of apple,fan-minimum/-maximum/-target/-mode named a key the SMC does
++not have. The T6050 (M5 Pro) SMC spells the mode key F0md instead of
++F0Md, so with the shared hwmon-fan*.dtsi both fans disappeared. Treat the
++optional keys as optional: warn, drop that attribute, and only allow
++manual control when mode, target, minimum and maximum keys all exist.
++
++diff --git a/drivers/hwmon/macsmc-hwmon.c b/drivers/hwmon/macsmc-hwmon.c
++index 1500ec2cc..58d3dba5d 100644
++--- a/drivers/hwmon/macsmc-hwmon.c
+++++ b/drivers/hwmon/macsmc-hwmon.c
++@@ -524,37 +524,43 @@ static int macsmc_hwmon_create_fan(struct device *dev, struct apple_smc *smc,
++ 		fan->attrs |= HWMON_F_LABEL;
++ 	}
++ 
++-	/* The following keys are not required to simply monitor fan speed */
+++	/*
+++	 * The following keys are not required to simply monitor fan speed.
+++	 * A key the firmware lacks (the T6050 SMC spells the mode key F0md,
+++	 * not F0Md) drops only that attribute, not the whole fan.
+++	 */
++ 	if (!of_property_read_string(fan_node, "apple,fan-minimum", &min)) {
++-		ret = macsmc_hwmon_parse_key(dev, smc, &fan->min, min);
++-		if (ret)
++-			return ret;
++-
++-		fan->attrs |= HWMON_F_MIN;
+++		if (macsmc_hwmon_parse_key(dev, smc, &fan->min, min))
+++			dev_warn(dev, "Fan %s: no minimum key %s\n", now, min);
+++		else
+++			fan->attrs |= HWMON_F_MIN;
++ 	}
++ 
++ 	if (!of_property_read_string(fan_node, "apple,fan-maximum", &max)) {
++-		ret = macsmc_hwmon_parse_key(dev, smc, &fan->max, max);
++-		if (ret)
++-			return ret;
++-
++-		fan->attrs |= HWMON_F_MAX;
+++		if (macsmc_hwmon_parse_key(dev, smc, &fan->max, max))
+++			dev_warn(dev, "Fan %s: no maximum key %s\n", now, max);
+++		else
+++			fan->attrs |= HWMON_F_MAX;
++ 	}
++ 
++ 	if (!of_property_read_string(fan_node, "apple,fan-target", &set)) {
++-		ret = macsmc_hwmon_parse_key(dev, smc, &fan->set, set);
++-		if (ret)
++-			return ret;
++-
++-		fan->attrs |= HWMON_F_TARGET;
+++		if (macsmc_hwmon_parse_key(dev, smc, &fan->set, set))
+++			dev_warn(dev, "Fan %s: no target key %s\n", now, set);
+++		else
+++			fan->attrs |= HWMON_F_TARGET;
++ 	}
++ 
++ 	if (!of_property_read_string(fan_node, "apple,fan-mode", &mode)) {
++-		ret = macsmc_hwmon_parse_key(dev, smc, &fan->mode, mode);
++-		if (ret)
++-			return ret;
+++		if (macsmc_hwmon_parse_key(dev, smc, &fan->mode, mode))
+++			dev_warn(dev, "Fan %s: no mode key %s, manual control disabled\n",
+++				 now, mode);
++ 	}
++ 
+++	/* Manual control needs the minimum, maximum and target keys too */
+++	if ((fan->attrs & (HWMON_F_MIN | HWMON_F_MAX | HWMON_F_TARGET)) !=
+++	    (HWMON_F_MIN | HWMON_F_MAX | HWMON_F_TARGET))
+++		fan->mode.macsmc_key = 0;
+++
++ 	/* Initialise fan control mode to automatic */
++ 	fan->manual = false;
++ 
+diff --git a/patches/linux/0012-power-supply-macsmc-power-init-work-before-notifier.patch b/patches/linux/0012-power-supply-macsmc-power-init-work-before-notifier.patch
+new file mode 100644
+index 0000000..8c5a346
+--- /dev/null
++++ b/patches/linux/0012-power-supply-macsmc-power-init-work-before-notifier.patch
+@@ -0,0 +1,42 @@
++power: supply: macsmc-power: initialise work items before the notifier
++
++Probe initialised critical_work twice: once via devm_work_autocancel() and
++again (plus dbg_log_work) after blocking_notifier_chain_register(). An SMC
++critical-battery event (0x71020000) arriving between the two would have its
++queued work re-initialised under the workqueue, corrupting it. Initialise
++both before the notifier is registered and drop the second INIT_WORK.
++
++diff --git a/drivers/power/supply/macsmc-power.c b/drivers/power/supply/macsmc-power.c
++index addb43489..f5d4ec0c2 100644
++--- a/drivers/power/supply/macsmc-power.c
+++++ b/drivers/power/supply/macsmc-power.c
++@@ -834,11 +834,18 @@ static int macsmc_power_probe(struct platform_device *pdev)
++ 	power->smc = smc;
++ 	dev_set_drvdata(dev, power);
++ 
++-	INIT_WORK(&power->critical_work, macsmc_power_critical_work);
+++	/* devm_work_autocancel() initialises critical_work */
++ 	ret = devm_work_autocancel(dev, &power->critical_work, macsmc_power_critical_work);
++ 	if (ret)
++ 		return ret;
++ 
+++	/*
+++	 * Must be ready before the notifier is registered below: an SMC event
+++	 * can arrive as soon as it is, and re-initialising a work item that
+++	 * is already queued corrupts the workqueue.
+++	 */
+++	INIT_DELAYED_WORK(&power->dbg_log_work, macsmc_dbg_work);
+++
++ 	/*
++ 	 * Check for battery presence.
++ 	 * B0AV is a fundamental key.
++@@ -1039,9 +1046,6 @@ static int macsmc_power_probe(struct platform_device *pdev)
++ 	power->nb.notifier_call = macsmc_power_event;
++ 	blocking_notifier_chain_register(&smc->event_handlers, &power->nb);
++ 
++-	INIT_WORK(&power->critical_work, macsmc_power_critical_work);
++-	INIT_DELAYED_WORK(&power->dbg_log_work, macsmc_dbg_work);
++-
++ 	g_power = power;
++ 
++ 	if (log_power)
+diff --git a/patches/linux/0013-mfd-macsmc-initialise-spinlock.patch b/patches/linux/0013-mfd-macsmc-initialise-spinlock.patch
+new file mode 100644
+index 0000000..0bef08b
+--- /dev/null
++++ b/patches/linux/0013-mfd-macsmc-initialise-spinlock.patch
+@@ -0,0 +1,18 @@
++mfd: macsmc: initialise the atomic-write spinlock
++
++smc->lock (used by apple_smc_write_atomic(), i.e. macsmc-reboot) was never
++spin_lock_init()ed; it only worked because the struct is zero-allocated and
++CONFIG_DEBUG_SPINLOCK is off.
++
++diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
++index 31540f67d..68f7bb832 100644
++--- a/drivers/mfd/macsmc.c
+++++ b/drivers/mfd/macsmc.c
++@@ -419,6 +419,7 @@ static int apple_smc_probe(struct platform_device *pdev)
++ 		return -ENOMEM;
++ 
++ 	mutex_init(&smc->mutex);
+++	spin_lock_init(&smc->lock);
++ 	smc->dev = &pdev->dev;
++ 	smc->sram_base = devm_platform_get_and_ioremap_resource(pdev, 1, &smc->sram);
++ 	if (IS_ERR(smc->sram_base))
+diff --git a/patches/linux/0014-cpufreq-apple-soc-nearest-opp-for-p-state.patch b/patches/linux/0014-cpufreq-apple-soc-nearest-opp-for-p-state.patch
+new file mode 100644
+index 0000000..0f43172
+--- /dev/null
++++ b/patches/linux/0014-cpufreq-apple-soc-nearest-opp-for-p-state.patch
+@@ -0,0 +1,72 @@
++From 24058addd55262695a8851206e069bc532c0fc45 Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Wed, 4 Nov 2026 17:57:20 -0500
++Subject: [PATCH 1/3] cpufreq: apple-soc: report the nearest OPP for p-states
++ outside the table
++
++apple_soc_cpufreq_get_rate() returns 0 when the hardware reports a
++p-state that has no OPP. cpufreq_online() treats 0 from ->get() as fatal
++("->get() failed"), so the policy is torn down and the cluster stays at
++whatever p-state the bootloader left it in.
++
++On T6050 (M5 Pro) the OPP tables deliberately start at p-state 2 (the
++lowest entry of the cluster's ADT voltage-states table) and leave out
++p-states the cluster refuses, so a cluster that firmware left in one of
++those states would never get a policy. Return the frequency of the
++nearest table entry instead and warn (ratelimited), so the policy comes
++up and the first ->target_index() moves the cluster into the table.
++
++Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
++---
++ drivers/cpufreq/apple-soc-cpufreq.c | 25 ++++++++++++++++++++-----
++ 1 file changed, 20 insertions(+), 5 deletions(-)
++
++diff --git a/drivers/cpufreq/apple-soc-cpufreq.c b/drivers/cpufreq/apple-soc-cpufreq.c
++index 5ad274a1e..6c7c9e084 100644
++--- a/drivers/cpufreq/apple-soc-cpufreq.c
+++++ b/drivers/cpufreq/apple-soc-cpufreq.c
++@@ -137,7 +137,7 @@ static unsigned int apple_soc_cpufreq_get_rate(unsigned int cpu)
++ 	struct cpufreq_policy *policy;
++ 	struct apple_cpu_priv *priv;
++ 	struct cpufreq_frequency_table *p;
++-	unsigned int pstate;
+++	unsigned int pstate, dist, best_dist = UINT_MAX, best_freq = 0;
++ 
++ 	policy = cpufreq_cpu_get_raw(cpu);
++ 	if (unlikely(!policy))
++@@ -159,13 +159,28 @@ static unsigned int apple_soc_cpufreq_get_rate(unsigned int cpu)
++ 		pstate = FIELD_GET(APPLE_DVFS_CMD_PS1, reg);
++ 	}
++ 
++-	cpufreq_for_each_valid_entry(p, policy->freq_table)
+++	cpufreq_for_each_valid_entry(p, policy->freq_table) {
++ 		if (p->driver_data == pstate)
++ 			return p->frequency;
++ 
++-	dev_err(priv->cpu_dev, "could not find frequency for pstate %d\n",
++-		pstate);
++-	return 0;
+++		dist = p->driver_data > pstate ? p->driver_data - pstate :
+++						  pstate - p->driver_data;
+++		if (dist < best_dist) {
+++			best_dist = dist;
+++			best_freq = p->frequency;
+++		}
+++	}
+++
+++	/*
+++	 * The OPP table need not cover every hardware p-state: T6050 leaves
+++	 * out the lowest ones and the ones the cluster refuses. Returning 0
+++	 * here makes cpufreq_online() fail ("->get() failed") and leaves the
+++	 * whole cluster unmanaged, so report the nearest table entry instead.
+++	 */
+++	dev_warn_ratelimited(priv->cpu_dev,
+++			     "p-state %u is not in the OPP table, reporting %u kHz\n",
+++			     pstate, best_freq);
+++	return best_freq;
++ }
++ 
++ static int apple_soc_cpufreq_set_target(struct cpufreq_policy *policy,
++-- 
++2.56.0
++
+diff --git a/patches/linux/0015-cpufreq-apple-soc-log-dvfs-handover.patch b/patches/linux/0015-cpufreq-apple-soc-log-dvfs-handover.patch
+new file mode 100644
+index 0000000..42ce1d5
+--- /dev/null
++++ b/patches/linux/0015-cpufreq-apple-soc-log-dvfs-handover.patch
+@@ -0,0 +1,91 @@
++From aa7512027d1c2e04c55ea66f6171c165b0fc9c73 Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Wed, 4 Nov 2026 17:57:43 -0500
++Subject: [PATCH 2/3] cpufreq: apple-soc: log the DVFS state handed over and
++ warn if APSC is off
++
++m1n1 initialises the cluster DVFS block (APSC enable, default p-state)
++only on SoCs it has a table for; on T6050 (M5 Pro) it prints "cpufreq:
++Chip 0x6050 is unsupported" and leaves the clusters as iBoot set them.
++Print the raw command and status registers once per policy so the boot
++p-state of every cluster is in the log, and warn when the APSC disable
++bit (bit 22 on M1, bit 23 on M2 and later, as named by m1n1) is set,
++because the cluster then ignores p-state requests.
++
++Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
++---
++ drivers/cpufreq/apple-soc-cpufreq.c | 23 +++++++++++++++++++++++
++ 1 file changed, 23 insertions(+)
++
++diff --git a/drivers/cpufreq/apple-soc-cpufreq.c b/drivers/cpufreq/apple-soc-cpufreq.c
++index 6c7c9e084..f986a7d81 100644
++--- a/drivers/cpufreq/apple-soc-cpufreq.c
+++++ b/drivers/cpufreq/apple-soc-cpufreq.c
++@@ -30,6 +30,9 @@
++ #define APPLE_DVFS_CMD_PS2			GENMASK(15, 12)
++ #define APPLE_DVFS_CMD_PS1			GENMASK(4, 0)
++ #define APPLE_DVFS_CMD_PS1_SHIFT		0
+++/* APSC (hardware DVFS sequencer) disable, as named by m1n1's cpufreq.c */
+++#define APPLE_DVFS_CMD_M1_APSC_DIS		BIT(22)
+++#define APPLE_DVFS_CMD_M2_APSC_DIS		BIT(23)
++ 
++ /* Same timebase as CPU counter (24MHz) */
++ #define APPLE_DVFS_LAST_CHG_TIME	0x38
++@@ -67,6 +70,7 @@ struct apple_soc_cpufreq_info {
++ 	u64 cur_pstate_shift;
++ 	u64 ps1_mask;
++ 	u64 ps1_shift;
+++	u64 apsc_dis;
++ };
++ 
++ struct apple_cpu_priv {
++@@ -93,6 +97,7 @@ static const struct apple_soc_cpufreq_info soc_t8103_info = {
++ 	.cur_pstate_shift = APPLE_DVFS_STATUS_CUR_PS_SHIFT_T8103,
++ 	.ps1_mask = APPLE_DVFS_CMD_PS1,
++ 	.ps1_shift = APPLE_DVFS_CMD_PS1_SHIFT,
+++	.apsc_dis = APPLE_DVFS_CMD_M1_APSC_DIS,
++ };
++ 
++ static const struct apple_soc_cpufreq_info soc_t8112_info = {
++@@ -102,6 +107,7 @@ static const struct apple_soc_cpufreq_info soc_t8112_info = {
++ 	.cur_pstate_shift = APPLE_DVFS_STATUS_CUR_PS_SHIFT_T8112,
++ 	.ps1_mask = APPLE_DVFS_CMD_PS1,
++ 	.ps1_shift = APPLE_DVFS_CMD_PS1_SHIFT,
+++	.apsc_dis = APPLE_DVFS_CMD_M2_APSC_DIS,
++ };
++ 
++ static const struct apple_soc_cpufreq_info soc_default_info = {
++@@ -257,6 +263,8 @@ static int apple_soc_cpufreq_init(struct cpufreq_policy *policy)
++ 	struct apple_cpu_priv *priv;
++ 	const struct apple_soc_cpufreq_info *info;
++ 	struct cpufreq_frequency_table *freq_table;
+++	u64 cmd;
+++	u32 status = 0;
++ 
++ 	cpu_dev = get_cpu_device(policy->cpu);
++ 	if (!cpu_dev) {
++@@ -276,6 +284,21 @@ static int apple_soc_cpufreq_init(struct cpufreq_policy *policy)
++ 		return ret;
++ 	}
++ 
+++	/*
+++	 * Log the state the bootloader handed over: on SoCs that m1n1's
+++	 * cpufreq does not initialise (T6050) this is the only record of the
+++	 * boot p-state and of whether the APSC is enabled. With the APSC
+++	 * disabled the cluster ignores p-state requests.
+++	 */
+++	cmd = readq_relaxed(reg_base + APPLE_DVFS_CMD);
+++	if (info->cur_pstate_mask)
+++		status = readl_relaxed(reg_base + APPLE_DVFS_STATUS);
+++	dev_info(cpu_dev, "DVFS for CPUs %*pbl: cmd %#llx status %#x\n",
+++		 cpumask_pr_args(policy->cpus), cmd, status);
+++	if (info->apsc_dis && (cmd & info->apsc_dis))
+++		dev_warn(cpu_dev, "APSC is disabled (cmd %#llx), p-state changes will not take effect\n",
+++			 cmd);
+++
++ 	ret = dev_pm_opp_set_sharing_cpus(cpu_dev, policy->cpus);
++ 	if (ret) {
++ 		dev_err(cpu_dev, "%s: failed to mark OPPs as shared: %d\n", __func__, ret);
++-- 
++2.56.0
++
+diff --git a/patches/linux/0016-dt-bindings-cpufreq-apple-add-t6050.patch b/patches/linux/0016-dt-bindings-cpufreq-apple-add-t6050.patch
+new file mode 100644
+index 0000000..11a8f8f
+--- /dev/null
++++ b/patches/linux/0016-dt-bindings-cpufreq-apple-add-t6050.patch
+@@ -0,0 +1,34 @@
++From c92c7c3b7950f5ea1a51bd2972efd282116649a9 Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Wed, 4 Nov 2026 17:58:41 -0500
++Subject: [PATCH 3/3] dt-bindings: cpufreq: apple,cluster-cpufreq: Add T6050
++
++The T6050 (M5 Pro) cluster DVFS block has the T8112 register layout:
++p-state request in bits 4:0 of the command register at +0x20, current
++p-state in bits 9:5 of the status register at +0x50 (measured on the
++J714s and J716s). Like T6020 it is described as
++"apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq".
++
++Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
++---
++ .../devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml    | 4 +++-
++ 1 file changed, 3 insertions(+), 1 deletion(-)
++
++diff --git a/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml b/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
++index b51913a81..c96ce28f2 100644
++--- a/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
+++++ b/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
++@@ -36,7 +36,9 @@ properties:
++           - const: apple,s5l8960x-cluster-cpufreq
++       - const: apple,s5l8960x-cluster-cpufreq
++       - items:
++-          - const: apple,t6020-cluster-cpufreq
+++          - enum:
+++              - apple,t6020-cluster-cpufreq
+++              - apple,t6050-cluster-cpufreq
++           - const: apple,t8112-cluster-cpufreq
++ 
++   reg:
++-- 
++2.56.0
++
+diff --git a/patches/linux/0017-phy-apple-usb2-only-type-c-phy-t6050.patch b/patches/linux/0017-phy-apple-usb2-only-type-c-phy-t6050.patch
+new file mode 100644
+index 0000000..e03e258
+--- /dev/null
++++ b/patches/linux/0017-phy-apple-usb2-only-type-c-phy-t6050.patch
+@@ -0,0 +1,325 @@
++phy: apple: USB2-only Type-C port PHY driver for T6050 (phy-apple-usb2). m5pro-linux agents/usb.
++
++diff --git a/drivers/phy/apple/Kconfig b/drivers/phy/apple/Kconfig
++index 8409b67f6..fadbae011 100644
++--- a/drivers/phy/apple/Kconfig
+++++ b/drivers/phy/apple/Kconfig
++@@ -21,3 +21,15 @@ config PHY_APPLE_DPTX
++ 	  such as the M2.
++ 	  This driver provides support for DisplayPort and is used on the
++ 	  Mac mini (M2 and M2 Pro, 2023).
+++
+++config PHY_APPLE_USB2
+++	tristate "Apple Type-C port USB2-only PHY"
+++	depends on ARCH_APPLE || COMPILE_TEST
+++	select GENERIC_PHY
+++	help
+++	  Enable this for USB 2.0 host or device mode on the Type-C ports of
+++	  Apple SoCs whose full Type-C PHY (PHY_APPLE_ATC) is not supported
+++	  yet, such as the M5 Pro (T6050). Only the USB2 PHY is driven; USB3,
+++	  USB4 and DisplayPort stay unavailable.
+++
+++	  If M is selected the module will be called 'phy-apple-usb2'.
++diff --git a/drivers/phy/apple/Makefile b/drivers/phy/apple/Makefile
++index b9e7bf3e4..2613dd42c 100644
++--- a/drivers/phy/apple/Makefile
+++++ b/drivers/phy/apple/Makefile
++@@ -5,3 +5,6 @@ phy-apple-atc-y			:= atc.o
++ 
++ obj-$(CONFIG_PHY_APPLE_DPTX)	+= phy-apple-dptx.o
++ phy-apple-dptx-y		+= dptx.o
+++
+++obj-$(CONFIG_PHY_APPLE_USB2)	+= phy-apple-usb2.o
+++phy-apple-usb2-y		+= usb2.o
++diff --git a/drivers/phy/apple/usb2.c b/drivers/phy/apple/usb2.c
++new file mode 100644
++index 000000000..6cd58bb3b
++--- /dev/null
+++++ b/drivers/phy/apple/usb2.c
++@@ -0,0 +1,286 @@
+++// SPDX-License-Identifier: GPL-2.0-only OR MIT
+++/*
+++ * Apple Type-C port USB2 PHY, USB 2.0 only.
+++ *
+++ * The USB2 half of the Apple Type-C PHY ("atc-phy" in the ADT, whose reg[0]
+++ * is this block) without any of the USB3/USB4/DisplayPort machinery that
+++ * phy-apple-atc drives. It exists for SoCs where the full ATC PHY is not
+++ * supported yet (T6050, M5 Pro), so that a dwc3 controller can run in host
+++ * mode over the USB 2.0 pairs while its PIPE interface stays on the dummy
+++ * PHY that the bootloader (m1n1 usb_phy_bringup()) selected.
+++ *
+++ * Bring-up (.init) is the exact register sequence m1n1 uses on T6050 (which
+++ * is known to work there for device mode), plus the host-mode bits that
+++ * phy-apple-atc sets in USB2PHY_SIG on M1..M4. VBUS detection stays forced
+++ * valid in both modes, like m1n1 and phy-apple-atc do: VBUS itself is owned
+++ * by the USB-PD controller, not by this PHY.
+++ *
+++ * Copyright The Asahi Linux Contributors
+++ */
+++
+++#include <linux/bits.h>
+++#include <linux/delay.h>
+++#include <linux/io.h>
+++#include <linux/mod_devicetable.h>
+++#include <linux/module.h>
+++#include <linux/mutex.h>
+++#include <linux/of.h>
+++#include <linux/phy/phy.h>
+++#include <linux/platform_device.h>
+++#include <linux/string.h>
+++
+++#define USB2PHY_USBCTL			0x00
+++#define USB2PHY_USBCTL_USB_MODE		0x7
+++#define USB2PHY_USBCTL_RUN		2
+++#define USB2PHY_USBCTL_ISOLATION	4
+++
+++#define USB2PHY_CTL			0x04
+++#define USB2PHY_CTL_RESET		BIT(0)
+++#define USB2PHY_CTL_PORT_RESET		BIT(1)
+++#define USB2PHY_CTL_APB_RESET_N		BIT(2)
+++#define USB2PHY_CTL_SIDDQ		BIT(3)
+++
+++#define USB2PHY_SIG			0x08
+++#define USB2PHY_SIG_VBUSDET_FORCE_VAL	BIT(0)
+++#define USB2PHY_SIG_VBUSDET_FORCE_EN	BIT(1)
+++#define USB2PHY_SIG_VBUSVLDEXT_FORCE_VAL BIT(2)
+++#define USB2PHY_SIG_VBUSVLDEXT_FORCE_EN	BIT(3)
+++#define USB2PHY_SIG_HOST		(7 << 12)
+++/* Full USB2PHY_SIG value m1n1 writes on every SoC, T6050 included */
+++#define USB2PHY_SIG_M1N1		0x01c1000f
+++
+++#define USB2PHY_MISCTUNE		0x1c
+++#define USB2PHY_MISCTUNE_APBCLK_GATE_OFF BIT(29)
+++#define USB2PHY_MISCTUNE_REFCLK_GATE_OFF BIT(30)
+++/* MISCTUNE value m1n1 writes (clock gates off, tuning as left by iBoot) */
+++#define USB2PHY_MISCTUNE_M1N1		0x008c0813
+++
+++struct apple_usb2phy {
+++	struct device *dev;
+++	void __iomem *regs;
+++	struct phy *phy;
+++	struct mutex lock;
+++	bool host;
+++	bool powered;
+++};
+++
+++static void apple_usb2phy_hw_on(struct apple_usb2phy *p)
+++{
+++	u32 sig = USB2PHY_SIG_M1N1 & ~USB2PHY_SIG_HOST;
+++
+++	if (p->host)
+++		sig |= USB2PHY_SIG_HOST;
+++
+++	/* m1n1 src/usb.c usb_phy_bringup(), verbatim apart from the HOST bits */
+++	writel(sig, p->regs + USB2PHY_SIG);
+++	writel(USB2PHY_CTL_RESET | USB2PHY_CTL_PORT_RESET, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_CTL) & ~USB2PHY_CTL_RESET, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_CTL) & ~USB2PHY_CTL_PORT_RESET, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(USB2PHY_MISCTUNE_M1N1, p->regs + USB2PHY_MISCTUNE);
+++	writel(USB2PHY_USBCTL_RUN, p->regs + USB2PHY_USBCTL);
+++	udelay(10);
+++}
+++
+++static void apple_usb2phy_hw_off(struct apple_usb2phy *p)
+++{
+++	u32 v;
+++
+++	/* phy-apple-atc atcphy_usb2_power_off() */
+++	v = readl(p->regs + USB2PHY_USBCTL);
+++	v &= ~USB2PHY_USBCTL_USB_MODE;
+++	v |= USB2PHY_USBCTL_ISOLATION;
+++	writel(v, p->regs + USB2PHY_USBCTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_CTL) | USB2PHY_CTL_SIDDQ, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_CTL) | USB2PHY_CTL_PORT_RESET, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_CTL) | USB2PHY_CTL_RESET, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_CTL) & ~USB2PHY_CTL_APB_RESET_N, p->regs + USB2PHY_CTL);
+++	udelay(10);
+++	writel(readl(p->regs + USB2PHY_MISCTUNE) | USB2PHY_MISCTUNE_APBCLK_GATE_OFF |
+++	       USB2PHY_MISCTUNE_REFCLK_GATE_OFF, p->regs + USB2PHY_MISCTUNE);
+++}
+++
+++/*
+++ * The full reset sequence runs in .init, not .power_on: dwc3 calls
+++ * phy_init() before its core soft reset and phy_power_on() after it, and
+++ * the PHY must be up (in the right mode) before dwc3 resets (the order
+++ * phy-apple-atc + dwc3-apple use on M1..M4).
+++ *
+++ * It runs even if the bootloader left the PHY running: the eUSB2 repeater
+++ * between PHY and connector is reset out of band by the USB-PD controller on
+++ * every CC (dis)connect, and only a PHY reset re-synchronises the two (see
+++ * dwc3-apple.c). Unbinding and rebinding dwc3 therefore re-syncs the port.
+++ */
+++static int apple_usb2phy_init(struct phy *phy)
+++{
+++	struct apple_usb2phy *p = phy_get_drvdata(phy);
+++
+++	guard(mutex)(&p->lock);
+++
+++	apple_usb2phy_hw_on(p);
+++	p->powered = true;
+++	dev_dbg(p->dev, "on, %s mode, SIG=%#x\n", p->host ? "host" : "device",
+++		readl(p->regs + USB2PHY_SIG));
+++	return 0;
+++}
+++
+++static int apple_usb2phy_exit(struct phy *phy)
+++{
+++	struct apple_usb2phy *p = phy_get_drvdata(phy);
+++
+++	guard(mutex)(&p->lock);
+++
+++	apple_usb2phy_hw_off(p);
+++	p->powered = false;
+++	return 0;
+++}
+++
+++static int apple_usb2phy_power_on(struct phy *phy)
+++{
+++	struct apple_usb2phy *p = phy_get_drvdata(phy);
+++
+++	guard(mutex)(&p->lock);
+++
+++	/* Normally a no-op: .init already brought the PHY up. */
+++	if (!p->powered) {
+++		apple_usb2phy_hw_on(p);
+++		p->powered = true;
+++	}
+++	return 0;
+++}
+++
+++static int apple_usb2phy_power_off(struct phy *phy)
+++{
+++	/*
+++	 * Keep the PHY running until .exit: after a power-off only the full
+++	 * reset sequence brings it back, and dwc3 also calls power_off on
+++	 * paths (suspend) where it does not call init again.
+++	 */
+++	return 0;
+++}
+++
+++static int apple_usb2phy_set_mode(struct phy *phy, enum phy_mode mode, int submode)
+++{
+++	struct apple_usb2phy *p = phy_get_drvdata(phy);
+++	bool host;
+++
+++	switch (mode) {
+++	case PHY_MODE_USB_HOST:
+++	case PHY_MODE_USB_HOST_LS:
+++	case PHY_MODE_USB_HOST_FS:
+++	case PHY_MODE_USB_HOST_HS:
+++		host = true;
+++		break;
+++	case PHY_MODE_USB_DEVICE:
+++	case PHY_MODE_USB_DEVICE_LS:
+++	case PHY_MODE_USB_DEVICE_FS:
+++	case PHY_MODE_USB_DEVICE_HS:
+++		host = false;
+++		break;
+++	case PHY_MODE_USB_OTG:
+++		return 0;
+++	default:
+++		return -EINVAL;
+++	}
+++
+++	guard(mutex)(&p->lock);
+++
+++	if (host == p->host)
+++		return 0;
+++	p->host = host;
+++
+++	/*
+++	 * phy-apple-atc flips only the SIG bits here, with the PHY running and
+++	 * the dwc3 core held in reset. Plain dwc3 calls set_mode after its core
+++	 * init, so mirror the bit flip but keep everything else as it is; the
+++	 * initial mode should come from "apple,default-mode" so that the PHY is
+++	 * already in the right mode when dwc3 first resets it.
+++	 */
+++	if (p->powered) {
+++		u32 sig = readl(p->regs + USB2PHY_SIG);
+++
+++		if (host)
+++			sig |= USB2PHY_SIG_HOST;
+++		else
+++			sig &= ~USB2PHY_SIG_HOST;
+++		writel(sig, p->regs + USB2PHY_SIG);
+++	}
+++	dev_info(p->dev, "switched to %s mode\n", host ? "host" : "device");
+++	return 0;
+++}
+++
+++static const struct phy_ops apple_usb2phy_ops = {
+++	.owner = THIS_MODULE,
+++	.init = apple_usb2phy_init,
+++	.exit = apple_usb2phy_exit,
+++	.power_on = apple_usb2phy_power_on,
+++	.power_off = apple_usb2phy_power_off,
+++	.set_mode = apple_usb2phy_set_mode,
+++};
+++
+++static int apple_usb2phy_probe(struct platform_device *pdev)
+++{
+++	struct device *dev = &pdev->dev;
+++	struct phy_provider *provider;
+++	struct apple_usb2phy *p;
+++	const char *mode;
+++
+++	p = devm_kzalloc(dev, sizeof(*p), GFP_KERNEL);
+++	if (!p)
+++		return -ENOMEM;
+++
+++	p->dev = dev;
+++	mutex_init(&p->lock);
+++
+++	p->regs = devm_platform_ioremap_resource(pdev, 0);
+++	if (IS_ERR(p->regs))
+++		return PTR_ERR(p->regs);
+++
+++	/* The bootloader leaves the PHY in device mode (m1n1's USB gadget). */
+++	p->host = false;
+++	if (!of_property_read_string(dev->of_node, "apple,default-mode", &mode)) {
+++		if (!strcmp(mode, "host"))
+++			p->host = true;
+++		else if (strcmp(mode, "device"))
+++			return dev_err_probe(dev, -EINVAL, "bad apple,default-mode \"%s\"\n",
+++					     mode);
+++	}
+++
+++	p->phy = devm_phy_create(dev, NULL, &apple_usb2phy_ops);
+++	if (IS_ERR(p->phy))
+++		return PTR_ERR(p->phy);
+++	phy_set_drvdata(p->phy, p);
+++
+++	provider = devm_of_phy_provider_register(dev, of_phy_simple_xlate);
+++	if (IS_ERR(provider))
+++		return PTR_ERR(provider);
+++
+++	dev_info(dev, "USB2 PHY, default %s mode, USBCTL=%#x CTL=%#x SIG=%#x\n",
+++		 p->host ? "host" : "device", readl(p->regs + USB2PHY_USBCTL),
+++		 readl(p->regs + USB2PHY_CTL), readl(p->regs + USB2PHY_SIG));
+++	return 0;
+++}
+++
+++static const struct of_device_id apple_usb2phy_of_match[] = {
+++	{ .compatible = "apple,t6050-usb2phy" },
+++	{}
+++};
+++MODULE_DEVICE_TABLE(of, apple_usb2phy_of_match);
+++
+++static struct platform_driver apple_usb2phy_driver = {
+++	.probe = apple_usb2phy_probe,
+++	.driver = {
+++		.name = "phy-apple-usb2",
+++		.of_match_table = apple_usb2phy_of_match,
+++	},
+++};
+++module_platform_driver(apple_usb2phy_driver);
+++
+++MODULE_DESCRIPTION("Apple Type-C port USB2-only PHY");
+++MODULE_LICENSE("Dual MIT/GPL");
+diff --git a/patches/linux/0018-usb-typec-build-tipd-for-sn201202x-only.patch b/patches/linux/0018-usb-typec-build-tipd-for-sn201202x-only.patch
+new file mode 100644
+index 0000000..60ab4c4
+--- /dev/null
++++ b/patches/linux/0018-usb-typec-build-tipd-for-sn201202x-only.patch
+@@ -0,0 +1,15 @@
++usb: typec: descend into tipd/ when only SN201202x is enabled. m5pro-linux agents/usb.
++
++diff --git a/drivers/usb/typec/Makefile b/drivers/usb/typec/Makefile
++index 8a6a1c663..eebe658de 100644
++--- a/drivers/usb/typec/Makefile
+++++ b/drivers/usb/typec/Makefile
++@@ -5,7 +5,7 @@ typec-$(CONFIG_ACPI)		+= port-mapper.o
++ obj-$(CONFIG_TYPEC)		+= altmodes/
++ obj-$(CONFIG_TYPEC_TCPM)	+= tcpm/
++ obj-$(CONFIG_TYPEC_UCSI)	+= ucsi/
++-obj-$(CONFIG_TYPEC_TPS6598X)	+= tipd/
+++obj-$(CONFIG_TYPEC_TPS6598X_CORE)	+= tipd/
++ obj-$(CONFIG_TYPEC_ANX7411)	+= anx7411.o
++ obj-$(CONFIG_TYPEC_HD3SS3220)	+= hd3ss3220.o
++ obj-$(CONFIG_TYPEC_STUSB160X) 	+= stusb160x.o
+diff --git a/patches/linux/0019-usb-typec-tipd-sn201202x-polled-no-spmi-irqs.patch b/patches/linux/0019-usb-typec-tipd-sn201202x-polled-no-spmi-irqs.patch
+new file mode 100644
+index 0000000..d410bc9
+--- /dev/null
++++ b/patches/linux/0019-usb-typec-tipd-sn201202x-polled-no-spmi-irqs.patch
+@@ -0,0 +1,258 @@
++usb: typec: tipd: sn201202x: work without SPMI interrupts (gen 4 SPMI). m5pro-linux agents/usb.
++
++diff --git a/drivers/usb/typec/tipd/core.c b/drivers/usb/typec/tipd/core.c
++index 0687cc28d..a0e78a23d 100644
++--- a/drivers/usb/typec/tipd/core.c
+++++ b/drivers/usb/typec/tipd/core.c
++@@ -1774,6 +1774,11 @@ int tipd_init(struct tps6598x *tps)
++ 		INIT_DELAYED_WORK(&tps->wq_poll, tps6598x_poll_work);
++ 		queue_delayed_work(system_power_efficient_wq, &tps->wq_poll,
++ 				   msecs_to_jiffies(POLL_INTERVAL));
+++		/*
+++		 * ret may still hold a failed partner registration from above,
+++		 * which the IRQ path overwrites and only logs; do the same here.
+++		 */
+++		ret = 0;
++ 	}
++ 
++ 	if (ret)
++diff --git a/drivers/usb/typec/tipd/spmi.c b/drivers/usb/typec/tipd/spmi.c
++index 15976d15d..f3c353121 100644
++--- a/drivers/usb/typec/tipd/spmi.c
+++++ b/drivers/usb/typec/tipd/spmi.c
++@@ -1,6 +1,8 @@
++ // SPDX-License-Identifier: GPL-2.0
++ 
+++#include <linux/delay.h>
++ #include <linux/interrupt.h>
+++#include <linux/ktime.h>
++ #include <linux/of_device.h>
++ #include <linux/of_irq.h>
++ #include <linux/regmap.h>
++@@ -10,6 +12,46 @@
++ 
++ #define tps_to_sn(tps) container_of_const((tps), struct sn201202x, cd.tps)
++ 
+++/*
+++ * Register selection without the "select" interrupt, for SPMI controllers
+++ * whose interrupt block is not supported (Apple gen 4, M4/M5 nub-spmi).
+++ * Same protocol as m1n1 src/tps6598x.c: write the register number with a
+++ * zero-write, then read register 0 until it reads back the number (bit 7
+++ * set means "selection in progress"). Bounded, unlike m1n1's loop.
+++ */
+++#define SN201202X_POLL_SELECT_US	100000
+++
+++static int regmap_sn201202x_select_reg_polled(struct spmi_device *sdev, u8 reg)
+++{
+++	struct tps6598x *tps = spmi_device_get_drvdata(sdev);
+++	ktime_t timeout;
+++	int err;
+++	u8 val;
+++
+++	err = spmi_register_zero_write(sdev, reg);
+++	if (err)
+++		return err;
+++
+++	timeout = ktime_add_us(ktime_get(), SN201202X_POLL_SELECT_US);
+++	for (;;) {
+++		err = spmi_register_read(sdev, 0, &val);
+++		if (err)
+++			return err;
+++		if (val == reg)
+++			return 0;
+++		if (val != (reg | 0x80)) {
+++			dev_err_ratelimited(tps->dev,
+++					    "select %#04x: register 0 reads %#04x\n", reg, val);
+++			return -EIO;
+++		}
+++		if (ktime_after(ktime_get(), timeout)) {
+++			dev_err_ratelimited(tps->dev, "select %#04x: timed out\n", reg);
+++			return -ETIMEDOUT;
+++		}
+++		usleep_range(500, 1000);
+++	}
+++}
+++
++ static int regmap_sn201202x_select_reg(struct spmi_device *sdev, u8 reg)
++ {
++ 	int err;
++@@ -23,6 +65,9 @@ static int regmap_sn201202x_select_reg(struct spmi_device *sdev, u8 reg)
++ 		WARN_ON(1);
++ 		return -EINVAL;
++ 	}
+++	if (sn->poll_select)
+++		return regmap_sn201202x_select_reg_polled(sdev, reg);
+++
++ 	reinit_completion(&sn->select_completion);
++ 	err = spmi_register_zero_write(sdev, reg);
++ 	if (err)
++@@ -161,6 +206,33 @@ static const struct of_device_id sn201202x_of_match[] = {
++ 	{}
++ };
++ 
+++static int sn201202x_get_irq(struct spmi_device *device, const char *name)
+++{
+++	int irq = of_irq_get_byname(device->dev.of_node, name);
+++
+++	if (irq == -EPROBE_DEFER)
+++		return irq;
+++	/* absent (no property / no such name / unmapped) -> 0 = poll */
+++	return irq > 0 ? irq : 0;
+++}
+++
+++static int sn201202x_wakeup(struct sn201202x *sn)
+++{
+++	int err;
+++
+++	reinit_completion(&sn->wake_completion);
+++	err = spmi_command_wakeup(sn->sdev);
+++	if (err)
+++		return err;
+++	if (sn->poll_wake) {
+++		msleep(10);	/* m1n1 waits 10 ms after WAKEUP */
+++		return 0;
+++	}
+++	if (!wait_for_completion_timeout(&sn->wake_completion, msecs_to_jiffies(100)))
+++		return -ETIMEDOUT;
+++	return 0;
+++}
+++
++ static int sn201202x_probe(struct spmi_device *device)
++ {
++ 	const struct of_device_id *match;
++@@ -173,7 +245,7 @@ static int sn201202x_probe(struct spmi_device *device)
++ 	match = of_match_device(sn201202x_of_match, &device->dev);
++ 	if (!match)
++ 		return -EINVAL;
++-	data = tipd_hw_variants[(enum tipd_hw_variant)match->data];
+++	data = tipd_hw_variants[(enum tipd_hw_variant)(uintptr_t)match->data];
++ 
++ 	sn = devm_kzalloc(&device->dev, data->tps_struct_size, GFP_KERNEL);
++ 	if (!sn)
++@@ -185,46 +257,65 @@ static int sn201202x_probe(struct spmi_device *device)
++ 	tps->dev = &device->dev;
++ 	tps->data = data;
++ 
++-	tps->irq = of_irq_get_byname(device->dev.of_node, "irq");
++-	if (tps->irq < 0)
++-		return tps->irq;
++-	irq_select = of_irq_get_byname(device->dev.of_node, "select");
+++	/*
+++	 * All four interrupts are optional: without them (no "interrupts" in
+++	 * the DT node, as on SPMI controllers whose interrupt block Linux
+++	 * cannot drive) register selection is polled, sleep/wake use fixed
+++	 * delays and tipd core polls the event registers.
+++	 */
+++	ret = sn201202x_get_irq(device, "irq");
+++	if (ret < 0)
+++		return ret;
+++	tps->irq = ret;
+++	irq_select = sn201202x_get_irq(device, "select");
++ 	if (irq_select < 0)
++ 		return irq_select;
++-	irq_sleep = of_irq_get_byname(device->dev.of_node, "sleep");
+++	irq_sleep = sn201202x_get_irq(device, "sleep");
++ 	if (irq_sleep < 0)
++ 		return irq_sleep;
++-	irq_wake = of_irq_get_byname(device->dev.of_node, "wake");
+++	irq_wake = sn201202x_get_irq(device, "wake");
++ 	if (irq_wake < 0)
++ 		return irq_wake;
++ 
+++	sn->poll_select = !irq_select;
+++	sn->poll_sleep = !irq_sleep;
+++	sn->poll_wake = !irq_wake;
+++	if (sn->poll_select || !tps->irq)
+++		dev_info(&device->dev, "no SPMI interrupts, polling (select%s, events%s)\n",
+++			 sn->poll_select ? " polled" : " irq",
+++			 tps->irq ? " irq" : " polled");
+++
++ 	init_completion(&sn->select_completion);
++ 	init_completion(&sn->sleep_completion);
++ 	init_completion(&sn->wake_completion);
++ 
++-	ret = devm_request_irq(&device->dev, irq_select, sn201202x_irq,
++-			       0, NULL, &sn->select_completion);
++-	if (ret)
++-		return ret;
++-	ret = devm_request_irq(&device->dev, irq_sleep, sn201202x_irq,
++-			       0, NULL, &sn->sleep_completion);
++-	if (ret)
++-		return ret;
++-	ret = devm_request_irq(&device->dev, irq_wake, sn201202x_irq,
++-			       0, NULL, &sn->wake_completion);
++-	if (ret)
++-		return ret;
+++	if (irq_select) {
+++		ret = devm_request_irq(&device->dev, irq_select, sn201202x_irq,
+++				       0, NULL, &sn->select_completion);
+++		if (ret)
+++			return ret;
+++	}
+++	if (irq_sleep) {
+++		ret = devm_request_irq(&device->dev, irq_sleep, sn201202x_irq,
+++				       0, NULL, &sn->sleep_completion);
+++		if (ret)
+++			return ret;
+++	}
+++	if (irq_wake) {
+++		ret = devm_request_irq(&device->dev, irq_wake, sn201202x_irq,
+++				       0, NULL, &sn->wake_completion);
+++		if (ret)
+++			return ret;
+++	}
++ 
++ 	spmi_device_set_drvdata(device, tps);
++ 	tps->regmap = devm_regmap_init_sn201202x(device, &tps6598x_regmap_config);
++ 	if (IS_ERR(tps->regmap))
++ 		return PTR_ERR(tps->regmap);
++ 
++-	ret = spmi_command_wakeup(device);
+++	ret = sn201202x_wakeup(sn);
++ 	if (ret)
++ 		return ret;
++-	if (!wait_for_completion_timeout(&sn->wake_completion, msecs_to_jiffies(100)))
++-		return -ETIMEDOUT;
++ 
++ 	ret = tipd_init(tps);
++ 	if (ret)
++@@ -247,12 +338,9 @@ static int __maybe_unused sn201202x_resume(struct device *dev)
++ 	struct sn201202x *sn = tps_to_sn(tps);
++ 	int err;
++ 
++-	reinit_completion(&sn->wake_completion);
++-	err = spmi_command_wakeup(sn->sdev);
+++	err = sn201202x_wakeup(sn);
++ 	if (err)
++ 		return err;
++-	if (!wait_for_completion_timeout(&sn->wake_completion, msecs_to_jiffies(100)))
++-		return -ETIMEDOUT;
++ 	return tipd_resume(tps);
++ }
++ 
++@@ -269,7 +357,9 @@ static int __maybe_unused sn201202x_suspend(struct device *dev)
++ 	err = spmi_command_sleep(sn->sdev);
++ 	if (err)
++ 		goto out_resume;
++-	if (!wait_for_completion_timeout(&sn->sleep_completion, msecs_to_jiffies(100)))
+++	if (sn->poll_sleep)
+++		msleep(10);
+++	else if (!wait_for_completion_timeout(&sn->sleep_completion, msecs_to_jiffies(100)))
++ 		dev_err(dev, "Waiting for sleep complete irq timed out");
++ 
++ 	return 0;
++diff --git a/drivers/usb/typec/tipd/tps6598x.h b/drivers/usb/typec/tipd/tps6598x.h
++index 6cf669418..c1ec9ea67 100644
++--- a/drivers/usb/typec/tipd/tps6598x.h
+++++ b/drivers/usb/typec/tipd/tps6598x.h
++@@ -390,6 +390,10 @@ struct sn201202x {
++ 	struct completion sleep_completion;
++ 	struct completion wake_completion;
++ 	struct spmi_device *sdev;
+++	/* SPMI controller gives no IRQs (Apple gen 4): poll instead */
+++	bool poll_select;
+++	bool poll_sleep;
+++	bool poll_wake;
++ };
++ 
++ extern const struct tipd_data *tipd_hw_variants[];
+diff --git a/scripts/build-kernel.sh b/scripts/build-kernel.sh
+index 6db02c8..48332b4 100755
+--- a/scripts/build-kernel.sh
++++ b/scripts/build-kernel.sh
+@@ -19,7 +19,7 @@ DTS_DIR="$LINUX/arch/arm64/boot/dts/apple"
+ # defconfig alone leaves DRM=m and DRM_SIMPLEDRM unset, which yields a
+ # kernel that boots but shows nothing on the panel. Fragments are merged
+ # in order; ours wins.
+-KCONFIG="${KCONFIG:-defconfig asahi.config omarchy-bringup.config omarchy-storage-net.config omarchy-smc.config}"
++KCONFIG="${KCONFIG:-defconfig asahi.config omarchy-bringup.config omarchy-storage-net.config omarchy-smc.config omarchy-usb-host.config}"
+ JOBS="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}"
+ 
+ if [ ! -d "$LINUX" ]; then
+@@ -50,23 +50,27 @@ echo "==> Overlaying dt/ into $DTS_DIR"
+ install -m 0644 dt/t6050.dtsi dt/t6050-pmgr.dtsi dt/t6050-jxxx.dtsi \
+     dt/t6050-storage-net.dtsi dt/t6050-cpufreq.dtsi dt/t6050-smc.dtsi \
+     dt/t6050-j714s.dts dt/t6050-j716s.dts \
++    dt/t6050-usb-host.dtsi dt/t6050-j716s-usbhost.dts \
+     "$DTS_DIR/"
+ 
+ install -m 0644 configs/omarchy-bringup.config configs/omarchy-storage-net.config configs/omarchy-smc.config \
++    configs/omarchy-usb-host.config \
+     "$LINUX/arch/arm64/configs/"
+ 
+ MK="$DTS_DIR/Makefile"
+ BEGIN='# >>> omarchy-m5'
+ END='# <<< omarchy-m5'
+-if ! grep -qF "$BEGIN" "$MK"; then
+-    echo "==> Registering t6050 DTBs in $MK"
+-    cat >> "$MK" <<'EOF'
++# Rewrite the block every time, so a DTB added here also reaches a tree that
++# already has an older block.
++sed -i.bak "/^$BEGIN\$/,/^$END\$/d" "$MK" && rm -f "$MK.bak"
++echo "==> Registering t6050 DTBs in $MK"
++cat >> "$MK" <<'EOF'
+ # >>> omarchy-m5
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j714s.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s.dtb
++dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s-usbhost.dtb
+ # <<< omarchy-m5
+ EOF
+-fi
+ 
+ # The console symbols below are load-bearing: with any of them unset the
+ # kernel boots and prints nothing on the panel, which looks identical to a
+@@ -75,7 +79,9 @@ REQUIRED_Y="CONFIG_DRM CONFIG_DRM_SIMPLEDRM CONFIG_DRM_FBDEV_EMULATION
+             CONFIG_FRAMEBUFFER_CONSOLE CONFIG_VT_CONSOLE CONFIG_DEVTMPFS_MOUNT
+             CONFIG_NVME_APPLE CONFIG_APPLE_SART CONFIG_APPLE_DART
+             CONFIG_USB_DWC3 CONFIG_USB_CONFIGFS CONFIG_USB_CONFIGFS_NCM
+-            CONFIG_USB_CONFIGFS_ACM"
++            CONFIG_USB_CONFIGFS_ACM
++            CONFIG_PHY_APPLE_USB2 CONFIG_USB_XHCI_PLATFORM CONFIG_USB_RTL8152
++            CONFIG_USB_NET_AX88179_178A CONFIG_USB_NET_CDCETHER"
+ 
+ config_ok() {
+     [ -f "$LINUX/.config" ] || return 1
+diff --git a/scripts/gen-cpufreq-dt.py b/scripts/gen-cpufreq-dt.py
+index 112e32b..32e01fe 100755
+--- a/scripts/gen-cpufreq-dt.py
++++ b/scripts/gen-cpufreq-dt.py
+@@ -1,8 +1,8 @@
+ #!/usr/bin/env python3
+ # Generate dt/t6050-cpufreq.dtsi from the runtime ADT (no device needed):
+-#   scripts/gen-cpufreq-dt.py build/adt-runtime-j714s.bin > dt/t6050-cpufreq.dtsi
++#   scripts/gen-cpufreq-dt.py build/adt-runtime-j716s.bin > dt/t6050-cpufreq.dtsi
+ #
+-# Measured on the M5 (cluster 0, apple,sawtooth; boot state 6), with
++# Measured on the M5 (J714s, cluster 0, apple,sawtooth; boot state 6), with
+ # tools/cpuhz.c and writes to CLUSTER_PSTATE (base + 0x20020):
+ #   p-state  6 -> 2649 MHz   ADT table entry [4]  2652 MHz
+ #   p-state  7 -> 2961 MHz   entry [5]            2964 MHz
+@@ -10,20 +10,35 @@
+ #   p-state 15 -> 4303 MHz   entry [13]           4308 MHz
+ #   p-state 16 -> refused, the cluster settles at 15 (entry [14] 4380 MHz).
+ # So p-state N is entry N-2 of the cluster's pmgr voltage-states<k>-sram
+-# (kHz, mV); 16 is left out. The status register at +0x20050 uses the T8112
+-# layout, so the stock driver's apple,t8112-cluster-cpufreq path fits.
++# (kHz, mV). The status register at +0x20050 uses the T8112 layout, so the
++# stock driver's apple,t8112-cluster-cpufreq path fits.
+ #
+-# Only the M clusters are emitted: the P cluster's offset is unverified (it
+-# has never run). Its CPUs get no OPP table, which leaves them unmanaged.
++# Which voltage-states table belongs to which cluster comes from pmgr
++# acc-clusters ((cluster << 8) | index) and is confirmed by pmgr perf-domains
++# (MCPU0 -> 22, MCPU1 -> 23, PCPU -> 5 on J716s). The ADT pmgr reg list maps
++# a 0x12e8-byte window at <cluster DVFS block> + 0x20000 for all three
++# clusters, which is the performance-controller reg below.
++#
++# The P cluster (cluster 2, apple,everest) has NOT been measured yet: its
++# entry N-2 mapping is assumed from the M clusters. Entries faster than the
++# M clusters' highest accepted state (TURBO_ABOVE_KHZ) are emitted with
++# turbo-mode, so they are only used once boost is enabled in sysfs; the same
++# goes for the M clusters' refused top entry. Re-run with the measured
++# numbers once TEST-PLAN P-cluster steps have been done.
+ import sys
+ import os
+ sys.path.insert(0, os.environ.get('M1N1_PROXYCLIENT', os.path.expanduser('~/tether/proxyclient')))
+ from m1n1 import adt
+ dt = adt.load_adt(open(sys.argv[1], 'rb').read())
++src = os.path.basename(sys.argv[1])
+ 
+-PSTATE_OFFSET = 2      # p-state N = table entry N - 2 (measured, see above)
+-MAX_PSTATE = 15        # 16 is refused by the hardware
+-DT_PREFIX = {0: 'm0', 1: 'm1'}   # ADT cluster-id -> dt/t6050.dtsi cpu label prefix
++PSTATE_OFFSET = 2           # p-state N = table entry N - 2 (measured on M, assumed on P)
++TURBO_ABOVE_KHZ = 4308000   # highest state the M cluster accepted; above it -> turbo-mode
++CLUSTERS = {                # ADT cluster-id -> (dt/t6050.dtsi cpu labels, opp/controller name)
++    0: ([f"cpu_m0_{i}" for i in range(6)], 'm0'),
++    1: ([f"cpu_m1_{i}" for i in range(6)], 'm1'),
++    2: ([f"cpu_p{i}" for i in range(6)], 'p'),
++}
+ 
+ pmgr = dt['/arm-io/pmgr']._properties
+ # pmgr acc-clusters: (cluster << 8) | voltage-states index, per cluster
+@@ -40,33 +55,37 @@ for cpu in dt['/cpus']:
+     # DVFS block = cpm-impl-reg - 0x40000 (as on M1: cpm 0x210e40000, DVFS 0x210e00000)
+     clusters.setdefault(cl, (p['cluster-type'], p['cpm-impl-reg'][0] - 0x40000))
+ 
++assert set(clusters) == set(CLUSTERS), clusters
++assert [clusters[c][0] for c in sorted(clusters)] == ['M', 'M', 'P'], clusters
++
+ out = []
+ w = out.append
+ w("// SPDX-License-Identifier: GPL-2.0+ OR MIT")
+ w("/*")
+ w(" * T6050 CPU cluster DVFS (apple-soc-cpufreq).")
+-w(" * GENERATED from the runtime ADT (build/adt-runtime-j714s.bin) by")
++w(f" * GENERATED from the runtime ADT ({src}) by")
+ w(" * gen-cpufreq-dt.py; see there for the measured p-state/frequency mapping.")
++w(" * M clusters: measured. P cluster: p-state mapping assumed, not yet measured.")
+ w(" */")
+ w("")
+ w("/ {")
+ for cl, (ctype, base) in sorted(clusters.items()):
+-    if cl not in DT_PREFIX:
+-        continue
+-    assert ctype == 'M', (cl, ctype)
++    name = CLUSTERS[cl][1]
+     states = list(pmgr[f'voltage-states{acc[cl]}-sram'])
+     pairs = list(zip(states[0::2], states[1::2]))
+-    name = DT_PREFIX[cl]
+     w(f"\t{name}_opp: opp-table-{name} {{")
+     w('\t\tcompatible = "operating-points-v2";')
+     w("")
+-    for level in range(PSTATE_OFFSET, MAX_PSTATE + 1):
+-        khz, mv = pairs[level - PSTATE_OFFSET]
++    for idx, (khz, mv) in enumerate(pairs):
++        level = idx + PSTATE_OFFSET
++        assert level <= 31, level    # 5-bit p-state field (T8112 layout)
+         w(f"\t\topp{level:02d} {{")
+         w(f"\t\t\topp-hz = /bits/ 64 <{khz * 1000}>;")
+         w(f"\t\t\topp-level = <{level}>;")
+         w(f"\t\t\topp-microvolt = <{mv * 1000}>;")
+         w("\t\t\tclock-latency-ns = <8000>;")
++        if khz > TURBO_ABOVE_KHZ:
++            w("\t\t\tturbo-mode;")
+         w("\t\t};")
+     w("\t};")
+     w("")
+@@ -74,25 +93,20 @@ w("};")
+ w("")
+ w("&soc {")
+ for cl, (ctype, base) in sorted(clusters.items()):
+-    if cl not in DT_PREFIX:
+-        continue
+-    name = DT_PREFIX[cl]
++    name = CLUSTERS[cl][1]
+     perf = base + 0x20000
+     w(f"\tcpufreq_{name}: performance-controller@{perf:x} {{")
+-    w('\t\tcompatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq",')
+-    w('\t\t\t     "apple,cluster-cpufreq";')
++    w('\t\tcompatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";')
+     w(f"\t\treg = <{perf >> 32:#x} {perf & 0xffffffff:#010x} 0x0 0x1000>;")
+     w("\t\t#performance-domain-cells = <0>;")
+     w("\t};")
+     w("")
+ w("};")
+ for cl in sorted(clusters):
+-    if cl not in DT_PREFIX:
+-        continue
+-    name = DT_PREFIX[cl]
+-    for core in range(6):
++    labels, name = CLUSTERS[cl]
++    for label in labels:
+         w("")
+-        w(f"&cpu_{name}_{core} {{")
++        w(f"&{label} {{")
+         w(f"\toperating-points-v2 = <&{name}_opp>;")
+         w(f"\tperformance-domains = <&cpufreq_{name}>;")
+         w("};")

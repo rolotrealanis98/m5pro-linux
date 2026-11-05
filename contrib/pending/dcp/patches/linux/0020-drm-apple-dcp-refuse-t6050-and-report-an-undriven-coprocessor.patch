@@ -1,0 +1,135 @@
+From: DCP design agent (omarchy-m5 / m5pro-linux)
+Subject: [PATCH] drm/apple: dcp: refuse T6050 and report an undriven coprocessor
+
+T6050 (M5 Pro/Max) only ships DCP firmware from macOS 27.x, whose IOMFB
+method table and swap layout this driver does not implement (it knows the
+12.3, 13.5 and 14.7 ABIs). Match apple,t6050-dcp and apple,t6050-dcpext
+explicitly and never drive them, whatever apple,firmware-compat the loader
+wrote, so a loader that maps 27.x onto an older ABI cannot hand the
+running display session to the wrong protocol. The probe still fails
+before any MMIO, mailbox or IOMMU access, as it does today for an unknown
+firmware-compat; simpledrm keeps the boot framebuffer.
+
+Add appledrm.report_coproc (default off): for a DCP the driver declines,
+read the ASC CPU_CONTROL register once and log whether the coprocessor is
+running. That checks a bring-up device tree's "coproc" address against the
+hardware without touching the firmware session (one 32-bit read, no
+writes; the mapping is released when the probe fails).
+
+Base: AsahiLinux/linux 236788cd2 (+ omarchy-m5 patches 0001-0009, which
+do not touch drivers/gpu/drm/apple).
+---
+diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
+index a2e992b80..ab81a0b76 100644
+--- a/drivers/gpu/drm/apple/dcp-internal.h
++++ b/drivers/gpu/drm/apple/dcp-internal.h
+@@ -107,6 +107,12 @@ struct dcp_panel {
+ 
+ struct apple_dcp_hw_data {
+ 	u32 num_dptx_ports;
++	/*
++	 * The SoC only ships with DCP firmware whose IOMFB ABI this driver
++	 * does not implement (T6050: macOS 27.x). Never drive it, whatever
++	 * apple,firmware-compat the loader wrote.
++	 */
++	bool no_fw_abi;
+ };
+ 
+ /* TODO: move IOMFB members to its own struct */
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 7629cf080..f940bca63 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -58,6 +58,11 @@ static bool unstable_edid = true;
+ module_param(unstable_edid, bool, 0644);
+ MODULE_PARM_DESC(unstable_edid, "Enable unstable EDID retrival support");
+ 
++static bool report_coproc;
++module_param(report_coproc, bool, 0444);
++MODULE_PARM_DESC(report_coproc,
++		 "Read (never write) the CPU control register of a DCP that is not driven and log its run state");
++
+ /* copied and simplified from drm_vblank.c */
+ static void send_vblank_event(struct drm_device *dev,
+ 		struct drm_pending_vblank_event *e,
+@@ -1163,8 +1168,40 @@ static const struct component_ops dcp_comp_ops = {
+ 	.unbind	= dcp_comp_unbind,
+ };
+ 
++/*
++ * A DCP this driver will not drive is still running the session the boot
++ * loader started, scanning out the framebuffer simpledrm uses. On request,
++ * report its run state with a single read so a bring-up device tree can be
++ * checked against the hardware without touching that session.
++ */
++static void dcp_report_undriven_coproc(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct resource *res;
++	void __iomem *coproc;
++	u32 cpu_ctrl;
++
++	if (!report_coproc)
++		return;
++
++	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "coproc");
++	if (!res)
++		return;
++
++	/* devm: released when the probe fails, honours nonposted-mmio */
++	coproc = devm_ioremap_resource(dev, res);
++	if (IS_ERR(coproc))
++		return;
++
++	cpu_ctrl = readl_relaxed(coproc + APPLE_DCP_COPROC_CPU_CONTROL);
++	dev_info(dev, "coprocessor %pR is %s (CPU_CONTROL %#x), leaving it to the boot loader's session\n",
++		 res, (cpu_ctrl & APPLE_DCP_COPROC_CPU_CONTROL_RUN) ?
++		 "running" : "stopped", cpu_ctrl);
++}
++
+ static int dcp_platform_probe(struct platform_device *pdev)
+ {
++	const struct apple_dcp_hw_data *hw;
+ 	enum dcp_firmware_version fw_compat;
+ 	struct device *dev = &pdev->dev;
+ 	struct apple_dcp *dcp;
+@@ -1172,9 +1209,18 @@ static int dcp_platform_probe(struct platform_device *pdev)
+ 	u32 surf_en;
+ 	u32 mux_index;
+ 
++	hw = of_device_get_match_data(dev);
+ 	fw_compat = dcp_check_firmware_version(dev);
+-	if (fw_compat == DCP_FIRMWARE_UNKNOWN)
++	if (hw && hw->no_fw_abi && fw_compat != DCP_FIRMWARE_UNKNOWN) {
++		dev_err(dev, "firmware-compat claims a known ABI, but this SoC's DCP firmware has none here\n");
++		fw_compat = DCP_FIRMWARE_UNKNOWN;
++	}
++	if (fw_compat == DCP_FIRMWARE_UNKNOWN) {
++		if (hw && hw->no_fw_abi)
++			dev_info(dev, "no IOMFB ABI for this SoC's DCP firmware yet, the boot framebuffer stays with simpledrm\n");
++		dcp_report_undriven_coproc(pdev);
+ 		return -ENODEV;
++	}
+ 
+ 	/* Check for "apple,bw-scratch" to avoid probing appledrm with outdated
+ 	 * device trees. This prevents replacing simpledrm and ending up without
+@@ -1371,7 +1417,19 @@ static const struct apple_dcp_hw_data apple_dcp_hw_dcpext = {
+ 	.num_dptx_ports = 2,
+ };
+ 
++static const struct apple_dcp_hw_data apple_dcp_hw_t6050 = {
++	.num_dptx_ports = 0,
++	.no_fw_abi = true,
++};
++
++static const struct apple_dcp_hw_data apple_dcp_hw_t6050_ext = {
++	.num_dptx_ports = 2,
++	.no_fw_abi = true,
++};
++
+ static const struct of_device_id of_match[] = {
++	{ .compatible = "apple,t6050-dcp", .data = &apple_dcp_hw_t6050,  },
++	{ .compatible = "apple,t6050-dcpext", .data = &apple_dcp_hw_t6050_ext, },
+ 	{ .compatible = "apple,t6020-dcp", .data = &apple_dcp_hw_t6020,  },
+ 	{ .compatible = "apple,t8112-dcp", .data = &apple_dcp_hw_t8112,  },
+ 	{ .compatible = "apple,dcp",       .data = &apple_dcp_hw_dcp,    },

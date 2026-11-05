@@ -1,0 +1,261 @@
+From 7efa8920e7695fdadd4310c51ba54b34eef056b2 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 18:00:07 -0500
+Subject: [PATCH] (kernel-tree copy of the dt/ part) cpufreq dt: all three T6050 clusters, generated from the
+ J716s ADT
+
+gen-cpufreq-dt.py now emits the P cluster (cluster 2, apple,everest)
+as well as the two M clusters, and t6050-cpufreq.dtsi is regenerated
+from build/adt-runtime-j716s.bin.
+
+- M clusters (voltage-states22/23): unchanged p-states 2-15, which is
+  byte-for-byte what the J714s ADT gave (the old generator run on the
+  J716s ADT reproduces the old file exactly). The refused top entry,
+  p-state 16 (4380 MHz), is now listed with turbo-mode, so it is used
+  only after "echo 1 > /sys/devices/system/cpu/cpufreq/boost".
+- P cluster (voltage-states5, 20 entries, 1308-4608 MHz): p-states
+  2-21, assuming the M clusters' "p-state N = entry N-2" mapping, which
+  is not measured on this cluster yet. Entries above 4308 MHz (p-states
+  18-21) are turbo-mode. performance-controller@212e20000 follows the
+  ADT pmgr reg list, which maps the same 0x12e8-byte DVFS window at
+  0x21Xe20000 for all three clusters.
+- compatible is now "apple,t6050-cluster-cpufreq",
+  "apple,t8112-cluster-cpufreq", the form the binding accepts for T6020;
+  the driver matched the t8112 entry before and still does.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-cpufreq.dtsi b/dt/t6050-cpufreq.dtsi
+index 869c3ec..47f9a2a 100644
+--- a/arch/arm64/boot/dts/apple/t6050-cpufreq.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-cpufreq.dtsi
+@@ -1,8 +1,9 @@
+ // SPDX-License-Identifier: GPL-2.0+ OR MIT
+ /*
+  * T6050 CPU cluster DVFS (apple-soc-cpufreq).
+- * GENERATED from the runtime ADT (build/adt-runtime-j714s.bin) by
++ * GENERATED from the runtime ADT (adt-runtime-j716s.bin) by
+  * gen-cpufreq-dt.py; see there for the measured p-state/frequency mapping.
++ * M clusters: measured. P cluster: p-state mapping assumed, not yet measured.
+  */
+ 
+ / {
+@@ -93,6 +94,13 @@
+ 			opp-microvolt = <1070000>;
+ 			clock-latency-ns = <8000>;
+ 		};
++		opp16 {
++			opp-hz = /bits/ 64 <4380000000>;
++			opp-level = <16>;
++			opp-microvolt = <1070000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
+ 	};
+ 
+ 	m1_opp: opp-table-m1 {
+@@ -182,25 +190,165 @@
+ 			opp-microvolt = <1070000>;
+ 			clock-latency-ns = <8000>;
+ 		};
++		opp16 {
++			opp-hz = /bits/ 64 <4380000000>;
++			opp-level = <16>;
++			opp-microvolt = <1070000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
++	};
++
++	p_opp: opp-table-p {
++		compatible = "operating-points-v2";
++
++		opp02 {
++			opp-hz = /bits/ 64 <1308000000>;
++			opp-level = <2>;
++			opp-microvolt = <760000>;
++			clock-latency-ns = <8000>;
++		};
++		opp03 {
++			opp-hz = /bits/ 64 <1620000000>;
++			opp-level = <3>;
++			opp-microvolt = <785000>;
++			clock-latency-ns = <8000>;
++		};
++		opp04 {
++			opp-hz = /bits/ 64 <1980000000>;
++			opp-level = <4>;
++			opp-microvolt = <820000>;
++			clock-latency-ns = <8000>;
++		};
++		opp05 {
++			opp-hz = /bits/ 64 <2292000000>;
++			opp-level = <5>;
++			opp-microvolt = <855000>;
++			clock-latency-ns = <8000>;
++		};
++		opp06 {
++			opp-hz = /bits/ 64 <2580000000>;
++			opp-level = <6>;
++			opp-microvolt = <885000>;
++			clock-latency-ns = <8000>;
++		};
++		opp07 {
++			opp-hz = /bits/ 64 <2880000000>;
++			opp-level = <7>;
++			opp-microvolt = <920000>;
++			clock-latency-ns = <8000>;
++		};
++		opp08 {
++			opp-hz = /bits/ 64 <3180000000>;
++			opp-level = <8>;
++			opp-microvolt = <950000>;
++			clock-latency-ns = <8000>;
++		};
++		opp09 {
++			opp-hz = /bits/ 64 <3432000000>;
++			opp-level = <9>;
++			opp-microvolt = <980000>;
++			clock-latency-ns = <8000>;
++		};
++		opp10 {
++			opp-hz = /bits/ 64 <3648000000>;
++			opp-level = <10>;
++			opp-microvolt = <1010000>;
++			clock-latency-ns = <8000>;
++		};
++		opp11 {
++			opp-hz = /bits/ 64 <3828000000>;
++			opp-level = <11>;
++			opp-microvolt = <1030000>;
++			clock-latency-ns = <8000>;
++		};
++		opp12 {
++			opp-hz = /bits/ 64 <3984000000>;
++			opp-level = <12>;
++			opp-microvolt = <1050000>;
++			clock-latency-ns = <8000>;
++		};
++		opp13 {
++			opp-hz = /bits/ 64 <4104000000>;
++			opp-level = <13>;
++			opp-microvolt = <1065000>;
++			clock-latency-ns = <8000>;
++		};
++		opp14 {
++			opp-hz = /bits/ 64 <4188000000>;
++			opp-level = <14>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++		};
++		opp15 {
++			opp-hz = /bits/ 64 <4236000000>;
++			opp-level = <15>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++		};
++		opp16 {
++			opp-hz = /bits/ 64 <4284000000>;
++			opp-level = <16>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++		};
++		opp17 {
++			opp-hz = /bits/ 64 <4308000000>;
++			opp-level = <17>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++		};
++		opp18 {
++			opp-hz = /bits/ 64 <4332000000>;
++			opp-level = <18>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
++		opp19 {
++			opp-hz = /bits/ 64 <4428000000>;
++			opp-level = <19>;
++			opp-microvolt = <1075000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
++		opp20 {
++			opp-hz = /bits/ 64 <4512000000>;
++			opp-level = <20>;
++			opp-microvolt = <1120000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
++		opp21 {
++			opp-hz = /bits/ 64 <4608000000>;
++			opp-level = <21>;
++			opp-microvolt = <1120000>;
++			clock-latency-ns = <8000>;
++			turbo-mode;
++		};
+ 	};
+ 
+ };
+ 
+ &soc {
+ 	cpufreq_m0: performance-controller@210e20000 {
+-		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq",
+-			     "apple,cluster-cpufreq";
++		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+ 		reg = <0x2 0x10e20000 0x0 0x1000>;
+ 		#performance-domain-cells = <0>;
+ 	};
+ 
+ 	cpufreq_m1: performance-controller@211e20000 {
+-		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq",
+-			     "apple,cluster-cpufreq";
++		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+ 		reg = <0x2 0x11e20000 0x0 0x1000>;
+ 		#performance-domain-cells = <0>;
+ 	};
+ 
++	cpufreq_p: performance-controller@212e20000 {
++		compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
++		reg = <0x2 0x12e20000 0x0 0x1000>;
++		#performance-domain-cells = <0>;
++	};
++
+ };
+ 
+ &cpu_m0_0 {
+@@ -262,3 +410,33 @@
+ 	operating-points-v2 = <&m1_opp>;
+ 	performance-domains = <&cpufreq_m1>;
+ };
++
++&cpu_p0 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p1 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p2 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p3 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p4 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};
++
++&cpu_p5 {
++	operating-points-v2 = <&p_opp>;
++	performance-domains = <&cpufreq_p>;
++};

@@ -1,0 +1,91 @@
+From aa7512027d1c2e04c55ea66f6171c165b0fc9c73 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 17:57:43 -0500
+Subject: [PATCH 2/3] cpufreq: apple-soc: log the DVFS state handed over and
+ warn if APSC is off
+
+m1n1 initialises the cluster DVFS block (APSC enable, default p-state)
+only on SoCs it has a table for; on T6050 (M5 Pro) it prints "cpufreq:
+Chip 0x6050 is unsupported" and leaves the clusters as iBoot set them.
+Print the raw command and status registers once per policy so the boot
+p-state of every cluster is in the log, and warn when the APSC disable
+bit (bit 22 on M1, bit 23 on M2 and later, as named by m1n1) is set,
+because the cluster then ignores p-state requests.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/cpufreq/apple-soc-cpufreq.c | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/drivers/cpufreq/apple-soc-cpufreq.c b/drivers/cpufreq/apple-soc-cpufreq.c
+index 6c7c9e084..f986a7d81 100644
+--- a/drivers/cpufreq/apple-soc-cpufreq.c
++++ b/drivers/cpufreq/apple-soc-cpufreq.c
+@@ -30,6 +30,9 @@
+ #define APPLE_DVFS_CMD_PS2			GENMASK(15, 12)
+ #define APPLE_DVFS_CMD_PS1			GENMASK(4, 0)
+ #define APPLE_DVFS_CMD_PS1_SHIFT		0
++/* APSC (hardware DVFS sequencer) disable, as named by m1n1's cpufreq.c */
++#define APPLE_DVFS_CMD_M1_APSC_DIS		BIT(22)
++#define APPLE_DVFS_CMD_M2_APSC_DIS		BIT(23)
+ 
+ /* Same timebase as CPU counter (24MHz) */
+ #define APPLE_DVFS_LAST_CHG_TIME	0x38
+@@ -67,6 +70,7 @@ struct apple_soc_cpufreq_info {
+ 	u64 cur_pstate_shift;
+ 	u64 ps1_mask;
+ 	u64 ps1_shift;
++	u64 apsc_dis;
+ };
+ 
+ struct apple_cpu_priv {
+@@ -93,6 +97,7 @@ static const struct apple_soc_cpufreq_info soc_t8103_info = {
+ 	.cur_pstate_shift = APPLE_DVFS_STATUS_CUR_PS_SHIFT_T8103,
+ 	.ps1_mask = APPLE_DVFS_CMD_PS1,
+ 	.ps1_shift = APPLE_DVFS_CMD_PS1_SHIFT,
++	.apsc_dis = APPLE_DVFS_CMD_M1_APSC_DIS,
+ };
+ 
+ static const struct apple_soc_cpufreq_info soc_t8112_info = {
+@@ -102,6 +107,7 @@ static const struct apple_soc_cpufreq_info soc_t8112_info = {
+ 	.cur_pstate_shift = APPLE_DVFS_STATUS_CUR_PS_SHIFT_T8112,
+ 	.ps1_mask = APPLE_DVFS_CMD_PS1,
+ 	.ps1_shift = APPLE_DVFS_CMD_PS1_SHIFT,
++	.apsc_dis = APPLE_DVFS_CMD_M2_APSC_DIS,
+ };
+ 
+ static const struct apple_soc_cpufreq_info soc_default_info = {
+@@ -257,6 +263,8 @@ static int apple_soc_cpufreq_init(struct cpufreq_policy *policy)
+ 	struct apple_cpu_priv *priv;
+ 	const struct apple_soc_cpufreq_info *info;
+ 	struct cpufreq_frequency_table *freq_table;
++	u64 cmd;
++	u32 status = 0;
+ 
+ 	cpu_dev = get_cpu_device(policy->cpu);
+ 	if (!cpu_dev) {
+@@ -276,6 +284,21 @@ static int apple_soc_cpufreq_init(struct cpufreq_policy *policy)
+ 		return ret;
+ 	}
+ 
++	/*
++	 * Log the state the bootloader handed over: on SoCs that m1n1's
++	 * cpufreq does not initialise (T6050) this is the only record of the
++	 * boot p-state and of whether the APSC is enabled. With the APSC
++	 * disabled the cluster ignores p-state requests.
++	 */
++	cmd = readq_relaxed(reg_base + APPLE_DVFS_CMD);
++	if (info->cur_pstate_mask)
++		status = readl_relaxed(reg_base + APPLE_DVFS_STATUS);
++	dev_info(cpu_dev, "DVFS for CPUs %*pbl: cmd %#llx status %#x\n",
++		 cpumask_pr_args(policy->cpus), cmd, status);
++	if (info->apsc_dis && (cmd & info->apsc_dis))
++		dev_warn(cpu_dev, "APSC is disabled (cmd %#llx), p-state changes will not take effect\n",
++			 cmd);
++
+ 	ret = dev_pm_opp_set_sharing_cpus(cpu_dev, policy->cpus);
+ 	if (ret) {
+ 		dev_err(cpu_dev, "%s: failed to mark OPPs as shared: %d\n", __func__, ret);
+-- 
+2.56.0
+

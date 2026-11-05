@@ -1,0 +1,34 @@
+From c92c7c3b7950f5ea1a51bd2972efd282116649a9 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 17:58:41 -0500
+Subject: [PATCH 3/3] dt-bindings: cpufreq: apple,cluster-cpufreq: Add T6050
+
+The T6050 (M5 Pro) cluster DVFS block has the T8112 register layout:
+p-state request in bits 4:0 of the command register at +0x20, current
+p-state in bits 9:5 of the status register at +0x50 (measured on the
+J714s and J716s). Like T6020 it is described as
+"apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq".
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml    | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml b/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
+index b51913a81..c96ce28f2 100644
+--- a/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
++++ b/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
+@@ -36,7 +36,9 @@ properties:
+           - const: apple,s5l8960x-cluster-cpufreq
+       - const: apple,s5l8960x-cluster-cpufreq
+       - items:
+-          - const: apple,t6020-cluster-cpufreq
++          - enum:
++              - apple,t6020-cluster-cpufreq
++              - apple,t6050-cluster-cpufreq
+           - const: apple,t8112-cluster-cpufreq
+ 
+   reg:
+-- 
+2.56.0
+

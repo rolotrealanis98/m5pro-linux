@@ -1,0 +1,18 @@
+mfd: macsmc: initialise the atomic-write spinlock
+
+smc->lock (used by apple_smc_write_atomic(), i.e. macsmc-reboot) was never
+spin_lock_init()ed; it only worked because the struct is zero-allocated and
+CONFIG_DEBUG_SPINLOCK is off.
+
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index 31540f67d..68f7bb832 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -419,6 +419,7 @@ static int apple_smc_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 
+ 	mutex_init(&smc->mutex);
++	spin_lock_init(&smc->lock);
+ 	smc->dev = &pdev->dev;
+ 	smc->sram_base = devm_platform_get_and_ioremap_resource(pdev, 1, &smc->sram);
+ 	if (IS_ERR(smc->sram_base))
