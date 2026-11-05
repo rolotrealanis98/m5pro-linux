@@ -12,7 +12,7 @@ REF=${STAGE1_REF:-$HOME/Work/stage1-serve/chain-esp-small.bin}
 SRC=${M1N1_CHAIN:-$T/m1n1-chain-from-ref.bin}
 [ -n "${M1N1_CHAIN:-}" ] || python3 -I -c 'import sys; b=open(sys.argv[1],"rb").read(); open(sys.argv[2],"wb").write(b[:b.index(b"STACKBOT")+8])' "$REF" "$SRC"
 PLAIN=${M1N1_PLAIN:-$HOME/Work/m1n1-linuxbuild/m1n1-plain.bin}
-UUID=<ESP PARTUUID>
+UUID=${ESP_PARTUUID:?set ESP_PARTUUID to the PARTUUID appended to the installed stage-1}
 py() { python3 -I "$here/mk-stage1.py" "$@"; }
 
 echo "== 1. byte-identical rebuild of the installed stage-1"

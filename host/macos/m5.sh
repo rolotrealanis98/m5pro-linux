@@ -2,7 +2,7 @@
 # macOS-side tether helpers for the M5, for when the Studio is booted into macOS instead of
 # Omarchy. Same layout as the Linux side: m1n1 at ~/Work/m1n1 (branch m5-t6050, venv in .venv),
 # omarchy-m5 at ~/Work/omarchy-m5 (branch j716s). The M5 in m1n1 enumerates as USB 1209:316d
-# "Asahi Linux / Generic CDC" with the Mac's serial (<mac-serial>): /dev/cu.usbmodem<serial>1 is the
+# "Asahi Linux / Generic CDC" with the Mac's serial number: /dev/cu.usbmodem<serial>1 is the
 # proxy and ...3 the secondary. Found via ioreg below; override with M1N1DEVICE. No udev needed.
 #
 #   host/macos/m5.sh wait [secs]   wait until stage-1 m1n1 answers on the proxy (default 240 s)

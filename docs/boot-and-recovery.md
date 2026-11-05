@@ -201,8 +201,8 @@ alignment of the appended-variable image, or both, is not separated; both are ke
 
 Tooling that came out of it (all in `host/macos/`):
 - `1tr-stage1.sh`, served from the Studio with `cd ~/Work/stage1-serve && python3 -m http.server 8000`
-  (the Studio is <studio-ip>). From any recovery Terminal (join Wi-Fi first):
-  `sh <(curl -s <studio-ip>:8000/stage1.sh) <image> arm` copies the image into the stub's
+  (`<studio-ip>` below is the Studio's LAN address). From any recovery Terminal (join Wi-Fi first):
+  `export STUDIO_IP=<studio-ip>; sh <(curl -s $STUDIO_IP:8000/stage1.sh) <image> arm` copies the image into the stub's
   `Finish Installation.app` as `boot.bin`, re-arms the install-media markers and reboots; then
   power-hold -> Omarchy runs step2 (bputil -nc + kmutil) in the stub's *paired* recovery. `kmutil`
   from the "Options" recovery fails with "Boot policy error: ... code pairing". `check` prints the

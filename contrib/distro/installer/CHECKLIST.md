@@ -143,5 +143,5 @@ hardware setup (`omarchy-provision-hardware.service`, armed by the image manifes
 | omarchy-m5 `scripts/provision-rootfs.sh:21-22` | `nvme0n1p5`: GPT entry numbers depend on the disk's history |
 | m5pro-linux `host/macos/mk-esp-install.sh:36-45`, `m5.sh:94` | `/dev/nvme0n1p4`, `/dev/nvme0n1p5`, `m5.root=/dev/nvme0n1p5` |
 | m5pro-linux `host/macos/stage1-install.sh:12-14` | images from `~/Work/m1n1/stage1` |
-| m5pro-linux `host/macos/1tr-stage1.sh:8` | images served from `<studio-ip>:8000` |
+| m5pro-linux `host/macos/1tr-stage1.sh:8` | images served from `$STUDIO_IP:8000` (the Studio's LAN address) |
 | m5pro-linux `host/macos/refresh-stub-firmware.sh:79` | expects the 5,046,272-byte October stage-1 |

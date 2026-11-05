@@ -1,11 +1,12 @@
 #!/bin/sh
 # 1TR helper, served from the Studio. In the recovery Terminal (power-hold -> Options -> Utilities -> Terminal):
-#   sh <(curl -s <studio-ip>:8000/stage1.sh) <image>      e.g. probe-macosbuild | boot-plain | chain-esp-macosbuild
-#   sh <(curl -s <studio-ip>:8000/stage1.sh) list
+#   export STUDIO_IP=<studio-ip>      # the Studio's LAN address
+#   sh <(curl -s $STUDIO_IP:8000/stage1.sh) <image>      e.g. probe-macosbuild | boot-plain | chain-esp-macosbuild
+#   sh <(curl -s $STUDIO_IP:8000/stage1.sh) list
 # Downloads the image, registers it as the stub's stage-1 boot object (kmutil asks for the macOS admin
 # password), restores the stub markers and reboots. Rollback is the same command with boot-plain.
 set -e
-SRV=http://<studio-ip>:8000
+SRV=http://${STUDIO_IP:?export STUDIO_IP=<the Studio LAN address> first}:8000
 img=${1:?image name, e.g. boot-plain}
 if [ "$img" = list ]; then curl -s $SRV/ | sed -n 's/.*href="\([^"]*\.bin\)".*/\1/p'; exit 0; fi
 app=$(ls -d /Volumes/*/"Finish Installation.app" 2>/dev/null | head -1)
