@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: isp-tb agent <noreply@anthropic.com>
+Date: Wed, 4 Nov 2026 20:30:00 -0600
+Subject: [PATCH] dt: t6050: describe the camera ISP, disabled
+
+Add the T6050 ISP (ADT /arm-io/isp0) and its three DART instances
+(/arm-io/dart-isp0) to t6050.dtsi, every node disabled. Nothing binds:
+no driver matches apple,t6050-isp, and there is no "isp" alias, so m1n1
+skips its ISP firmware reservation and fwdata fixups exactly as today.
+
+The comment records why the node stays disabled: the T6050 ADT marks
+the ISP exclave-assigned (exclave services ISPEngine/ISPEngine_EDK) and
+lists ISP_CPU/FE/DPRX/SECURE/BE/CLR as no_ps, so only ISP_SYS and
+ISPSENS0 are AP-controllable. MMIO, DART addresses and stream remap
+match aurora-silicon's T6040 ISP; the mailbox windows follow that
+layout and are inferred.
+
+Only t6050.dtsi changes (no build-kernel.sh or board .dts edit), so it
+does not conflict with the pending usb/dcp/audio/platform/integration
+patches. Decompiled t6050-j716s.dtb differs from the unpatched one only
+by the four new disabled nodes and phandle renumbering; the "okay"
+node count is unchanged (8). LLVM=1 W=1: no warnings for j716s/j714s.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ dt/t6050.dtsi | 70 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 70 insertions(+)
+
+diff --git a/dt/t6050.dtsi b/dt/t6050.dtsi
+index 22ef313..d252345 100644
+--- a/dt/t6050.dtsi
++++ b/dt/t6050.dtsi
+@@ -601,6 +601,76 @@
+ 			power-domains = <&ps_spi4>;
+ 			status = "disabled";
+ 		};
++
++		/*
++		 * Camera ISP (ADT /arm-io/isp0, dart-isp0). Described for reference
++		 * only and kept disabled: no driver matches "apple,t6050-isp", and
++		 * no "isp" alias exists, so m1n1 neither reserves the ISP firmware
++		 * nor touches the node.
++		 *
++		 * The T6050 ADT marks the ISP as exclave-assigned: isp0 and isp-exclave-proxy
++		 * carry "exclave-assigned" with the exclave services ISPEngine and
++		 * ISPEngine_EDK; the ISP sub-domains (ISP_CPU, ISP_FE, DPRX,
++		 * ISP_SECURE, ISP_BE, ISP_CLR) are no_ps in the ADT PMGR table,
++		 * so the AP has no power-state register for them; only ISP_SYS
++		 * and ISPSENS0 are AP-visible. The coprocessor firmware is
++		 * preloaded by iBoot (pre-loaded = 1, not running).
++		 *
++		 * MMIO and DART addresses equal the T6040 (M4 Pro/Max) ISP's in
++		 * aurora-silicon/linux, as does the DART stream remap (1, 6, 7,
++		 * 10, 11 -> 0). The mbox, gpio and mbox2 windows below follow
++		 * that T6040 layout (coprocessor +0x2924000) and are inferred,
++		 * not verified on T6050. ADT interrupts: 513 514 515 516 526;
++		 * the first is assumed to carry the mailbox.
++		 *
++		 * dart-isp0 streams: 0 = firmware (mapper-isp0), 12 = MPM;
++		 * 4, 5, 8, 9 are exclave streams (epipe0/1, piodma0/1) and must
++		 * never be configured by Linux. The DART has a DAPF filter and
++		 * "manual-availability".
++		 */
++		isp: isp@580000000 {
++			compatible = "apple,t6050-isp";
++			reg = <0x5 0x80000000 0x0 0x1604000>,
++			      <0x5 0x82924000 0x0 0x40>,
++			      <0x5 0x829241d0 0x0 0x20>,
++			      <0x5 0x82924464 0x0 0x10>;
++			reg-names = "coproc", "mbox", "gpio", "mbox2";
++			interrupt-parent = <&aic>;
++			interrupts = <AIC_IRQ 513 IRQ_TYPE_LEVEL_HIGH>;
++			iommus = <&isp_dart0 0>, <&isp_dart1 0>, <&isp_dart2 0>;
++			power-domains = <&ps_isp_sys>, <&ps_ispsens0>;
++			status = "disabled";
++		};
++
++		isp_dart0: iommu@5828c0000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0x5 0x828c0000 0x0 0xc000>;
++			#iommu-cells = <1>;
++			interrupt-parent = <&aic>;
++			interrupts = <AIC_IRQ 531 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_isp_sys>;
++			status = "disabled";
++		};
++
++		isp_dart1: iommu@5828e0000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0x5 0x828e0000 0x0 0xc000>;
++			#iommu-cells = <1>;
++			interrupt-parent = <&aic>;
++			interrupts = <AIC_IRQ 531 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_isp_sys>;
++			status = "disabled";
++		};
++
++		isp_dart2: iommu@582900000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0x5 0x82900000 0x0 0xc000>;
++			#iommu-cells = <1>;
++			interrupt-parent = <&aic>;
++			interrupts = <AIC_IRQ 531 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_isp_sys>;
++			status = "disabled";
++		};
+ 	};
+ };
+ 
+-- 
+2.50.0
