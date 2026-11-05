@@ -7,19 +7,28 @@ as the build and USB host. Started 2026-10-20.
 This repo holds only what was made or changed here. Upstream sources are pinned in
 [`SOURCES.md`](SOURCES.md), not vendored.
 
-## Status (2026-11-04)
+## Status (2026-11-05)
+
+Summary with test labels and repro steps: [`docs/status-2026-11-05.md`](docs/status-2026-11-05.md).
+Per-feature designs, patches and test plans: `contrib/pending/<feature>/`; hardware results: [`contrib/pending/integration/RESULTS.md`](contrib/pending/integration/RESULTS.md).
 
 | Area | State |
 |---|---|
-| m1n1 installed as the stub's boot object (macOS 27.2 stays at Full Security) | works |
+| m1n1 installed as the stub's boot object (macOS on Macintosh HD stays at Full Security) | works |
 | m1n1 proxy over USB-C to the Studio, through the CalDigit TS5 Plus | works |
 | Chainloading m1n1 builds (`chainload.py -r -n`) | works |
 | Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots untethered from the ESP, 18 CPUs |
 | Framebuffer console, built-in keyboard, NVMe read/write, USB gadget network | works |
+| NVMe at boot | **works** (2026-11-05) with kernel patch 0016: the ANS firmware sometimes needs ~3 s for the RTKit handshake, the 1 s wait gave `ANS did not boot` and no root; 10 s wait, NVMe up at 8.3-10.7 s on 3/3 boots |
+| Kernel built with LLVM/clang on the Studio's macOS | works (2026-11-05): 18 CPUs, SSH, trackpad |
 | Arch Linux ARM root on the internal SSD (GPT entry 5 = `nvme0n1p5`) | works, systemd `running` |
 | SMP (secondary cores) | **works, 18 cores** (2026-11-04): stub rebuilt on macOS 27.3 beta 1, whose stage-2 mBoot carries Apple's fix for raw boot objects on M5 Pro/Max/Ultra (release notes, mBoot > Resolved Issues). No m1n1 or kernel change needed; `maxcpus=1` dropped. Any stub must be built from macOS >= 27.3 beta 1. [`docs/smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) |
-| Trackpad | firmware extracted and shipped; first boot logs `dockchannel-hid: input iface multitouch start timed out` (2026-11-04). Keyboard works. Next: dmesg from the Arch root. |
-| GPU, display driver (DCP), Wi-Fi/BT (N1), audio | not started |
+| Trackpad | **works** (2026-11-05, 3/3 boots): the MTP firmware never drives the trackpad AFE reset; dockchannel-hid now drives it on SMC low GPIO `gp1c` (line 28, active-low), `Touch MT ready`, events flowing. [`contrib/pending/trackpad/`](contrib/pending/trackpad/) |
+| iBoot boot-failure counter | **fixed, verified over four boots** (2026-11-05, kernel patch 0017): macsmc-reboot built in, poweroff-only, Abbey scratchpad cells. The first Linux reboot reported and cleared 1 boot error; the "B2" payload (old DTB, sha256 `55d95928...`) then survived three consecutive Linux (watchdog) reboots with zero PMU boot errors, NVMe and trackpad up and 18 CPUs each time. This was the cause of the "needs to be reinstalled" recovery after repeated Linux restarts. |
+| SMC fan keys / SPMI window, cpufreq (all three clusters) | booted, not feature-tested: in the B2 kernel (`macsmc-power` blacklisted, `userspace` governor). Stage B tests in progress (2026-11-05). |
+| USB 2.0 host (left-front port) | booted, not feature-tested: drivers in the B2 kernel; the host-mode DTB (`8a2c516e...` payload) has not been booted. Stage B test in progress (2026-11-05). `contrib/pending/usb/` |
+| Keyboard backlight, thermal zones | design only, compile-checked (`contrib/pending/platform/`) |
+| GPU, display driver (DCP), Wi-Fi/BT (N1), audio, camera, Thunderbolt | not working; design reports only (`contrib/pending/{gpu,dcp,wireless,audio,isp-tb}/`) |
 | Untethered boot (kernel on the ESP) | **works on all 18 CPUs** (2026-11-04 18:08): stage-1 = CHAINLOADING m1n1 (0013+0014, chainload variable, 64 KiB-aligned) installed once; stage-2 on the ESP = m1n1 with patch 0015 (reset-vector trampoline for a relocated image) + kernel + DTB + initramfs. Kernel updates are an ESP file copy over the SSH bridge. [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md) |
 
 ## Layout
@@ -32,7 +41,7 @@ This repo holds only what was made or changed here. Upstream sources are pinned 
 | `host/macos/` | The same tether from the Studio booted into macOS: `m5.sh`, stub refresh/recreate, ESP installer, Omarchy-volume reader. |
 | `host/` | Studio-side (Omarchy) config: udev rules for the m1n1 device and the M5's USB network, the NAT script. |
 | `scripts/` | Tether helpers used on the Studio (tmux-driven proxy sessions, watchdog-guarded rounds). They expect the omarchy-m5 checkout at `~/Work/omarchy-m5`. `scripts/probes/` are the SMP hardware probes, `scripts/kc/` the kernelcache/SPTM disassembly helpers. |
-| `docs/` | [`boot-and-recovery.md`](docs/boot-and-recovery.md) (rebuild, boot, provision, recover), [`smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) (the SMP investigation). |
+| `docs/` | [`boot-and-recovery.md`](docs/boot-and-recovery.md) (rebuild, boot, provision, recover), [`smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) (the SMP investigation), [`status-2026-11-05.md`](docs/status-2026-11-05.md) (status with test labels). |
 
 ## Rebuild m1n1
 
@@ -55,6 +64,13 @@ register writes, ADT properties and SMC keys documented here come from hardware 
 ADT and public sources. Earlier commits of this repository still contain a `docs/re/` folder with
 those excerpts; if your project works clean-room, do not check out or read history before the
 commit that removed it.
+
+## Contributing / contact
+
+Questions, reports and corrections: [issues on this repo](https://github.com/rolotrealanis98/m5pro-linux/issues).
+The code, patches and reports here were produced with Claude (AI) under Rolando's direction; every
+hardware result was run by him on the J716s. Asahi Linux does not accept AI-generated
+contributions, so nothing here is offered to Asahi as code.
 
 ## Credits
 
