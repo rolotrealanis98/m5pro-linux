@@ -1,4 +1,4 @@
-From: omarchy-m5 audio agent <noreply@anthropic.com>
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
 Date: Wed, 4 Nov 2026 00:00:00 +0000
 Subject: [PATCH] j716s: audio stage A DTB (amps + jack codec on I2C), audio config
 
@@ -20,6 +20,7 @@ Base: j716s @ 2c87598. Conflicts textually with the USB agent's
 build-kernel.sh hunks (same install list / DTB block); resolve by keeping
 both file lists and both DTB lines.
 
+Co-Authored-By: Claude <noreply@anthropic.com>
 ---
 diff --git a/configs/omarchy-audio.config b/configs/omarchy-audio.config
 new file mode 100644

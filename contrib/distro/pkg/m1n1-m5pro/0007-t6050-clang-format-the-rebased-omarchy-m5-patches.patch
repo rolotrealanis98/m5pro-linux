@@ -3,6 +3,7 @@ From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
 Date: Tue, 20 Oct 2026 06:04:45 -0400
 Subject: [PATCH 07/12] t6050: clang-format the rebased omarchy-m5 patches
 
+Co-Authored-By: Claude <noreply@anthropic.com>
 ---
  src/dapf.c      |  3 +--
  src/hv/hv_exc.c | 13 +++++++------

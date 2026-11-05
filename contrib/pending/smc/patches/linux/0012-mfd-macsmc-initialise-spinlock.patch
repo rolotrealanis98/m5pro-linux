@@ -4,6 +4,8 @@ smc->lock (used by apple_smc_write_atomic(), i.e. macsmc-reboot) was never
 spin_lock_init()ed; it only worked because the struct is zero-allocated and
 CONFIG_DEBUG_SPINLOCK is off.
 
+Co-Authored-By: Claude <noreply@anthropic.com>
+
 diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
 index 31540f67d..68f7bb832 100644
 --- a/drivers/mfd/macsmc.c

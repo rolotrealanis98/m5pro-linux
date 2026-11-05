@@ -1,3 +1,9 @@
+scripts/finish-install.sh: add --macho (register the image without --raw)
+
+Apply in the omarchy-m5 checkout: git apply <this file>
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+
 diff --git i/scripts/finish-install.sh w/scripts/finish-install.sh
 index ac94506..b6fc436 100755
 --- i/scripts/finish-install.sh

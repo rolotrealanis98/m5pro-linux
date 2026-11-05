@@ -5,6 +5,8 @@ initcall_blacklist=macsmc_power_driver_init until TEST-PLAN T6 passes.
 
 Apply in the omarchy-m5 checkout: git apply <this file>
 
+Co-Authored-By: Claude <noreply@anthropic.com>
+
 diff --git a/configs/omarchy-smc.config b/configs/omarchy-smc.config
 --- a/configs/omarchy-smc.config
 +++ b/configs/omarchy-smc.config

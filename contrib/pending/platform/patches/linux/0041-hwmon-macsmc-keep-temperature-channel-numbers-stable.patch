@@ -1,4 +1,4 @@
-From: m5pro-linux platform agent
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
 Subject: [PATCH 0041] hwmon: macsmc: keep temperature channel numbers stable
 
 macsmc-hwmon registers with HWMON_C_REGISTER_TZ, so a DT thermal zone
@@ -15,6 +15,8 @@ stays the index of the node among the temperature-* children.
 
 Base: asahi-wip-7.2 236788cd2 (applies with or without the SMC agent's
 0010; the hunks are disjoint).
+
+Co-Authored-By: Claude <noreply@anthropic.com>
 ---
 diff --git a/drivers/hwmon/macsmc-hwmon.c b/drivers/hwmon/macsmc-hwmon.c
 --- a/drivers/hwmon/macsmc-hwmon.c

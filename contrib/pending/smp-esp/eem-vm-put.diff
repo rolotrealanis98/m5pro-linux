@@ -1,3 +1,7 @@
+eem-vm.py: add --put SRC DST (byte-clean copy to the M5 over the gadget link)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+
 --- /Users/rolo/Work/agents/smp-esp/eem-vm.py.orig	2026-11-04 18:00:48
 +++ eem-vm.py	2026-11-04 18:00:56
 @@ -13,6 +13,8 @@

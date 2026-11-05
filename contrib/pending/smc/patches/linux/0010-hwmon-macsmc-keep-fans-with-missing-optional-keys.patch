@@ -7,6 +7,8 @@ F0Md, so with the shared hwmon-fan*.dtsi both fans disappeared. Treat the
 optional keys as optional: warn, drop that attribute, and only allow
 manual control when mode, target, minimum and maximum keys all exist.
 
+Co-Authored-By: Claude <noreply@anthropic.com>
+
 diff --git a/drivers/hwmon/macsmc-hwmon.c b/drivers/hwmon/macsmc-hwmon.c
 index 1500ec2cc..58d3dba5d 100644
 --- a/drivers/hwmon/macsmc-hwmon.c

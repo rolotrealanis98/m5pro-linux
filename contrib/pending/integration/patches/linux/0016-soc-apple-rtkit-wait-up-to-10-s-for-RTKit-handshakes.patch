@@ -1,5 +1,5 @@
 From 8bcfb21b951de65ad04cb4809189610edfb244c0 Mon Sep 17 00:00:00 2001
-From: m5pro-linux <m5pro-linux@localhost>
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
 Date: Thu, 5 Nov 2026 05:35:56 -0500
 Subject: [PATCH] soc: apple: rtkit: wait up to 10 s for RTKit handshakes
 
@@ -8,6 +8,8 @@ On T6050 (J716s) the ANS storage firmware iBoot hands over sometimes takes
 1 s wait made nvme-apple fail with "ANS did not boot" / "Reset failure
 status: -62" and the root never appeared. A later rebind succeeds, so the
 firmware is fine, only the wait is short.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
 ---
  drivers/soc/apple/rtkit.c | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)

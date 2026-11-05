@@ -1,4 +1,4 @@
-From: m5pro-linux platform agent
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
 Subject: [PATCH 0002] j716s: thermal trips and CPU cooling maps (stage B)
 
 Apply only after TEST-PLAN T1 (which key follows which cluster) and T3
@@ -8,6 +8,8 @@ of the P cluster (cpu12) or both M clusters (cpu0, cpu6); hot 105 C
 trips until power-off is verified (TEST-PLAN P2).
 
 Base: omarchy-m5 j716s @ 2c87598 + this series' 0001.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
 ---
 diff --git a/dt/t6050-j716s-platform.dtsi b/dt/t6050-j716s-platform.dtsi
 index a7ab2f6..06573da 100644

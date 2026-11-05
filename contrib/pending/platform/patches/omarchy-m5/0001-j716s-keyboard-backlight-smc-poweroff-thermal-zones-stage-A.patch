@@ -1,4 +1,4 @@
-From: m5pro-linux platform agent
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
 Subject: [PATCH 0001] j716s: keyboard backlight, SMC power-off, thermal zones (stage A)
 
 - dt/t6050-j716s-platform.dtsi (new), included from t6050-j716s.dts before
@@ -25,6 +25,8 @@ Base: omarchy-m5 j716s @ 2c87598. Also applies on top of the SMC agent's
 Note: build-kernel.sh only regenerates .config when a REQUIRED_Y symbol is
 missing; delete vendor/linux/.config (or run olddefconfig after merging)
 to pick up the new fragment.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
 ---
 diff --git a/configs/omarchy-platform.config b/configs/omarchy-platform.config
 new file mode 100644

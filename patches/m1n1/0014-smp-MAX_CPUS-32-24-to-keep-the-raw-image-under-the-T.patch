@@ -8,6 +8,8 @@ A CHAINLOADING build is 0x4F0000 bytes and does not boot as an iBoot-loaded stag
 T6050 (plain 0x4D0000 does; the same bytes-only size cliff is reported on T8132 and T8140).
 Most of the file is zeros from secondary_stacks[MAX_CPUS][0x10000]; 24 covers every M5 Pro/Max
 (18 cores) and matches GravityLinux's fork, saving 0x80000.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
 ---
  src/smp_asm.h | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)

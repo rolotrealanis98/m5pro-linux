@@ -6,6 +6,8 @@ Subject: [PATCH] chainload: relocate above the CTRR window instead of refusing
 A stage-2 loaded from the ESP (m1n1 + kernel + dtb + initramfs, ~30 MiB) cannot stay in place
 below T6050's secondary-only CTRR window (~12 MiB of room on a J716s). Place it above the window
 and above its own staging buffer; the next m1n1's heap starts above the relocated image.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
 ---
  src/chainload.c | 18 ++++++++++++------
  1 file changed, 12 insertions(+), 6 deletions(-)

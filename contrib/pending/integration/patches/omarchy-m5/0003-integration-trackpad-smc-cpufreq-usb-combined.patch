@@ -1,3 +1,9 @@
+omarchy-m5 j716s: trackpad, SMC, cpufreq and USB changes combined (integration)
+
+Apply in the omarchy-m5 checkout (j716s @ 2c87598): git apply <this file>
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+
 diff --git a/configs/omarchy-smc.config b/configs/omarchy-smc.config
 index 6d5604c..62f488e 100644
 --- a/configs/omarchy-smc.config

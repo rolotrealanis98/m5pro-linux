@@ -1,4 +1,4 @@
-From: m5pro-linux platform agent
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
 Subject: [PATCH 0040] power: reset: macsmc-reboot: add apple,poweroff-only
 
 Let a board take SMC power-off without SMC restart. On T6050 (M5 Pro) an
@@ -15,6 +15,8 @@ until those offsets are verified.
 
 Base: asahi-wip-7.2 236788cd2 (applies with or without omarchy-m5 0001-0009
 and the SMC agent's 0010-0012).
+
+Co-Authored-By: Claude <noreply@anthropic.com>
 ---
 diff --git a/Documentation/devicetree/bindings/power/reset/apple,smc-reboot.yaml b/Documentation/devicetree/bindings/power/reset/apple,smc-reboot.yaml
 index ce5ed8849..209e3b153 100644
