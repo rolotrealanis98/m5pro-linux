@@ -1,0 +1,38 @@
+--- /Users/rolo/Documents/GitHub/m5pro-linux/contrib/distro/tools/mk-stage1.py	2026-11-04 17:52:01
++++ mk-stage1.py	2026-11-05 07:51:28
+@@ -45,7 +45,9 @@
+ MAX_VAR_NAME = 64
+ MAX_VAR_SIZE = 1024
+ MAX_CHOSEN_VARS = 16
+-KNOWN_PREFIXES = ("chosen.", "chainload=", "display=", "mitigations=", "tso=")
++KNOWN_PREFIXES = ("chosen.", "chainload=", "display=", "mitigations=", "tso=",
++                  # m1n1 patch 0016 (A/B stage-1); an older stage-1 logs and ignores them
++                  "chainload.fallback=", "chainload.wdt=", "chainload.pmu-clear=")
+ STACKBOT = b"STACKBOT"
+ CHAIN_MARK = b"chosen.asahi,m1n1-stage1-version="       # only in CHAINLOADING builds
+ PLAIN_MARK = b"Chainloading files not supported"         # only in CHAINLOADING=0 builds
+@@ -129,6 +131,13 @@
+             vars_.append(f"chosen.asahi,efi-system-partition={str(uuid.UUID(a.esp_partuuid)).lower()}")
+         if kind == "chainloading":
+             vars_.append(chainload_var(a.esp_partuuid, a.path))
++            if a.fallback_path:
++                vars_.append("chainload.fallback=" +
++                             chainload_var(a.esp_partuuid, a.fallback_path)[len("chainload="):])
++            if a.wdt:
++                if not 0 < a.wdt <= 170:
++                    die("--wdt must be 1..170 s (32-bit alarm at 24 MHz)")
++                vars_.append(f"chainload.wdt={a.wdt}")
+     elif kind == "chainloading":
+         die("--esp-partuuid is required for a chainloading build")
+     vars_ += a.var or []
+@@ -196,6 +205,10 @@
+         p.add_argument("--no-efi-var", dest="efi_var", action="store_false",
+                        help="omit chosen.asahi,efi-system-partition=")
+         p.add_argument("--var", action="append", help="extra variable, e.g. display=...")
++        p.add_argument("--fallback-path", help="A/B stage-1 (m1n1 0016): file booted when iBoot "
++                       "logged a failed boot, e.g. m1n1/boot.bin.prev")
++        p.add_argument("--wdt", type=int, default=0, help="A/B stage-1: arm the SoC watchdog for "
++                       "N s before the hand-over (Linux apple_wdt takes it over)")
+         p.add_argument("--allow-plain", action="store_true")
+         p.add_argument("--force", action="store_true")
+         p.add_argument("-o", "--out", required=True)

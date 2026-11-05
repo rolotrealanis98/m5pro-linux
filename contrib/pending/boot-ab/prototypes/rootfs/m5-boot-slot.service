@@ -1,0 +1,12 @@
+[Unit]
+Description=Make an M5 stage-1 fallback boot permanent (demote the failing boot.bin)
+ConditionPathExists=/proc/device-tree/chosen/m5pro,boot-slot
+RequiresMountsFor=/boot
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/m5-boot-slot
+
+[Install]
+WantedBy=multi-user.target
