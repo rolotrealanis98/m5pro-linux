@@ -1,0 +1,45 @@
+From da09fc453f397c06565f8949ed33e222e6cd8e5e Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 20:59:01 -0500
+Subject: [PATCH 31/33] usb: xhci-plat: honour the wakeup-source property
+
+xhci-plat marks every controller wakeup-capable but leaves wakeup
+disabled, so on suspend xhci_suspend() runs with do_wakeup false and
+genpd is free to power the controller's domain off (it keeps a domain on
+only for a wakeup-enabled device); on resume the PHY is set up again from
+scratch. On Apple T6050 that loses the USB 2.0 PHY state m1n1 set up,
+and USB devices (the J714c's USB network) do not come back after s2idle.
+
+Enable wakeup when the controller node has "wakeup-source", the standard
+DT property for it. Nodes without the property behave as before.
+
+On J716s this changes nothing yet: all three ports are snps,dwc3 nodes
+(dwc3 creates the xhci-plat child itself and passes wakeup on from its
+own device), and no generic-xhci node exists in our device trees, so no
+DT property is added with this patch.
+
+Based on edimoldovan/linux-aurora 9f8535b38fcb ("usb: xhci-plat: honour
+wakeup-source; J714c USB controllers keep their PHY across s2idle"),
+driver hunk only.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ drivers/usb/host/xhci-plat.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/usb/host/xhci-plat.c b/drivers/usb/host/xhci-plat.c
+index 074d9c731..d6a1e7568 100644
+--- a/drivers/usb/host/xhci-plat.c
++++ b/drivers/usb/host/xhci-plat.c
+@@ -247,6 +247,8 @@ int xhci_plat_probe(struct platform_device *pdev, struct device *sysdev, const s
+ 	}
+ 
+ 	device_set_wakeup_capable(&pdev->dev, true);
++	if (device_property_read_bool(&pdev->dev, "wakeup-source"))
++		device_wakeup_enable(&pdev->dev);
+ 
+ 	xhci->main_hcd = hcd;
+ 
+-- 
+2.56.0
+

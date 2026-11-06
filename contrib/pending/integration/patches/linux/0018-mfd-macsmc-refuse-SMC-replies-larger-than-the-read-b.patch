@@ -1,0 +1,80 @@
+From acb21cf3c34c42362d40718eb88c813f2c1c3637 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 20:53:12 -0500
+Subject: [PATCH 18/33] mfd: macsmc: refuse SMC replies larger than the read
+ buffer
+
+The SMC's reply to a key read carries the key's real size. When it is
+larger than the caller's buffer, apple_smc_rw_locked() copied rsize bytes
+and returned the larger size; when it is smaller, it still copied rsize
+bytes, the tail coming from whatever an earlier command left in the
+shared SRAM buffer (for reads over 4 bytes) or from the unused bytes of
+the reply word.
+
+Return -EIO for a reply larger than the request and copy only the bytes
+the SMC returned.
+
+Why this matters for the J716s macsmc-power hang (RESULTS.md round 3):
+of the SMC fixes in edimoldovan's tree this is the only one on the path
+every probe read takes. It cannot overrun Linux memory by itself (the
+copy was already capped at rsize), so on its own it does not explain a
+hard hang. What it removes is the way a wrong-size read could reach one:
+the typed helpers (apple_smc_read_u8/u16/u32) only see "ret == size", so
+a key whose size changed in the 27.x SMC firmware (BCF0 went from 4 bytes
+to 1) could come back as a partly stale value instead of an error. A
+stale non-zero BCF0 reads as "battery critical": capacity_level reports
+CRITICAL and, on the 0x71020000 event, the critical work calls
+orderly_poweroff(), which ends in macsmc-reboot's atomic SMC power-off.
+That path polls the SMC with interrupts off and no timeout (see the next
+patch), which is exactly a hang with no oops if the SMC does not answer.
+Nothing on the round-3 panel shows the "Battery critical" line, so this
+is a candidate, not a diagnosis; macsmc_power.trace=1 (later patch)
+names the last key read before a hang.
+
+Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c,
+the "rsize && ret > rsize" guard and the copy of ret bytes; kunit hooks
+left out.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ drivers/mfd/macsmc.c | 16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index 68f7bb832..48f4020b2 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -154,17 +154,27 @@ static int apple_smc_rw_locked(struct apple_smc *smc, smc_key key,
+ 	if (ret < 0)
+ 		return ret;
+ 
++	/*
++	 * The reply carries the key's real size. More than we asked for means
++	 * the key is not the size the caller thinks it is: refuse it rather
++	 * than hand back a truncated value as if it were complete.
++	 */
++	if (rsize && ret > rsize)
++		return -EIO;
++
+ 	if (rsize) {
+ 		/*
+ 		 * Small data <= 4 bytes is returned as part of the reply
+ 		 * message which is sent over the mailbox FIFO. Everything
+ 		 * bigger has to be copied from SRAM which is mapped as
+-		 * Device memory.
++		 * Device memory. Copy only what the SMC returned, so a short
++		 * key does not pick up whatever an earlier command left in
++		 * the shared buffer.
+ 		 */
+ 		if (rsize <= 4)
+-			memcpy(rbuf, &rdata, rsize);
++			memcpy(rbuf, &rdata, ret);
+ 		else
+-			memcpy_fromio(rbuf, smc->shmem.iomem, rsize);
++			memcpy_fromio(rbuf, smc->shmem.iomem, ret);
+ 	}
+ 
+ 	return ret;
+-- 
+2.56.0
+

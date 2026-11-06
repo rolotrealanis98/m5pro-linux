@@ -1,0 +1,138 @@
+From 4351a6a0dc8cb3c610c2c3d265de55b4d50a6fa6 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 21:34:24 -0500
+Subject: [PATCH] patches/linux: carry the s2idle PMGR guard (platform 0042)
+ for R1
+
+Adds patches/linux/0035 = m5pro-linux integration 0034 (= platform agent
+0042): pmgr_pwrstate.sleep_power_off, default -1 = leave T6050 PMGR
+domains alone in system sleep. Nothing changes outside system sleep; it
+is the guard the R1 s2idle step (S1) and later steps rely on.
+
+Apply after 0004.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ ...ave-T6050-domains-alone-in-system-sl.patch | 110 ++++++++++++++++++
+ 1 file changed, 110 insertions(+)
+ create mode 100644 patches/linux/0035-pmdomain-apple-leave-T6050-domains-alone-in-system-sl.patch
+
+diff --git a/patches/linux/0035-pmdomain-apple-leave-T6050-domains-alone-in-system-sl.patch b/patches/linux/0035-pmdomain-apple-leave-T6050-domains-alone-in-system-sl.patch
+new file mode 100644
+index 0000000..a1c81a9
+--- /dev/null
++++ b/patches/linux/0035-pmdomain-apple-leave-T6050-domains-alone-in-system-sl.patch
+@@ -0,0 +1,110 @@
++From e1d2d7313745455790cc92adbb5b6e487c2b9e52 Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 21:32:11 -0500
++Subject: [PATCH] pmdomain: apple: leave T6050 domains alone in system sleep
++
++genpd powers a domain off in the noirq phase of system suspend once all its
++devices are suspended, and back on in resume. On T6050 a PMGR register
++write issued while the domain is auto-gated never completes and hangs the
++bus (omarchy-m5 0003), and this driver puts every domain that is on at boot
++under auto-PM, so the first s2idle attempt could hang in genpd_suspend_noirq
++on a domain like ps_ans.
++
++Add pmgr_pwrstate.sleep_power_off: -1 (default) keeps domains on across
++system sleep on "apple,t6050-pmgr-pwrstate" and powers them off elsewhere
++(unchanged for M1-M4), 0 never, 1 always. When a power-off is skipped the
++matching power-on is skipped too, so no PMGR register is written at all;
++devices still get their own suspend/resume callbacks. Runtime PM is
++unaffected (pm_suspend_in_progress() is false outside system sleep).
++
++Platform agent patch 0042 (contrib/pending/platform), carried into the R1
++kernel as the s2idle guard; it changes nothing outside system sleep.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/pmdomain/apple/pmgr-pwrstate.c | 41 ++++++++++++++++++++++++++
++ 1 file changed, 41 insertions(+)
++
++diff --git a/drivers/pmdomain/apple/pmgr-pwrstate.c b/drivers/pmdomain/apple/pmgr-pwrstate.c
++index 65fdde4ec..9b4ec7bae 100644
++--- a/drivers/pmdomain/apple/pmgr-pwrstate.c
+++++ b/drivers/pmdomain/apple/pmgr-pwrstate.c
++@@ -16,6 +16,7 @@
++ #include <linux/mfd/syscon.h>
++ #include <linux/reset-controller.h>
++ #include <linux/module.h>
+++#include <linux/suspend.h>
++ 
++ #define APPLE_PMGR_RESET        BIT(31)
++ #define APPLE_PMGR_AUTO_ENABLE  BIT(28)
++@@ -48,8 +49,26 @@ struct apple_pmgr_ps {
++ 	bool force_disable;
++ 	bool force_reset;
++ 	bool externally_clocked;
+++	bool sleep_keep_on;
+++	bool sleep_skipped;
++ };
++ 
+++/*
+++ * System sleep (s2idle) power-off of PMGR domains:
+++ *   -1 (default): leave domains on on T6050, power them off elsewhere
+++ *    0: never touch PMGR registers in system sleep (domains stay on)
+++ *    1: power domains off in system sleep (upstream behaviour)
+++ * On T6050 a PMGR write issued while the domain is auto-gated never completes
+++ * and hangs the bus (see the auto-PM note in apple_pmgr_ps_probe()), and the
+++ * driver puts every domain that is on at boot under auto-PM. Until the
+++ * suspend sequence is understood there, devices are suspended but their
+++ * domains are left as they are.
+++ */
+++static int sleep_power_off = -1;
+++module_param(sleep_power_off, int, 0444);
+++MODULE_PARM_DESC(sleep_power_off,
+++		 "PMGR domain power-off in system sleep: -1 auto (not on T6050), 0 never, 1 always");
+++
++ #define genpd_to_apple_pmgr_ps(_genpd) container_of(_genpd, struct apple_pmgr_ps, genpd)
++ #define rcdev_to_apple_pmgr_ps(_rcdev) container_of(_rcdev, struct apple_pmgr_ps, rcdev)
++ 
++@@ -142,11 +161,27 @@ static bool apple_pmgr_ps_is_active(struct apple_pmgr_ps *ps)
++ 
++ static int apple_pmgr_ps_power_on(struct generic_pm_domain *genpd)
++ {
+++	struct apple_pmgr_ps *ps = genpd_to_apple_pmgr_ps(genpd);
+++
+++	/* Left on across system sleep: the hardware never changed state. */
+++	if (ps->sleep_skipped) {
+++		ps->sleep_skipped = false;
+++		return 0;
+++	}
+++
++ 	return apple_pmgr_ps_set(genpd, APPLE_PMGR_PS_ACTIVE, true);
++ }
++ 
++ static int apple_pmgr_ps_power_off(struct generic_pm_domain *genpd)
++ {
+++	struct apple_pmgr_ps *ps = genpd_to_apple_pmgr_ps(genpd);
+++
+++	if (ps->sleep_keep_on && pm_suspend_in_progress()) {
+++		dev_dbg(ps->dev, "PS %s: left on for system sleep\n", genpd->name);
+++		ps->sleep_skipped = true;
+++		return 0;
+++	}
+++
++ 	return apple_pmgr_ps_set(genpd, APPLE_PMGR_PS_PWRGATE, false);
++ }
++ 
++@@ -247,6 +282,12 @@ static int apple_pmgr_ps_probe(struct platform_device *pdev)
++ 		return -ENOMEM;
++ 
++ 	ps->dev = dev;
+++
+++	if (sleep_power_off < 0)
+++		ps->sleep_keep_on = of_device_is_compatible(node, "apple,t6050-pmgr-pwrstate");
+++	else
+++		ps->sleep_keep_on = !sleep_power_off;
+++
++ 	ps->regmap = regmap;
++ 
++ 	ret = of_property_read_string(node, "label", &name);
++-- 
++2.56.0
++
+-- 
+2.56.0
+

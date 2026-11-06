@@ -1,0 +1,38 @@
+From a3caf053629f2d549946bd8764316a8af8d6ee36 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 20:58:47 -0500
+Subject: [PATCH 30/33] arm64: dts: apple: t6050: mark the boot framebuffer as
+ the built-in panel
+
+Both T6050 laptops (J714s, J716s) hand the internal panel over as the
+m1n1 framebuffer. Mark framebuffer0 "apple,internal-panel" so simpledrm
+registers an eDP connector (previous patch), which is what makes Omarchy
+lock on lid close and lay its bar out around the notch.
+
+The power-domains the J714c tree also adds (ps_disp_cpu) are left out:
+our framebuffer node has none today and the domain's behaviour on J716s
+is not measured.
+
+Based on edimoldovan/linux-aurora 9dee12b1266c (t6050-j714c.dts hunk).
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/apple/t6050-jxxx.dtsi | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-jxxx.dtsi b/arch/arm64/boot/dts/apple/t6050-jxxx.dtsi
+index 3440b6202..c64f42c03 100644
+--- a/arch/arm64/boot/dts/apple/t6050-jxxx.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-jxxx.dtsi
+@@ -28,6 +28,8 @@ framebuffer0: framebuffer@0 {
+ 			 * t6050 pmgr domain offsets are known */
+ 			/* Format properties will be added by loader */
+ 			status = "disabled";
++			/* The built-in panel: simpledrm reports it as eDP */
++			apple,internal-panel;
+ 		};
+ 	};
+ 
+-- 
+2.56.0
+

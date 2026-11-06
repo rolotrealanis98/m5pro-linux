@@ -1,0 +1,156 @@
+From e3a8fd436382a3b19eed9ca307fb12b01a3c214b Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 20:55:27 -0500
+Subject: [PATCH 25/33] power: supply: macsmc-power: serialise charge settings;
+ a write's reply size is not an error
+
+- apple_smc_write() returns the size field of the SMC's reply, which can
+  echo the request length. Setting charge_behaviour to "auto" checked
+  "if (ret) return ret" after each write, so a positive reply after the
+  CH0I reset returned early and CHTE/CH0C were never cleared. Only a
+  negative value is a failure; set_property() now reports 0 for any
+  non-negative result.
+- The CHLS limit and the behaviour setters read, modify and write the
+  same keys from sysfs and from udev/upower at the same time. Add
+  charge_lock and take it in the getter and the setters.
+- The 4-byte CHTE read accepted a short reply and looked at the stale
+  rest of the buffer; require all four bytes (-EIO otherwise).
+
+None of this runs during probe; it matters once the battery is enabled
+and userspace touches charge_behaviour or the thresholds.
+
+Based on edimoldovan/linux-aurora (t6050-j714c)
+drivers/power/supply/macsmc-power.c (charge_lock, "ret < 0" write
+checks, the CHTE length check). The AUTO_DISCHARGE charge behaviour from
+the same tree needs a new power-supply UAPI value and is not ported.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ drivers/power/supply/macsmc-power.c | 49 ++++++++++++++++++++++++-----
+ 1 file changed, 41 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/power/supply/macsmc-power.c b/drivers/power/supply/macsmc-power.c
+index d32c0fd49..d4ccc4539 100644
+--- a/drivers/power/supply/macsmc-power.c
++++ b/drivers/power/supply/macsmc-power.c
+@@ -15,6 +15,7 @@
+ #include <linux/limits.h>
+ #include <linux/module.h>
+ #include <linux/mfd/macsmc.h>
++#include <linux/mutex.h>
+ #include <linux/notifier.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+@@ -70,6 +71,12 @@ struct macsmc_power {
+ 	struct device *dev;
+ 	struct apple_smc *smc;
+ 
++	/*
++	 * Serializes the charge settings: the CHLS threshold and behaviour
++	 * setters each read, modify and write bits of the same key.
++	 */
++	struct mutex charge_lock;
++
+ 	struct power_supply_desc ac_desc;
+ 	struct power_supply_desc batt_desc;
+ 
+@@ -303,6 +310,8 @@ static int macsmc_battery_get_charge_behaviour(struct macsmc_power *power)
+ 	u8 val8;
+ 	u8 chte_buf[4];
+ 
++	guard(mutex)(&power->charge_lock);
++
+ 	if (power->has_ch0i) {
+ 		ret = apple_smc_read_u8(power->smc, SMC_KEY(CH0I), &val8);
+ 		if (ret)
+@@ -315,6 +324,8 @@ static int macsmc_battery_get_charge_behaviour(struct macsmc_power *power)
+ 		ret = apple_smc_read(power->smc, SMC_KEY(CHTE), chte_buf, 4);
+ 		if (ret < 0)
+ 			return ret;
++		if (ret != sizeof(chte_buf))
++			return -EIO;
+ 
+ 		if (chte_buf[0] == 0x01)
+ 			return POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE;
+@@ -333,22 +344,28 @@ static int macsmc_battery_set_charge_behaviour(struct macsmc_power *power, int v
+ {
+ 	int ret;
+ 
++	lockdep_assert_held(&power->charge_lock);
++
+ 	switch (val) {
+ 	case POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO:
+-		/* Reset all inhibitors to a known-good 'auto' state */
++		/*
++		 * Reset all inhibitors to a known-good 'auto' state. A write
++		 * reply carries the SMC's response size, which may echo the
++		 * request length: only a negative value is a failure.
++		 */
+ 		if (power->has_ch0i) {
+ 			ret = apple_smc_write_u8(power->smc, SMC_KEY(CH0I), 0);
+-			if (ret)
++			if (ret < 0)
+ 				return ret;
+ 		}
+ 
+ 		if (power->has_chte) {
+ 			ret = apple_smc_write_u32(power->smc, SMC_KEY(CHTE), 0);
+-			if (ret)
++			if (ret < 0)
+ 				return ret;
+ 		} else if (power->has_ch0c) {
+ 			ret = apple_smc_write_u8(power->smc, SMC_KEY(CH0C), 0);
+-			if (ret)
++			if (ret < 0)
+ 				return ret;
+ 		}
+ 		return 0;
+@@ -599,11 +616,11 @@ static int macsmc_battery_get_property(struct power_supply *psy,
+ 	return ret;
+ }
+ 
+-static int macsmc_battery_set_property(struct power_supply *psy,
+-				       enum power_supply_property psp,
+-				       const union power_supply_propval *val)
++static int macsmc_battery_set_charge_property(struct macsmc_power *power,
++					      enum power_supply_property psp,
++					      const union power_supply_propval *val)
+ {
+-	struct macsmc_power *power = power_supply_get_drvdata(psy);
++	lockdep_assert_held(&power->charge_lock);
+ 
+ 	switch (psp) {
+ 	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR:
+@@ -635,6 +652,19 @@ static int macsmc_battery_set_property(struct power_supply *psy,
+ 	}
+ }
+ 
++static int macsmc_battery_set_property(struct power_supply *psy,
++				       enum power_supply_property psp,
++				       const union power_supply_propval *val)
++{
++	struct macsmc_power *power = power_supply_get_drvdata(psy);
++	int ret;
++
++	guard(mutex)(&power->charge_lock);
++	ret = macsmc_battery_set_charge_property(power, psp, val);
++	/* A write's reply size is not an error, and nothing for sysfs to see */
++	return ret < 0 ? ret : 0;
++}
++
+ static int macsmc_battery_property_is_writeable(struct power_supply *psy,
+ 						enum power_supply_property psp)
+ {
+@@ -834,6 +864,9 @@ static int macsmc_power_probe(struct platform_device *pdev)
+ 
+ 	power->dev = dev;
+ 	power->smc = smc;
++	ret = devm_mutex_init(dev, &power->charge_lock);
++	if (ret)
++		return ret;
+ 	dev_set_drvdata(dev, power);
+ 
+ 	/* devm_work_autocancel() initialises critical_work */
+-- 
+2.56.0
+

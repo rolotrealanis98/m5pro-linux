@@ -1,0 +1,47 @@
+From 4d9ab5fd1a43dee0616f6d164b09455a7649311b Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 20:53:43 -0500
+Subject: [PATCH 21/33] mfd: macsmc: bounds-check apple_smc_get_key_by_index()
+
+Refuse an index outside [0, key_count) instead of sending it to the SMC,
+and leave *key untouched when the command fails: the old code byte-swapped
+whatever was in *key (uninitialised on the caller's stack, for a failed
+command) and handed it back.
+
+Nothing in the J716s probe path calls this today; it is used by key
+enumeration (debug tools, macsmc-hwmon experiments).
+
+Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ drivers/mfd/macsmc.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index 379ceab05..a73bcbdf3 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -207,11 +207,17 @@ EXPORT_SYMBOL(apple_smc_rw);
+ 
+ int apple_smc_get_key_by_index(struct apple_smc *smc, int index, smc_key *key)
+ {
++	u32 data;
+ 	int ret;
+ 
+-	ret = apple_smc_cmd(smc, SMC_MSG_GET_KEY_BY_INDEX, index, 0, 0, key);
++	if (index < 0 || index >= smc->key_count)
++		return -EINVAL;
++
++	ret = apple_smc_cmd(smc, SMC_MSG_GET_KEY_BY_INDEX, index, 0, 0, &data);
++	if (ret < 0)
++		return ret;
+ 
+-	*key = swab32(*key);
++	*key = swab32(data);
+ 	return ret;
+ }
+ EXPORT_SYMBOL(apple_smc_get_key_by_index);
+-- 
+2.56.0
+

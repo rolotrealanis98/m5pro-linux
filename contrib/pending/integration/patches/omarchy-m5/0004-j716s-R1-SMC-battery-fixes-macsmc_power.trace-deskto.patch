@@ -1,0 +1,1716 @@
+From ffd211fd10b2e9d7260fb0f5b03b171a679859b6 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 21:11:28 -0500
+Subject: [PATCH] j716s R1: SMC/battery fixes, macsmc_power.trace, desktop
+ bundle (eDP, keyboard backlight, zram, ufw netfilter)
+
+Brings the omarchy-m5 tree level with the R1 integration kernel
+(/Volumes/linux-cs/wt-integration, m5pro-linux patches/linux 0016-0033).
+Apply after integration 0003.
+
+dt/ (byte-identical to the integration kernel tree's DT sources):
+- t6050-smc.dtsi: smc_reboot enabled, apple,poweroff-only, with the
+  Abbey PMU scratchpad cells (integration 0017, already verified on
+  hardware: clears iBoot's boot-failure counter).
+- t6050-jxxx.dtsi: framebuffer0 "apple,internal-panel" -> simpledrm eDP
+  connector (Omarchy lid lock, notch-aware bar).
+- t6050.dtsi: fpwm0 (disabled); t6050-j716s.dts: fpwm0 enabled +
+  pwm-leds "kbd_backlight" (channel 0, 40000 ns, 255 steps).
+
+configs/omarchy-desktop.config (new, merged last): zram+zstd, nf_tables
++ nft_compat + conntrack + xt matches for ufw on iptables-nft,
+PWM_APPLE=y, schedutil default, PM_DEBUG/pm_test, hibernation off,
+report-only lockup detectors. build-kernel.sh installs and merges it and
+checks ZRAM/NF_TABLES/NFT_COMPAT/PWM_APPLE are =y.
+
+patches/linux 0020-0034 (kernel parts only; DT/config hunks live in
+dt/ and configs/):
+- 0020 RTKit 10 s handshake wait (NVMe ANS), 0021 macsmc-reboot
+  poweroff-only;
+- 0022-0027 macsmc core: reply-size guard, bounded atomic-write poll,
+  key-info lock, key-index bounds, key-count error, optional low-gpio
+  cell;
+- 0028-0031 macsmc-power: B0RM byte order apart from BCF0 size,
+  charge_lock + write reply size, CHLS no forced discharge, optional
+  battery properties / TTE-TTF ENODATA;
+- 0032 macsmc_power.trace=1 (default off);
+- 0033 simpledrm eDP connector for apple,internal-panel;
+- 0034 xhci-plat honours wakeup-source (no DT user on J716s yet).
+
+Most SMC/battery and desktop items are based on edimoldovan/linux-aurora
+(t6050-j714c: drivers/mfd/macsmc.c, drivers/power/supply/macsmc-power.c,
+9dee12b1266c, 9f8535b38fcb, 594f4b3a49ec, 13c28edbabb6); see each kernel
+patch for the exact source.
+
+macsmc-power stays gated by initcall_blacklist=macsmc_power_driver_init
+in the boot arguments until its test passes.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ configs/omarchy-desktop.config                |  97 +++++++++
+ dt/t6050-j716s.dts                            |  26 +++
+ dt/t6050-jxxx.dtsi                            |   2 +
+ dt/t6050-smc.dtsi                             |   4 +-
+ dt/t6050.dtsi                                 |  14 ++
+ ...wait-up-to-10-s-for-RTKit-handshakes.patch |  30 +++
+ ...smc-reboot-poweroff-only-so-Linux-cl.patch | 142 +++++++++++++
+ ...e-SMC-replies-larger-than-the-read-b.patch |  79 ++++++++
+ ...up-on-an-atomic-SMC-write-after-SMC_.patch |  50 +++++
+ ...the-lock-until-the-key-info-is-copie.patch |  44 ++++
+ ...nds-check-apple_smc_get_key_by_index.patch |  47 +++++
+ ...-a-short-key-count-reply-as-an-I-O-e.patch |  47 +++++
+ ...he-second-GPIO-bank-only-where-the-D.patch |  76 +++++++
+ ...smc-power-decide-B0RM-byte-order-apa.patch |  93 +++++++++
+ ...smc-power-serialise-charge-settings-.patch | 156 ++++++++++++++
+ ...smc-power-a-CHLS-charge-limit-no-lon.patch | 185 +++++++++++++++++
+ ...smc-power-list-optional-battery-prop.patch |  75 +++++++
+ ...smc-power-macsmc_power.trace-1-names.patch | 191 ++++++++++++++++++
+ ...drm-report-an-eDP-connector-for-an-A.patch |  43 ++++
+ ...at-honour-the-wakeup-source-property.patch |  45 +++++
+ scripts/build-kernel.sh                       |   7 +-
+ 21 files changed, 1449 insertions(+), 4 deletions(-)
+ create mode 100644 configs/omarchy-desktop.config
+ create mode 100644 patches/linux/0020-soc-apple-rtkit-wait-up-to-10-s-for-RTKit-handshakes.patch
+ create mode 100644 patches/linux/0021-T6050-enable-macsmc-reboot-poweroff-only-so-Linux-cl.patch
+ create mode 100644 patches/linux/0022-mfd-macsmc-refuse-SMC-replies-larger-than-the-read-b.patch
+ create mode 100644 patches/linux/0023-mfd-macsmc-give-up-on-an-atomic-SMC-write-after-SMC_.patch
+ create mode 100644 patches/linux/0024-mfd-macsmc-hold-the-lock-until-the-key-info-is-copie.patch
+ create mode 100644 patches/linux/0025-mfd-macsmc-bounds-check-apple_smc_get_key_by_index.patch
+ create mode 100644 patches/linux/0026-mfd-macsmc-treat-a-short-key-count-reply-as-an-I-O-e.patch
+ create mode 100644 patches/linux/0027-mfd-macsmc-add-the-second-GPIO-bank-only-where-the-D.patch
+ create mode 100644 patches/linux/0028-power-supply-macsmc-power-decide-B0RM-byte-order-apa.patch
+ create mode 100644 patches/linux/0029-power-supply-macsmc-power-serialise-charge-settings-.patch
+ create mode 100644 patches/linux/0030-power-supply-macsmc-power-a-CHLS-charge-limit-no-lon.patch
+ create mode 100644 patches/linux/0031-power-supply-macsmc-power-list-optional-battery-prop.patch
+ create mode 100644 patches/linux/0032-power-supply-macsmc-power-macsmc_power.trace-1-names.patch
+ create mode 100644 patches/linux/0033-drm-sysfb-simpledrm-report-an-eDP-connector-for-an-A.patch
+ create mode 100644 patches/linux/0034-usb-xhci-plat-honour-the-wakeup-source-property.patch
+
+diff --git a/configs/omarchy-desktop.config b/configs/omarchy-desktop.config
+new file mode 100644
+index 0000000..180c36c
+--- /dev/null
++++ b/configs/omarchy-desktop.config
+@@ -0,0 +1,97 @@
++# omarchy-desktop.config: what an Omarchy desktop session needs on the
++# J716s (M5 Pro) beyond the bring-up kernel. Merge after the board and
++# omarchy-usb-host fragments. The root has no modules, so everything is =y.
++
++# zram swap: zram-generator otherwise waits 90 s for /dev/zram0 at boot.
++CONFIG_SWAP=y
++CONFIG_BLK_DEV=y
++CONFIG_ZSMALLOC=y
++CONFIG_ZRAM=y
++CONFIG_ZRAM_BACKEND_ZSTD=y
++CONFIG_ZRAM_DEF_COMP_ZSTD=y
++
++# ufw (Omarchy enables it) through Arch's iptables-nft: nf_tables with the
++# xtables compat layer, conntrack, and the matches/targets ufw's rule files use
++# (conntrack/state, limit, recent, multiport, comment, addrtype, hl, pkttype,
++# rt/ipv6header for the IPv6 rules, LOG, REJECT). The legacy x_tables
++# (IP_NF_FILTER etc., IP_NF_IPTABLES_LEGACY) are not needed with iptables-nft.
++CONFIG_NETFILTER=y
++CONFIG_NETFILTER_ADVANCED=y
++CONFIG_NETFILTER_INGRESS=y
++CONFIG_NETFILTER_NETLINK=y
++CONFIG_NF_CONNTRACK=y
++CONFIG_NF_CONNTRACK_MARK=y
++CONFIG_NF_CONNTRACK_FTP=y
++CONFIG_NF_CT_NETLINK=y
++CONFIG_NF_NAT=y
++CONFIG_NF_NAT_FTP=y
++CONFIG_NF_NAT_MASQUERADE=y
++CONFIG_NF_TABLES=y
++CONFIG_NF_TABLES_INET=y
++CONFIG_NF_TABLES_IPV4=y
++CONFIG_NF_TABLES_IPV6=y
++CONFIG_NFT_CT=y
++CONFIG_NFT_LOG=y
++CONFIG_NFT_LIMIT=y
++CONFIG_NFT_MASQ=y
++CONFIG_NFT_NAT=y
++CONFIG_NFT_REJECT=y
++CONFIG_NFT_REJECT_INET=y
++CONFIG_NFT_COMPAT=y
++CONFIG_NFT_FIB_INET=y
++CONFIG_NFT_FIB_IPV4=y
++CONFIG_NFT_FIB_IPV6=y
++CONFIG_NETFILTER_XTABLES=y
++CONFIG_NETFILTER_XT_MARK=y
++CONFIG_NETFILTER_XT_CONNMARK=y
++CONFIG_NETFILTER_XT_TARGET_LOG=y
++CONFIG_NETFILTER_XT_TARGET_MASQUERADE=y
++CONFIG_NETFILTER_XT_NAT=y
++CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
++CONFIG_NETFILTER_XT_MATCH_COMMENT=y
++CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
++CONFIG_NETFILTER_XT_MATCH_HL=y
++CONFIG_NETFILTER_XT_MATCH_LIMIT=y
++CONFIG_NETFILTER_XT_MATCH_MULTIPORT=y
++CONFIG_NETFILTER_XT_MATCH_PKTTYPE=y
++CONFIG_NETFILTER_XT_MATCH_RECENT=y
++CONFIG_NETFILTER_XT_MATCH_STATE=y
++CONFIG_NF_LOG_SYSLOG=y
++CONFIG_NF_REJECT_IPV4=y
++CONFIG_NF_REJECT_IPV6=y
++CONFIG_IP_NF_IPTABLES=y
++CONFIG_IP_NF_TARGET_REJECT=y
++CONFIG_IP6_NF_IPTABLES=y
++CONFIG_IP6_NF_TARGET_REJECT=y
++CONFIG_IP6_NF_MATCH_IPV6HEADER=y
++CONFIG_IP6_NF_MATCH_RT=y
++
++# Keyboard backlight: fpwm0 + pwm-leds (PWM_APPLE was =m).
++CONFIG_PWM=y
++CONFIG_PWM_APPLE=y
++CONFIG_NEW_LEDS=y
++CONFIG_LEDS_CLASS=y
++CONFIG_LEDS_PWM=y
++
++# cpufreq: schedutil by default (validated on J714c with the same OPPs).
++CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
++CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
++
++# s2idle staging: /sys/power/pm_test and sleep debug messages. Hibernation
++# needs the secondaries offlined (spin-table CPUs cannot be) and a resume path
++# the boot chain does not have.
++CONFIG_SUSPEND=y
++CONFIG_PM_SLEEP=y
++CONFIG_PM_DEBUG=y
++CONFIG_PM_ADVANCED_DEBUG=y
++CONFIG_PM_SLEEP_DEBUG=y
++# CONFIG_HIBERNATION is not set
++
++# Hang visibility, report-only (no panic): a CPU spinning with interrupts on
++# or off, or a stuck task, prints a warning on the panel (the buddy hard-lockup
++# detector is the only one available: no perf NMI on Apple). A whole-SoC
++# freeze still prints nothing.
++CONFIG_SOFTLOCKUP_DETECTOR=y
++CONFIG_HARDLOCKUP_DETECTOR=y
++CONFIG_DETECT_HUNG_TASK=y
++CONFIG_DEFAULT_HUNG_TASK_TIMEOUT=120
+diff --git a/dt/t6050-j716s.dts b/dt/t6050-j716s.dts
+index 3156aa7..97219ea 100644
+--- a/dt/t6050-j716s.dts
++++ b/dt/t6050-j716s.dts
+@@ -10,6 +10,7 @@
+ /dts-v1/;
+ 
+ #include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/leds/common.h>
+ #include "t6050.dtsi"
+ #include "t6050-jxxx.dtsi"
+ 
+@@ -22,6 +23,31 @@
+ 		 * from /arm-io/dockchannel-mtp/mtp-transport/keyboard kblang-calibration */
+ 		keyboard = &keyboard;
+ 	};
++
++	/*
++	 * Keyboard backlight. ADT /arm-io/pwm0/kbd-backlight: channel 0,
++	 * default-hz 25000 -> period 40000 ns, as on every Asahi MacBook. The
++	 * SMC has no keyboard-light key here; the PWM is the whole path.
++	 * ps_fpwm0 is clock-gated at handover, so the keyboard stays dark until
++	 * userspace sets a brightness (leds-pwm falls back to "off" when it
++	 * reads back period 0).
++	 */
++	led-controller {
++		compatible = "pwm-leds";
++
++		led-0 {
++			pwms = <&fpwm0 0 40000>;
++			label = "kbd_backlight";
++			function = LED_FUNCTION_KBD_BACKLIGHT;
++			color = <LED_COLOR_ID_WHITE>;
++			max-brightness = <255>;
++			default-state = "keep";
++		};
++	};
++};
++
++&fpwm0 {
++	status = "okay";
+ };
+ 
+ /*
+diff --git a/dt/t6050-jxxx.dtsi b/dt/t6050-jxxx.dtsi
+index 3440b62..c64f42c 100644
+--- a/dt/t6050-jxxx.dtsi
++++ b/dt/t6050-jxxx.dtsi
+@@ -28,6 +28,8 @@
+ 			 * t6050 pmgr domain offsets are known */
+ 			/* Format properties will be added by loader */
+ 			status = "disabled";
++			/* The built-in panel: simpledrm reports it as eDP */
++			apple,internal-panel;
+ 		};
+ 	};
+ 
+diff --git a/dt/t6050-smc.dtsi b/dt/t6050-smc.dtsi
+index 778335b..9734f3f 100644
+--- a/dt/t6050-smc.dtsi
++++ b/dt/t6050-smc.dtsi
+@@ -184,7 +184,9 @@
+ 		 */
+ 		smc_reboot: reboot {
+ 			compatible = "apple,smc-reboot";
+-			status = "disabled";
++			/* Clears iBoot's boot-failure counters (PMU scratchpad) at
++			 * boot and marks clean restarts; restart stays on the wdt. */
++			apple,poweroff-only;
+ 			nvmem-cells = <&shutdown_flag>, <&boot_stage>,
+ 				      <&boot_error_count>, <&panic_count>;
+ 			nvmem-cell-names = "shutdown_flag", "boot_stage",
+diff --git a/dt/t6050.dtsi b/dt/t6050.dtsi
+index 22ef313..f460879 100644
+--- a/dt/t6050.dtsi
++++ b/dt/t6050.dtsi
+@@ -300,6 +300,20 @@
+ 			interrupts = <AIC_IRQ 721 IRQ_TYPE_LEVEL_HIGH>;
+ 		};
+ 
++		/*
++		 * ADT /arm-io/pwm0: compatible "fpwm,s5l8920x", reg 0x505040000
++		 * size 0x4000 (SIO block), clock-gate FPWM0 = ps_fpwm0. Boards
++		 * with a keyboard backlight on channel 0 enable it.
++		 */
++		fpwm0: pwm@505040000 {
++			compatible = "apple,t6050-fpwm", "apple,s5l-fpwm";
++			reg = <0x5 0x05040000 0x0 0x4000>;
++			power-domains = <&ps_fpwm0>;
++			clocks = <&clkref>;
++			#pwm-cells = <2>;
++			status = "disabled";
++		};
++
+ 		/* ADT: nub-gpio0 0x881e4000 -> 0x2881e4000, 61 pins */
+ 		pinctrl_nub: pinctrl@2881e4000 {
+ 			compatible = "apple,t6050-pinctrl", "apple,t8103-pinctrl";
+diff --git a/patches/linux/0020-soc-apple-rtkit-wait-up-to-10-s-for-RTKit-handshakes.patch b/patches/linux/0020-soc-apple-rtkit-wait-up-to-10-s-for-RTKit-handshakes.patch
+new file mode 100644
+index 0000000..e26257c
+--- /dev/null
++++ b/patches/linux/0020-soc-apple-rtkit-wait-up-to-10-s-for-RTKit-handshakes.patch
+@@ -0,0 +1,30 @@
++From 1c4d4c5eb0c1273660fd2df7f19a09417fe50ef0 Mon Sep 17 00:00:00 2001
++From: m5pro-linux <m5pro-linux@localhost>
++Date: Thu, 5 Nov 2026 05:35:56 -0500
++Subject: [PATCH] soc: apple: rtkit: wait up to 10 s for RTKit handshakes
++
++On T6050 (J716s) the ANS storage firmware iBoot hands over sometimes takes
++~3 s to answer the power-state/epmap handshake (its asi init stalls); the
++1 s wait made nvme-apple fail with "ANS did not boot" / "Reset failure
++status: -62" and the root never appeared. A later rebind succeeds, so the
++firmware is fine, only the wait is short.
++---
++ drivers/soc/apple/rtkit.c | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/drivers/soc/apple/rtkit.c b/drivers/soc/apple/rtkit.c
++index a863ae166..9ea681c5f 100644
++--- a/drivers/soc/apple/rtkit.c
+++++ b/drivers/soc/apple/rtkit.c
++@@ -725,7 +725,7 @@ static int apple_rtkit_wait_for_completion(struct completion *c)
++ 	long t;
++ 
++ 	t = wait_for_completion_interruptible_timeout(c,
++-						      msecs_to_jiffies(1000));
+++						      msecs_to_jiffies(10000));
++ 	if (t < 0)
++ 		return t;
++ 	else if (t == 0)
++-- 
++2.56.0
++
+diff --git a/patches/linux/0021-T6050-enable-macsmc-reboot-poweroff-only-so-Linux-cl.patch b/patches/linux/0021-T6050-enable-macsmc-reboot-poweroff-only-so-Linux-cl.patch
+new file mode 100644
+index 0000000..51c5b2a
+--- /dev/null
++++ b/patches/linux/0021-T6050-enable-macsmc-reboot-poweroff-only-so-Linux-cl.patch
+@@ -0,0 +1,142 @@
++From 6ed1bf6ad66f2d474c8efaba4e2bb3f9cfa45ea3 Mon Sep 17 00:00:00 2001
++From: m5pro-linux <m5pro-linux@localhost>
++Date: Thu, 5 Nov 2026 06:06:58 -0500
++Subject: [PATCH] T6050: enable macsmc-reboot (poweroff-only) so Linux clears
++ iBoot's boot-failure counters
++
++POWER_RESET_MACSMC was =m and the root has no modules, so boot_stage /
++boot_error_count / panic_count in the PMU scratchpad were never written.
++iBoot then treats every Linux boot as a failed one and drops into the
++"needs to be reinstalled" recovery after a few watchdog restarts. Build the
++driver in, enable the DT node with the abbey scratchpad cells (0xf801..),
++keep restart on the watchdog (apple,poweroff-only, platform agent patch
++0040) but still write boot_stage = 0 before a restart.
++---
++ .../power/reset/apple,smc-reboot.yaml         | 11 ++++-
++ drivers/power/reset/macsmc-reboot.c           | 46 ++++++++++++++-----
++ 2 files changed, 44 insertions(+), 13 deletions(-)
++
++diff --git a/Documentation/devicetree/bindings/power/reset/apple,smc-reboot.yaml b/Documentation/devicetree/bindings/power/reset/apple,smc-reboot.yaml
++index ce5ed8849..209e3b153 100644
++--- a/Documentation/devicetree/bindings/power/reset/apple,smc-reboot.yaml
+++++ b/Documentation/devicetree/bindings/power/reset/apple,smc-reboot.yaml
++@@ -10,6 +10,8 @@ description:
++   The Apple System Management Controller (SMC) provides reboot functionality
++   on Apple Silicon SoCs. It uses NVMEM cells to store and track various
++   system state information related to boot, shutdown, and panic events.
+++  The NVMEM cells are optional; without them the PMU scratchpad is left
+++  untouched.
++ 
++ maintainers:
++   - Sven Peter <sven@kernel.org>
++@@ -32,9 +34,14 @@ properties:
++       - const: boot_error_count
++       - const: panic_count
++ 
+++  apple,poweroff-only:
+++    type: boolean
+++    description:
+++      Only handle power-off. Restart requests are left to other restart
+++      handlers (such as the watchdog), and the SMC is not told about them.
+++      For bring-up of SoCs where an SMC-initiated restart is unverified.
+++
++ required:
++   - compatible
++-  - nvmem-cells
++-  - nvmem-cell-names
++ 
++ additionalProperties: false
++diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
++index 7688cfd4e..6d564091f 100644
++--- a/drivers/power/reset/macsmc-reboot.c
+++++ b/drivers/power/reset/macsmc-reboot.c
++@@ -9,6 +9,7 @@
++ #include <linux/mfd/macsmc.h>
++ #include <linux/module.h>
++ #include <linux/nvmem-consumer.h>
+++#include <linux/of.h>
++ #include <linux/platform_device.h>
++ #include <linux/reboot.h>
++ #include <linux/slab.h>
++@@ -37,6 +38,7 @@ struct macsmc_reboot {
++ 	struct device *dev;
++ 	struct apple_smc *smc;
++ 	struct notifier_block reboot_notify;
+++	bool poweroff_only;
++ 
++ 	union {
++ 		struct macsmc_reboot_nvmem nvm;
++@@ -146,8 +148,15 @@ static int macsmc_reboot_notify(struct notifier_block *this, unsigned long actio
++ 
++ 	dev_info(reboot->dev, "Preparing for reboot (%p4ch)\n", &val);
++ 
+++	/*
+++	 * apple,poweroff-only: the restart itself is left to the watchdog, but
+++	 * boot_stage must still go back to 0 (clean shutdown) or iBoot counts
+++	 * the next boot as a crash and drops into recovery after a few of them.
+++	 * Skip only the SMC MBSE announcement for restarts in that mode.
+++	 */
++ 	/* On the Mac Mini, this will turn off the LED for power off */
++-	if (apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), val) < 0)
+++	if (!(reboot->poweroff_only && action == SYS_RESTART) &&
+++	    apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), val) < 0)
++ 		dev_err(reboot->dev, "Failed to issue MBSE = %p4ch (reboot_prepare)\n", &val);
++ 
++ 	/* Set the boot_stage to 0, which means we're doing a clean shutdown/reboot. */
++@@ -218,6 +227,14 @@ static int macsmc_reboot_probe(struct platform_device *pdev)
++ 
++ 	reboot->dev = &pdev->dev;
++ 	reboot->smc = smc;
+++	/*
+++	 * Boards where an SMC restart is not yet known to be safe (or not known
+++	 * to come back through the boot chain the same way as a watchdog reset)
+++	 * can keep restart on the lower-priority watchdog handler and only take
+++	 * power-off here.
+++	 */
+++	reboot->poweroff_only = of_property_read_bool(pdev->dev.of_node,
+++						      "apple,poweroff-only");
++ 
++ 	platform_set_drvdata(pdev, reboot);
++ 
++@@ -258,21 +275,28 @@ static int macsmc_reboot_probe(struct platform_device *pdev)
++ 		return dev_err_probe(&pdev->dev, ret,
++ 				     "Failed to register power-off handler\n");
++ 
++-	ret = devm_register_sys_off_handler(&pdev->dev, SYS_OFF_MODE_RESTART_PREPARE,
++-					    SYS_OFF_PRIO_HIGH, macsmc_prepare_atomic, reboot);
++-	if (ret)
++-		return dev_err_probe(&pdev->dev, ret,
++-				     "Failed to register restart prepare handler\n");
++-	ret = devm_register_sys_off_handler(&pdev->dev, SYS_OFF_MODE_RESTART, SYS_OFF_PRIO_HIGH,
++-					    macsmc_restart, reboot);
++-	if (ret)
++-		return dev_err_probe(&pdev->dev, ret, "Failed to register restart handler\n");
+++	if (!reboot->poweroff_only) {
+++		ret = devm_register_sys_off_handler(&pdev->dev, SYS_OFF_MODE_RESTART_PREPARE,
+++						    SYS_OFF_PRIO_HIGH, macsmc_prepare_atomic,
+++						    reboot);
+++		if (ret)
+++			return dev_err_probe(&pdev->dev, ret,
+++					     "Failed to register restart prepare handler\n");
+++		ret = devm_register_sys_off_handler(&pdev->dev, SYS_OFF_MODE_RESTART,
+++						    SYS_OFF_PRIO_HIGH, macsmc_restart, reboot);
+++		if (ret)
+++			return dev_err_probe(&pdev->dev, ret,
+++					     "Failed to register restart handler\n");
+++	}
++ 
++ 	ret = devm_register_reboot_notifier(&pdev->dev, &reboot->reboot_notify);
++ 	if (ret)
++ 		return dev_err_probe(&pdev->dev, ret, "Failed to register reboot notifier\n");
++ 
++-	dev_info(&pdev->dev, "Handling reboot and poweroff requests via SMC\n");
+++	if (reboot->poweroff_only)
+++		dev_info(&pdev->dev, "Handling poweroff requests via SMC (restart left to other handlers)\n");
+++	else
+++		dev_info(&pdev->dev, "Handling reboot and poweroff requests via SMC\n");
++ 
++ 	return 0;
++ }
++-- 
++2.56.0
++
+diff --git a/patches/linux/0022-mfd-macsmc-refuse-SMC-replies-larger-than-the-read-b.patch b/patches/linux/0022-mfd-macsmc-refuse-SMC-replies-larger-than-the-read-b.patch
+new file mode 100644
+index 0000000..47ff56f
+--- /dev/null
++++ b/patches/linux/0022-mfd-macsmc-refuse-SMC-replies-larger-than-the-read-b.patch
+@@ -0,0 +1,79 @@
++From acb21cf3c34c42362d40718eb88c813f2c1c3637 Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:53:12 -0500
++Subject: [PATCH] mfd: macsmc: refuse SMC replies larger than the read buffer
++
++The SMC's reply to a key read carries the key's real size. When it is
++larger than the caller's buffer, apple_smc_rw_locked() copied rsize bytes
++and returned the larger size; when it is smaller, it still copied rsize
++bytes, the tail coming from whatever an earlier command left in the
++shared SRAM buffer (for reads over 4 bytes) or from the unused bytes of
++the reply word.
++
++Return -EIO for a reply larger than the request and copy only the bytes
++the SMC returned.
++
++Why this matters for the J716s macsmc-power hang (RESULTS.md round 3):
++of the SMC fixes in edimoldovan's tree this is the only one on the path
++every probe read takes. It cannot overrun Linux memory by itself (the
++copy was already capped at rsize), so on its own it does not explain a
++hard hang. What it removes is the way a wrong-size read could reach one:
++the typed helpers (apple_smc_read_u8/u16/u32) only see "ret == size", so
++a key whose size changed in the 27.x SMC firmware (BCF0 went from 4 bytes
++to 1) could come back as a partly stale value instead of an error. A
++stale non-zero BCF0 reads as "battery critical": capacity_level reports
++CRITICAL and, on the 0x71020000 event, the critical work calls
++orderly_poweroff(), which ends in macsmc-reboot's atomic SMC power-off.
++That path polls the SMC with interrupts off and no timeout (see the next
++patch), which is exactly a hang with no oops if the SMC does not answer.
++Nothing on the round-3 panel shows the "Battery critical" line, so this
++is a candidate, not a diagnosis; macsmc_power.trace=1 (later patch)
++names the last key read before a hang.
++
++Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c,
++the "rsize && ret > rsize" guard and the copy of ret bytes; kunit hooks
++left out.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/mfd/macsmc.c | 16 +++++++++++++---
++ 1 file changed, 13 insertions(+), 3 deletions(-)
++
++diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
++index 68f7bb832..48f4020b2 100644
++--- a/drivers/mfd/macsmc.c
+++++ b/drivers/mfd/macsmc.c
++@@ -154,17 +154,27 @@ static int apple_smc_rw_locked(struct apple_smc *smc, smc_key key,
++ 	if (ret < 0)
++ 		return ret;
++ 
+++	/*
+++	 * The reply carries the key's real size. More than we asked for means
+++	 * the key is not the size the caller thinks it is: refuse it rather
+++	 * than hand back a truncated value as if it were complete.
+++	 */
+++	if (rsize && ret > rsize)
+++		return -EIO;
+++
++ 	if (rsize) {
++ 		/*
++ 		 * Small data <= 4 bytes is returned as part of the reply
++ 		 * message which is sent over the mailbox FIFO. Everything
++ 		 * bigger has to be copied from SRAM which is mapped as
++-		 * Device memory.
+++		 * Device memory. Copy only what the SMC returned, so a short
+++		 * key does not pick up whatever an earlier command left in
+++		 * the shared buffer.
++ 		 */
++ 		if (rsize <= 4)
++-			memcpy(rbuf, &rdata, rsize);
+++			memcpy(rbuf, &rdata, ret);
++ 		else
++-			memcpy_fromio(rbuf, smc->shmem.iomem, rsize);
+++			memcpy_fromio(rbuf, smc->shmem.iomem, ret);
++ 	}
++ 
++ 	return ret;
++-- 
++2.56.0
++
+diff --git a/patches/linux/0023-mfd-macsmc-give-up-on-an-atomic-SMC-write-after-SMC_.patch b/patches/linux/0023-mfd-macsmc-give-up-on-an-atomic-SMC-write-after-SMC_.patch
+new file mode 100644
+index 0000000..3c5a9fa
+--- /dev/null
++++ b/patches/linux/0023-mfd-macsmc-give-up-on-an-atomic-SMC-write-after-SMC_.patch
+@@ -0,0 +1,50 @@
++From d602c2f9e829c5a2d528061ed06480cf6c451711 Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:53:25 -0500
++Subject: [PATCH] mfd: macsmc: give up on an atomic SMC write after
++ SMC_TIMEOUT_MS
++
++apple_smc_write_atomic() is what macsmc-reboot uses for power-off (and
++restart where it is allowed): it takes the spinlock with interrupts off,
++sends the write and polls RTKit until the reply clears atomic_pending.
++There was no limit. If the SMC never answers (crashed, wedged, or a
++firmware that ignores the key), the CPU spins with interrupts disabled
++forever: the machine freezes with no oops and no watchdog message, which
++is the failure shape we saw in round 3.
++
++Stop after SMC_TIMEOUT_MS (5000 polls of 100 us), clear atomic_pending
++and return -ETIMEDOUT, so the caller falls through to the next power-off
++or restart handler (the watchdog for restart).
++
++This is a safety bound, not a behaviour change when the SMC replies.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/mfd/macsmc.c | 11 ++++++++++-
++ 1 file changed, 10 insertions(+), 1 deletion(-)
++
++diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
++index 48f4020b2..1661fcf9b 100644
++--- a/drivers/mfd/macsmc.c
+++++ b/drivers/mfd/macsmc.c
++@@ -283,7 +283,16 @@ int apple_smc_write_atomic(struct apple_smc *smc, smc_key key, const void *buf,
++ 		return ret;
++ 	}
++ 
++-	while (smc->atomic_pending) {
+++	/*
+++	 * This runs with interrupts off (power-off, reboot), so a reply that
+++	 * never comes must not spin forever: give up after SMC_TIMEOUT_MS.
+++	 */
+++	for (unsigned int polls = 0; smc->atomic_pending; polls++) {
+++		if (polls >= SMC_TIMEOUT_MS * 10) {
+++			smc->atomic_pending = false;
+++			dev_err(smc->dev, "Atomic command timed out (%llx)\n", msg);
+++			return -ETIMEDOUT;
+++		}
++ 		ret = apple_rtkit_poll(smc->rtk);
++ 		if (ret < 0) {
++ 			dev_err(smc->dev, "RTKit poll failed (%llx)", msg);
++-- 
++2.56.0
++
+diff --git a/patches/linux/0024-mfd-macsmc-hold-the-lock-until-the-key-info-is-copie.patch b/patches/linux/0024-mfd-macsmc-hold-the-lock-until-the-key-info-is-copie.patch
+new file mode 100644
+index 0000000..83ea680
+--- /dev/null
++++ b/patches/linux/0024-mfd-macsmc-hold-the-lock-until-the-key-info-is-copie.patch
+@@ -0,0 +1,44 @@
++From 93977bd68f9d2a93817f4fa831aa8906bfa4dad5 Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:53:41 -0500
++Subject: [PATCH] mfd: macsmc: hold the lock until the key info is copied out
++
++apple_smc_get_key_info() sent GET_KEY_INFO under the mutex but read the
++6-byte answer from the shared SRAM buffer after dropping it. Any SMC
++command issued in between (hwmon, gpio, rtc, the trackpad's AFE reset
++line, a notifier) overwrites that buffer, and the caller gets another
++command's data as size/type/flags.
++
++macsmc-power decides the BCF0 width from this (1 byte on 27.x firmware,
++4 bytes before), so a race here picks the wrong read size for the
++"battery critical" key. Keep the mutex across the copy.
++
++Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/mfd/macsmc.c | 8 +++++++-
++ 1 file changed, 7 insertions(+), 1 deletion(-)
++
++diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
++index 1661fcf9b..379ceab05 100644
++--- a/drivers/mfd/macsmc.c
+++++ b/drivers/mfd/macsmc.c
++@@ -221,7 +221,13 @@ int apple_smc_get_key_info(struct apple_smc *smc, smc_key key, struct apple_smc_
++ 	u8 key_info[6];
++ 	int ret;
++ 
++-	ret = apple_smc_cmd(smc, SMC_MSG_GET_KEY_INFO, key, 0, 0, NULL);
+++	/*
+++	 * The key info comes back in the shared buffer: keep the lock until it
+++	 * is copied out, or another command can overwrite it first.
+++	 */
+++	guard(mutex)(&smc->mutex);
+++
+++	ret = apple_smc_cmd_locked(smc, SMC_MSG_GET_KEY_INFO, key, 0, 0, NULL);
++ 	if (ret >= 0 && info) {
++ 		memcpy_fromio(key_info, smc->shmem.iomem, sizeof(key_info));
++ 		info->size = key_info[0];
++-- 
++2.56.0
++
+diff --git a/patches/linux/0025-mfd-macsmc-bounds-check-apple_smc_get_key_by_index.patch b/patches/linux/0025-mfd-macsmc-bounds-check-apple_smc_get_key_by_index.patch
+new file mode 100644
+index 0000000..ed98c91
+--- /dev/null
++++ b/patches/linux/0025-mfd-macsmc-bounds-check-apple_smc_get_key_by_index.patch
+@@ -0,0 +1,47 @@
++From 4d9ab5fd1a43dee0616f6d164b09455a7649311b Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:53:43 -0500
++Subject: [PATCH] mfd: macsmc: bounds-check apple_smc_get_key_by_index()
++
++Refuse an index outside [0, key_count) instead of sending it to the SMC,
++and leave *key untouched when the command fails: the old code byte-swapped
++whatever was in *key (uninitialised on the caller's stack, for a failed
++command) and handed it back.
++
++Nothing in the J716s probe path calls this today; it is used by key
++enumeration (debug tools, macsmc-hwmon experiments).
++
++Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/mfd/macsmc.c | 10 ++++++++--
++ 1 file changed, 8 insertions(+), 2 deletions(-)
++
++diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
++index 379ceab05..a73bcbdf3 100644
++--- a/drivers/mfd/macsmc.c
+++++ b/drivers/mfd/macsmc.c
++@@ -207,11 +207,17 @@ EXPORT_SYMBOL(apple_smc_rw);
++ 
++ int apple_smc_get_key_by_index(struct apple_smc *smc, int index, smc_key *key)
++ {
+++	u32 data;
++ 	int ret;
++ 
++-	ret = apple_smc_cmd(smc, SMC_MSG_GET_KEY_BY_INDEX, index, 0, 0, key);
+++	if (index < 0 || index >= smc->key_count)
+++		return -EINVAL;
+++
+++	ret = apple_smc_cmd(smc, SMC_MSG_GET_KEY_BY_INDEX, index, 0, 0, &data);
+++	if (ret < 0)
+++		return ret;
++ 
++-	*key = swab32(*key);
+++	*key = swab32(data);
++ 	return ret;
++ }
++ EXPORT_SYMBOL(apple_smc_get_key_by_index);
++-- 
++2.56.0
++
+diff --git a/patches/linux/0026-mfd-macsmc-treat-a-short-key-count-reply-as-an-I-O-e.patch b/patches/linux/0026-mfd-macsmc-treat-a-short-key-count-reply-as-an-I-O-e.patch
+new file mode 100644
+index 0000000..b754dc3
+--- /dev/null
++++ b/patches/linux/0026-mfd-macsmc-treat-a-short-key-count-reply-as-an-I-O-e.patch
+@@ -0,0 +1,47 @@
++From bb42c2edab8745773a68a7e99e267c55306ac887 Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:54:00 -0500
++Subject: [PATCH] mfd: macsmc: treat a short key-count reply as an I/O error
++
++#KEY is read into a 4-byte big-endian value. With the reply-size guard a
++longer reply already fails; a shorter one used to leave part of the
++uninitialised stack variable in key_count (which now bounds
++apple_smc_get_key_by_index()). Start from zero and report -EIO, the same
++error the guard uses for a size mismatch, rather than -EINVAL.
++
++Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/mfd/macsmc.c | 8 +++++---
++ 1 file changed, 5 insertions(+), 3 deletions(-)
++
++diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
++index a73bcbdf3..74d291929 100644
++--- a/drivers/mfd/macsmc.c
+++++ b/drivers/mfd/macsmc.c
++@@ -442,7 +442,7 @@ static int apple_smc_probe(struct platform_device *pdev)
++ {
++ 	struct device *dev = &pdev->dev;
++ 	struct apple_smc *smc;
++-	__be32 count;
+++	__be32 count = 0;
++ 	int ret;
++ 
++ 	smc = devm_kzalloc(dev, sizeof(*smc), GFP_KERNEL);
++@@ -495,8 +495,10 @@ static int apple_smc_probe(struct platform_device *pdev)
++ 	BLOCKING_INIT_NOTIFIER_HEAD(&smc->event_handlers);
++ 
++ 	ret = apple_smc_read(smc, SMC_KEY(#KEY), &count, sizeof(count));
++-	if (ret >= 0 && ret != sizeof(count))
++-		ret = -EINVAL;
+++	if (ret >= 0 && ret != sizeof(count)) {
+++		count = 0;
+++		ret = -EIO;
+++	}
++ 	if (ret < 0)
++ 		return dev_err_probe(smc->dev, ret, "Failed to get key count");
++ 	smc->key_count = be32_to_cpu(count);
++-- 
++2.56.0
++
+diff --git a/patches/linux/0027-mfd-macsmc-add-the-second-GPIO-bank-only-where-the-D.patch b/patches/linux/0027-mfd-macsmc-add-the-second-GPIO-bank-only-where-the-D.patch
+new file mode 100644
+index 0000000..30fd7cd
+--- /dev/null
++++ b/patches/linux/0027-mfd-macsmc-add-the-second-GPIO-bank-only-where-the-D.patch
+@@ -0,0 +1,76 @@
++From 3673eadd42290f457bd81fbefd73c2c5a8c332b0 Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:54:20 -0500
++Subject: [PATCH] mfd: macsmc: add the second GPIO bank only where the DT has
++ it
++
++The macsmc-low-gpio cell ('gp' keys) was in the fixed cell list, so on
++every SMC without an apple,smc-low-gpio node the MFD core created an
++unbound device and warned that it found no OF node. Register it on its
++own, after the other cells, and only when the node exists.
++
++J716s describes the bank (the trackpad AFE reset is gp1c, line 28), so
++the device is still created there; it is now registered after the
++hwmon/reboot/rtc cells instead of between gpio and hwmon. The trackpad
++already waits for it through post-init-providers.
++
++Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/mfd/macsmc.c | 20 +++++++++++++++++++-
++ 1 file changed, 19 insertions(+), 1 deletion(-)
++
++diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
++index 74d291929..0afff6405 100644
++--- a/drivers/mfd/macsmc.c
+++++ b/drivers/mfd/macsmc.c
++@@ -48,12 +48,15 @@ static const struct mfd_cell apple_smc_devs[] = {
++ 	MFD_CELL_NAME("macsmc-input"),
++ 	MFD_CELL_NAME("macsmc-power"),
++ 	MFD_CELL_OF("macsmc-gpio", NULL, NULL, 0, 0, "apple,smc-gpio"),
++-	MFD_CELL_OF("macsmc-low-gpio", NULL, NULL, 0, 0, "apple,smc-low-gpio"),
++ 	MFD_CELL_OF("macsmc-hwmon", NULL, NULL, 0, 0, "apple,smc-hwmon"),
++ 	MFD_CELL_OF("macsmc-reboot", NULL, NULL, 0, 0, "apple,smc-reboot"),
++ 	MFD_CELL_OF("macsmc-rtc", NULL, NULL, 0, 0, "apple,smc-rtc"),
++ };
++ 
+++/* The second GPIO bank ('gp' keys) only exists on some SMCs. */
+++static const struct mfd_cell apple_smc_low_gpio_dev =
+++	MFD_CELL_OF("macsmc-low-gpio", NULL, NULL, 0, 0, "apple,smc-low-gpio");
+++
++ static int apple_smc_cmd_locked(struct apple_smc *smc, u64 cmd, u64 arg,
++ 				  u64 size, u64 wsize, u32 *ret_data)
++ {
++@@ -441,6 +444,7 @@ static void apple_smc_disable_notifications(void *data)
++ static int apple_smc_probe(struct platform_device *pdev)
++ {
++ 	struct device *dev = &pdev->dev;
+++	struct device_node *np;
++ 	struct apple_smc *smc;
++ 	__be32 count = 0;
++ 	int ret;
++@@ -515,6 +519,20 @@ static int apple_smc_probe(struct platform_device *pdev)
++ 	if (ret)
++ 		return dev_err_probe(smc->dev, ret, "Failed to register sub-devices");
++ 
+++	/*
+++	 * Register the second GPIO bank only where the device tree describes
+++	 * it: the MFD core would otherwise create an unbound device and warn
+++	 * that it found no node on every SMC without one.
+++	 */
+++	np = of_get_compatible_child(dev->of_node, "apple,smc-low-gpio");
+++	if (np) {
+++		of_node_put(np);
+++		ret = devm_mfd_add_devices(smc->dev, PLATFORM_DEVID_NONE,
+++					   &apple_smc_low_gpio_dev, 1, NULL, 0, NULL);
+++		if (ret)
+++			return dev_err_probe(smc->dev, ret,
+++					     "Failed to register the second GPIO bank");
+++	}
++ 
++ 	return 0;
++ }
++-- 
++2.56.0
++
+diff --git a/patches/linux/0028-power-supply-macsmc-power-decide-B0RM-byte-order-apa.patch b/patches/linux/0028-power-supply-macsmc-power-decide-B0RM-byte-order-apa.patch
+new file mode 100644
+index 0000000..fb8dbec
+--- /dev/null
++++ b/patches/linux/0028-power-supply-macsmc-power-decide-B0RM-byte-order-apa.patch
+@@ -0,0 +1,93 @@
++From a5e3412d4f028e65901a10cd904c26e31b05d62f Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:54:41 -0500
++Subject: [PATCH] power: supply: macsmc-power: decide B0RM byte order apart
++ from the BCF0 size
++
++fw_ge_27 (set when the BCF0 "battery critical" key is 1 byte) also chose
++the byte order of B0RM, the remaining-charge key. The two do not always
++go together: J700 firmware has a native-order B0RM with a 4-byte BCF0.
++Give B0RM its own flag, b0rm_native = fw_ge_27 || J700, and read it as
++u16 (it was cast through s16, so a value above 32767 mAh would have gone
++negative).
++
++On J716s (SMC firmware from the 27.3 beta 1 stub, newer than any
++firmware the driver was written against) BCF0 is expected to be 1 byte,
++so both flags end up true and charge_now/energy_now read the same as
++before; the probe's BCF0 size check is unchanged and still refuses any
++size other than 1 or 4.
++
++Based on edimoldovan/linux-aurora (t6050-j714c)
++drivers/power/supply/macsmc-power.c.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/power/supply/macsmc-power.c | 21 +++++++++++++--------
++ 1 file changed, 13 insertions(+), 8 deletions(-)
++
++diff --git a/drivers/power/supply/macsmc-power.c b/drivers/power/supply/macsmc-power.c
++index f5d4ec0c2..d32c0fd49 100644
++--- a/drivers/power/supply/macsmc-power.c
+++++ b/drivers/power/supply/macsmc-power.c
++@@ -86,11 +86,14 @@ struct macsmc_power {
++ 	bool has_ch0i; /* Force discharge (Older firmware) */
++ 	bool has_ch0c; /* Inhibit charge (Older firmware) */
++ 	bool has_chte; /* Inhibit charge (Modern firmware) */
+++	/* Battery critical key (BCF0) is 1 byte (Modern firmware) */
+++	bool fw_ge_27;
++ 	/*
++-	 * Battery critical key is 1 byte and charge key is little endian
++-	 * (Modern firmware)
+++	 * Remaining charge key (B0RM) is in native byte order rather than the
+++	 * gas gauge's big-endian pass-through. This comes with the 1-byte BCF0
+++	 * firmware, but J700 firmware has a native B0RM and a 4-byte BCF0.
++ 	 */
++-	bool fw_ge_27;
+++	bool b0rm_native;
++ 
++ 	u8 num_cells;
++ 	int nominal_voltage_mv;
++@@ -421,10 +424,9 @@ static int macsmc_battery_get_capacity_level(struct macsmc_power *power)
++ 		return POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
++ }
++ 
++-static s16 macsmc_swap_b0rm(struct macsmc_power *power, s16 b0rm)
+++static u16 macsmc_b0rm_to_mah(struct macsmc_power *power, u16 b0rm)
++ {
++-	/* B0RM was Big Endian, likely pass through from TI gas gauge */
++-	return power->fw_ge_27 ? b0rm : (s16)swab16(b0rm);
+++	return power->b0rm_native ? b0rm : swab16(b0rm);
++ }
++ 
++ static int macsmc_battery_get_property(struct power_supply *psy,
++@@ -521,7 +523,7 @@ static int macsmc_battery_get_property(struct power_supply *psy,
++ 		break;
++ 	case POWER_SUPPLY_PROP_CHARGE_NOW:
++ 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0RM), &vu16);
++-		val->intval = macsmc_swap_b0rm(power, vu16) * 1000;
+++		val->intval = macsmc_b0rm_to_mah(power, vu16) * 1000;
++ 		break;
++ 	case POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN:
++ 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0DC), &vu16);
++@@ -533,7 +535,7 @@ static int macsmc_battery_get_property(struct power_supply *psy,
++ 		break;
++ 	case POWER_SUPPLY_PROP_ENERGY_NOW:
++ 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0RM), &vu16);
++-		val->intval = macsmc_swap_b0rm(power, vu16) * power->nominal_voltage_mv;
+++		val->intval = macsmc_b0rm_to_mah(power, vu16) * power->nominal_voltage_mv;
++ 		break;
++ 	case POWER_SUPPLY_PROP_TEMP:
++ 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0AT), &vu16);
++@@ -932,6 +934,9 @@ static int macsmc_power_probe(struct platform_device *pdev)
++ 			return -EIO;
++ 		}
++ 
+++		power->b0rm_native = power->fw_ge_27 ||
+++				     of_machine_is_compatible("apple,j700");
+++
++ 		/* Reset "Optimised Battery Charging" flags to default state */
++ 		if (power->has_chte)
++ 			apple_smc_write_u32(smc, SMC_KEY(CHTE), 0);
++-- 
++2.56.0
++
+diff --git a/patches/linux/0029-power-supply-macsmc-power-serialise-charge-settings-.patch b/patches/linux/0029-power-supply-macsmc-power-serialise-charge-settings-.patch
+new file mode 100644
+index 0000000..f101911
+--- /dev/null
++++ b/patches/linux/0029-power-supply-macsmc-power-serialise-charge-settings-.patch
+@@ -0,0 +1,156 @@
++From e3a8fd436382a3b19eed9ca307fb12b01a3c214b Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:55:27 -0500
++Subject: [PATCH] power: supply: macsmc-power: serialise charge settings; a
++ write's reply size is not an error
++
++- apple_smc_write() returns the size field of the SMC's reply, which can
++  echo the request length. Setting charge_behaviour to "auto" checked
++  "if (ret) return ret" after each write, so a positive reply after the
++  CH0I reset returned early and CHTE/CH0C were never cleared. Only a
++  negative value is a failure; set_property() now reports 0 for any
++  non-negative result.
++- The CHLS limit and the behaviour setters read, modify and write the
++  same keys from sysfs and from udev/upower at the same time. Add
++  charge_lock and take it in the getter and the setters.
++- The 4-byte CHTE read accepted a short reply and looked at the stale
++  rest of the buffer; require all four bytes (-EIO otherwise).
++
++None of this runs during probe; it matters once the battery is enabled
++and userspace touches charge_behaviour or the thresholds.
++
++Based on edimoldovan/linux-aurora (t6050-j714c)
++drivers/power/supply/macsmc-power.c (charge_lock, "ret < 0" write
++checks, the CHTE length check). The AUTO_DISCHARGE charge behaviour from
++the same tree needs a new power-supply UAPI value and is not ported.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/power/supply/macsmc-power.c | 49 ++++++++++++++++++++++++-----
++ 1 file changed, 41 insertions(+), 8 deletions(-)
++
++diff --git a/drivers/power/supply/macsmc-power.c b/drivers/power/supply/macsmc-power.c
++index d32c0fd49..d4ccc4539 100644
++--- a/drivers/power/supply/macsmc-power.c
+++++ b/drivers/power/supply/macsmc-power.c
++@@ -15,6 +15,7 @@
++ #include <linux/limits.h>
++ #include <linux/module.h>
++ #include <linux/mfd/macsmc.h>
+++#include <linux/mutex.h>
++ #include <linux/notifier.h>
++ #include <linux/of.h>
++ #include <linux/platform_device.h>
++@@ -70,6 +71,12 @@ struct macsmc_power {
++ 	struct device *dev;
++ 	struct apple_smc *smc;
++ 
+++	/*
+++	 * Serializes the charge settings: the CHLS threshold and behaviour
+++	 * setters each read, modify and write bits of the same key.
+++	 */
+++	struct mutex charge_lock;
+++
++ 	struct power_supply_desc ac_desc;
++ 	struct power_supply_desc batt_desc;
++ 
++@@ -303,6 +310,8 @@ static int macsmc_battery_get_charge_behaviour(struct macsmc_power *power)
++ 	u8 val8;
++ 	u8 chte_buf[4];
++ 
+++	guard(mutex)(&power->charge_lock);
+++
++ 	if (power->has_ch0i) {
++ 		ret = apple_smc_read_u8(power->smc, SMC_KEY(CH0I), &val8);
++ 		if (ret)
++@@ -315,6 +324,8 @@ static int macsmc_battery_get_charge_behaviour(struct macsmc_power *power)
++ 		ret = apple_smc_read(power->smc, SMC_KEY(CHTE), chte_buf, 4);
++ 		if (ret < 0)
++ 			return ret;
+++		if (ret != sizeof(chte_buf))
+++			return -EIO;
++ 
++ 		if (chte_buf[0] == 0x01)
++ 			return POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE;
++@@ -333,22 +344,28 @@ static int macsmc_battery_set_charge_behaviour(struct macsmc_power *power, int v
++ {
++ 	int ret;
++ 
+++	lockdep_assert_held(&power->charge_lock);
+++
++ 	switch (val) {
++ 	case POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO:
++-		/* Reset all inhibitors to a known-good 'auto' state */
+++		/*
+++		 * Reset all inhibitors to a known-good 'auto' state. A write
+++		 * reply carries the SMC's response size, which may echo the
+++		 * request length: only a negative value is a failure.
+++		 */
++ 		if (power->has_ch0i) {
++ 			ret = apple_smc_write_u8(power->smc, SMC_KEY(CH0I), 0);
++-			if (ret)
+++			if (ret < 0)
++ 				return ret;
++ 		}
++ 
++ 		if (power->has_chte) {
++ 			ret = apple_smc_write_u32(power->smc, SMC_KEY(CHTE), 0);
++-			if (ret)
+++			if (ret < 0)
++ 				return ret;
++ 		} else if (power->has_ch0c) {
++ 			ret = apple_smc_write_u8(power->smc, SMC_KEY(CH0C), 0);
++-			if (ret)
+++			if (ret < 0)
++ 				return ret;
++ 		}
++ 		return 0;
++@@ -599,11 +616,11 @@ static int macsmc_battery_get_property(struct power_supply *psy,
++ 	return ret;
++ }
++ 
++-static int macsmc_battery_set_property(struct power_supply *psy,
++-				       enum power_supply_property psp,
++-				       const union power_supply_propval *val)
+++static int macsmc_battery_set_charge_property(struct macsmc_power *power,
+++					      enum power_supply_property psp,
+++					      const union power_supply_propval *val)
++ {
++-	struct macsmc_power *power = power_supply_get_drvdata(psy);
+++	lockdep_assert_held(&power->charge_lock);
++ 
++ 	switch (psp) {
++ 	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR:
++@@ -635,6 +652,19 @@ static int macsmc_battery_set_property(struct power_supply *psy,
++ 	}
++ }
++ 
+++static int macsmc_battery_set_property(struct power_supply *psy,
+++				       enum power_supply_property psp,
+++				       const union power_supply_propval *val)
+++{
+++	struct macsmc_power *power = power_supply_get_drvdata(psy);
+++	int ret;
+++
+++	guard(mutex)(&power->charge_lock);
+++	ret = macsmc_battery_set_charge_property(power, psp, val);
+++	/* A write's reply size is not an error, and nothing for sysfs to see */
+++	return ret < 0 ? ret : 0;
+++}
+++
++ static int macsmc_battery_property_is_writeable(struct power_supply *psy,
++ 						enum power_supply_property psp)
++ {
++@@ -834,6 +864,9 @@ static int macsmc_power_probe(struct platform_device *pdev)
++ 
++ 	power->dev = dev;
++ 	power->smc = smc;
+++	ret = devm_mutex_init(dev, &power->charge_lock);
+++	if (ret)
+++		return ret;
++ 	dev_set_drvdata(dev, power);
++ 
++ 	/* devm_work_autocancel() initialises critical_work */
++-- 
++2.56.0
++
+diff --git a/patches/linux/0030-power-supply-macsmc-power-a-CHLS-charge-limit-no-lon.patch b/patches/linux/0030-power-supply-macsmc-power-a-CHLS-charge-limit-no-lon.patch
+new file mode 100644
+index 0000000..56acf4e
+--- /dev/null
++++ b/patches/linux/0030-power-supply-macsmc-power-a-CHLS-charge-limit-no-lon.patch
+@@ -0,0 +1,185 @@
++From 34fc3765a29374e3237e2540bfe904a44e674f15 Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:56:05 -0500
++Subject: [PATCH] power: supply: macsmc-power: a CHLS charge limit no longer
++ forces discharge
++
++On firmware with the CHLS charge-limit key, writing
++charge_control_end_threshold always set CHLS_FORCE_DISCHARGE (0x100)
++together with the limit ("TODO: make it configurable"), so choosing an
++80 % limit with the battery at 95 % drained it on AC down to 80 %.
++
++- The threshold setter keeps the force-discharge bit as it was (this
++  driver never sets it) and only changes the limit; "100" clears the key.
++- charge_behaviour "auto" also clears the bit on CHLS machines, and a
++  CHLS-only machine now gets the charge_behaviour attribute with "auto".
++- At probe, a force-discharge bit without a valid limit is cleared once
++  (one CHLS read, and a write only in that state).
++
++The opt-in "discharge to the limit" behaviour (AUTO_DISCHARGE in
++edimoldovan's tree) needs a new power-supply UAPI value and is left out.
++Which of CHWA/CHLS the J716s firmware has is not known yet; the probe
++picks whichever answers, as before.
++
++Based on edimoldovan/linux-aurora (t6050-j714c)
++drivers/power/supply/macsmc-power.c (macsmc_chls_has_limit,
++macsmc_battery_clear_stray_discharge, macsmc_battery_charge_behaviours,
++the threshold setter).
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/power/supply/macsmc-power.c | 102 ++++++++++++++++++++++------
++ 1 file changed, 82 insertions(+), 20 deletions(-)
++
++diff --git a/drivers/power/supply/macsmc-power.c b/drivers/power/supply/macsmc-power.c
++index d4ccc4539..a43112f16 100644
++--- a/drivers/power/supply/macsmc-power.c
+++++ b/drivers/power/supply/macsmc-power.c
++@@ -304,6 +304,32 @@ static int macsmc_battery_get_status(struct macsmc_power *power)
++ 	return POWER_SUPPLY_STATUS_CHARGING;
++ }
++ 
+++/*
+++ * Whether a CHLS value holds a charge limit, as the threshold getter reads
+++ * it. Force discharge is only meaningful together with a limit: without one
+++ * there is nothing to discharge to.
+++ */
+++static bool macsmc_chls_has_limit(u16 chls)
+++{
+++	u8 limit = chls & 0xff;
+++
+++	return limit >= CHLS_MIN_END_THRESHOLD && limit < 100;
+++}
+++
+++static unsigned int macsmc_battery_charge_behaviours(struct macsmc_power *power)
+++{
+++	unsigned int behaviours = 0;
+++
+++	if (power->has_ch0i || power->has_ch0c || power->has_chte || power->has_chls)
+++		behaviours |= BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO);
+++	if (power->has_ch0i)
+++		behaviours |= BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_FORCE_DISCHARGE);
+++	if (power->has_chte || power->has_ch0c)
+++		behaviours |= BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE);
+++
+++	return behaviours;
+++}
+++
++ static int macsmc_battery_get_charge_behaviour(struct macsmc_power *power)
++ {
++ 	int ret;
++@@ -368,6 +394,18 @@ static int macsmc_battery_set_charge_behaviour(struct macsmc_power *power, int v
++ 			if (ret < 0)
++ 				return ret;
++ 		}
+++
+++		/* Auto never discharges to the CHLS limit */
+++		if (power->has_chls) {
+++			u16 vu16;
+++
+++			ret = apple_smc_read_u16(power->smc, SMC_KEY(CHLS), &vu16);
+++			if (ret)
+++				return ret;
+++			if (vu16 & CHLS_FORCE_DISCHARGE)
+++				return apple_smc_write_u16(power->smc, SMC_KEY(CHLS),
+++							   vu16 & ~CHLS_FORCE_DISCHARGE);
+++		}
++ 		return 0;
++ 
++ 	case POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE:
++@@ -634,12 +672,24 @@ static int macsmc_battery_set_charge_property(struct macsmc_power *power,
++ 		return 0;
++ 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD:
++ 		if (power->has_chls) {
++-			u16 kval = 0;
++-			/* TODO: Make CHLS_FORCE_DISCHARGE configurable */
+++			u16 kval;
+++			int ret;
+++
+++			/*
+++			 * Setting a limit must not start draining the battery on
+++			 * AC: keep the force-discharge bit as it is (this driver
+++			 * never sets it) instead of always setting it.
+++			 */
+++			ret = apple_smc_read_u16(power->smc, SMC_KEY(CHLS), &kval);
+++			if (ret)
+++				return ret;
+++			kval &= CHLS_FORCE_DISCHARGE;
++ 			if (val->intval < CHLS_MIN_END_THRESHOLD)
++-				kval = CHLS_FORCE_DISCHARGE | CHLS_MIN_END_THRESHOLD;
+++				kval |= CHLS_MIN_END_THRESHOLD;
++ 			else if (val->intval < 100)
++-				kval = CHLS_FORCE_DISCHARGE | (val->intval & 0xff);
+++				kval |= val->intval & 0xff;
+++			else
+++				kval = 0; /* No limit: nothing to discharge to */
++ 			return apple_smc_write_u16(power->smc, SMC_KEY(CHLS), kval);
++ 		} else if (power->has_chwa) {
++ 			return apple_smc_write_flag(power->smc, SMC_KEY(CHWA),
++@@ -665,6 +715,25 @@ static int macsmc_battery_set_property(struct power_supply *psy,
++ 	return ret < 0 ? ret : 0;
++ }
++ 
+++/*
+++ * Force-discharge set in CHLS without a charge limit is a state this driver
+++ * never asks of the SMC. Clear the bit once at probe; the limit byte is kept.
+++ */
+++static int macsmc_battery_clear_stray_discharge(struct macsmc_power *power)
+++{
+++	u16 chls;
+++	int ret;
+++
+++	guard(mutex)(&power->charge_lock);
+++	ret = apple_smc_read_u16(power->smc, SMC_KEY(CHLS), &chls);
+++	if (ret)
+++		return ret;
+++	if (!(chls & CHLS_FORCE_DISCHARGE) || macsmc_chls_has_limit(chls))
+++		return 0;
+++	ret = apple_smc_write_u16(power->smc, SMC_KEY(CHLS), chls & ~CHLS_FORCE_DISCHARGE);
+++	return ret < 0 ? ret : 0;
+++}
+++
++ static int macsmc_battery_property_is_writeable(struct power_supply *psy,
++ 						enum power_supply_property psp)
++ {
++@@ -982,28 +1051,21 @@ static int macsmc_power_probe(struct platform_device *pdev)
++ 		apple_smc_write_u8(smc, SMC_KEY(CH0K), 0);
++ 		apple_smc_write_u8(smc, SMC_KEY(CH0B), 0);
++ 
++-		/* Configure charge behaviour if supported */
++-		if (power->has_ch0i || power->has_ch0c || power->has_chte) {
++-			props[nprops++] = POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR;
++-
++-			power->batt_desc.charge_behaviours =
++-				BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO);
++-
++-			if (power->has_ch0i)
++-				power->batt_desc.charge_behaviours |=
++-					BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_FORCE_DISCHARGE);
++-
++-			if (power->has_chte || power->has_ch0c)
++-				power->batt_desc.charge_behaviours |=
++-					BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE);
++-		}
++-
++ 		/* Detect charge limit method (CHWA vs CHLS) */
++ 		if (apple_smc_read_flag(power->smc, SMC_KEY(CHWA), &flag) == 0)
++ 			power->has_chwa = true;
++ 		else if (apple_smc_read_u16(power->smc, SMC_KEY(CHLS), &vu16) >= 0)
++ 			power->has_chls = true;
++ 
+++		if (power->has_chls && macsmc_battery_clear_stray_discharge(power))
+++			dev_warn(dev, "Failed to clear force-discharge without a charge limit\n");
+++
+++		/* A CHLS-only Mac can select auto to leave force-discharge too */
+++		power->batt_desc.charge_behaviours =
+++			macsmc_battery_charge_behaviours(power);
+++		if (power->batt_desc.charge_behaviours)
+++			props[nprops++] = POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR;
+++
++ 		if (power->has_chwa || power->has_chls) {
++ 			props[nprops++] = POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD;
++ 			props[nprops++] = POWER_SUPPLY_PROP_CHARGE_CONTROL_START_THRESHOLD;
++-- 
++2.56.0
++
+diff --git a/patches/linux/0031-power-supply-macsmc-power-list-optional-battery-prop.patch b/patches/linux/0031-power-supply-macsmc-power-list-optional-battery-prop.patch
+new file mode 100644
+index 0000000..147bdeb
+--- /dev/null
++++ b/patches/linux/0031-power-supply-macsmc-power-list-optional-battery-prop.patch
+@@ -0,0 +1,75 @@
++From 6f4086d573d5b5ef3e866aad5e02929ce29218e2 Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:56:22 -0500
++Subject: [PATCH] power: supply: macsmc-power: list optional battery properties
++ only when their keys exist
++
++- voltage_min_design (BITV), charge_term_current (B0RC),
++  constant_charge_current_max (B0RI) and constant_charge_voltage (B0RV)
++  were always listed. On firmware without the key every read of the
++  attribute fails, and the uevent/upower sweep that power_supply_register()
++  starts reads every listed property right away. Check the key once at
++  probe and list the property only when it is there.
++- time_to_empty/time_to_full: 0xffff means "not applicable" (on AC, or
++  not charging). Report -ENODATA instead of 0 s, and no longer compute a
++  value from an uninitialised vu16 when the read fails.
++
++Based on edimoldovan/linux-aurora (t6050-j714c)
++drivers/power/supply/macsmc-power.c.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/power/supply/macsmc-power.c | 24 ++++++++++++++++++------
++ 1 file changed, 18 insertions(+), 6 deletions(-)
++
++diff --git a/drivers/power/supply/macsmc-power.c b/drivers/power/supply/macsmc-power.c
++index a43112f16..0bbced508 100644
++--- a/drivers/power/supply/macsmc-power.c
+++++ b/drivers/power/supply/macsmc-power.c
++@@ -511,11 +511,19 @@ static int macsmc_battery_get_property(struct power_supply *psy,
++ 		break;
++ 	case POWER_SUPPLY_PROP_TIME_TO_EMPTY_NOW:
++ 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0TE), &vu16);
++-		val->intval = vu16 == 0xffff ? 0 : vu16 * 60;
+++		if (ret)
+++			break;
+++		if (vu16 == U16_MAX)
+++			return -ENODATA;
+++		val->intval = vu16 * 60;
++ 		break;
++ 	case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
++ 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0TF), &vu16);
++-		val->intval = vu16 == 0xffff ? 0 : vu16 * 60;
+++		if (ret)
+++			break;
+++		if (vu16 == U16_MAX)
+++			return -ENODATA;
+++		val->intval = vu16 * 60;
++ 		break;
++ 	case POWER_SUPPLY_PROP_CAPACITY:
++ 		ret = apple_smc_read_u8(power->smc, SMC_KEY(BUIC), &vu8);
++@@ -999,13 +1007,17 @@ static int macsmc_power_probe(struct platform_device *pdev)
++ 		/* Extended properties usually present */
++ 		props[nprops++] = POWER_SUPPLY_PROP_TIME_TO_EMPTY_NOW;
++ 		props[nprops++] = POWER_SUPPLY_PROP_TIME_TO_FULL_NOW;
++-		props[nprops++] = POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN;
+++		if (apple_smc_key_exists(smc, SMC_KEY(BITV)))
+++			props[nprops++] = POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN;
++ 		props[nprops++] = POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN;
++ 		props[nprops++] = POWER_SUPPLY_PROP_VOLTAGE_MIN;
++ 		props[nprops++] = POWER_SUPPLY_PROP_VOLTAGE_MAX;
++-		props[nprops++] = POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT;
++-		props[nprops++] = POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX;
++-		props[nprops++] = POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE;
+++		if (apple_smc_key_exists(smc, SMC_KEY(B0RC)))
+++			props[nprops++] = POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT;
+++		if (apple_smc_key_exists(smc, SMC_KEY(B0RI)))
+++			props[nprops++] = POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX;
+++		if (apple_smc_key_exists(smc, SMC_KEY(B0RV)))
+++			props[nprops++] = POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE;
++ 		props[nprops++] = POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN;
++ 		props[nprops++] = POWER_SUPPLY_PROP_CHARGE_FULL;
++ 		props[nprops++] = POWER_SUPPLY_PROP_CHARGE_NOW;
++-- 
++2.56.0
++
+diff --git a/patches/linux/0032-power-supply-macsmc-power-macsmc_power.trace-1-names.patch b/patches/linux/0032-power-supply-macsmc-power-macsmc_power.trace-1-names.patch
+new file mode 100644
+index 0000000..7ba2639
+--- /dev/null
++++ b/patches/linux/0032-power-supply-macsmc-power-macsmc_power.trace-1-names.patch
+@@ -0,0 +1,191 @@
++From a0cc4db88f62d66b3c1ddab18118739ac518c9d2 Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:58:08 -0500
++Subject: [PATCH] power: supply: macsmc-power: macsmc_power.trace=1 names every
++ SMC key during probe
++
++Enabling macsmc-power on J716s (M5 Pro, SMC firmware from the 27.3 beta 1
++stub) hangs the machine hard at ~7.8 s, right after the SMC input device
++registers, with no oops (RESULTS.md round 3). The probe and the first
++property sweep issue some 60 SMC commands; we need to know which one is
++last.
++
++With macsmc_power.trace=1 on the command line the driver logs, before it
++is sent, every SMC access it makes:
++
++  macsmc-power macsmc-power: trace: rd B0AV size 2
++  macsmc-power macsmc-power: trace: info BCF0 size 0
++  macsmc-power macsmc-power: trace: wr CH0K size 1
++
++plus step lines (probe start, registering the battery / AC adapter /
++event notifier, probe done) and "battery|ac get_property <psp>" for the
++reads power_supply_register() and udev start right after registration.
++The first 400 accesses are traced, then tracing switches itself off.
++macsmc_power.trace_delay_ms=N sleeps N ms after each line, for
++netconsole, which prints from a thread and could lose the last lines in
++a hang. Both default to off.
++
++The tracing wraps this file's SMC accessors in macros, so no call site
++changes and nothing is traced in other drivers.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/power/supply/macsmc-power.c | 98 +++++++++++++++++++++++++++++
++ 1 file changed, 98 insertions(+)
++
++diff --git a/drivers/power/supply/macsmc-power.c b/drivers/power/supply/macsmc-power.c
++index 0bbced508..2b6927d4e 100644
++--- a/drivers/power/supply/macsmc-power.c
+++++ b/drivers/power/supply/macsmc-power.c
++@@ -23,6 +23,89 @@
++ #include <linux/reboot.h>
++ #include <linux/workqueue.h>
++ 
+++/*
+++ * Probe tracing (macsmc_power.trace=1 on the kernel command line).
+++ *
+++ * Every SMC access this driver makes is announced with dev_info() before it
+++ * is issued, so that if the machine stops dead in the middle of probe (or of
+++ * the first property sweep that power_supply_register() starts), the panel
+++ * or netconsole shows the last key touched. Tracing covers the first
+++ * MACSMC_TRACE_BUDGET accesses after probe starts and then switches itself
+++ * off. macsmc_power.trace_delay_ms=N sleeps N ms after each line, for
+++ * consoles that print from a thread (netconsole) and could otherwise lose
+++ * the last lines in a hang. Default: off, no cost beyond one branch.
+++ */
+++static bool trace;
+++module_param(trace, bool, 0644);
+++MODULE_PARM_DESC(trace, "Log every SMC key access during probe and the first update");
+++
+++static unsigned int trace_delay_ms;
+++module_param(trace_delay_ms, uint, 0644);
+++MODULE_PARM_DESC(trace_delay_ms, "Sleep this long after each trace line (default 0)");
+++
+++#define MACSMC_TRACE_BUDGET	400
+++
+++static atomic_t macsmc_trace_left = ATOMIC_INIT(0);
+++static struct device *macsmc_trace_dev;
+++
+++static void macsmc_trace_key(const char *op, smc_key key, size_t size)
+++{
+++	if (!trace || atomic_dec_if_positive(&macsmc_trace_left) < 0)
+++		return;
+++
+++	if (macsmc_trace_dev)
+++		dev_info(macsmc_trace_dev, "trace: %s %c%c%c%c size %zu\n", op,
+++			 (char)(key >> 24), (char)(key >> 16), (char)(key >> 8),
+++			 (char)key, size);
+++	if (trace_delay_ms)
+++		msleep(trace_delay_ms);
+++	if (!atomic_read(&macsmc_trace_left) && macsmc_trace_dev)
+++		dev_info(macsmc_trace_dev, "trace: budget used up, tracing off\n");
+++}
+++
+++static void macsmc_trace_step(const char *what)
+++{
+++	if (!trace || !macsmc_trace_dev || !atomic_read(&macsmc_trace_left))
+++		return;
+++
+++	dev_info(macsmc_trace_dev, "trace: %s\n", what);
+++	if (trace_delay_ms)
+++		msleep(trace_delay_ms);
+++}
+++
+++static void macsmc_trace_prop(const char *psy, int psp)
+++{
+++	if (!trace || !macsmc_trace_dev || !atomic_read(&macsmc_trace_left))
+++		return;
+++
+++	dev_info(macsmc_trace_dev, "trace: %s get_property %d\n", psy, psp);
+++}
+++
+++/*
+++ * Route this file's SMC accessors through the tracer. The parenthesised
+++ * name calls the real inline helper from <linux/mfd/macsmc.h>.
+++ */
+++#define MACSMC_TRACED(fn, op, smc, key, sz, ...) \
+++	({ macsmc_trace_key(op, key, sz); (fn)(smc, key, ##__VA_ARGS__); })
+++
+++#define apple_smc_read(smc, key, buf, size) \
+++	MACSMC_TRACED(apple_smc_read, "rd", smc, key, size, buf, size)
+++#define apple_smc_read_u8(smc, key, p)	MACSMC_TRACED(apple_smc_read_u8, "rd", smc, key, 1, p)
+++#define apple_smc_read_u16(smc, key, p)	MACSMC_TRACED(apple_smc_read_u16, "rd", smc, key, 2, p)
+++#define apple_smc_read_s16(smc, key, p)	MACSMC_TRACED(apple_smc_read_s16, "rd", smc, key, 2, p)
+++#define apple_smc_read_u32(smc, key, p)	MACSMC_TRACED(apple_smc_read_u32, "rd", smc, key, 4, p)
+++#define apple_smc_read_s32(smc, key, p)	MACSMC_TRACED(apple_smc_read_s32, "rd", smc, key, 4, p)
+++#define apple_smc_read_u64(smc, key, p)	MACSMC_TRACED(apple_smc_read_u64, "rd", smc, key, 8, p)
+++#define apple_smc_read_s64(smc, key, p)	MACSMC_TRACED(apple_smc_read_s64, "rd", smc, key, 8, p)
+++#define apple_smc_read_flag(smc, key, p) MACSMC_TRACED(apple_smc_read_flag, "rd", smc, key, 1, p)
+++#define apple_smc_write_u8(smc, key, v)	MACSMC_TRACED(apple_smc_write_u8, "wr", smc, key, 1, v)
+++#define apple_smc_write_u16(smc, key, v) MACSMC_TRACED(apple_smc_write_u16, "wr", smc, key, 2, v)
+++#define apple_smc_write_u32(smc, key, v) MACSMC_TRACED(apple_smc_write_u32, "wr", smc, key, 4, v)
+++#define apple_smc_write_flag(smc, key, v) MACSMC_TRACED(apple_smc_write_flag, "wr", smc, key, 1, v)
+++#define apple_smc_key_exists(smc, key)	MACSMC_TRACED(apple_smc_key_exists, "info", smc, key, 0)
+++#define apple_smc_get_key_info(smc, key, info) \
+++	MACSMC_TRACED(apple_smc_get_key_info, "info", smc, key, 0, info)
+++
++ #define MAX_STRING_LENGTH 256
++ 
++ /*
++@@ -491,6 +574,8 @@ static int macsmc_battery_get_property(struct power_supply *psy,
++ 	struct macsmc_power *power = power_supply_get_drvdata(psy);
++ 	int ret = 0;
++ 	u8 vu8;
+++
+++	macsmc_trace_prop("battery", psp);
++ 	u16 vu16;
++ 	s16 vs16;
++ 	s32 vs32;
++@@ -775,6 +860,8 @@ static int macsmc_ac_get_property(struct power_supply *psy,
++ 	u16 vu16;
++ 	u32 vu32;
++ 
+++	macsmc_trace_prop("ac", psp);
+++
++ 	switch (psp) {
++ 	case POWER_SUPPLY_PROP_ONLINE:
++ 		ret = apple_smc_read_u32(power->smc, SMC_KEY(CHIS), &vu32);
++@@ -941,6 +1028,13 @@ static int macsmc_power_probe(struct platform_device *pdev)
++ 
++ 	power->dev = dev;
++ 	power->smc = smc;
+++
+++	if (trace) {
+++		macsmc_trace_dev = dev;
+++		atomic_set(&macsmc_trace_left, MACSMC_TRACE_BUDGET);
+++		macsmc_trace_step("probe start");
+++	}
+++
++ 	ret = devm_mutex_init(dev, &power->charge_lock);
++ 	if (ret)
++ 		return ret;
++@@ -1104,6 +1198,7 @@ static int macsmc_power_probe(struct platform_device *pdev)
++ 		macsmc_battery_read_bcf0(power, &val32);
++ 
++ 		psy_cfg.drv_data = power;
+++		macsmc_trace_step("registering the battery");
++ 		power->batt = devm_power_supply_register(dev, &power->batt_desc, &psy_cfg);
++ 		if (IS_ERR(power->batt)) {
++ 			dev_err_probe(dev, PTR_ERR(power->batt),
++@@ -1143,6 +1238,7 @@ static int macsmc_power_probe(struct platform_device *pdev)
++ 		power->ac_desc.num_properties = nprops;
++ 
++ 		psy_cfg.drv_data = power;
+++		macsmc_trace_step("registering the AC adapter");
++ 		power->ac = devm_power_supply_register(dev, &power->ac_desc, &psy_cfg);
++ 		if (IS_ERR(power->ac)) {
++ 			dev_err_probe(dev, PTR_ERR(power->ac),
++@@ -1155,8 +1251,10 @@ static int macsmc_power_probe(struct platform_device *pdev)
++ 	if (!power->batt && !power->ac)
++ 		return -ENODEV;
++ 
+++	macsmc_trace_step("registering the SMC event notifier");
++ 	power->nb.notifier_call = macsmc_power_event;
++ 	blocking_notifier_chain_register(&smc->event_handlers, &power->nb);
+++	macsmc_trace_step("probe done");
++ 
++ 	g_power = power;
++ 
++-- 
++2.56.0
++
+diff --git a/patches/linux/0033-drm-sysfb-simpledrm-report-an-eDP-connector-for-an-A.patch b/patches/linux/0033-drm-sysfb-simpledrm-report-an-eDP-connector-for-an-A.patch
+new file mode 100644
+index 0000000..9af6168
+--- /dev/null
++++ b/patches/linux/0033-drm-sysfb-simpledrm-report-an-eDP-connector-for-an-A.patch
+@@ -0,0 +1,43 @@
++From ac8720424720e165e6e257b1c509f58889e17fce Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:58:35 -0500
++Subject: [PATCH] drm/sysfb: simpledrm: report an eDP connector for an Apple
++ built-in panel
++
++simpledrm registers its single connector as "Unknown". Desktop session
++managers decide what a laptop lid does from the connector type: Omarchy
++(Hyprland) only locks and suspends on lid close when an internal
++connector (eDP/LVDS/DSI) is present, and its bar only avoids the notch
++on one. On Apple laptops the boot framebuffer is the built-in panel until
++a DCP driver takes over.
++
++When the framebuffer node carries "apple,internal-panel", register the
++connector as eDP. Without the property nothing changes.
++
++Based on edimoldovan/linux-aurora 9dee12b1266c ("drm/sysfb: simpledrm:
++eDP connector for an Apple built-in panel"), tested by him on J714c.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/gpu/drm/sysfb/simpledrm.c | 4 +++-
++ 1 file changed, 3 insertions(+), 1 deletion(-)
++
++diff --git a/drivers/gpu/drm/sysfb/simpledrm.c b/drivers/gpu/drm/sysfb/simpledrm.c
++index 6097fac1b..79360a959 100644
++--- a/drivers/gpu/drm/sysfb/simpledrm.c
+++++ b/drivers/gpu/drm/sysfb/simpledrm.c
++@@ -800,8 +800,10 @@ static struct simpledrm_device *simpledrm_device_create(struct drm_driver *drv,
++ 	/* Connector */
++ 
++ 	connector = &sdev->connector;
+++	/* A built-in laptop panel the loader hands over (Apple, before DCP). */
++ 	ret = drm_connector_init(dev, connector, &simpledrm_connector_funcs,
++-				 DRM_MODE_CONNECTOR_Unknown);
+++				 of_property_read_bool(dev->dev->of_node, "apple,internal-panel") ?
+++				 DRM_MODE_CONNECTOR_eDP : DRM_MODE_CONNECTOR_Unknown);
++ 	if (ret)
++ 		return ERR_PTR(ret);
++ 	drm_connector_helper_add(connector, &simpledrm_connector_helper_funcs);
++-- 
++2.56.0
++
+diff --git a/patches/linux/0034-usb-xhci-plat-honour-the-wakeup-source-property.patch b/patches/linux/0034-usb-xhci-plat-honour-the-wakeup-source-property.patch
+new file mode 100644
+index 0000000..44539c8
+--- /dev/null
++++ b/patches/linux/0034-usb-xhci-plat-honour-the-wakeup-source-property.patch
+@@ -0,0 +1,45 @@
++From da09fc453f397c06565f8949ed33e222e6cd8e5e Mon Sep 17 00:00:00 2001
++From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
++Date: Thu, 5 Nov 2026 20:59:01 -0500
++Subject: [PATCH] usb: xhci-plat: honour the wakeup-source property
++
++xhci-plat marks every controller wakeup-capable but leaves wakeup
++disabled, so on suspend xhci_suspend() runs with do_wakeup false and
++genpd is free to power the controller's domain off (it keeps a domain on
++only for a wakeup-enabled device); on resume the PHY is set up again from
++scratch. On Apple T6050 that loses the USB 2.0 PHY state m1n1 set up,
++and USB devices (the J714c's USB network) do not come back after s2idle.
++
++Enable wakeup when the controller node has "wakeup-source", the standard
++DT property for it. Nodes without the property behave as before.
++
++On J716s this changes nothing yet: all three ports are snps,dwc3 nodes
++(dwc3 creates the xhci-plat child itself and passes wakeup on from its
++own device), and no generic-xhci node exists in our device trees, so no
++DT property is added with this patch.
++
++Based on edimoldovan/linux-aurora 9f8535b38fcb ("usb: xhci-plat: honour
++wakeup-source; J714c USB controllers keep their PHY across s2idle"),
++driver hunk only.
++
++Co-Authored-By: Claude <noreply@anthropic.com>
++---
++ drivers/usb/host/xhci-plat.c | 2 ++
++ 1 file changed, 2 insertions(+)
++
++diff --git a/drivers/usb/host/xhci-plat.c b/drivers/usb/host/xhci-plat.c
++index 074d9c731..d6a1e7568 100644
++--- a/drivers/usb/host/xhci-plat.c
+++++ b/drivers/usb/host/xhci-plat.c
++@@ -247,6 +247,8 @@ int xhci_plat_probe(struct platform_device *pdev, struct device *sysdev, const s
++ 	}
++ 
++ 	device_set_wakeup_capable(&pdev->dev, true);
+++	if (device_property_read_bool(&pdev->dev, "wakeup-source"))
+++		device_wakeup_enable(&pdev->dev);
++ 
++ 	xhci->main_hcd = hcd;
++ 
++-- 
++2.56.0
++
+diff --git a/scripts/build-kernel.sh b/scripts/build-kernel.sh
+index 48332b4..642602c 100755
+--- a/scripts/build-kernel.sh
++++ b/scripts/build-kernel.sh
+@@ -19,7 +19,7 @@ DTS_DIR="$LINUX/arch/arm64/boot/dts/apple"
+ # defconfig alone leaves DRM=m and DRM_SIMPLEDRM unset, which yields a
+ # kernel that boots but shows nothing on the panel. Fragments are merged
+ # in order; ours wins.
+-KCONFIG="${KCONFIG:-defconfig asahi.config omarchy-bringup.config omarchy-storage-net.config omarchy-smc.config omarchy-usb-host.config}"
++KCONFIG="${KCONFIG:-defconfig asahi.config omarchy-bringup.config omarchy-storage-net.config omarchy-smc.config omarchy-usb-host.config omarchy-desktop.config}"
+ JOBS="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}"
+ 
+ if [ ! -d "$LINUX" ]; then
+@@ -54,7 +54,7 @@ install -m 0644 dt/t6050.dtsi dt/t6050-pmgr.dtsi dt/t6050-jxxx.dtsi \
+     "$DTS_DIR/"
+ 
+ install -m 0644 configs/omarchy-bringup.config configs/omarchy-storage-net.config configs/omarchy-smc.config \
+-    configs/omarchy-usb-host.config \
++    configs/omarchy-usb-host.config configs/omarchy-desktop.config \
+     "$LINUX/arch/arm64/configs/"
+ 
+ MK="$DTS_DIR/Makefile"
+@@ -81,7 +81,8 @@ REQUIRED_Y="CONFIG_DRM CONFIG_DRM_SIMPLEDRM CONFIG_DRM_FBDEV_EMULATION
+             CONFIG_USB_DWC3 CONFIG_USB_CONFIGFS CONFIG_USB_CONFIGFS_NCM
+             CONFIG_USB_CONFIGFS_ACM
+             CONFIG_PHY_APPLE_USB2 CONFIG_USB_XHCI_PLATFORM CONFIG_USB_RTL8152
+-            CONFIG_USB_NET_AX88179_178A CONFIG_USB_NET_CDCETHER"
++            CONFIG_USB_NET_AX88179_178A CONFIG_USB_NET_CDCETHER
++            CONFIG_ZRAM CONFIG_NF_TABLES CONFIG_NFT_COMPAT CONFIG_PWM_APPLE"
+ 
+ config_ok() {
+     [ -f "$LINUX/.config" ] || return 1
+-- 
+2.56.0
+
