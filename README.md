@@ -7,9 +7,9 @@ as the build and USB host. Started 2026-10-20.
 This repo holds only what was made or changed here. Upstream sources are pinned in
 [`SOURCES.md`](SOURCES.md), not vendored.
 
-## Status (2026-11-05)
+## Status (2026-11-06)
 
-Summary with test labels and repro steps: [`docs/status-2026-11-05.md`](docs/status-2026-11-05.md).
+Summary with test labels and repro steps: [`docs/status-2026-11-06.md`](docs/status-2026-11-06.md) (previous: [`2026-11-05`](docs/status-2026-11-05.md)).
 Per-feature designs, patches and test plans: `contrib/pending/<feature>/`; hardware results: [`contrib/pending/integration/RESULTS.md`](contrib/pending/integration/RESULTS.md).
 
 | Area | State |
@@ -25,9 +25,11 @@ Per-feature designs, patches and test plans: `contrib/pending/<feature>/`; hardw
 | SMP (secondary cores) | **works, 18 cores** (2026-11-04): stub rebuilt on macOS 27.3 beta 1, whose stage-2 mBoot carries Apple's fix for raw boot objects on M5 Pro/Max/Ultra (release notes, mBoot > Resolved Issues). No m1n1 or kernel change needed; `maxcpus=1` dropped. Any stub must be built from macOS >= 27.3 beta 1. [`docs/smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) |
 | Trackpad | **works** (2026-11-05, 3/3 boots): the MTP firmware never drives the trackpad AFE reset; dockchannel-hid now drives it on SMC low GPIO `gp1c` (line 28, active-low), `Touch MT ready`, events flowing. [`contrib/pending/trackpad/`](contrib/pending/trackpad/) |
 | iBoot boot-failure counter | **fixed, verified over four boots** (2026-11-05, kernel patch 0017): macsmc-reboot built in, poweroff-only, Abbey scratchpad cells. The first Linux reboot reported and cleared 1 boot error; the "B2" payload (old DTB, sha256 `55d95928...`) then survived three consecutive Linux (watchdog) reboots with zero PMU boot errors, NVMe and trackpad up and 18 CPUs each time. This was the cause of the "needs to be reinstalled" recovery after repeated Linux restarts. |
-| SMC fan keys / SPMI window, cpufreq (all three clusters) | booted, not feature-tested: in the B2 kernel (`macsmc-power` blacklisted, `userspace` governor). Stage B tests in progress (2026-11-05). |
-| USB 2.0 host (left-front port) | booted, not feature-tested: drivers in the B2 kernel; the host-mode DTB (`8a2c516e...` payload) has not been booted. Stage B test in progress (2026-11-05). `contrib/pending/usb/` |
-| Keyboard backlight, thermal zones | design only, compile-checked (`contrib/pending/platform/`) |
+| Battery and charger (`macsmc-power`) | **works** (2026-11-06, 3/3 boots): the round-3 hang at ~7.8 s is gone with integration patches 0018-0027; status, capacity, voltage, current, charge, cycle count, temperature and MagSafe plug events read correctly. Which patch cured it is not known. [`RESULTS.md`](contrib/pending/integration/RESULTS.md) |
+| Keyboard backlight, eDP connector | **work** (2026-11-06): `kbd_backlight` 0/32/255/0, `card0-eDP-1` connected at 3456x2160. The notch stays hidden until m1n1 is rebuilt. |
+| SMC core, cpufreq (all three clusters, schedutil default) | **work** (2026-11-06): hwmon, RTC, poweroff, low-GPIO; a loaded cluster reaches 4308000. Open: idle does not drop to the lowest step. |
+| USB 2.0 host (left-front port) | booted, not feature-tested: drivers in the kernel; the host-mode DTB has not been booted (needs a USB-Ethernet adapter). `contrib/pending/usb/` |
+| Thermal zones | design only, compile-checked (`contrib/pending/platform/`) |
 | GPU, display driver (DCP), Wi-Fi/BT (N1), audio, camera, Thunderbolt | not working; design reports only (`contrib/pending/{gpu,dcp,wireless,audio,isp-tb}/`) |
 | Untethered boot (kernel on the ESP) | **works on all 18 CPUs** (2026-11-04 18:08): stage-1 = CHAINLOADING m1n1 (0013+0014, chainload variable, 64 KiB-aligned) installed once; stage-2 on the ESP = m1n1 with patch 0015 (reset-vector trampoline for a relocated image) + kernel + DTB + initramfs. Kernel updates are an ESP file copy over the SSH bridge. [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md) |
 
@@ -41,7 +43,7 @@ Per-feature designs, patches and test plans: `contrib/pending/<feature>/`; hardw
 | `host/macos/` | The same tether from the Studio booted into macOS: `m5.sh`, stub refresh/recreate, ESP installer, Omarchy-volume reader. |
 | `host/` | Studio-side (Omarchy) config: udev rules for the m1n1 device and the M5's USB network, the NAT script. |
 | `scripts/` | Tether helpers used on the Studio (tmux-driven proxy sessions, watchdog-guarded rounds). They expect the omarchy-m5 checkout at `~/Work/omarchy-m5`. `scripts/probes/` are the SMP hardware probes, `scripts/kc/` the kernelcache/SPTM disassembly helpers. |
-| `docs/` | [`boot-and-recovery.md`](docs/boot-and-recovery.md) (rebuild, boot, provision, recover), [`smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) (the SMP investigation), [`status-2026-11-05.md`](docs/status-2026-11-05.md) (status with test labels), [`logs/`](docs/logs/) (redacted log excerpts). |
+| `docs/` | [`boot-and-recovery.md`](docs/boot-and-recovery.md) (rebuild, boot, provision, recover), [`smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) (the SMP investigation), [`status-2026-11-06.md`](docs/status-2026-11-06.md) (status with test labels; the 2026-11-05 version is kept beside it), [`logs/`](docs/logs/) (redacted log excerpts). |
 
 ## Rebuild m1n1
 
