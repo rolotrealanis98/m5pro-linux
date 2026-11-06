@@ -1,0 +1,63 @@
+From d5b29b0385fe9f8f15d8e0ef7d0750718949e0e9 Mon Sep 17 00:00:00 2001
+From: ed <edimoldovan@gmail.com>
+Date: Fri, 6 Nov 2026 15:34:49 -0500
+Subject: [PATCH] dapf: add the T6050 PMP DART (dart-pmp0)
+
+Add /arm-io/dart-pmp0 to dapf_entries[] so dapf_init programs the T6050 PMP's
+DAPF filter. Without it the PMP ASC MMIO window stays fabric-gated and AP access
+SYNC-faults (the probe wedge seen in bring-up). dart-pmp0 is dart,t8110 with a
+dapf-instance-0 property, which dapf_init -> dapf_init_t8110 already handles; the
+DAPF aperture is reg[1] (0x2841b0000), live-verified: after
+dapf_init("/arm-io/dart-pmp0", 1) the PMP ASC CPU_CONTROL reads cleanly with 0
+exceptions, where a raw read without the filter faulted.
+
+On the proxy path dapf_init_all runs with fdt NULL and opens it regardless of the
+alias; on the disk-boot/FDT path the kernel DT aliases pmp0 to the PMP's DART with
+status = okay to match this entry. Build only; installing the resident is a
+separate step.
+
+[ported from edimoldovan/m1n1 t6050-aurora fc277aa1be by rolotrealanis98,
+AI-assisted. Our base (upstream 7cde7d1a) has the two-field dapf_entries[]
+with no alias and no FDT gating, so the entry is added without the "pmp0"
+alias and dapf_init_all() from kboot_boot() programs it on every stage-2
+boot, whatever the kernel DT says. The table is reflowed one entry per line
+so the file stays clang-format clean.
+
+J716s (Mac17,8) runtime ADT, read offline: /arm-io/dart-pmp0 is dart,t8110,
+reg[1] = 0x2841b0000 size 0x4000 (256 slices), dapf-instance-0 holds 31
+entries, the node has an empty clock-gates property (so dapf_init neither
+powers it up nor down afterwards) and no allow-dram-apf-slices-0 property
+(the one /arm-io/dart-aop carries, which our T6050 AOP skip works around).
+/arm-io/dart-pmp does not exist on T6050, so before this change no PMP
+DAPF was programmed. Not yet tested on J716s hardware.]
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/dapf.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/dapf.c b/src/dapf.c
+index 80dd53c8..15ec5145 100644
+--- a/src/dapf.c
++++ b/src/dapf.c
+@@ -199,8 +199,14 @@ struct entry {
+ };
+ 
+ struct entry dapf_entries[] = {
+-    {"/arm-io/dart-aop", 1}, {"/arm-io/dart-mtp", 1},  {"/arm-io/dart-pmp", 1},
+-    {"/arm-io/dart-isp", 5}, {"/arm-io/dart-isp0", 5}, {NULL, -1},
++    {"/arm-io/dart-aop", 1},
++    {"/arm-io/dart-mtp", 1},
++    {"/arm-io/dart-pmp", 1},
++    /* T6050: the PMP's DART is dart-pmp0 (dart,t8110; DAPF aperture reg[1], live-verified). */
++    {"/arm-io/dart-pmp0", 1},
++    {"/arm-io/dart-isp", 5},
++    {"/arm-io/dart-isp0", 5},
++    {NULL, -1},
+ };
+ 
+ int dapf_init_all(void)
+-- 
+2.56.0
+
