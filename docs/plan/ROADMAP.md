@@ -256,7 +256,7 @@ Tier 3: external triggers only
 - USB rounds: evaluate Omacom m1n1 160b644c's T6050 USB-PD setup instead of our patch 0005 skip (port power).
 
 - Community update 23:48 UTC (J714c): keyboard backlight, SMC input/RTC, battery+charger, sensors, s2idle, lid lock,
-  notch and firewall all work on edimoldovan's tree. Re-prioritise R1/R2: (1) try his 200 ms SMC AP-power-ACK wait
-  against our macsmc-power probe hang before any bisect; (2) bundle for the next kernel: ZRAM, netfilter for ufw,
+  notch and firewall all work on edimoldovan's tree. Re-prioritise R1/R2: (1) diff his working macsmc-power/macsmc/DT against ours
+  before bisecting our probe hang (his ACK-wait change only undoes a skip his tree had; ours already waits); (2) bundle for the next kernel: ZRAM, netfilter for ufw,
   `apple,internal-panel` eDP connector, show-notch, xhci wakeup-source; (3) s2idle moves from "last" to R2 once (1)
   passes, still with the PMGR-sleep guard (patch 0042) and the root read-only; (4) A/B stage-1 gets a proxy window.

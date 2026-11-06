@@ -48,8 +48,10 @@ edimoldovan/kernel OMARCHY-LOGIN.md). All tested in a full Omarchy login over th
 - Keyboard backlight: fpwm0 at 0x505040000 + pwm-leds kbd_backlight, Ctrl+F1/F2 work. = our platform patch design.
 - SMC: "RTKit on T6050 returned before the SMC's AP power ACK, so macsmc failed with 'Failed to start SMC endpoint';
   now waits up to 200 ms for the ACK; SMC, MTP and ANS all ACK within 2 ms" (0fbd859e287d, 4602eba4b9d2). Uses our
-  t6050-smc.dtsi with the full nub-spmi0 window. STRONG LEAD for our macsmc-power hard hang at probe: his
-  macsmc-battery/ac WORK (68d2fe0a8e7f, 0bc84cc4a6b2) with our 0011 work-item fix. Try his ACK wait first.
+  t6050-smc.dtsi with the full nub-spmi0 window. Context: his tree had skipped the AP-power ACK wait on T6050 entirely; ours (asahi-wip-7.2) always
+  waits, and our SMC core works, so this is NOT the cause of our macsmc-power probe hang. What matters: his
+  macsmc-battery/ac WORK on J714c (68d2fe0a8e7f, 0bc84cc4a6b2) with our 0011 work-item fix. ACTION: diff his
+  macsmc-power.c / macsmc.c / DT against ours before bisecting (cached in ~/Work/agents/community/edimoldovan/).
 - Lid locks the session: framebuffer node `apple,internal-panel` -> simpledrm reports an eDP connector (9dee12b1266c);
   Omarchy only locks on internal connectors.
 - Sleep (s2idle) WORKS on J714c: lid close locks+suspends, lid open wakes via the SMC interrupt (17b3cc9ca3a6);
