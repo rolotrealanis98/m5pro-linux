@@ -421,7 +421,7 @@ values); only hardware-description facts are quoted.
 | + PR #939 | T6050 combo PHY and dwc3, cherry-picked; display-crossbar conflicts resolved to the integration side |
 | Not needed | PR #938 (the centauri drivers are already in integration) |
 | Config | `make defconfig asahi.config` (16K pages), `RUST` off, boot-path drivers built in (list in `../aurora/tools/README.md`) |
-| Result | 28 commits on top of `aurora/integration` (branch `aurora-j716s`, tip `da5a44d086e6`) |
+| Result | 28 commits on top of `aurora/integration` for R3-N (branch `aurora-j716s`, tip `da5a44d086e6`); 31 for R3-Q (tip `4504ef7485be`, the three PHY commits added) |
 | Payload | m1n1-plain `7497c0b1` (the R2 stage 2) + bootargs + `Image.gz` + DTB + initramfs; bootargs are the B2 ones, with `initcall_blacklist=macsmc_power_driver_init` on the gated payloads |
 
 Two build gotchas on macOS: BSD `sed` breaks `arch/arm64/tools/gen-kernel-hwcaps.sh` (`\+`), fixed by
@@ -462,6 +462,8 @@ decompiled DTS (`../aurora/tools/reorder-cpus.py` and hand edits):
 | R3-K | `bed28a83` | PR #936, no ANS reset in the DT | **ROOT MOUNTS**; 18 CPUs; `apple_idle` registered; keyboard and trackpad; no USB (dwc3 has no reset control: the combo PHY has no driver) |
 | R3-M | `cd53220e` | PR #939, `TYPEC_SN201202X=y`, selftest initramfs | the PHY driver probes and fails: it needs the tunables |
 | R3-N | `f971f9e7` | tunables from the ADT (kernel `Image.gz` `5f8b3e78`) | PHY probes, then `dummy PIPE park failed (-1)`, dwc3 reset assert `-5`, no USB. The self-revert service restored R2-B automatically (first autonomous revert) |
+| R3-O | `454b7434` | R3-N plus m1n1 0020 (T6050 PIPE park); same kernel, DTB fixed7 | PIPE check passed, dwc3-apple and xhci probed, hub enumerated at 1.1 s as `usb 1-1`. Then the SN201202x entered COMBO_DP2 ("mode 3", the hub's DP billboard), tipd dropped the USB role, xhci was removed, the PHY firmware restarted and `bank2+260 timeout: 881 & 400 != 400` (UC_TNBL_DONE never set: the firmware restarted on stale preloaded data), `start of mode 3 failed (-110)`, `sn201202x: failed to configure Type-C connection`, mux safe-mode failures, cable revalidation failed. Self-reverted automatically. Analysis: `../aurora/pipe-park/ANALYSIS-R3O.md` |
+| R3-Q | `4083b7df` | R3-O's m1n1 (`a28b1815`) and DTB fixed7, kernel rebuilt with Aurora's three `j716c/thunderbolt` PHY commits (`b8f2be0fef93` restart the PHY firmware on its original data, `e604b7f414b4` carry on when the PIPE lock is not acknowledged, `6f93def30893` park the PIPE from a dummy producer on any clock); tree tip `4504ef7485be` | **WORKS**, see Result below. Installed as `boot.bin`, R2-B as `boot.bin.prev`; the selftest flag stays in the cmdline (inert while the network is up) |
 
 Built but not individually reported here: R3-A (J716c DT), R3-C, R3-D, R3-F, R3-G (intermediate
 DT/diag variants) and R3-L (`9ef02cfd`, R3-K with a handoff variant). Hashes are in
@@ -480,9 +482,51 @@ DT/diag variants) and R3-L (`9ef02cfd`, R3-K with a handoff variant). Hashes are
   patch: SMC low GPIO line 28, active-low), plus a driver that exists for the GPIO bank.
 - **The combo PHY needs per-port tunables from the ADT.** No public loader fills them for T6050;
   `gen-atc-tunables.py` reproduces them. With them the PHY probes; the USB3 lock then fails.
-- **Open failure at R3-N:** `dummy PIPE park failed (-1)` with the PIPE registers dumped in the log,
-  then dwc3 reset assert `-5`. An agent is comparing the
-  pre-boot USB state in Aurora's `aura` with what our m1n1's `usb_init` leaves.
+- **R3-N failure, fixed by R3-Q:** `dummy PIPE park failed (-1)` with the PIPE registers dumped in the log,
+  then dwc3 reset assert `-5`. Cause: m1n1's `usb_init` parked the PIPE with the T8103 field layout (m1n1 0020
+  fixes it); the second blocker was the PHY firmware restart (R3-O), fixed by Aurora's commit `b8f2be0fef93`.
+
+### Result (R3-Q, 2026-11-07 about 01:00, autonomous loop, nobody at the machine)
+
+**First Aurora kernel boot with working USB3 on the J716s.** What R3-Q shows in the log:
+
+- NVMe partitions at 0.36 s; 18 CPUs; cpuidle `apple_idle` registered and in use (WFI states, about 94 M
+  entries in the first minutes).
+- cpufreq `schedutil`, max 4380000 (policies 0 and 6) and 4608000 (policy 12). These are the top of the
+  table because Aurora's tables mark no turbo states.
+- Type-C port0 host/source with the partner in accessory mode. xhci bus 1 (USB2) and bus 2 (SuperSpeed):
+  the hub enumerates Gen2x1 at 1.37 s, the RTL8153 comes up as SuperSpeed on 2-1.2.2 with carrier at
+  5.6 s, the Logitech receiver is there. No PIPE-lock warning appeared.
+- Keyboard through dockchannel-hid (stm, keyboard, actuator and tp-accel interfaces), `kbd_backlight` LED,
+  `fb0` 3456x2234, and `macsmc-reboot` ("Handling reboot and poweroff requests via SMC": restart goes
+  through the SMC, not the watchdog).
+- Only noise in the errors: hid-generic "device has no listeners" twice.
+
+**What each piece fixed** (the chain from R3-N to R3-Q):
+
+| Piece | Fixed |
+|---|---|
+| m1n1 0020 (PIPE park) | R3-N's `dummy PIPE park failed (-1)`: m1n1 left `MUX_CTRL` at 0x22, which on T6050's layout is USB4 clock with dummy data. Now 0x42, the kernel's park returns at once, dwc3-apple probes (R3-O) |
+| Kernel `b8f2be0fef93` (restart the PHY firmware on its original data) | R3-O's second PHY firmware start (the DP billboard switch, mode 3): the firmware restarted on stale preloaded data and `UC_TNBL_DONE` never came. The kernel now saves the first start's image and restores it for every restart |
+| Kernel `e604b7f414b4` (carry on without the PIPE lock ack) | The lock ACK may never come; the USB3 switch goes ahead with a warning instead of staying on USB2. It did not fire on R3-Q |
+| Kernel `6f93def30893` (park from a dummy producer on any clock) | The kernel twin of m1n1 0020; redundant with it but matches Aurora |
+| DTB fixed7 | Combo PHY tunables, the AFE reset line, the Type-C chain and the other compatible fixes (unchanged from R3-N) |
+
+**Caveat: per-unit tunables.** fixed7 carries the 14 combo-PHY `apple,tunable-*` lists generated from this
+unit's ADT, so the DTB works on this machine only and is not committed. m1n1 0021 (`../aurora/pipe-park/`,
+commit c909e17) is the proper path: it fills the tunables from the ADT in kboot, so a generic DTB (fixed6,
+no tunables) works on any unit. R3-P (m1n1 0020 + 0021 + fixed6, `9d7865f2`) is built but was not booted;
+R3-Q uses fixed7.
+
+**Still missing on this kernel:**
+
+- Trackpad multi-touch: "Touch MT ready" is absent and the Apple MTP input device is not created. The AFE
+  reset we wired to macsmc-low-gpio line 28 satisfies the keyboard interfaces but not Aurora's dockchannel-hid,
+  which expects the SMC pcIO GPIO line 2 through the `apple,smc-pcio-gpio` driver from their
+  j716c/t6050-platform branch.
+- Battery: still gated by `initcall_blacklist=macsmc_power_driver_init`. Aurora lacks our 0004 INIT_WORK
+  fix and the 0003 fan key.
+- Wi-Fi (PR #937 and the firmware handoff), display driver (DCP), GPU.
 
 ### Process: what went wrong and what we changed
 
@@ -508,12 +552,14 @@ Honest account, because the evening cost more reboots than it needed to:
 
 ### Still open
 
-1. **PIPE park failure** on the combo PHY (above), blocking USB on this kernel.
-2. **cpuidle.** `apple_idle` is registered, but m1n1 still appends `idle=nop`; it has to stop for the
-   idle states to be used.
+1. **Trackpad multi-touch** ("Touch MT ready" absent): needs the `apple,smc-pcio-gpio` driver (SMC pcIO GPIO
+   line 2) from Aurora's j716c/t6050-platform branch, or a matching change in dockchannel-hid.
+2. **Battery.** Gated by `initcall_blacklist=macsmc_power_driver_init`; needs our 0004 INIT_WORK fix and the 0003
+   fan key on the Aurora tree.
 3. **Wi-Fi/BT.** Needs PR #937 (PCIe), the FTAB firmware (personalised per unit, not in this repo) and
    the bootloader handoff.
 4. **DCP** is gated on firmware 27.0.0 (this machine runs macOS 27.3 beta 1, 26C5035r); **GPU** is gated off for the M5 Pro
    in Aurora's tree.
-5. Re-check on this kernel what Round R1/R2 established on ours: battery, cpufreq, S1, power-off.
-   Not run on the Aurora kernel.
+5. **Portability of the USB3 result:** boot m1n1 0021 with the tunable-less DTB (R3-P, built, not booted).
+6. Re-check on this kernel what Round R1/R2 established on ours: S1, power-off. Not run on the Aurora kernel.
+   (cpuidle and cpufreq are covered by R3-Q: `apple_idle` and `schedutil` work.)
