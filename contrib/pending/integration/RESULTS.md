@@ -279,3 +279,123 @@ R1-C USB host (waiting for Rolando's USB-Ethernet adapter).
 6. **Pending payloads:** `R1-D-olddtb-battery.bin` and `R1-E-usbhost-battery.bin` (B2 base arguments
    only, battery enabled, no trace/panic/pause_on_oops/ignore_loglevel) are built and in the iCloud
    folder; `r1-local.sh` has no `d`/`e` step yet.
+
+## Round R2 (2026-11-06 evening, live over Tailscale)
+
+Same evening as R1, same machine (J716s), kernel `7.2.2-ge1d2d7313745`. What changed: Rolando is at
+the MacBook, and the Studio now reaches macOS and then Linux over Tailscale. Tailscale was installed
+on the Linux root (it needed `pacman-key --init && pacman-key --populate archlinuxarm` first), so
+payload swaps happen from Linux (`/boot` is the ESP) and logs are pulled live; no iCloud round trip
+and no macOS visit between payloads. Tailscale addresses and device names are not recorded here.
+Raw logs stay outside the repo (serial numbers, addresses): `r1-c-20261106-1812` (R1-C),
+the R2-B boot folder and `r2b-live/` (dmesg and journal of the live session).
+
+Payloads (hashes of the `boot.bin` as booted; build recipe `m1n1-BUILD.md`, sums in `r1/SHA256SUMS-r2-payloads`):
+
+| Label | m1n1 (stage 2) | DTB | Battery | Hash |
+|---|---|---|---|---|
+| R1-C | old `742c5981` (patch 0005 skipped the USB-PD controller setup) | usbhost | gated | `019cf5f1` |
+| R2-B | new `7497c0b1` = 0017 notch + 0018 USB-PD S0 setup | usbhost | on | `5091e1fe` |
+
+R2-A (new m1n1 on the normal DTB, the isolating run for the tether port) was not run; R2-B was booted directly.
+
+### Step table
+
+| Step | Result | Evidence |
+|---|---|---|
+| R1-C: boot with the old m1n1 and the usbhost DTB | booted | `dwc3` at `0x2aa280000` in host role, `xhci-hcd` up with two root hubs (USB 3.1) |
+| R1-C: hub in the left-front port | **FAIL**, port dark | no LEDs, no enumeration, no mouse; `usb-ports` "no port enumerated" |
+| R1-C: the `-110` lines | not USB | `apple-pmgr-pwrstate` probe timeouts for `power-controller@280..2f0` at ~23 s (script false positive, fixed) |
+| R1-C conclusion | no VBUS | our m1n1 patch 0005 skipped the USB-PD controller setup |
+| R2-B: boot (new m1n1, usbhost DTB, battery on) | **PASS** | booted; fb0 `virtual_size` 3456,2234 |
+| R2-B: notch rows kept (0017) | **PASS** | `fb0/virtual_size` 3456,2234 (was 3456,2160); the top rows are behind the camera housing |
+| R2-B: USB host, hub plugged in BEFORE boot | **PASS** | `usb 1-1` high-speed hub (VIA Labs) at 8.65 s, then Genesys hubs, Anker hub, whole chain enumerated |
+| R2-B: Logitech Bolt receiver | **PASS** | mouse works at the console (`hid-generic`, 2 input devices) |
+| R2-B: card reader (GenesysLogic) | **PASS** | `usb-storage` bound, `sda`/`sdb` LUNs (empty slots: "Media removed") |
+| R2-B: Realtek RTL8153 Ethernet | **PASS** | `r8152` -> `enu1u2u2`, carrier on at 24.5 s, DHCP through a systemd-networkd `20-wired.network` (`Name=en*`, `DHCP=yes`), `ping 1.1.1.1` ~12 ms |
+| R2-B: unplug, then replug the hub | **FAIL** | after an unplug nothing re-enumerates (only the root hubs remain); a replug stays dark |
+| R2-B: battery | **PASS** | 100 % / Charging on MagSafe throughout the session |
+| cpufreq idle floor (R1 open item 1) | **resolved: measurement artifact** | see below |
+| S1 sleep step (freezer only) | **PASS** | see below |
+| Power off | **PASS** | see below |
+| Desktop | in progress | see the line at the end |
+
+### USB host: what works and what does not
+
+- The USB-PD controller setup (hpm0/1/2/5 into S0, IRQs masked) runs once, in m1n1, at boot. With it
+  restored in stage 2, the left-front port carries VBUS and the whole chain enumerates, provided the
+  hub is attached before boot.
+- **Plug-before-boot caveat.** The kernel has no `tipd`/`cd321x` driver (`CONFIG_TYPEC_TPS6598X` is
+  not set and neither DTB has a node for the controllers), so nothing in Linux talks to the PD
+  controllers. After an unplug nothing re-enumerates and a replug stays dark until the next boot
+  (nothing in Linux re-arms the port). This is the next USB item.
+- The RTL8153 logs `Direct firmware load for rtl_nic/rtl8153b-2.fw failed with error -2`: the
+  `linux-firmware` file is not on the root. The adapter works without the patch; install the file to
+  silence it.
+- First boot of the session logged `20-wired.network:3: Invalid section header '[Network}'` from
+  systemd-networkd (typo in the new unit); an older `en.network` matched the adapter. Fix the unit
+  on the root.
+
+### cpufreq idle question: resolved, a measurement artifact
+
+- With schedutil (`rate_limit_us` 12), `cat scaling_cur_freq` reads 2964000 / 2964000 / 2880000 at
+  0.00 load.
+- `policy12/stats/time_in_state` shows ~800 s at 1308000 against a few seconds in every other state
+  over the boot: the cluster sits at the floor, and the shell or SSH activity of the read wakes it.
+- Switching policy12 to `ondemand` gives 1308000 within 15 s; `userspace` at 1308000 holds.
+- R1 open item 1 ("schedutil never drops to the lowest OPP") is closed. `cpuidle` driver = none
+  (`idle=nop`), noted.
+- New question: `time_in_state` for policy12 also lists 4332000 / 4428000 / 4512000 / 4608000, above
+  `cpuinfo_max_freq` 4308000. Table or boost-state question for the cpufreq work, not investigated.
+
+### S1 sleep step (freezer only): PASS
+
+`pm_test=freezer`, `echo freeze > /sys/power/state`, detached from the SSH session.
+
+| Guard or event | Result |
+|---|---|
+| `sleep_power_off` | `-1` |
+| `mem_sleep` | `[s2idle]` |
+| logind and sleep safe drop-ins | installed first from `contrib/pending/platform/userspace/etc/systemd/`; `sleep.target` and `suspend.target` masked |
+| write returned | rc=0 |
+| log | "Freezing user space processes completed", 5 s debug wait, "Restarting tasks: Done", "PM: suspend exit" |
+| after | SSH session alive |
+
+Only the freezer level was run. Deeper `pm_test` levels and real s2idle are not done.
+
+### Power off: PASS
+
+`systemctl poweroff` over SSH at 19:43:38. The journal shows "Reached target System Power Off" and the
+machine went dark within seconds (confirmed by Rolando). The next boot logged no PMU boot error. The
+`macsmc-reboot` poweroff-only path is verified.
+
+### r1-local.sh changes (v3)
+
+| Change | Why |
+|---|---|
+| `usb-errors` counts `-110` only on lines with usb/xhci/dwc3/phy (and never `apple-pmgr-pwrstate`) | the R1-C FAIL was the pmgr timeouts, not USB |
+| `usb-enum` (new, passive) counts `usb N-M: new ... USB device` lines and devices under `/sys/bus/usb/devices`, and prints them; `usb-ports` no longer reports "no port enumerated" when the chain is already up | the R1-C and R2-B reports contradicted the enumeration |
+| `--battery` flag; default auto-detect from `/proc/cmdline` (no `initcall_blacklist=macsmc_power...` means battery expected, then the battery presence checks run in every step); `kernel-args` expects the blacklist only for gated payloads | R2 payloads have the battery on |
+| `probe-done` is SKIP when the command line has no `macsmc_power.trace=1` | no trace on R1-D, R1-E, R2 |
+| `notch` accepts 3456,2234 (rows kept) as well as 3456,2160 | m1n1 0017 |
+| step `d` = general: passive collection plus battery and USB presence checks, no prompts, USB checks only on the usbhost DTB, no idle-frequency read | batch of checks for any payload |
+
+Checked with `bash -n` and `shellcheck` (clean), and the new grep and enumeration logic against the
+R1-C and R2-B dmesg (R1-C: six `-110` lines, none on a USB line; R2-B: seven new-device lines).
+Not run on the machine yet.
+
+### Open items after R2
+
+1. **Kernel `tipd`/`cd321x` driver and DT nodes** for the four PD controllers, so a replug (and any
+   port role or VBUS change) works at runtime. Until then USB devices must be plugged in before boot.
+2. **cpufreq boost states** above `cpuinfo_max_freq` (4332000 .. 4608000) in policy12's `time_in_state`.
+3. **PMGR `b2bd_af*` domain probe timeouts** (`Failed to reach power state`, `-110` at ~23 s): still
+   present on R2-B, still not diffed against B2.
+4. **OPP-offset tools** (`cpuhz`, `dvfs-regs`) not run.
+5. **`ufw` and `evtest` not installed** on the root, so the ufw and lid checks stay SKIP.
+6. Patch-bisect for the battery hang (R1 open item 2) is still not done; payload `R2-A` unrun.
+7. The notch item (R1 open item 3) is closed by R2-B (3456,2234).
+
+### Desktop (in progress)
+
+A separate effort is installing Hyprland on llvmpipe on the machine; no results here yet.
