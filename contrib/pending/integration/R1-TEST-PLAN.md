@@ -1,7 +1,7 @@
 # R1 hardware round, Sunday 2026-11-08: J716s (16-inch MacBook Pro, M5 Pro, T6050)
 
 Rolando at the desk, about 3.5 to 4 h. Everything here was built and checked offline on
-2026-11-05/06. **Nothing in this round has run on the Mac yet.**
+2026-11-05/06. R1-A and R1-B ran on 2026-11-06 (solo, see `RESULTS.md` "Round R1"); the rest has not run yet.
 
 ## What is new in the R1 kernel
 
@@ -38,6 +38,8 @@ Layout, one gzip member each, verified by `r1/mk-r1-payloads.py`:
 | `R1-A-olddtb-gated.bin` | t6050-j716s.dtb (normal board DTB, rebuilt with backlight + internal-panel) | `initcall_blacklist=macsmc_power_driver_init` |
 | `R1-B-olddtb-battery-trace.bin` | same | `macsmc_power.trace=1 panic=0 pause_on_oops=300 ignore_loglevel` (no blacklist) |
 | `R1-C-usbhost-gated.bin` | t6050-j716s-usbhost.dtb | `initcall_blacklist=macsmc_power_driver_init` |
+| `R1-D-olddtb-battery.bin` | t6050-j716s.dtb | nothing (battery enabled, no trace/panic/pause_on_oops/ignore_loglevel); added 2026-11-06 after R1-B booted 3/3 |
+| `R1-E-usbhost-battery.bin` | t6050-j716s-usbhost.dtb | nothing (same as R1-D); added 2026-11-06 |
 
 \* B2 base: `earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused
 no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5`. `cpufreq.default_governor=userspace`
@@ -267,6 +269,8 @@ read-only and belong to R2. Rollback: none needed for S1; if the machine does no
 6d6a402b4192c0bd09e28fd87bfe55880a9a2338cace52b9e36398ce9970bf49  R1-A-olddtb-gated.bin
 c4edcb33058b44f0f89168b8e507afa338edc580559c872fe7141f2fe19bea8a  R1-B-olddtb-battery-trace.bin
 019cf5f17a2e347ae4a3add9e476a6fb35799e8f8244ba5ea0ec455c2d21c244  R1-C-usbhost-gated.bin
+063475c85444e463d685d06b56f1a8bd3bc355ea3f148135a53a42e54d962905  R1-D-olddtb-battery.bin
+28627b6c3292366b95d300cf136956da1ecf70d117dcbcc19b977668c60564fc  R1-E-usbhost-battery.bin
 
 # inputs
 742c59817f39cd0f2ab2cce50db347d8ad951d6848f56e492987c66d9c4b11a9  m1n1-plain.bin
