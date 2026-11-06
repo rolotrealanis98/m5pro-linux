@@ -60,3 +60,17 @@ In Linux:
 - Notch rows kept: cosmetic only; without the payload variable nothing changes.
 - If stage-2 does not boot at all (no m1n1 text), the same rollback applies; `build/m1n1-plain-notch.bin`
   (0017 only, no PD change) is the next bisect step.
+
+## R2-C / R2-D (2026-11-06): + dart-pmp0 DAPF
+
+- `R2-C-usbhost-battery-pmpdapf.bin`: R2-B + m1n1 0019. `R2-D-olddtb-battery-pmpdapf.bin`: R2-A + 0019.
+- On the panel, in `kboot phase: dapf_init_all`, expect a new block:
+  `dapf: /arm-io/dart-pmp0 base 0x2841b0000 window 0x4000, dapf-instance-0 length ...`,
+  `dapf:   slice 0 @ 0x2841b0000` ... `slice 30 @ 0x2841b0780`, `dapf: Initialized /arm-io/dart-pmp0`,
+  then `kboot phase: dapf_init_all done`.
+- Risk: our T6050 AOP DAPF raised an SError (that is why AOP is skipped). dart-pmp0 has no
+  `allow-dram-apf-slices-0` and edimoldovan programmed it on J714c without faults, but it has not run
+  on J716s. If the panel stops on a `dapf:   slice N @ 0x2841b...` line: photograph it, hold power,
+  restore `boot.bin.prev` from macOS (same rollback as above).
+- In Linux: `tr -d '\0' < /proc/device-tree/chosen/asahi,m1n1-stage2-version` should print
+  `v2.0.0-71-gd5b29b03`. Then `~/Work/agents/pmp-favour/pmp-readback.sh` (`--gates-only` first).

@@ -87,3 +87,21 @@ tree's state at 160b644c, not that commit's diff.
 Not ported: the T6050 USB 2.0 host prep (65bbd8b6..103ab882, `usb_t6050_host_prep()` before the
 jump). It is PHY/dwc3 setup for a kernel without a T6050 usb2 PHY driver; our usbhost DTB has
 `apple,t6050-usb2phy` and does that in the kernel.
+
+## R2-C / R2-D: + 0019 (dart-pmp0 DAPF), 2026-11-06
+
+| commit | what |
+|---|---|
+| `d5b29b03` | + `patches/0019-dapf-add-the-T6050-PMP-DART-dart-pmp0.patch`: port of edimoldovan/m1n1 `fc277aa1be` (author kept, AI-assisted note and both Co-Authored-By lines kept). Our two-field `dapf_entries[]` has no alias/FDT gating, so `dapf_init_all()` in `kboot_boot()` programs `/arm-io/dart-pmp0` (reg[1] `0x2841b0000`, 31 slices) on every stage-2 boot. Table reflowed one entry per line (clang-format clean). |
+
+`build.sh` now builds four refs; 459a3af2, 01cf956d and ccbb51bc reproduce `742c5981...`,
+`77ecc5bb...` and `7497c0b1...` byte for byte, and m1n1-r2 HEAD gives
+`build/m1n1-plain-r2-pmpdapf.bin` = `m1n1-plain-pmpdapf.bin`:
+`2c46317d123e3fdf0cd33228614835612a55d49b953bb4cec9ec0abbed9db177`, 0x400000 bytes, banner
+`##m1n1_ver##v2.0.0-71-gd5b29b03`, 0 compiler warnings, string `/arm-io/dart-pmp0` present.
+
+`mk-r2-payloads.py` takes a per-payload m1n1 now; R2-A/R2-B regenerate byte-identical.
+`R2-C-usbhost-battery-pmpdapf.bin` (R2-B's DTB and args) `3a95fb4c...`,
+`R2-D-olddtb-battery-pmpdapf.bin` (R2-A's) `59f24efb...`; both byte-identical to R2-B/R2-A from
+0x400000 on. Sums: `SHA256SUMS` (all four) and `SHA256SUMS-r2cd`. Copied with `SHA256SUMS-r2cd`
+to iCloud `m5pro-r1/`.
