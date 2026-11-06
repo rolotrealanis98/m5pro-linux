@@ -1,0 +1,14 @@
+--- a/src/backend/drm/DRM.cpp	2026-11-06 14:57:20
++++ b/src/backend/drm/DRM.cpp	2026-11-06 14:57:20
+@@ -1121,8 +1121,10 @@
+ 
+     auto drmVerName = drmVer && drmVer->name ? drmVer->name : "unknown";
+     driver          = driverFromName(drmVerName);
+-    if (driver == AQ_BACKEND_GPU_DRIVER_EVDI) {
++    if (driver == AQ_BACKEND_GPU_DRIVER_EVDI || std::string_view{drmVerName} == "simpledrm" || getenv("AQ_DRM_NO_RENDERER")) {
+         // DisplayLink/evdi exposes KMS without a usable EGL renderer. Keep primary so its output swapchain stays LINEAR.
++        // simpledrm (firmware framebuffer, no render node, llvmpipe only) is the same: otherwise every commit re-runs
++        // initMgpu (new GBM device + EGL device scan) and fails with "no matching devices found".
+         rendererRequired = false;
+     }
+ 

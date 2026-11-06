@@ -1,0 +1,52 @@
+mice:
+	Mouse at 5555956d1be0:
+		apple-mtp-multi-touch
+			default speed: 0.00000
+			scroll factor: -1.00
+	Mouse at 5555957ade70:
+		logitech-usb-receiver
+			default speed: 0.00000
+			scroll factor: -1.00
+	Mouse at 555595e200c0:
+		logitech-usb-receiver-keyboard-1
+			default speed: 0.00000
+			scroll factor: -1.00
+
+
+Keyboards:
+	Keyboard at 5555932d0f40:
+		apple-smc-power/lid-events
+			rules: r "", m "", l "us", v "", o ""
+			active layout index: 0
+			active keymap: English (US)
+			capsLock: no
+			numLock: no
+			main: no
+	Keyboard at 5555957a3870:
+		apple-mtp-keyboard
+			rules: r "", m "", l "us", v "", o ""
+			active layout index: 0
+			active keymap: English (US)
+			capsLock: no
+			numLock: no
+			main: no
+	Keyboard at 555596672710:
+		logitech-usb-receiver-keyboard
+			rules: r "", m "", l "us", v "", o ""
+			active layout index: 0
+			active keymap: English (US)
+			capsLock: no
+			numLock: no
+			main: yes
+
+
+Tablets:
+
+
+Touch:
+
+
+Switches:
+	Switch Device at 5555931f84f0:
+		Apple SMC power/lid events
+
