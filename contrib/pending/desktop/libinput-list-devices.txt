@@ -1,0 +1,131 @@
+Turn off this advice by setting config variable advice.detachedHead to false
+
+CLONED
+EXIT=0
+(5/5) Updating the desktop file MIME type cache...
+Device:                  Apple SMC power/lid events
+Kernel:                  /dev/input/event0
+Id:                      <unknown>:0000:0000
+Group:                   1
+Seat:                    seat0, default
+Capabilities:            keyboard switch
+Tap-to-click:            n/a
+Tap-and-drag:            n/a
+Tap button map:          n/a
+Tap drag lock:           n/a
+Left-handed:             n/a
+Nat.scrolling:           n/a
+Middle emulation:        n/a
+Calibration:             n/a
+Scroll methods:          none
+Scroll button:           n/a
+Scroll button lock:      n/a
+Click methods:           none
+Clickfinger button map:  n/a
+Disable-w-typing:        n/a
+Disable-w-trackpointing: n/a
+Accel profiles:          n/a
+Rotation:                0.0
+Area rectangle:          n/a
+
+Device:                  Apple MTP multi-touch
+Kernel:                  /dev/input/event1
+Id:                      host:05ac:035a
+Group:                   2
+Seat:                    seat0, default
+Size:                    157x96mm
+Capabilities:            pointer gesture
+Tap-to-click:            disabled
+Tap-and-drag:            enabled
+Tap button map:          left/right/middle
+Tap drag lock:           disabled
+Left-handed:             disabled
+Nat.scrolling:           enabled
+Middle emulation:        disabled
+Calibration:             n/a
+Scroll methods:          *two-finger edge 
+Scroll button:           n/a
+Scroll button lock:      n/a
+Click methods:           button-areas *clickfinger 
+Clickfinger button map:  left/right/middle
+Disable-w-typing:        enabled
+Disable-w-trackpointing: enabled
+Accel profiles:          flat *adaptive custom
+Rotation:                n/a
+Area rectangle:          n/a
+
+Device:                  Apple MTP keyboard
+Kernel:                  /dev/input/event2
+Id:                      host:05ac:035a
+Group:                   3
+Seat:                    seat0, default
+Capabilities:            keyboard 
+Tap-to-click:            n/a
+Tap-and-drag:            n/a
+Tap button map:          n/a
+Tap drag lock:           n/a
+Left-handed:             n/a
+Nat.scrolling:           n/a
+Middle emulation:        n/a
+Calibration:             n/a
+Scroll methods:          none
+Scroll button:           n/a
+Scroll button lock:      n/a
+Click methods:           none
+Clickfinger button map:  n/a
+Disable-w-typing:        n/a
+Disable-w-trackpointing: n/a
+Accel profiles:          n/a
+Rotation:                0.0
+Area rectangle:          n/a
+
+Device:                  Logitech USB Receiver
+Kernel:                  /dev/input/event3
+Id:                      usb:046d:c547
+Group:                   4
+Seat:                    seat0, default
+Capabilities:            pointer 
+Tap-to-click:            n/a
+Tap-and-drag:            n/a
+Tap button map:          n/a
+Tap drag lock:           n/a
+Left-handed:             disabled
+Nat.scrolling:           disabled
+Middle emulation:        disabled
+Calibration:             n/a
+Scroll methods:          button 
+Scroll button:           BTN_MIDDLE
+Scroll button lock:      disabled
+Click methods:           none
+Clickfinger button map:  n/a
+Disable-w-typing:        n/a
+Disable-w-trackpointing: n/a
+Accel profiles:          flat *adaptive custom
+Rotation:                0.0
+Area rectangle:          n/a
+
+Device:                  Logitech USB Receiver Keyboard
+Kernel:                  /dev/input/event4
+Id:                      usb:046d:c547
+Group:                   4
+Seat:                    seat0, default
+Capabilities:            keyboard pointer 
+Tap-to-click:            n/a
+Tap-and-drag:            n/a
+Tap button map:          n/a
+Tap drag lock:           n/a
+Left-handed:             n/a
+Nat.scrolling:           disabled
+Middle emulation:        n/a
+Calibration:             n/a
+Scroll methods:          none
+Scroll button:           n/a
+Scroll button lock:      n/a
+Click methods:           none
+Clickfinger button map:  n/a
+Disable-w-typing:        n/a
+Disable-w-trackpointing: n/a
+Accel profiles:          n/a
+Rotation:                0.0
+Area rectangle:          n/a
+
