@@ -1,0 +1,37 @@
+From 6f93def30893944a97d0b308e88d229a1034506c Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Wed, 4 Nov 2026 08:46:58 -0500
+Subject: [PATCH] phy: apple: t6050: park the PIPE from a dummy producer on any
+ clock
+
+At the first controller reset the USB3 PIPE mux is expected unset (0),
+on the dummy producer (2) or already parked (0x42). When nothing has
+reset the controller domain since boot, as on a boot without the
+SPTM, the mux reads 0x22: the dummy producer on another clock. The
+park then refused it and dwc3 failed to probe.
+
+The park clears the clock field before it selects the dummy producer
+and its clock, so start from any clock while the producer is the
+dummy one.
+
+Developed with Claude Code.
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h b/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h
+index 812227cac03e..f5962152444b 100644
+--- a/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h
++++ b/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h
+@@ -23,7 +23,9 @@ apple_t6050_usb3_pipe_cold_dummy(const struct apple_t6050_usb_io *io)
+     if (io->read(io->context, 44, 0x1c) & 1)
+         return -1;
+     mux = io->read(io->context, 44, 0x0c) & 0x73;
+-    if (mux != 0 && mux != 2 && mux != 0x42)
++    /* Unset, or already on the dummy producer (1:0 = 2) with any clock: when nothing
++     * has reset the controller domain since boot, the mux can read 0x22. */
++    if (mux != 0 && (mux & 3) != 2)
+         return -1;
+     if (mux == 0x42)
+         return 0;
