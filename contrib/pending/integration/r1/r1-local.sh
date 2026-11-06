@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# r1-local.sh - run AS ROOT AT THE LINUX CONSOLE of the J716s (16-inch MacBook Pro M5 Pro, T6050).
+# r1-local.sh v3 (2026-11-06 evening: steps a-d, --battery, USB checks fixed) - run AS ROOT AT THE LINUX CONSOLE of the J716s (16-inch MacBook Pro M5 Pro, T6050).
 # No network, no tether. Collects the R1 evidence and runs the plan's active checks for one step:
 #
 #   bash /boot/r1-local.sh a [--quick]    R1-A  (Step 1: boot and desktop checks)
 #   bash /boot/r1-local.sh b [--quick]    R1-B  (Step 2: battery with the probe trace)
 #   bash /boot/r1-local.sh c [--quick]    R1-C  (Step 4: USB host DTB)
+#   bash /boot/r1-local.sh d              general: passive collection plus the battery and USB
+#                                         presence checks, no prompts (any payload, R2 included)
+#
+# --battery says "the battery driver is expected on" (no initcall_blacklist=macsmc_power...).
+# Without it the script decides from /proc/cmdline: no blacklist means battery expected, and the
+# battery presence checks run in every step; with the blacklist the driver is expected to be off.
+# Step b always expects the battery on. Step d runs the USB checks only on the usbhost DTB.
 #
 # --quick skips every prompt that needs hands or eyes (keyboard-backlight question, lid, MagSafe,
 # USB ports), so the script runs unattended in about a minute (step a still takes ~35 s for the
@@ -19,17 +26,26 @@
 set -u
 export LC_ALL=C
 
-STEP=""; QUICK=0
+USAGE="usage: bash r1-local.sh a|b|c|d [--quick] [--battery]"
+STEP=""; QUICK=0; BATTERY_OPT=0
 for a in "$@"; do
     case "$a" in
-        a|b|c|A|B|C) STEP=$(printf '%s' "$a" | tr 'ABC' 'abc') ;;
+        a|b|c|d|A|B|C|D) STEP=$(printf '%s' "$a" | tr 'ABCD' 'abcd') ;;
         --quick) QUICK=1 ;;
-        *) echo "usage: bash r1-local.sh a|b|c [--quick]" >&2; exit 2 ;;
+        --battery) BATTERY_OPT=1 ;;
+        *) echo "$USAGE" >&2; exit 2 ;;
     esac
 done
-[ -n "$STEP" ] || { echo "usage: bash r1-local.sh a|b|c [--quick]" >&2; exit 2; }
+[ -n "$STEP" ] || { echo "$USAGE" >&2; exit 2; }
 [ "$(id -u)" = 0 ] || { echo "run as root (you are at the console: log in as root)" >&2; exit 1; }
-case "$STEP" in a) PAYLOAD=R1-A ;; b) PAYLOAD=R1-B ;; c) PAYLOAD=R1-C ;; esac
+case "$STEP" in a) PAYLOAD=R1-A ;; b) PAYLOAD=R1-B ;; c) PAYLOAD=R1-C ;; d) PAYLOAD=general ;; esac
+
+# Is the battery driver expected on? --battery or step b: yes. Otherwise: yes when the command
+# line carries no initcall_blacklist=macsmc_power... (the payload is "battery on"), no when it does.
+CMDLINE=$(tr -d '\n' 2>/dev/null < /proc/cmdline)
+BLACKLIST=0; case "$CMDLINE" in *initcall_blacklist=macsmc_power*) BLACKLIST=1 ;; esac
+TRACE=0; case "$CMDLINE" in *macsmc_power.trace=1*) TRACE=1 ;; esac
+if [ "$BATTERY_OPT" = 1 ] || [ "$STEP" = b ] || [ "$BLACKLIST" = 0 ]; then BATTERY=1; else BATTERY=0; fi
 
 EXPECT_RELEASE=7.2.2-ge1d2d7313745
 ESP_DEV=/dev/nvme0n1p4
@@ -163,17 +179,20 @@ collect_extra_c() {
 
 # ---------------------------------------------------------------------------- common checks
 chk_kernel() {
-    local rel cmd miss=""
-    rel=$(uname -r); cmd=$(tr -d '\n' 2>/dev/null < /proc/cmdline); cmd=${cmd%% }
+    local rel cmd miss="" mode
+    rel=$(uname -r); cmd=${CMDLINE%% }
     [ "$rel" = "$EXPECT_RELEASE" ] || miss="$miss release=$rel"
-    case "$STEP" in
-        b) case "$cmd" in *macsmc_power.trace=1*) ;; *) miss="$miss no-trace=1" ;; esac
-           case "$cmd" in *initcall_blacklist=macsmc_power*) miss="$miss blacklist-present" ;; esac ;;
-        *) case "$cmd" in *initcall_blacklist=macsmc_power_driver_init*) ;; *) miss="$miss no-blacklist" ;; esac ;;
-    esac
+    [ "$STEP" != b ] || [ "$TRACE" = 1 ] || miss="$miss no-trace=1"
+    if [ "$BATTERY" = 1 ]; then
+        [ "$BLACKLIST" = 0 ] || miss="$miss blacklist-present"
+        mode="battery on"
+    else
+        [ "$BLACKLIST" = 1 ] || miss="$miss no-blacklist"
+        mode="battery gated"
+    fi
     case "$cmd" in *default_governor*) miss="$miss default_governor" ;; esac
     case "$cmd" in *"idle=nop arm64.nowfxt") ;; *) miss="$miss tail-not-idle=nop" ;; esac
-    if [ -z "$miss" ]; then result PASS kernel-args "$rel, args as planned"; else result FAIL kernel-args "$miss"; fi
+    if [ -z "$miss" ]; then result PASS kernel-args "$rel, $mode, args as planned"; else result FAIL kernel-args "$miss ($mode)"; fi
 }
 
 chk_cpus() {
@@ -209,6 +228,7 @@ chk_smc_core() {
     done
     grep -q "hwmon hwmon0" "$DIR/dmesg.txt" || miss="$miss hwmon"
     if [ -z "$miss" ]; then result PASS smc-core "gpio low-gpio input rtc reboot"; else result FAIL smc-core "missing:$miss"; fi
+    if [ "$BATTERY" = 1 ]; then return; fi
     if grep -v 'Kernel command line' "$DIR/dmesg.txt" | grep -q 'macsmc-power'; then
         result FAIL no-macsmc-pwr "macsmc-power lines present (should be gated)"
     else
@@ -216,7 +236,7 @@ chk_smc_core() {
     fi
 }
 
-chk_cpufreq() {
+chk_cpufreq() { # chk_cpufreq [noidle]: governor and max always; the idle read only without "noidle"
     local base=/sys/devices/system/cpu/cpufreq p g mx bad="" idle max
     for p in 0 6 12; do
         g=$(cat $base/policy$p/scaling_governor 2>/dev/null); mx=$(cat $base/policy$p/cpuinfo_max_freq 2>/dev/null)
@@ -224,6 +244,9 @@ chk_cpufreq() {
         [ "$mx" = 4308000 ] || bad="$bad p$p:max=${mx:-none}"
     done
     if [ -z "$bad" ]; then result PASS cpufreq-gov "schedutil x3, max 4308000"; else result FAIL cpufreq-gov "$bad"; fi
+    # Reading scaling_cur_freq from a shell wakes the cluster: schedutil reads high at 0.00 load while
+    # time_in_state shows the idle floor (RESULTS.md, Round R2). Treat this FAIL as a known artifact.
+    [ "${1:-}" != noidle ] || return 0
     say "   (idle wait 10 s ...)"; sleep 10
     idle="$(cat $base/policy0/scaling_cur_freq 2>/dev/null)/$(cat $base/policy6/scaling_cur_freq 2>/dev/null)/$(cat $base/policy12/scaling_cur_freq 2>/dev/null)"
     max=1344000/1344000/1308000
@@ -313,12 +336,14 @@ chk_notch() {
     local vs prop
     vs=$(cat /sys/class/graphics/fb0/virtual_size 2>/dev/null)
     prop=$(tr '\n' ' ' < "$DIR/show-notch.txt" | cut -c1-40)
-    if [ "$vs" = "3456,2160" ] && [ -e /proc/device-tree/chosen/asahi,show-notch ]; then
-        result PASS notch "fb0 $vs, show-notch: $prop"
+    if [ "$vs" = "3456,2234" ] && [ -e /proc/device-tree/chosen/asahi,show-notch ]; then
+        result PASS notch "fb0 $vs, notch rows kept (stage-2 m1n1 0017), show-notch: $prop"
+    elif [ "$vs" = "3456,2160" ] && [ -e /proc/device-tree/chosen/asahi,show-notch ]; then
+        result PASS notch "fb0 $vs, notch trimmed (old m1n1), show-notch: $prop"
     elif [ "$vs" = "3456,2160" ]; then
         result FAIL notch "fb0 $vs but no asahi,show-notch property"
     else
-        result FAIL notch "fb0=${vs:-none} (want 3456,2160); $prop"
+        result FAIL notch "fb0=${vs:-none} (want 3456,2234 or 3456,2160); $prop"
     fi
 }
 
@@ -371,7 +396,9 @@ chk_battery() {
     bat=$ps/macsmc-battery; ac=$ps/macsmc-ac
     if [ -d "$bat" ]; then result PASS bat-present "macsmc-battery"; else result FAIL bat-present "macsmc-battery missing: $(ls "$ps" 2>/dev/null | tr '\n' ' ')"; fi
     if [ -d "$ac" ]; then result PASS ac-present "macsmc-ac"; else result FAIL ac-present "macsmc-ac missing"; fi
-    if grep -q 'probe done' "$DIR/trace.txt" 2>/dev/null; then result PASS probe-done "trace has 'probe done'"; else result FAIL probe-done "no 'probe done' in the trace"; fi
+    if [ "$TRACE" = 0 ]; then result SKIP probe-done "no macsmc_power.trace=1 on the command line"
+    elif grep -q 'probe done' "$DIR/trace.txt" 2>/dev/null; then result PASS probe-done "trace has 'probe done'"
+    else result FAIL probe-done "no 'probe done' in the trace"; fi
     if [ ! -d "$bat" ]; then return; fi
     u=$bat/uevent
     st=$(uev "$u" STATUS); cap=$(uev "$u" CAPACITY); v=$(uev "$u" VOLTAGE_NOW)
@@ -427,7 +454,13 @@ chk_usb_core() {
     local nphy r udc
     nphy=$(grep -c 'phy-apple-usb2' "$DIR/dmesg.txt")
     if [ "$nphy" -ge 3 ] && grep -q 'xhci' "$DIR/dmesg.txt"; then result PASS usb-phy-xhci "$nphy phy lines, xhci present"; else result FAIL usb-phy-xhci "phy lines=$nphy, xhci=$(grep -c xhci "$DIR/dmesg.txt")"; fi
-    if grep -qE 'HC died|DART.*fault|error -110| -110$' "$DIR/dmesg.txt"; then result FAIL usb-errors "-110 / HC died / DART fault in dmesg"; else result PASS usb-errors "none of -110, HC died, DART fault"; fi
+    # -110 counts only on usb/xhci/dwc3/phy lines: the apple-pmgr-pwrstate probe timeouts (~23 s) are not USB.
+    if grep -iE 'usb|xhci|dwc3|phy' "$DIR/dmesg.txt" | grep -v 'apple-pmgr-pwrstate' | grep -qE 'error -110| -110$' \
+        || grep -qE 'HC died|DART.*fault' "$DIR/dmesg.txt"; then
+        result FAIL usb-errors "-110 on a usb/xhci/dwc3/phy line, HC died or DART fault"
+    else
+        result PASS usb-errors "no usb -110 (pmgr -110 ignored), HC died, DART fault"
+    fi
     r=$(cat /sys/class/usb_role/2aa280000.usb-role-switch/role 2>&1)
     udc=$(ls /sys/class/udc 2>/dev/null | sort | tr '\n' ' ')
     if [ "$r" = host ]; then result PASS usb-role "2aa280000 role=host"; else result FAIL usb-role "2aa280000 role=$r"; fi
@@ -445,11 +478,40 @@ usb_list() {
 }
 link_list() { ip -br link 2>/dev/null | awk '{print $1}' | sort; }
 
+# every enumerated device below a root hub (bus-port names like 1-1, 1-1.2.1), hubs included, as
+# "name vid:pid product"
+usb_present() {
+    local d n
+    for d in /sys/bus/usb/devices/*; do
+        n=$(basename "$d")
+        case "$n" in [0-9]*-[0-9]*) ;; *) continue ;; esac
+        case "$n" in *:*) continue ;; esac
+        [ -f "$d/idVendor" ] || continue
+        printf '%s %s:%s %s\n' "$n" "$(cat "$d/idVendor")" "$(cat "$d/idProduct" 2>/dev/null)" "$(cat "$d/product" 2>/dev/null | sed 's/ *$//')"
+    done
+}
+
+# usb-enum: passive. Devices enumerated now (sysfs) and 'new ... USB device' lines in dmesg.
+chk_usb_enum() {
+    local nnew ndev list
+    dmesg > "$DIR/dmesg-usbenum.txt" 2>&1
+    nnew=$(grep -cE 'usb [0-9]+-[0-9.]+: new .*USB device' "$DIR/dmesg-usbenum.txt")
+    list=$(usb_present)
+    ndev=$(printf '%s' "$list" | grep -c .)
+    { echo "new-device lines: $nnew"; echo "devices present: $ndev"; printf '%s\n' "$list"; } > "$DIR/usb-enum.txt"
+    if [ "$ndev" -ge 1 ] || [ "$nnew" -ge 1 ]; then
+        result PASS usb-enum "$ndev present, $nnew new-device lines: $(printf '%s' "$list" | awk '{print $2}' | tr '\n' ' ')"
+    else
+        result FAIL usb-enum "nothing enumerated below the root hubs (no VBUS, or nothing plugged before boot)"
+    fi
+}
+
 chk_usb_ports() {
-    local port u0 u1 l0 l1 newu newl got="" miss="" dm0 note
+    local port u0 u1 l0 l1 newu newl got="" miss="" dm0 note npre
     if [ "$QUICK" = 1 ]; then result SKIP usb-ports "--quick"; return; fi
     have ip || { result SKIP usb-ports "no ip command"; return; }
-    : > "$DIR/usb-ports.txt"
+    npre=$(usb_present | grep -c .)
+    { echo "devices present before the test: $npre"; usb_present; } > "$DIR/usb-ports.txt"
     say "   >>> USB-Ethernet adapter test, one port at a time (left-rear, left-front, right)."
     say "       Note: the left-front port may have no VBUS; the adapter then stays dark."
     for port in left-rear left-front right; do
@@ -463,18 +525,29 @@ chk_usb_ports() {
         {
             echo "=== $port: new usb device(s): ${newu:-none}; new link(s): ${newl:-none}"
             dmesg | tail -n +"$((dm0 + 1))"
+            echo "devices present after: $(usb_present | grep -c .)"; usb_present
         } >> "$DIR/usb-ports.txt"
         if [ -n "$newu$newl" ]; then got="$got $port(${newl:-usb})"; else miss="$miss $port"; fi
     done
     note=""; case "$miss" in *left-front*) note=" (left-front may lack VBUS)" ;; esac
-    if [ -n "$got" ]; then result PASS usb-ports "enumerates:$got; dark:${miss:- none}$note"; else result FAIL usb-ports "no port enumerated$note"; fi
+    if [ -n "$got" ]; then
+        result PASS usb-ports "enumerates:$got; dark:${miss:- none}$note"
+    elif [ "$npre" -ge 1 ]; then
+        # plugged before boot: the chain was already up, and a replug does not re-enumerate (no tipd/cd321x driver)
+        result PASS usb-ports "$npre device(s) enumerated since boot; replug showed nothing new$note"
+    else
+        result FAIL usb-ports "no port enumerated$note"
+    fi
 }
 
 # ---------------------------------------------------------------------------- run
+# the USB checks make sense only on the usbhost DTB (model string ends in "USB host")
+USBHOST=0; grep -aq 'USB host' /proc/device-tree/model 2>/dev/null && USBHOST=1
 collect_common
+if [ "$BATTERY" = 1 ]; then collect_extra_b; fi
 case "$STEP" in
-    b) collect_extra_b ;;
     c) collect_extra_c ;;
+    d) if [ "$USBHOST" = 1 ]; then collect_extra_c; fi ;;
 esac
 say "== checks"
 chk_kernel
@@ -483,6 +556,7 @@ case "$STEP" in
     a)
         chk_nvme_trackpad
         chk_smc_core
+        if [ "$BATTERY" = 1 ]; then chk_battery; chk_chwa; fi
         chk_cpufreq
         chk_cpufreq_load
         result SKIP opp-offset "needs dvfs-regs/cpuhz tools (not run solo)"
@@ -501,7 +575,9 @@ case "$STEP" in
         chk_noise
         ;;
     c)
+        if [ "$BATTERY" = 1 ]; then chk_battery; chk_chwa; fi
         chk_usb_core
+        chk_usb_enum
         chk_usb_ports
         # refresh the USB logs after the port test
         dmesg > "$DIR/dmesg-final.txt" 2>&1
@@ -509,6 +585,22 @@ case "$STEP" in
         ip -br link > "$DIR/ip-br-link-final.txt" 2>&1
         ls -l /sys/bus/usb/devices > "$DIR/usb-devices-final.txt" 2>&1
         if have lsusb; then tmo 10 lsusb > "$DIR/lsusb-final.txt" 2>&1; fi
+        chk_noise
+        ;;
+    d)
+        chk_nvme_trackpad
+        chk_smc_core
+        if [ "$BATTERY" = 1 ]; then chk_battery; chk_chwa; fi
+        chk_cpufreq noidle
+        chk_edp
+        chk_notch
+        chk_zram
+        if [ "$USBHOST" = 1 ]; then
+            chk_usb_core
+            chk_usb_enum
+        else
+            result SKIP usb "normal DTB (no 'USB host' in the model string)"
+        fi
         chk_noise
         ;;
 esac
@@ -539,5 +631,6 @@ case "$STEP" in
     a) echo "Photograph the block above. Then restart:  systemctl reboot   (it must come back on R1-A; this script does not reboot)." ;;
     b) echo "Photograph the block above. Then restart twice:  systemctl reboot   (each must come back; this script does not reboot)." ;;
     c) echo "Photograph the block above. Then restart:  systemctl reboot   (this script does not reboot)." ;;
+    d) echo "Nothing was plugged, unplugged or rewritten; this script does not reboot." ;;
 esac
 sync

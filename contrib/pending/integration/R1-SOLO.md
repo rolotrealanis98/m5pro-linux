@@ -58,7 +58,7 @@ It mounts the partition (running `fsck_msdos -y` once if the mount fails) and un
 3. A USB failure is not a hang risk. Rollback: `./r1-deploy.sh restore`.
 
 ## 4b. R1-D / R1-E: battery without the trace (next solo round)
-`R1-D-olddtb-battery.bin` (normal DTB) and `R1-E-usbhost-battery.bin` (usbhost DTB) carry the B2 base arguments only: battery driver enabled, no `macsmc_power.trace`, no `panic=0 pause_on_oops=300 ignore_loglevel`. Deploy with `./r1-deploy.sh deploy --rotate R1-D-olddtb-battery.bin` (R1-B booted 3/3, so it is a safe `boot.bin.prev`). `r1-local.sh` has no `d`/`e` step yet: `bash /boot/r1-local.sh b` works for the battery values, but its `kernel-args` and `probe-done` checks FAIL by design (no trace on the command line).
+`R1-D-olddtb-battery.bin` (normal DTB) and `R1-E-usbhost-battery.bin` (usbhost DTB) carry the B2 base arguments only: battery driver enabled, no `macsmc_power.trace`, no `panic=0 pause_on_oops=300 ignore_loglevel`. Deploy with `./r1-deploy.sh deploy --rotate R1-D-olddtb-battery.bin` (R1-B booted 3/3, so it is a safe `boot.bin.prev`). Since 2026-11-06 evening `r1-local.sh` has a `d` step (general: passive collection plus battery and USB presence checks, no prompts) and detects a battery-on payload from the command line (`--battery` forces it): `bash /boot/r1-local.sh d` fits R1-D, R1-E and the R2 payloads.
 
 ## 5. Finish and send back
 - Leave the machine on a payload that boots: `./r1-deploy.sh restore b2` (or `deploy R1-A-olddtb-gated.bin` if you want to keep R1-A). `./r1-deploy.sh status` to confirm.
