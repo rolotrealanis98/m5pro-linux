@@ -17,7 +17,7 @@ Per-feature designs, patches and test plans: `contrib/pending/<feature>/`; hardw
 | m1n1 installed as the stub's boot object (macOS on Macintosh HD stays at Full Security) | works |
 | m1n1 proxy over USB-C to the Studio, through the CalDigit TS5 Plus | works |
 | Chainloading m1n1 builds (`chainload.py -r -n`) | works |
-| Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots untethered from the ESP, 18 CPUs |
+| Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots untethered from the ESP, 18 CPUs; since 2026-11-06 evening the Linux side is reachable from the Studio over Tailscale and payloads are swapped from Linux |
 | Framebuffer console, built-in keyboard, NVMe read/write, USB gadget network | works |
 | NVMe at boot | **works** (2026-11-05) with kernel patch 0016: the ANS firmware sometimes needs ~3 s for the RTKit handshake, the 1 s wait gave `ANS did not boot` and no root; 10 s wait, NVMe up at 8.3-10.7 s on 3/3 boots |
 | Kernel built with LLVM/clang on the Studio's macOS | works (2026-11-05): 18 CPUs, SSH, trackpad |
@@ -26,9 +26,11 @@ Per-feature designs, patches and test plans: `contrib/pending/<feature>/`; hardw
 | Trackpad | **works** (2026-11-05, 3/3 boots): the MTP firmware never drives the trackpad AFE reset; dockchannel-hid now drives it on SMC low GPIO `gp1c` (line 28, active-low), `Touch MT ready`, events flowing. [`contrib/pending/trackpad/`](contrib/pending/trackpad/) |
 | iBoot boot-failure counter | **fixed, verified over four boots** (2026-11-05, kernel patch 0017): macsmc-reboot built in, poweroff-only, Abbey scratchpad cells. The first Linux reboot reported and cleared 1 boot error; the "B2" payload (old DTB, sha256 `55d95928...`) then survived three consecutive Linux (watchdog) reboots with zero PMU boot errors, NVMe and trackpad up and 18 CPUs each time. This was the cause of the "needs to be reinstalled" recovery after repeated Linux restarts. |
 | Battery and charger (`macsmc-power`) | **works** (2026-11-06, 3/3 boots): the round-3 hang at ~7.8 s is gone with integration patches 0018-0027; status, capacity, voltage, current, charge, cycle count, temperature and MagSafe plug events read correctly. Which patch cured it is not known. [`RESULTS.md`](contrib/pending/integration/RESULTS.md) |
-| Keyboard backlight, eDP connector | **work** (2026-11-06): `kbd_backlight` 0/32/255/0, `card0-eDP-1` connected at 3456x2160. The notch stays hidden until m1n1 is rebuilt. |
-| SMC core, cpufreq (all three clusters, schedutil default) | **work** (2026-11-06): hwmon, RTC, poweroff, low-GPIO; a loaded cluster reaches 4308000. Open: idle does not drop to the lowest step. |
-| USB 2.0 host (left-front port) | booted, not feature-tested: drivers in the kernel; the host-mode DTB has not been booted (needs a USB-Ethernet adapter). `contrib/pending/usb/` |
+| Keyboard backlight, eDP connector | **work** (2026-11-06): `kbd_backlight` 0/32/255/0, `card0-eDP-1` connected. |
+| Notch rows | **works** (2026-11-06 evening): the stage-2 m1n1 rebuild (patch 0017) keeps the rows behind the notch, `fb0` 3456x2234. |
+| SMC core, cpufreq (all three clusters, schedutil default) | **work** (2026-11-06): hwmon, RTC, poweroff, low-GPIO; a loaded cluster reaches 4308000. The "idle stays high" reading was a measurement artifact (the read wakes the cluster; `time_in_state` shows the floor). Open: states above `cpuinfo_max_freq` in policy12's table. |
+| USB host (left-front port), USB Ethernet | **works if plugged in before boot** (2026-11-06 evening): stage-2 m1n1 patch 0018 restores the USB-PD controller S0 setup (our 0005 had skipped it, so no VBUS). Hub chain, Logitech Bolt mouse, card reader and an RTL8153 (`r8152`, DHCP, ping) enumerate. No re-enumeration after an unplug: the kernel has no `tipd`/`cd321x` driver yet. `contrib/pending/usb/`, [`RESULTS.md`](contrib/pending/integration/RESULTS.md) ("Round R2") |
+| Power off, S1 sleep step | **power off works** (`systemctl poweroff`, no PMU boot error next boot); **S1 freezer-only step passes**. Real s2idle not tested. |
 | Thermal zones | design only, compile-checked (`contrib/pending/platform/`) |
 | GPU, display driver (DCP), Wi-Fi/BT (N1), audio, camera, Thunderbolt | not working; design reports only (`contrib/pending/{gpu,dcp,wireless,audio,isp-tb}/`) |
 | Untethered boot (kernel on the ESP) | **works on all 18 CPUs** (2026-11-04 18:08): stage-1 = CHAINLOADING m1n1 (0013+0014, chainload variable, 64 KiB-aligned) installed once; stage-2 on the ESP = m1n1 with patch 0015 (reset-vector trampoline for a relocated image) + kernel + DTB + initramfs. Kernel updates are an ESP file copy over the SSH bridge. [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md) |
