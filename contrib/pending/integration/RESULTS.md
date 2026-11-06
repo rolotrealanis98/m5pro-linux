@@ -399,3 +399,121 @@ Not run on the machine yet.
 ### Desktop (in progress)
 
 A separate effort is installing Hyprland on llvmpipe on the machine; no results here yet.
+
+## Round R3 (2026-11-06 evening/night): Aurora Silicon kernel on the J716s
+
+Same machine and day as R1 and R2 (the "Round 3" above is the 2026-11-05 SMC round; this one is R3 of
+the 2026-11-06 series). Question: does `aurora-silicon/linux` `integration/aurora` (Linux 7.3.0) run on
+the J716s, as a base we could follow instead of carrying the whole asahi-wip stack? Rolando was at the
+machine for the first boots and did the manual reboots; after R3-K, an autonomous loop with a
+self-reverting payload took over. Analysis of the two trees: `../aurora/ANALYSIS.md`. Tools:
+`../aurora/tools/`. Raw dmesg and the device trees stay outside the repository (they carry per-unit
+values); only hardware-description facts are quoted.
+
+### Kernel and payload recipe
+
+| Part | What |
+|---|---|
+| Base | `integration/aurora`, Linux 7.3.0, `33bec4016c46` |
+| + PR #945 | J716c device tree, merged (two trivial conflicts) |
+| + our 0016 | RTKit handshake wait 1 s -> 10 s (see Round 1) |
+| + PR #936 | T6050 NVMe and SART v4, cherry-picked |
+| + PR #939 | T6050 combo PHY and dwc3, cherry-picked; display-crossbar conflicts resolved to the integration side |
+| Not needed | PR #938 (the centauri drivers are already in integration) |
+| Config | `make defconfig asahi.config` (16K pages), `RUST` off, boot-path drivers built in (list in `../aurora/tools/README.md`) |
+| Result | 28 commits on top of `aurora/integration` (branch `aurora-j716s`, tip `da5a44d086e6`) |
+| Payload | m1n1-plain `7497c0b1` (the R2 stage 2) + bootargs + `Image.gz` + DTB + initramfs; bootargs are the B2 ones, with `initcall_blacklist=macsmc_power_driver_init` on the gated payloads |
+
+Two build gotchas on macOS: BSD `sed` breaks `arch/arm64/tools/gen-kernel-hwcaps.sh` (`\+`), fixed by
+putting gnu-sed and the coreutils `gnubin` on `PATH`; and the first build used 4K pages by mistake
+(`asahi.config` sets 16K).
+
+### Device tree: what had to change
+
+The J716s tree was proposed by the analysis agent (derived from J716c), then post-processed on the
+decompiled DTS (`../aurora/tools/reorder-cpus.py` and hand edits):
+
+1. **CPU order.** m1n1 stopped with `DT CPU 5 MPIDR mismatch 0x40100 != 0x40005`. Aurora's
+   `t6050-max.dtsi` appends the sixth core of each cluster after the first fifteen, and m1n1 matches
+   CPU nodes by index. The nodes were reordered to ADT order.
+2. **Compatibles with no driver in integration.** `smc` (added the `apple,t8103-smc` fallback),
+   `cluster-cpufreq` (`apple,t8112` fallback), `nvme`/`sart` (first `t8132`/`t6000` fallbacks, then
+   PR #936 native), `cio` reset (`t8142` fallback and the node enabled), and `apple,smc-pcio-gpio`
+   (no driver: keyboard and trackpad deferred on the AFE reset line). The last one was fixed with an
+   `apple,smc-low-gpio` child and `apple,afe-reset-gpios = <low-gpio 28 ACTIVE_LOW>` on the
+   `input@8000` **parent** node, which is where Aurora's driver reads it.
+3. **NVMe.** Aurora's own driver first needed `resets` and `power-domains` (an ANS `power-controller@140`
+   was added). With PR #936 both must be absent: the driver adopts the running ANS and restarts it
+   without a PMGR reset.
+4. **Left-front Type-C chain enabled:** `hpm1` `usb-pd@a` (`sn201202x`) on SPMI and the connector graph.
+5. **Combo PHY tunables.** The PHY needs 14 `apple,tunable-*` lists that no public loader fills for
+   T6050. They were generated from the ADT (`../aurora/atc-tunables/`); the per-unit values are not
+   committed.
+
+### Boots
+
+| Payload | Hash | Change | Result |
+|---|---|---|---|
+| R3-B | `84b293c5` | first payload with CPU nodes in ADT order (checked over the m1n1 proxy) | proxy run, no root involved |
+| R3-E | `e46437e2` | Type-C chain, compatible fallbacks, debug initramfs | initramfs shell: no NVMe, no keyboard |
+| R3-H | `beec6567` | same plus the DIAG block on the panel | DIAG shows `nvme` failing with `-ENOENT` for its reset control, and the `dockchannel` AFE reset line unresolved |
+| R3-I | `874142cc` | ANS power domain and reset in the DT | `nvme` IOP power ack `-62` after 1 s; keyboard still absent |
+| R3-J | `4b7b9d0c` | our 0016, 10 s RTKit wait | still no ANS; **keyboard works** (AFE reset line fixed) |
+| R3-K | `bed28a83` | PR #936, no ANS reset in the DT | **ROOT MOUNTS**; 18 CPUs; `apple_idle` registered; keyboard and trackpad; no USB (dwc3 has no reset control: the combo PHY has no driver) |
+| R3-M | `cd53220e` | PR #939, `TYPEC_SN201202X=y`, selftest initramfs | the PHY driver probes and fails: it needs the tunables |
+| R3-N | `f971f9e7` | tunables from the ADT (kernel `Image.gz` `5f8b3e78`) | PHY probes, then `dummy PIPE park failed (-1)`, dwc3 reset assert `-5`, no USB. The self-revert service restored R2-B automatically (first autonomous revert) |
+
+Built but not individually reported here: R3-A (J716c DT), R3-C, R3-D, R3-F, R3-G (intermediate
+DT/diag variants) and R3-L (`9ef02cfd`, R3-K with a handoff variant). Hashes are in
+`~/Work/agents/aurora-kernel/payloads/SHA256SUMS` (not in the repository).
+
+### Findings
+
+- **Aurora's integration kernel boots the J716s to a mounted root and a working keyboard and trackpad**
+  with PR #936 and a hand-fixed device tree: 18 CPUs, NVMe, `apple_idle` registered (cpuidle needs
+  m1n1 to stop appending `idle=nop`).
+- **0016 alone did not bring the ANS up with Aurora's driver (R3-J); PR #936 did (R3-K).** With it the
+  driver adopts the running ANS and restarts it without a PMGR reset, so the ANS reset and power
+  domain must not be in the DT.
+- **The AFE reset line is the whole trackpad/keyboard dependency**, as in Round 1. On this kernel it
+  is the `apple,afe-reset-gpios` property on the parent input node (the same GPIO as our trackpad
+  patch: SMC low GPIO line 28, active-low), plus a driver that exists for the GPIO bank.
+- **The combo PHY needs per-port tunables from the ADT.** No public loader fills them for T6050;
+  `gen-atc-tunables.py` reproduces them. With them the PHY probes; the USB3 lock then fails.
+- **Open failure at R3-N:** `dummy PIPE park failed (-1)` with the PIPE registers dumped in the log,
+  then dwc3 reset assert `-5`. An agent is comparing the
+  pre-boot USB state in Aurora's `aura` with what our m1n1's `usb_init` leaves.
+
+### Process: what went wrong and what we changed
+
+Honest account, because the evening cost more reboots than it needed to:
+
+- **The first full scan of the DTS already listed the unmatched combo PHY** (and the other
+  driverless compatibles). Only the first failures were fixed, boot by boot, so the
+  same class of problem (a compatible or provider with no driver) kept coming back and cost five
+  reboots that an offline check could have replaced. Rolando did the reboots by hand and is tired of it.
+- **A `=m` driver slipped through.** `TYPEC_SN201202X` was `=m` with no modules on the root; the new
+  dependency check caught it before the boot.
+- **Changes to the process:**
+  - the diag initramfs prints the bound drivers and the storage/SMC lines on the panel when the root
+    is missing, so a failed boot is a readable photograph;
+  - the selftest initramfs installs `/usr/local/sbin/m5-selftest` and `m5-selftest.service` into the
+    root; with `m5.selftest=1` and no network after 90 s it saves logs to `/boot/r1-logs/selftest-*`,
+    restores `boot.bin.prev` and reboots. R3-N was the first autonomous revert and it worked;
+  - `dt-depcheck.py` checks the DTS offline against the kernel tree (unmatched compatibles,
+    disabled or driverless providers);
+  - the rule: **no boot without the dependency check and all required drivers `=y`.**
+- Limits of the self-revert: it only exists once the root has mounted, and it needs `boot.bin.prev`
+  on the ESP to hold the last known-good payload.
+
+### Still open
+
+1. **PIPE park failure** on the combo PHY (above), blocking USB on this kernel.
+2. **cpuidle.** `apple_idle` is registered, but m1n1 still appends `idle=nop`; it has to stop for the
+   idle states to be used.
+3. **Wi-Fi/BT.** Needs PR #937 (PCIe), the FTAB firmware (personalised per unit, not in this repo) and
+   the bootloader handoff.
+4. **DCP** is gated on firmware 27.0.0 (this machine runs macOS 27.3 beta 1, 26C5035r); **GPU** is gated off for the M5 Pro
+   in Aurora's tree.
+5. Re-check on this kernel what Round R1/R2 established on ours: battery, cpufreq, S1, power-off.
+   Not run on the Aurora kernel.

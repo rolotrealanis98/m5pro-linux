@@ -18,6 +18,7 @@ Per-feature designs, patches and test plans: `contrib/pending/<feature>/`; hardw
 | m1n1 proxy over USB-C to the Studio, through the CalDigit TS5 Plus | works |
 | Chainloading m1n1 builds (`chainload.py -r -n`) | works |
 | Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots untethered from the ESP, 18 CPUs; since 2026-11-06 evening the Linux side is reachable from the Studio over Tailscale and payloads are swapped from Linux |
+| Aurora Silicon kernel (`integration/aurora`, Linux 7.3.0) on the J716s | **experiment, partly works** (2026-11-06 night, round R3): root mounts, 18 CPUs, keyboard and trackpad with PR #936 and a hand-fixed device tree; no USB yet (combo PHY `dummy PIPE park failed`). The main stack above is unchanged. [`RESULTS.md`](contrib/pending/integration/RESULTS.md) ("Round R3"), [`contrib/pending/aurora/`](contrib/pending/aurora/) |
 | Framebuffer console, built-in keyboard, NVMe read/write, USB gadget network | works |
 | NVMe at boot | **works** (2026-11-05) with kernel patch 0016: the ANS firmware sometimes needs ~3 s for the RTKit handshake, the 1 s wait gave `ANS did not boot` and no root; 10 s wait, NVMe up at 8.3-10.7 s on 3/3 boots |
 | Kernel built with LLVM/clang on the Studio's macOS | works (2026-11-05): 18 CPUs, SSH, trackpad |
