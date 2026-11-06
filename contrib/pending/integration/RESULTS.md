@@ -154,3 +154,128 @@ The studio DTB is byte-for-byte the base DT minus the trackpad diff (checked wit
 - cpufreq stage 1 and Stage C (usbhost DTB) were NOT reached.
 - Parking for Rolando's trip: he restores boot.bin.b2 (or boot.bin.prev = P3) from macOS and sets Startup Disk to
   Macintosh HD; Linux resumes Sunday 2026-11-08.
+
+## Round R1 (2026-11-06, solo)
+
+Rolando alone with the MacBook, no Studio, no tether. Kernel `7.2.2-ge1d2d7313745` (integration
+patches 0001-0034). Plan: `R1-TEST-PLAN.md`; kit: `R1-SOLO.md`, `host/macos/r1-deploy.sh`,
+`r1/r1-local.sh`. Payloads R1-A `6d6a402b` and R1-B `c4edcb33` (hashes in `r1/SHA256SUMS-payloads`).
+Evidence: the script's log folder on the ESP (`r1-a-20261106-1000`, `r1-b-20261106-1207`) plus panel
+photos. The raw logs are not published (they carry the battery serial and other identifiers); only
+hardware-description facts and numbers are quoted here.
+
+### How we tested without the Studio
+- Payloads were built on the Studio (`mk-r1-payloads.py`) and carried to the MacBook over iCloud Drive.
+- Rolando swapped `m1n1/boot.bin` on the OMARCHY ESP from macOS with `r1-deploy.sh`, driven over
+  Tailscale/SSH from the Studio: macOS side only, no Linux-side access and no USB tether.
+- The ESP is the mailbox. `r1-deploy.sh` also puts `r1-local.sh` at the ESP root; at the Linux
+  console (as root) `bash /boot/r1-local.sh a|b` collects the evidence into `/boot/r1-logs/`,
+  runs the active checks and prints a framed PASS/FAIL/SKIP summary. After a boot, back in macOS,
+  `r1-deploy.sh logs` copies the folder out.
+- Panel photos cover the summary block and the boot trace.
+
+### Found before the first boot
+- The ESP's `boot.bin` was the hanging battery payload `9d892b26` (round 3 `B2-power-T6`), not B2.
+  Kept as `boot.bin.power-t6`. It would have hung at ~7.8 s on the first boot.
+
+### R1-A: boot and desktop checks (payload `6d6a402b`, battery driver off)
+Booted 2 of 2 (the second boot after `systemctl reboot`; no PMU boot error logged).
+
+| Check | Result | Evidence |
+|---|---|---|
+| Kernel and args | PASS | `7.2.2-ge1d2d7313745`, blacklist present, no `default_governor` |
+| 18 CPUs | PASS | `nproc` = 18, up at 0.69 s |
+| NVMe | PASS | partitions at 12.14 s, no ANS retry (RTKit init at 8.76 s). The script's limit was 12 s and showed FAIL; raised to 15 s |
+| Trackpad | PASS | `Touch MT ready` at 19.3 s |
+| macsmc-low-gpio | PASS | probed |
+| SMC core | PASS | `hwmon0` with 4 temperature inputs, `macsmc-rtc`, `macsmc-reboot` (poweroff-only). The script reported "missing: hwmon" (check bug, fixed) |
+| No macsmc-power line | PASS | driver blacklisted |
+| cpufreq governor | PASS | `schedutil` on all three policies, max 4308000 |
+| cpufreq idle floor | **FAIL (real)** | idle 2964000 / 2964000 / 1620000 instead of 1344000 / 1344000 / 1308000, while `top` showed 99.2 % idle |
+| cpufreq under load | PASS | loaded cluster reaches 4308000 on cpu1, cpu7 and cpu13 |
+| OPP offset | SKIP | `cpuhz`/`dvfs-regs` need the Studio |
+| Keyboard backlight | PASS | 0/32/255/0 verified by eye. One log line: `leds_pwm led-controller: failed to read period for kbd_backlight, default to off` (benign) |
+| eDP connector | PASS | `card0-eDP-1` connected, one mode, 3456x2160 |
+| Notch | PASS (as expected) | `show-notch` property present, notch still hidden: m1n1 is unchanged |
+| Lid | SKIP | `evtest` is not installed on the root |
+| zram | PASS | `zram0`, zstd |
+| iptables | PASS | v1.8.13, nf_tables backend |
+| ufw | SKIP | not installed on the root |
+| No new noise | PASS after fix | see script fixes below |
+| Restart | PASS | comes back on R1-A |
+
+cpufreq tables, recorded as read: `policy0` and `policy6` share a 14-step table
+1344000..4308000; `policy12` has a 16-step table 1308000..4308000. The plan's open question (which
+cluster is the efficiency cluster) is unanswered.
+
+PMGR: the err/warn lines include 52 `Failed to reach power state` messages, all for four domains
+named `b2bd_afc_0`, `b2bd_afc_1`, `b2bd_afr_0` and `b2bd_afr_3`, between 5 s and 23 s, and
+`probe ... failed with error -110` / `deferred probe timeout` messages for some power domains at ~23 s. Not diffed against the B2 boot, so "nothing new vs B2" is
+not established. The same family (58 lines) appeared on R1-B.
+
+### R1-B: battery with the probe trace (payload `c4edcb33`, battery driver on, `macsmc_power.trace=1`)
+**BOOTED 3 of 3.** The round-3 hang at ~7.8 s did not happen.
+
+Probe trace (`trace: ...` lines, SMC keys read/written in this order):
+
+| Step | Time / keys |
+|---|---|
+| probe start | 7.877 s |
+| reads | `CH0R CHCE CHCC AC-i BSFC CHNC` |
+| info queries | `CHIS BITV B0RC B0RI B0RV CHTE CH0C CH0I BCF0` |
+| writes | `CH0K CH0B` |
+| charge-limit keys | `CHWA` then `CHLS` read; both exist |
+| strings | `BMDN`, `BMSN`, `BMDT` (size 255), then `BNCB` |
+| battery registered | 8.834 s |
+| AC adapter registered | 8.893 s |
+| event notifier | 8.912 s |
+| probe done | 8.932 s (1.05 s in total) |
+| afterwards | `BITV`/`B0AV`/`BCF0` read every 60 s; the trace budget ends itself ("budget used up, tracing off") |
+
+Values (on MagSafe):
+
+| Property | Value |
+|---|---|
+| STATUS | Charging |
+| HEALTH | Good |
+| CAPACITY | 81 % |
+| VOLTAGE_NOW | 12682000 uV |
+| CURRENT_NOW | 3525000 uA |
+| CHARGE_NOW / CHARGE_FULL / CHARGE_FULL_DESIGN | 6574000 / 8139000 / 8579000 uAh |
+| CYCLE_COUNT | 32 |
+| TEMP | 312 (31.2 C) |
+| TIME_TO_EMPTY | absent on AC (0027) |
+
+MagSafe unplug and replug: `macsmc-ac` online 1 -> 0 -> 1, STATUS Charging / Discharging /
+Charging. The SMC logs `aceElec: Elec Cause` lines on the events. Charge thresholds were not written.
+
+### r1-local.sh false positives found today (fixed in the kit)
+| Check | Problem | Fix |
+|---|---|---|
+| `nvme` | limit 12 s, boot took 12.14 s | limit 15 s |
+| `smc-core` | reported hwmon missing although `hwmon0` exists | hwmon check corrected |
+| `noise` | pattern `bug:` matched "de**bug:**", then `pause_on_oops` in the kernel command line | pattern `\bBUG:`; the "Kernel command line" line is dropped before the pattern grep |
+| `kbd-sysfs` | the `pwm\|pmgr` grep matched the unrelated PMGR power-state lines and the benign `leds_pwm` line | only `fpwm`/`pwm` lines count, "failed to read period" excluded |
+
+### Not done today (needs the Studio or hardware)
+PMP dumps, A/B stage-1, s2idle, OPP-offset tools (`cpuhz`, `dvfs-regs`), ufw test, lid `evtest`,
+R1-C USB host (waiting for Rolando's USB-Ethernet adapter).
+
+### Open items
+1. **schedutil never drops to the lowest OPP.** Idle sits at 2964000 / 2964000 / 1620000 with the
+   machine 99.2 % idle. Suspects: `idle=nop` polling and frequency-invariance accounting. Needs the
+   Studio (`cpuhz`, `dvfs-regs`, a governor comparison).
+2. **Which of patches 0018-0027 cured the battery hang is not known.** No bisect was done.
+   Hypothesis only: the probe reads three 255-byte strings (`BMDN`/`BMSN`/`BMDT`) right before
+   registering the battery, which makes 0018 (refuse a reply bigger than the read buffer) the
+   leading suspect. A confirming test is R1-D/R1-E on one side and a payload with 0018 reverted on
+   the other.
+3. **The notch is hidden** until m1n1-plain is rebuilt with the show-notch patch
+   (`patches/m1n1/0017`); the property itself is present.
+4. **cpufreq tables / cluster identity:** the 14- and 16-step tables above and the plan's question
+   about which cluster is E.
+5. **PMGR `Failed to reach power state` lines** for the `b2bd_af*` domains and the ~23 s
+   deferred-probe timeouts: diff against a B2 boot.
+6. **Pending payloads:** `R1-D-olddtb-battery.bin` and `R1-E-usbhost-battery.bin` (B2 base arguments
+   only, battery enabled, no trace/panic/pause_on_oops/ignore_loglevel) are built and in the iCloud
+   folder; `r1-local.sh` has no `d`/`e` step yet.
