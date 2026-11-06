@@ -1,0 +1,191 @@
+From a0cc4db88f62d66b3c1ddab18118739ac518c9d2 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 20:58:08 -0500
+Subject: [PATCH 28/33] power: supply: macsmc-power: macsmc_power.trace=1 names
+ every SMC key during probe
+
+Enabling macsmc-power on J716s (M5 Pro, SMC firmware from the 27.3 beta 1
+stub) hangs the machine hard at ~7.8 s, right after the SMC input device
+registers, with no oops (RESULTS.md round 3). The probe and the first
+property sweep issue some 60 SMC commands; we need to know which one is
+last.
+
+With macsmc_power.trace=1 on the command line the driver logs, before it
+is sent, every SMC access it makes:
+
+  macsmc-power macsmc-power: trace: rd B0AV size 2
+  macsmc-power macsmc-power: trace: info BCF0 size 0
+  macsmc-power macsmc-power: trace: wr CH0K size 1
+
+plus step lines (probe start, registering the battery / AC adapter /
+event notifier, probe done) and "battery|ac get_property <psp>" for the
+reads power_supply_register() and udev start right after registration.
+The first 400 accesses are traced, then tracing switches itself off.
+macsmc_power.trace_delay_ms=N sleeps N ms after each line, for
+netconsole, which prints from a thread and could lose the last lines in
+a hang. Both default to off.
+
+The tracing wraps this file's SMC accessors in macros, so no call site
+changes and nothing is traced in other drivers.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ drivers/power/supply/macsmc-power.c | 98 +++++++++++++++++++++++++++++
+ 1 file changed, 98 insertions(+)
+
+diff --git a/drivers/power/supply/macsmc-power.c b/drivers/power/supply/macsmc-power.c
+index 0bbced508..2b6927d4e 100644
+--- a/drivers/power/supply/macsmc-power.c
++++ b/drivers/power/supply/macsmc-power.c
+@@ -23,6 +23,89 @@
+ #include <linux/reboot.h>
+ #include <linux/workqueue.h>
+ 
++/*
++ * Probe tracing (macsmc_power.trace=1 on the kernel command line).
++ *
++ * Every SMC access this driver makes is announced with dev_info() before it
++ * is issued, so that if the machine stops dead in the middle of probe (or of
++ * the first property sweep that power_supply_register() starts), the panel
++ * or netconsole shows the last key touched. Tracing covers the first
++ * MACSMC_TRACE_BUDGET accesses after probe starts and then switches itself
++ * off. macsmc_power.trace_delay_ms=N sleeps N ms after each line, for
++ * consoles that print from a thread (netconsole) and could otherwise lose
++ * the last lines in a hang. Default: off, no cost beyond one branch.
++ */
++static bool trace;
++module_param(trace, bool, 0644);
++MODULE_PARM_DESC(trace, "Log every SMC key access during probe and the first update");
++
++static unsigned int trace_delay_ms;
++module_param(trace_delay_ms, uint, 0644);
++MODULE_PARM_DESC(trace_delay_ms, "Sleep this long after each trace line (default 0)");
++
++#define MACSMC_TRACE_BUDGET	400
++
++static atomic_t macsmc_trace_left = ATOMIC_INIT(0);
++static struct device *macsmc_trace_dev;
++
++static void macsmc_trace_key(const char *op, smc_key key, size_t size)
++{
++	if (!trace || atomic_dec_if_positive(&macsmc_trace_left) < 0)
++		return;
++
++	if (macsmc_trace_dev)
++		dev_info(macsmc_trace_dev, "trace: %s %c%c%c%c size %zu\n", op,
++			 (char)(key >> 24), (char)(key >> 16), (char)(key >> 8),
++			 (char)key, size);
++	if (trace_delay_ms)
++		msleep(trace_delay_ms);
++	if (!atomic_read(&macsmc_trace_left) && macsmc_trace_dev)
++		dev_info(macsmc_trace_dev, "trace: budget used up, tracing off\n");
++}
++
++static void macsmc_trace_step(const char *what)
++{
++	if (!trace || !macsmc_trace_dev || !atomic_read(&macsmc_trace_left))
++		return;
++
++	dev_info(macsmc_trace_dev, "trace: %s\n", what);
++	if (trace_delay_ms)
++		msleep(trace_delay_ms);
++}
++
++static void macsmc_trace_prop(const char *psy, int psp)
++{
++	if (!trace || !macsmc_trace_dev || !atomic_read(&macsmc_trace_left))
++		return;
++
++	dev_info(macsmc_trace_dev, "trace: %s get_property %d\n", psy, psp);
++}
++
++/*
++ * Route this file's SMC accessors through the tracer. The parenthesised
++ * name calls the real inline helper from <linux/mfd/macsmc.h>.
++ */
++#define MACSMC_TRACED(fn, op, smc, key, sz, ...) \
++	({ macsmc_trace_key(op, key, sz); (fn)(smc, key, ##__VA_ARGS__); })
++
++#define apple_smc_read(smc, key, buf, size) \
++	MACSMC_TRACED(apple_smc_read, "rd", smc, key, size, buf, size)
++#define apple_smc_read_u8(smc, key, p)	MACSMC_TRACED(apple_smc_read_u8, "rd", smc, key, 1, p)
++#define apple_smc_read_u16(smc, key, p)	MACSMC_TRACED(apple_smc_read_u16, "rd", smc, key, 2, p)
++#define apple_smc_read_s16(smc, key, p)	MACSMC_TRACED(apple_smc_read_s16, "rd", smc, key, 2, p)
++#define apple_smc_read_u32(smc, key, p)	MACSMC_TRACED(apple_smc_read_u32, "rd", smc, key, 4, p)
++#define apple_smc_read_s32(smc, key, p)	MACSMC_TRACED(apple_smc_read_s32, "rd", smc, key, 4, p)
++#define apple_smc_read_u64(smc, key, p)	MACSMC_TRACED(apple_smc_read_u64, "rd", smc, key, 8, p)
++#define apple_smc_read_s64(smc, key, p)	MACSMC_TRACED(apple_smc_read_s64, "rd", smc, key, 8, p)
++#define apple_smc_read_flag(smc, key, p) MACSMC_TRACED(apple_smc_read_flag, "rd", smc, key, 1, p)
++#define apple_smc_write_u8(smc, key, v)	MACSMC_TRACED(apple_smc_write_u8, "wr", smc, key, 1, v)
++#define apple_smc_write_u16(smc, key, v) MACSMC_TRACED(apple_smc_write_u16, "wr", smc, key, 2, v)
++#define apple_smc_write_u32(smc, key, v) MACSMC_TRACED(apple_smc_write_u32, "wr", smc, key, 4, v)
++#define apple_smc_write_flag(smc, key, v) MACSMC_TRACED(apple_smc_write_flag, "wr", smc, key, 1, v)
++#define apple_smc_key_exists(smc, key)	MACSMC_TRACED(apple_smc_key_exists, "info", smc, key, 0)
++#define apple_smc_get_key_info(smc, key, info) \
++	MACSMC_TRACED(apple_smc_get_key_info, "info", smc, key, 0, info)
++
+ #define MAX_STRING_LENGTH 256
+ 
+ /*
+@@ -491,6 +574,8 @@ static int macsmc_battery_get_property(struct power_supply *psy,
+ 	struct macsmc_power *power = power_supply_get_drvdata(psy);
+ 	int ret = 0;
+ 	u8 vu8;
++
++	macsmc_trace_prop("battery", psp);
+ 	u16 vu16;
+ 	s16 vs16;
+ 	s32 vs32;
+@@ -775,6 +860,8 @@ static int macsmc_ac_get_property(struct power_supply *psy,
+ 	u16 vu16;
+ 	u32 vu32;
+ 
++	macsmc_trace_prop("ac", psp);
++
+ 	switch (psp) {
+ 	case POWER_SUPPLY_PROP_ONLINE:
+ 		ret = apple_smc_read_u32(power->smc, SMC_KEY(CHIS), &vu32);
+@@ -941,6 +1028,13 @@ static int macsmc_power_probe(struct platform_device *pdev)
+ 
+ 	power->dev = dev;
+ 	power->smc = smc;
++
++	if (trace) {
++		macsmc_trace_dev = dev;
++		atomic_set(&macsmc_trace_left, MACSMC_TRACE_BUDGET);
++		macsmc_trace_step("probe start");
++	}
++
+ 	ret = devm_mutex_init(dev, &power->charge_lock);
+ 	if (ret)
+ 		return ret;
+@@ -1104,6 +1198,7 @@ static int macsmc_power_probe(struct platform_device *pdev)
+ 		macsmc_battery_read_bcf0(power, &val32);
+ 
+ 		psy_cfg.drv_data = power;
++		macsmc_trace_step("registering the battery");
+ 		power->batt = devm_power_supply_register(dev, &power->batt_desc, &psy_cfg);
+ 		if (IS_ERR(power->batt)) {
+ 			dev_err_probe(dev, PTR_ERR(power->batt),
+@@ -1143,6 +1238,7 @@ static int macsmc_power_probe(struct platform_device *pdev)
+ 		power->ac_desc.num_properties = nprops;
+ 
+ 		psy_cfg.drv_data = power;
++		macsmc_trace_step("registering the AC adapter");
+ 		power->ac = devm_power_supply_register(dev, &power->ac_desc, &psy_cfg);
+ 		if (IS_ERR(power->ac)) {
+ 			dev_err_probe(dev, PTR_ERR(power->ac),
+@@ -1155,8 +1251,10 @@ static int macsmc_power_probe(struct platform_device *pdev)
+ 	if (!power->batt && !power->ac)
+ 		return -ENODEV;
+ 
++	macsmc_trace_step("registering the SMC event notifier");
+ 	power->nb.notifier_call = macsmc_power_event;
+ 	blocking_notifier_chain_register(&smc->event_handlers, &power->nb);
++	macsmc_trace_step("probe done");
+ 
+ 	g_power = power;
+ 
+-- 
+2.56.0
+

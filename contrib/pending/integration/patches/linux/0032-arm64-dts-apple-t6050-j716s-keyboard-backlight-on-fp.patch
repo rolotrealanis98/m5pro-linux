@@ -1,0 +1,101 @@
+From dd784f7904ee5cef198350236e30bd49c609d534 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 20:59:44 -0500
+Subject: [PATCH 32/33] arm64: dts: apple: t6050-j716s: keyboard backlight on
+ fpwm0
+
+The J716s keyboard backlight is a plain PWM, as on every Asahi MacBook:
+ADT /arm-io/pwm0 ("fpwm,s5l8920x", reg 0x505040000 + 0x4000, clock-gate
+FPWM0) with child kbd-backlight on channel 0 at 25 kHz. Describe fpwm0 in
+t6050.dtsi (disabled, apple,s5l-fpwm fallback for pwm-apple) and enable it
+on J716s with a pwm-leds "kbd_backlight" LED, period 40000 ns, 255 steps.
+
+Needs CONFIG_PWM_APPLE=y and CONFIG_LEDS_PWM=y (the root has no modules);
+see the omarchy-desktop config fragment.
+
+Matches the platform agent's design (contrib/pending/platform, stage A,
+backlight part only) and edimoldovan/linux-aurora 594f4b3a49ec
+("arm64: dts: apple: t6050-j714c: keyboard backlight"), which uses the
+same node, period and LED properties and works on J714c (Ctrl+F1/F2).
+The aurora leds-pwm change for a zero period read-back is not needed:
+without it leds-pwm starts the LED "off" and takes the period from the
+pwms specifier, so brightness writes still work.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 26 +++++++++++++++++++++++
+ arch/arm64/boot/dts/apple/t6050.dtsi      | 14 ++++++++++++
+ 2 files changed, 40 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 3156aa7df..97219ea29 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -10,6 +10,7 @@
+ /dts-v1/;
+ 
+ #include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/leds/common.h>
+ #include "t6050.dtsi"
+ #include "t6050-jxxx.dtsi"
+ 
+@@ -22,6 +23,31 @@ aliases {
+ 		 * from /arm-io/dockchannel-mtp/mtp-transport/keyboard kblang-calibration */
+ 		keyboard = &keyboard;
+ 	};
++
++	/*
++	 * Keyboard backlight. ADT /arm-io/pwm0/kbd-backlight: channel 0,
++	 * default-hz 25000 -> period 40000 ns, as on every Asahi MacBook. The
++	 * SMC has no keyboard-light key here; the PWM is the whole path.
++	 * ps_fpwm0 is clock-gated at handover, so the keyboard stays dark until
++	 * userspace sets a brightness (leds-pwm falls back to "off" when it
++	 * reads back period 0).
++	 */
++	led-controller {
++		compatible = "pwm-leds";
++
++		led-0 {
++			pwms = <&fpwm0 0 40000>;
++			label = "kbd_backlight";
++			function = LED_FUNCTION_KBD_BACKLIGHT;
++			color = <LED_COLOR_ID_WHITE>;
++			max-brightness = <255>;
++			default-state = "keep";
++		};
++	};
++};
++
++&fpwm0 {
++	status = "okay";
+ };
+ 
+ /*
+diff --git a/arch/arm64/boot/dts/apple/t6050.dtsi b/arch/arm64/boot/dts/apple/t6050.dtsi
+index 22ef31383..f46087956 100644
+--- a/arch/arm64/boot/dts/apple/t6050.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050.dtsi
+@@ -300,6 +300,20 @@ wdt: watchdog@28836c000 {
+ 			interrupts = <AIC_IRQ 721 IRQ_TYPE_LEVEL_HIGH>;
+ 		};
+ 
++		/*
++		 * ADT /arm-io/pwm0: compatible "fpwm,s5l8920x", reg 0x505040000
++		 * size 0x4000 (SIO block), clock-gate FPWM0 = ps_fpwm0. Boards
++		 * with a keyboard backlight on channel 0 enable it.
++		 */
++		fpwm0: pwm@505040000 {
++			compatible = "apple,t6050-fpwm", "apple,s5l-fpwm";
++			reg = <0x5 0x05040000 0x0 0x4000>;
++			power-domains = <&ps_fpwm0>;
++			clocks = <&clkref>;
++			#pwm-cells = <2>;
++			status = "disabled";
++		};
++
+ 		/* ADT: nub-gpio0 0x881e4000 -> 0x2881e4000, 61 pins */
+ 		pinctrl_nub: pinctrl@2881e4000 {
+ 			compatible = "apple,t6050-pinctrl", "apple,t8103-pinctrl";
+-- 
+2.56.0
+

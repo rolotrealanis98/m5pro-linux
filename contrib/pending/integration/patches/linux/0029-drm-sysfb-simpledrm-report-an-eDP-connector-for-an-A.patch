@@ -1,0 +1,43 @@
+From ac8720424720e165e6e257b1c509f58889e17fce Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 20:58:35 -0500
+Subject: [PATCH 29/33] drm/sysfb: simpledrm: report an eDP connector for an
+ Apple built-in panel
+
+simpledrm registers its single connector as "Unknown". Desktop session
+managers decide what a laptop lid does from the connector type: Omarchy
+(Hyprland) only locks and suspends on lid close when an internal
+connector (eDP/LVDS/DSI) is present, and its bar only avoids the notch
+on one. On Apple laptops the boot framebuffer is the built-in panel until
+a DCP driver takes over.
+
+When the framebuffer node carries "apple,internal-panel", register the
+connector as eDP. Without the property nothing changes.
+
+Based on edimoldovan/linux-aurora 9dee12b1266c ("drm/sysfb: simpledrm:
+eDP connector for an Apple built-in panel"), tested by him on J714c.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ drivers/gpu/drm/sysfb/simpledrm.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/sysfb/simpledrm.c b/drivers/gpu/drm/sysfb/simpledrm.c
+index 6097fac1b..79360a959 100644
+--- a/drivers/gpu/drm/sysfb/simpledrm.c
++++ b/drivers/gpu/drm/sysfb/simpledrm.c
+@@ -800,8 +800,10 @@ static struct simpledrm_device *simpledrm_device_create(struct drm_driver *drv,
+ 	/* Connector */
+ 
+ 	connector = &sdev->connector;
++	/* A built-in laptop panel the loader hands over (Apple, before DCP). */
+ 	ret = drm_connector_init(dev, connector, &simpledrm_connector_funcs,
+-				 DRM_MODE_CONNECTOR_Unknown);
++				 of_property_read_bool(dev->dev->of_node, "apple,internal-panel") ?
++				 DRM_MODE_CONNECTOR_eDP : DRM_MODE_CONNECTOR_Unknown);
+ 	if (ret)
+ 		return ERR_PTR(ret);
+ 	drm_connector_helper_add(connector, &simpledrm_connector_helper_funcs);
+-- 
+2.56.0
+

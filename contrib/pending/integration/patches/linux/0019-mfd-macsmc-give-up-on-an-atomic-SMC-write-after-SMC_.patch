@@ -1,0 +1,50 @@
+From d602c2f9e829c5a2d528061ed06480cf6c451711 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 20:53:25 -0500
+Subject: [PATCH 19/33] mfd: macsmc: give up on an atomic SMC write after
+ SMC_TIMEOUT_MS
+
+apple_smc_write_atomic() is what macsmc-reboot uses for power-off (and
+restart where it is allowed): it takes the spinlock with interrupts off,
+sends the write and polls RTKit until the reply clears atomic_pending.
+There was no limit. If the SMC never answers (crashed, wedged, or a
+firmware that ignores the key), the CPU spins with interrupts disabled
+forever: the machine freezes with no oops and no watchdog message, which
+is the failure shape we saw in round 3.
+
+Stop after SMC_TIMEOUT_MS (5000 polls of 100 us), clear atomic_pending
+and return -ETIMEDOUT, so the caller falls through to the next power-off
+or restart handler (the watchdog for restart).
+
+This is a safety bound, not a behaviour change when the SMC replies.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ drivers/mfd/macsmc.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index 48f4020b2..1661fcf9b 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -283,7 +283,16 @@ int apple_smc_write_atomic(struct apple_smc *smc, smc_key key, const void *buf,
+ 		return ret;
+ 	}
+ 
+-	while (smc->atomic_pending) {
++	/*
++	 * This runs with interrupts off (power-off, reboot), so a reply that
++	 * never comes must not spin forever: give up after SMC_TIMEOUT_MS.
++	 */
++	for (unsigned int polls = 0; smc->atomic_pending; polls++) {
++		if (polls >= SMC_TIMEOUT_MS * 10) {
++			smc->atomic_pending = false;
++			dev_err(smc->dev, "Atomic command timed out (%llx)\n", msg);
++			return -ETIMEDOUT;
++		}
+ 		ret = apple_rtkit_poll(smc->rtk);
+ 		if (ret < 0) {
+ 			dev_err(smc->dev, "RTKit poll failed (%llx)", msg);
+-- 
+2.56.0
+

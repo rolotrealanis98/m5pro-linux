@@ -1,0 +1,185 @@
+From 34fc3765a29374e3237e2540bfe904a44e674f15 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 20:56:05 -0500
+Subject: [PATCH 26/33] power: supply: macsmc-power: a CHLS charge limit no
+ longer forces discharge
+
+On firmware with the CHLS charge-limit key, writing
+charge_control_end_threshold always set CHLS_FORCE_DISCHARGE (0x100)
+together with the limit ("TODO: make it configurable"), so choosing an
+80 % limit with the battery at 95 % drained it on AC down to 80 %.
+
+- The threshold setter keeps the force-discharge bit as it was (this
+  driver never sets it) and only changes the limit; "100" clears the key.
+- charge_behaviour "auto" also clears the bit on CHLS machines, and a
+  CHLS-only machine now gets the charge_behaviour attribute with "auto".
+- At probe, a force-discharge bit without a valid limit is cleared once
+  (one CHLS read, and a write only in that state).
+
+The opt-in "discharge to the limit" behaviour (AUTO_DISCHARGE in
+edimoldovan's tree) needs a new power-supply UAPI value and is left out.
+Which of CHWA/CHLS the J716s firmware has is not known yet; the probe
+picks whichever answers, as before.
+
+Based on edimoldovan/linux-aurora (t6050-j714c)
+drivers/power/supply/macsmc-power.c (macsmc_chls_has_limit,
+macsmc_battery_clear_stray_discharge, macsmc_battery_charge_behaviours,
+the threshold setter).
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ drivers/power/supply/macsmc-power.c | 102 ++++++++++++++++++++++------
+ 1 file changed, 82 insertions(+), 20 deletions(-)
+
+diff --git a/drivers/power/supply/macsmc-power.c b/drivers/power/supply/macsmc-power.c
+index d4ccc4539..a43112f16 100644
+--- a/drivers/power/supply/macsmc-power.c
++++ b/drivers/power/supply/macsmc-power.c
+@@ -304,6 +304,32 @@ static int macsmc_battery_get_status(struct macsmc_power *power)
+ 	return POWER_SUPPLY_STATUS_CHARGING;
+ }
+ 
++/*
++ * Whether a CHLS value holds a charge limit, as the threshold getter reads
++ * it. Force discharge is only meaningful together with a limit: without one
++ * there is nothing to discharge to.
++ */
++static bool macsmc_chls_has_limit(u16 chls)
++{
++	u8 limit = chls & 0xff;
++
++	return limit >= CHLS_MIN_END_THRESHOLD && limit < 100;
++}
++
++static unsigned int macsmc_battery_charge_behaviours(struct macsmc_power *power)
++{
++	unsigned int behaviours = 0;
++
++	if (power->has_ch0i || power->has_ch0c || power->has_chte || power->has_chls)
++		behaviours |= BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO);
++	if (power->has_ch0i)
++		behaviours |= BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_FORCE_DISCHARGE);
++	if (power->has_chte || power->has_ch0c)
++		behaviours |= BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE);
++
++	return behaviours;
++}
++
+ static int macsmc_battery_get_charge_behaviour(struct macsmc_power *power)
+ {
+ 	int ret;
+@@ -368,6 +394,18 @@ static int macsmc_battery_set_charge_behaviour(struct macsmc_power *power, int v
+ 			if (ret < 0)
+ 				return ret;
+ 		}
++
++		/* Auto never discharges to the CHLS limit */
++		if (power->has_chls) {
++			u16 vu16;
++
++			ret = apple_smc_read_u16(power->smc, SMC_KEY(CHLS), &vu16);
++			if (ret)
++				return ret;
++			if (vu16 & CHLS_FORCE_DISCHARGE)
++				return apple_smc_write_u16(power->smc, SMC_KEY(CHLS),
++							   vu16 & ~CHLS_FORCE_DISCHARGE);
++		}
+ 		return 0;
+ 
+ 	case POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE:
+@@ -634,12 +672,24 @@ static int macsmc_battery_set_charge_property(struct macsmc_power *power,
+ 		return 0;
+ 	case POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD:
+ 		if (power->has_chls) {
+-			u16 kval = 0;
+-			/* TODO: Make CHLS_FORCE_DISCHARGE configurable */
++			u16 kval;
++			int ret;
++
++			/*
++			 * Setting a limit must not start draining the battery on
++			 * AC: keep the force-discharge bit as it is (this driver
++			 * never sets it) instead of always setting it.
++			 */
++			ret = apple_smc_read_u16(power->smc, SMC_KEY(CHLS), &kval);
++			if (ret)
++				return ret;
++			kval &= CHLS_FORCE_DISCHARGE;
+ 			if (val->intval < CHLS_MIN_END_THRESHOLD)
+-				kval = CHLS_FORCE_DISCHARGE | CHLS_MIN_END_THRESHOLD;
++				kval |= CHLS_MIN_END_THRESHOLD;
+ 			else if (val->intval < 100)
+-				kval = CHLS_FORCE_DISCHARGE | (val->intval & 0xff);
++				kval |= val->intval & 0xff;
++			else
++				kval = 0; /* No limit: nothing to discharge to */
+ 			return apple_smc_write_u16(power->smc, SMC_KEY(CHLS), kval);
+ 		} else if (power->has_chwa) {
+ 			return apple_smc_write_flag(power->smc, SMC_KEY(CHWA),
+@@ -665,6 +715,25 @@ static int macsmc_battery_set_property(struct power_supply *psy,
+ 	return ret < 0 ? ret : 0;
+ }
+ 
++/*
++ * Force-discharge set in CHLS without a charge limit is a state this driver
++ * never asks of the SMC. Clear the bit once at probe; the limit byte is kept.
++ */
++static int macsmc_battery_clear_stray_discharge(struct macsmc_power *power)
++{
++	u16 chls;
++	int ret;
++
++	guard(mutex)(&power->charge_lock);
++	ret = apple_smc_read_u16(power->smc, SMC_KEY(CHLS), &chls);
++	if (ret)
++		return ret;
++	if (!(chls & CHLS_FORCE_DISCHARGE) || macsmc_chls_has_limit(chls))
++		return 0;
++	ret = apple_smc_write_u16(power->smc, SMC_KEY(CHLS), chls & ~CHLS_FORCE_DISCHARGE);
++	return ret < 0 ? ret : 0;
++}
++
+ static int macsmc_battery_property_is_writeable(struct power_supply *psy,
+ 						enum power_supply_property psp)
+ {
+@@ -982,28 +1051,21 @@ static int macsmc_power_probe(struct platform_device *pdev)
+ 		apple_smc_write_u8(smc, SMC_KEY(CH0K), 0);
+ 		apple_smc_write_u8(smc, SMC_KEY(CH0B), 0);
+ 
+-		/* Configure charge behaviour if supported */
+-		if (power->has_ch0i || power->has_ch0c || power->has_chte) {
+-			props[nprops++] = POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR;
+-
+-			power->batt_desc.charge_behaviours =
+-				BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO);
+-
+-			if (power->has_ch0i)
+-				power->batt_desc.charge_behaviours |=
+-					BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_FORCE_DISCHARGE);
+-
+-			if (power->has_chte || power->has_ch0c)
+-				power->batt_desc.charge_behaviours |=
+-					BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE);
+-		}
+-
+ 		/* Detect charge limit method (CHWA vs CHLS) */
+ 		if (apple_smc_read_flag(power->smc, SMC_KEY(CHWA), &flag) == 0)
+ 			power->has_chwa = true;
+ 		else if (apple_smc_read_u16(power->smc, SMC_KEY(CHLS), &vu16) >= 0)
+ 			power->has_chls = true;
+ 
++		if (power->has_chls && macsmc_battery_clear_stray_discharge(power))
++			dev_warn(dev, "Failed to clear force-discharge without a charge limit\n");
++
++		/* A CHLS-only Mac can select auto to leave force-discharge too */
++		power->batt_desc.charge_behaviours =
++			macsmc_battery_charge_behaviours(power);
++		if (power->batt_desc.charge_behaviours)
++			props[nprops++] = POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR;
++
+ 		if (power->has_chwa || power->has_chls) {
+ 			props[nprops++] = POWER_SUPPLY_PROP_CHARGE_CONTROL_END_THRESHOLD;
+ 			props[nprops++] = POWER_SUPPLY_PROP_CHARGE_CONTROL_START_THRESHOLD;
+-- 
+2.56.0
+

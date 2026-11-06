@@ -9,8 +9,6 @@ t6050 SMC: map the whole gen 4 SPMI window; use the T6050 fan mode keys
 
 Apply in the omarchy-m5 checkout: git apply <this file>
 
-Co-Authored-By: Claude <noreply@anthropic.com>
-
 diff --git a/arch/arm64/boot/dts/apple/t6050-smc.dtsi b/arch/arm64/boot/dts/apple/t6050-smc.dtsi
 --- a/arch/arm64/boot/dts/apple/t6050-smc.dtsi
 +++ b/arch/arm64/boot/dts/apple/t6050-smc.dtsi

@@ -1,0 +1,48 @@
+From bb42c2edab8745773a68a7e99e267c55306ac887 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 20:54:00 -0500
+Subject: [PATCH 22/33] mfd: macsmc: treat a short key-count reply as an I/O
+ error
+
+#KEY is read into a 4-byte big-endian value. With the reply-size guard a
+longer reply already fails; a shorter one used to leave part of the
+uninitialised stack variable in key_count (which now bounds
+apple_smc_get_key_by_index()). Start from zero and report -EIO, the same
+error the guard uses for a size mismatch, rather than -EINVAL.
+
+Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c.
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+---
+ drivers/mfd/macsmc.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index a73bcbdf3..74d291929 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -442,7 +442,7 @@ static int apple_smc_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+ 	struct apple_smc *smc;
+-	__be32 count;
++	__be32 count = 0;
+ 	int ret;
+ 
+ 	smc = devm_kzalloc(dev, sizeof(*smc), GFP_KERNEL);
+@@ -495,8 +495,10 @@ static int apple_smc_probe(struct platform_device *pdev)
+ 	BLOCKING_INIT_NOTIFIER_HEAD(&smc->event_handlers);
+ 
+ 	ret = apple_smc_read(smc, SMC_KEY(#KEY), &count, sizeof(count));
+-	if (ret >= 0 && ret != sizeof(count))
+-		ret = -EINVAL;
++	if (ret >= 0 && ret != sizeof(count)) {
++		count = 0;
++		ret = -EIO;
++	}
+ 	if (ret < 0)
+ 		return dev_err_probe(smc->dev, ret, "Failed to get key count");
+ 	smc->key_count = be32_to_cpu(count);
+-- 
+2.56.0
+
