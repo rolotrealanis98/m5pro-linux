@@ -92,3 +92,11 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
   ANS fully stopped via `nvme_stop()`, storage loss after training starts ends in the watchdog reset, mode 5 removed,
   port 0 and its DART stay disabled unless adoption fully validates. Boot test of the rebased tree pending
   (payload `m1n1-65v2-n1-20261107-22f89156.bin`, needs a full power-off start).
+
+## 2026-11-07 17:10 UTC
+- omacom/linux-aurora #293: J716s status update posted (comment 6710416717): WFI idle, sleep, sensors/right port,
+  speakers, Wi-Fi/Bluetooth recipe, the restart caveat (since solved by W4), two questions for edimoldovan.
+- aurora-silicon/m1n1 #65: hardware result of the exact aurora-wip tree posted (comment 6710105778); T6050 bring-up
+  series for aurora-wip in preparation (agent).
+- GPU/DCP 27.2+ port started as six parallel agents (InitData root/sizes/HW data; power policy; status config;
+  firmware identity + J716s board profile; runtime format diff; DCP 27.3 table), integrator to follow.
