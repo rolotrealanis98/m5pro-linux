@@ -1,0 +1,332 @@
+Initialized dockchannel UART at 0x288e28000
+Device info:
+  Model: Mac17,8
+  Target: J716s
+  Board-ID: 0xc
+  Chip-ID: 0x6050
+CPU init (MIDR: 0x611f0641 smp_id:0x0)...
+  CPU part: 0x64 rev: 0x11
+  CPU: M5 Pro Sotra (M core)
+boot_args at 0x1000efa4000
+  revision:     3
+  version:      2
+  virt_base:    0xbb6c000
+  phys_base:    0x10003b6c000
+  mem_size:     0xbc4e94000
+  top_of_kdata: 0x1000efa8000
+  video:
+    base:       0x10bd15f4000
+    display:    0x1
+    stride:     0x3600
+    width:      3456
+    height:     2234
+    depth:      30bpp
+    density:    1
+  machine_type: 0
+  devtree:      0xc490000
+  devtree_size: 0xb8000
+  cmdline:       m1n1.wdt=keep
+  boot_flags:   0x0
+  mem_size_act: 0xc00000000
+m1n1 v2.0.0-81-ga36c240f
+Copyright The Asahi Linux Contributors
+Licensed under the GNU General Public License v2 or later
+Running in EL2
+OS FW version: 27.3 beta (mBoot-20457.60.65.0.1)
+System FW version: 27.3 beta (mBoot-20457.60.65.0.1)
+Heap base: 0x1000efa8000
+Boot policy: sip0 = 0
+MCC: Unsupported version:mcc,t6050
+MMU: Initializing...
+MMU: RAM base: 0x10000000000
+MMU: Top of normal RAM: 0x10bc8a00000
+MMU: Adding Device-nGnRE mapping at 0xbc0000000 (0x20000000)
+MMU: Adding Device-nGnRE mapping at 0xb80000000 (0x40000000)
+MMU: Adding Device-nGnRE mapping at 0x1cb0000000 (0x1c000)
+MMU: Adding Device-nGnRE mapping at 0x1800000000 (0x400000000)
+MMU: Adding Device-nGnRE mapping at 0x1700000000 (0x100000000)
+MMU: Adding Device-nGnRE mapping at 0x1c40000000 (0x4000)
+MMU: Adding Device-nGnRE mapping at 0x800000000 (0x200000000)
+MMU: Adding Device-nGnRE mapping at 0xa00000000 (0x80000000)
+MMU: Adding Device-nGnRE mapping at 0x1c50000000 (0x4000)
+MMU: Adding Device-nGnRE mapping at 0xc00000000 (0x200000000)
+MMU: Adding Device-nGnRE mapping at 0xe00000000 (0x80000000)
+MMU: Adding Device-nGnRE mapping at 0x1c60000000 (0x4000)
+MMU: Adding Device-nGnRE mapping at 0x1000000000 (0x200000000)
+MMU: Adding Device-nGnRE mapping at 0x1200000000 (0x80000000)
+MMU: Adding Device-nGnRE mapping at 0x1c70000000 (0x4000)
+MMU: Adding Device-nGnRE mapping at 0x1400000000 (0x200000000)
+MMU: Adding Device-nGnRE mapping at 0x1600000000 (0x80000000)
+MMU: Adding Device-nGnRE mapping at 0x1c80000000 (0x4000)
+MMU: SCTLR_EL1: 30900180 -> 30901085
+MMU: running with MMU and caches enabled!
+AIC: Version 3 @ 0x280400000
+AIC: AIC3 with 1/4 dies, 3104/4096 IRQs, reg_size:40004, config:10000, extintrcfg_stride:04a00, intmaskset_stride:04a00, intmaskclear_stride:04a00
+AIC: Configuring 1 external interrupts
+Primary WDT register @ 0x28836c000
+Primary WDT left armed (m1n1.wdt=keep)
+pmgr: Cleaning up device states...
+pmgr: initialized, 661 devices on 1 dies found.
+display: Display is internal
+display: Display is already initialized (3456x2234)
+fb init: 3456x2234 (30) [s=3456] @0x10bd15f4000
+fb console: max rows 65, max cols 92
+fb: display logo
+cpufreq: Chip 0x6050 is unsupported
+Initialization complete.
+Checking for payloads...
+Devicetree compatible value: apple,j716s
+Found a variable at 0x1000c73c000: chosen.bootargs=earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5 kvm-arm.wfi_trap_policy=trap m5.selftest=1 drm.debug=0x1e log_buf_len=4M dyndbg="file drivers/gpu/drm/apple/* +p; file drivers/iommu/apple-dart.c +p"
+Found a variable at 0x1000c73c143: chosen.asahi,show-notch=1
+Found a variable at 0x1000c73c15d: chosen.m5pro,n1=4
+Found a variable at 0x1000c73c16f: chosen.m5,t6050-display=1
+Found a gzip compressed payload at 0x1000c73c189
+Uncompressing... 19531507 bytes uncompressed to 52906496 bytes
+Found a kernel at 0x10011000000
+Found a devicetree for apple,j716s at 0x1000d9dc87c
+Found a gzip compressed payload at 0x1000d9e68f4
+Uncompressing... 16779326 bytes uncompressed to 40414720 bytes
+Found a cpio initramfs at 0x10014400000
+Found a variable at 0x1000e9e7132: chosen.asahi,m1n1-stage1-version=v2.0.0-68-g459a3af2-dirty
+Found a variable at 0x1000e9e716d: chosen.asahi,efi-system-partition=f53745b3-9557-4c96-8799-c45d8082d9ee
+Found a variable at 0x1000e9e71b4: chosen.m5pro,pmu-scrpad=300030
+Found a variable at 0x1000e9e71d3: chosen.m5pro,boot-slot=primary
+No more payloads at 0x1000e9e71f2
+cpufreq: Initializing clusters
+cpufreq: Chip 0x6050 is unsupported
+cpufreq: Chip 0x6050 is unsupported
+Starting secondary CPUs...
+RVBAR 0x100045bc000 is locked and differs from entry point 0x1000c32c000: installed reset trampoline (ldr x16; br x16 -> 0x1000c32c000)
+Starting CPU 1 (0:0:1)...   Started.
+Starting CPU 2 (0:0:2)...   Started.
+Starting CPU 3 (0:0:3)...   Started.
+Starting CPU 4 (0:0:4)...   Started.
+Starting CPU 5 (0:0:5)...   Started.
+Starting CPU 6 (0:1:0)...   Started.
+Starting CPU 7 (0:1:1)...   Started.
+Starting CPU 8 (0:1:2)...   Started.
+Starting CPU 9 (0:1:3)...   Started.
+Starting CPU 10 (0:1:4)...   Started.
+Starting CPU 11 (0:1:5)...   Started.
+Starting CPU 12 (0:2:0)...   Started.
+Starting CPU 13 (0:2:1)...   Started.
+Starting CPU 14 (0:2:2)...   Started.
+Starting CPU 15 (0:2:3)...   Started.
+Starting CPU 16 (0:2:4)...   Started.
+Starting CPU 17 (0:2:5)...   Started.
+CPU vulnerability status:
+  gofetch: Not vulnerable
+isp: Unsupported SoC
+FDT: reserving RVBAR trampoline at 0x100045bc000
+FDT: bootargs = 'earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5 kvm-arm.wfi_trap_policy=trap m5.selftest=1 drm.debug=0x1e log_buf_len=4M dyndbg="file drivers/gpu/drm/apple/* +p; file drivers/iommu/apple-dart.c +p"'
+FDT: asahi,show-notch = '1'
+FDT: m5pro,n1 = '4'
+FDT: m5,t6050-display = '1'
+FDT: asahi,m1n1-stage1-version = 'v2.0.0-68-g459a3af2-dirty'
+FDT: asahi,efi-system-partition = 'f53745b3-9557-4c96-8799-c45d8082d9ee'
+FDT: m5pro,pmu-scrpad = '300030'
+FDT: m5pro,boot-slot = 'primary'
+FDT: initrd at 0x10014400000 size 0x268ae00
+display: Hiding notch, 3456x2234 -> 3456x2160 (+74, 16:10)
+display: keeping the notch rows (chosen.asahi,show-notch=1), 3456x2234
+FDT: framebuffer@10bd15f4000 base 0x10bd15f4000 size 0x1d73c00
+SEP: couldn't get enough random bytes for KASLR seed
+ADT: 256 bytes of random seed available
+FDT: KASLR seed initialized
+FDT: Passing 256 bytes of random seed
+FDT: appending to bootargs: idle=nop arm64.nowfxt
+FDT: reporting device serial number: [redacted]
+FDT: CPU 1 MPIDR=0x40001 release-addr=0x1000c3cc1e0
+FDT: CPU 2 MPIDR=0x40002 release-addr=0x1000c3cc220
+FDT: CPU 3 MPIDR=0x40003 release-addr=0x1000c3cc260
+FDT: CPU 4 MPIDR=0x40004 release-addr=0x1000c3cc2a0
+FDT: CPU 5 MPIDR=0x40005 release-addr=0x1000c3cc2e0
+FDT: CPU 6 MPIDR=0x40100 release-addr=0x1000c3cc320
+FDT: CPU 7 MPIDR=0x40101 release-addr=0x1000c3cc360
+FDT: CPU 8 MPIDR=0x40102 release-addr=0x1000c3cc3a0
+FDT: CPU 9 MPIDR=0x40103 release-addr=0x1000c3cc3e0
+FDT: CPU 10 MPIDR=0x40104 release-addr=0x1000c3cc420
+FDT: CPU 11 MPIDR=0x40105 release-addr=0x1000c3cc460
+FDT: CPU 12 MPIDR=0x10200 release-addr=0x1000c3cc4a0
+FDT: CPU 13 MPIDR=0x10201 release-addr=0x1000c3cc4e0
+FDT: CPU 14 MPIDR=0x10202 release-addr=0x1000c3cc520
+FDT: CPU 15 MPIDR=0x10203 release-addr=0x1000c3cc560
+FDT: CPU 16 MPIDR=0x10204 release-addr=0x1000c3cc5a0
+FDT: CPU 17 MPIDR=0x10205 release-addr=0x1000c3cc5e0
+FDT: Failed to find AIC affinities node, ignoring...
+FDT: /cpus/cpu-map node not found in devtree, ignoring...
+ADT: /arm-io/wlan not found
+ADT: Failed to get bluetooth-taurus-calibration-bf. Replaced module?
+ADT: Failed to get bluetooth-taurus-calibration. Replaced module?
+n1: control function: firmware-name apple/centauri/j716s-ftab.bin, platform-id 0x000c6050
+n1: chosen.m5pro,n1=4: training apcie0 port 0 with ANS started after the SMC reset release
+pcie-t6050: ANS stopped (0x0): starting it
+nvme: clock-gates not set
+nvme: ANS is on die 0
+sart: SARTv4 /arm-io/sart-ans at 0x41dc50000
+rtkit(nvme): booting with version 12
+rtkit(nvme): unknown system endpoint 0x0a
+nvme: initialized at 0x45dcc0000
+pcie-t6050: NVMe block 1 read (GPT header)
+pcie-t6050: storage before: reference
+pcie-t6050: entry: linksts 0xc300220c ltssm 0x0 perst 0x76a02
+pcie-t6050: storage after A: unchanged
+pcie-t6050: storage after S: unchanged
+rtkit(smc): booting with version 12
+rtkit(smc): unknown oslog message 100ff800028de8d
+rtkit(smc): unknown oslog message 31f1042bf34b231
+rtkit(smc): unknown oslog message 4000020f83c083f
+rtkit(smc): unknown oslog message 40000409aa24a8b
+rtkit(smc): unknown oslog message 4000060f0131d4c
+pcie-t6050: gP13 reads 0x00000000
+pcie-t6050: SMC key gP13 <- 0x00800000: 0
+pcie-t6050: SMC key gP13 <- 0x00800001: 0
+pcie-t6050: port 0 link Gen1 x1
+pcie-t6050: endpoint 01:00.0 is 0x1900106b
+pcie-t6050: storage after F: 0x419600048 0x0000006e -> 0x0000006d
+pcie-t6050: storage after F: allowed
+pcie-t6050: port 0 up, N1 at 01:00.0
+pcie-t6050: storage after training: 0x419600048 0x0000006e -> 0x0000006d
+pcie-t6050: storage after training: allowed
+pcie-t6050: storage after training: NVMe read identical
+pmgr: resetting device 0.ANS
+nvme: shutdown done
+pcie-t6050: ANS stopped again for Linux
+n1: port 0: rc ctl 0x1 stat 0x1, port status 0xd linksts 0x9b001001 ltssm 0x1
+n1: port 0: endpoint 01:00.0 id 0x1900106b
+n1: port 0 up: root port and DART okay
+kboot: /arm-io/atc-phy1: T6050 combo PHY tunables passed
+kboot: /arm-io/atc-phy2: T6050 combo PHY tunables passed
+FDT: Unable to find alias usb4-0-acio
+FDT: Unable to find alias usb4_0_pcie_adapter
+FDT: Unable to find alias usb4-0-nhi
+FDT: Unable to find alias usb4-0-nhi
+FDT: Unable to find alias usb4-1-acio
+FDT: Unable to find alias usb4_1_pcie_adapter
+FDT: Unable to find alias usb4-1-nhi
+FDT: Unable to find alias usb4-1-nhi
+FDT: Unable to find alias usb4-2-acio
+FDT: Unable to find alias usb4_2_pcie_adapter
+FDT: Unable to find alias usb4-2-nhi
+FDT: Unable to find alias usb4-2-nhi
+FDT: Unable to find alias usb4_0_pcie
+FDT: Unable to find alias usb4_1_pcie
+FDT: Unable to find alias usb4_2_pcie
+FDT: T6050: mtp __OS_LOG 0x10004b00000+0x4000 reserved
+FDT: T6050: auss-cpu0 __OS_LOG 0x10004b04000+0x4000 reserved
+FDT: T6050: aop __OS_LOG 0x10004ac8000+0x38000 reserved
+FDT: T6050: iop-dcp-nub __OS_LOG 0x100049ec000+0x2c000 reserved
+FDT: T6050: iop-dcpext0-nub __OS_LOG 0x10004a18000+0x2c000 reserved
+FDT: T6050: iop-dcpext1-nub __OS_LOG 0x10004a44000+0x2c000 reserved
+FDT: T6050: iop-dcpext2-nub __OS_LOG 0x10004a70000+0x2c000 reserved
+FDT: T6050: iop-dcpext3-nub __OS_LOG 0x10004a9c000+0x2c000 reserved
+FDT: T6050: reserved 8 coprocessor __OS_LOG segments in RAM
+DCP: T6050: dcp at 0x48ae00000: CPU_CONTROL 0x10 (running) CPU_STATUS 0xec; PROTECT dart-dcp 0xff dart-disp0 0x1b9
+DCP: T6050: /arm-io/dart-dcp SID 23: TCR 0x9 TTBR 0x10bffea1 (root 0x10bffea0000), ADT l1-tt 0x10bffea0000: four-level, the ADT's table
+DCP: T6050: /arm-io/dart-disp0 SID 0: TCR 0x9 TTBR 0x10bffed1 (root 0x10bffed0000), ADT l1-tt 0x10bffed0000: four-level, the ADT's table
+DCP: T6050: /arm-io/dart-disp0 SID 16: TCR 0x9 TTBR 0x10bffe21 (root 0x10bffe20000), ADT l1-tt 0x10bffe20000: four-level, the ADT's table
+DCP: T6050: dcp handed off: vram 0x10bd15f4000+0x72c4000 reserved as its framebuffer; firmware-version 27.3 beta, firmware-compat 27.3.0; dcp, mailbox, dart-dcp, dart-disp0 and the display subsystem enabled
+FDT: GPU: Initializing GPU info
+FDT: GPU: T6050: hand-off off (chosen.m5pro,gpu=unset), GPU nodes as the DT has them
+FDT: sep alias not found in devtree
+FDT: pmp not found in devtree
+ADT: nvram partition not found
+FDT: 'isp' not found
+FDT: 'isp' not found
+FDT: DRAM at 0x10000000000 size 0xc00000000
+FDT: Usable memory is 0x10003b6c000..0x10bc89f8000 (0xbc4e8c000)
+FDT: Adding reserved-memory node flash@10bc89fc000 (10bc89fc000..10bc8a00000) to RAM map
+FDT prepared at 0x10016a8c000
+kboot phase: mcc_enable_cache
+kboot phase: mcc_enable_cache done
+kboot phase: tunables_apply_static
+kboot phase: tunables_apply_static done
+kboot phase: clk_init
+mca-switch node not found!
+kboot phase: clk_init done
+kboot phase: usb_init
+tps6598x: power state 7 -> 0 (S0)
+usb: /arm-io/nub-spmi-a1/hpm2: USB-PD controller in S0, IRQs masked
+tps6598x: power state 7 -> 0 (S0)
+usb: /arm-io/nub-spmi-a0/hpm0: USB-PD controller in S0, IRQs masked
+tps6598x: power state 7 -> 0 (S0)
+usb: /arm-io/nub-spmi-a0/hpm1: USB-PD controller in S0, IRQs masked
+tps6598x: power state 7 -> 0 (S0)
+usb: /arm-io/nub-spmi-a0/hpm5: USB-PD controller in S0, IRQs masked
+usb: usb-drd0: PIPE on the dummy producer, MUX_CTRL 0x42 -> 0x42
+usb: usb-drd1: PIPE on the dummy producer, MUX_CTRL 0x42 -> 0x42
+usb: usb-drd2: PIPE on the dummy producer, MUX_CTRL 0x42 -> 0x42
+kboot phase: usb_init done
+kboot phase: pcie_init
+pcie: Error getting node /arm-io/apcie
+pcie: Unsupported compatible
+pcie: Error getting node /arm-io/apcie-ge0
+pcie: Error getting node /arm-io/apcie-ge1
+kboot phase: pcie_init done
+kboot phase: dapf_init_all
+dapf: skipping /arm-io/dart-aop on T6050 (known SError, bring-up workaround)
+dapf: /arm-io/dart-mtp base 0x294810000 window 0x4000, dapf-instance-0 length 468
+dapf:   slice 0 @ 0x294810000
+dapf:   slice 1 @ 0x294810040
+dapf:   slice 2 @ 0x294810080
+dapf:   slice 3 @ 0x2948100c0
+dapf:   slice 4 @ 0x294810100
+dapf:   slice 5 @ 0x294810140
+dapf:   slice 6 @ 0x294810180
+dapf:   slice 7 @ 0x2948101c0
+dapf:   slice 8 @ 0x294810200
+dapf: Initialized /arm-io/dart-mtp
+dapf: /arm-io/dart-pmp0 base 0x2841b0000 window 0x4000, dapf-instance-0 length 1612
+dapf:   slice 0 @ 0x2841b0000
+dapf:   slice 1 @ 0x2841b0040
+dapf:   slice 2 @ 0x2841b0080
+dapf:   slice 3 @ 0x2841b00c0
+dapf:   slice 4 @ 0x2841b0100
+dapf:   slice 5 @ 0x2841b0140
+dapf:   slice 6 @ 0x2841b0180
+dapf:   slice 7 @ 0x2841b01c0
+dapf:   slice 8 @ 0x2841b0200
+dapf:   slice 9 @ 0x2841b0240
+dapf:   slice 10 @ 0x2841b0280
+dapf:   slice 11 @ 0x2841b02c0
+dapf:   slice 12 @ 0x2841b0300
+dapf:   slice 13 @ 0x2841b0340
+dapf:   slice 14 @ 0x2841b0380
+dapf:   slice 15 @ 0x2841b03c0
+dapf:   slice 16 @ 0x2841b0400
+dapf:   slice 17 @ 0x2841b0440
+dapf:   slice 18 @ 0x2841b0480
+dapf:   slice 19 @ 0x2841b04c0
+dapf:   slice 20 @ 0x2841b0500
+dapf:   slice 21 @ 0x2841b0540
+dapf:   slice 22 @ 0x2841b0580
+dapf:   slice 23 @ 0x2841b05c0
+dapf:   slice 24 @ 0x2841b0600
+dapf:   slice 25 @ 0x2841b0640
+dapf:   slice 26 @ 0x2841b0680
+dapf:   slice 27 @ 0x2841b06c0
+dapf:   slice 28 @ 0x2841b0700
+dapf:   slice 29 @ 0x2841b0740
+dapf:   slice 30 @ 0x2841b0780
+dapf: Initialized /arm-io/dart-pmp0
+dapf: /arm-io/dart-isp0 base 0x5828d0000 window 0x4000, dapf-instance-0 length 572
+dapf:   slice 0 @ 0x5828d0000
+dapf:   slice 1 @ 0x5828d0040
+dapf:   slice 2 @ 0x5828d0080
+dapf:   slice 3 @ 0x5828d00c0
+dapf:   slice 4 @ 0x5828d0100
+dapf:   slice 5 @ 0x5828d0140
+dapf:   slice 6 @ 0x5828d0180
+dapf:   slice 7 @ 0x5828d01c0
+dapf:   slice 8 @ 0x5828d0200
+dapf:   slice 9 @ 0x5828d0240
+dapf:   slice 10 @ 0x5828d0280
+dapf: Initialized /arm-io/dart-isp0
+kboot phase: dapf_init_all done
+Setting SMP mode to WFE...
+Preparing to boot kernel at 0x10011000000 with fdt at 0x10016a8c000
+Valid payload found
+Preparing to run next stage at 0x10011000000...
+MMU: shutting down...
+MMU: shutdown successful, clearing caches
+Vectoring to next stage...

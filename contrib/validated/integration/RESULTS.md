@@ -1524,3 +1524,31 @@ the DT: tunable windows, `pwren-gpios`, first SMC GPIO bank, GP power chain). Pa
 - Consequence: loader-side N1 training (m1n1 0023, 0025-0027, the n1 modes) becomes optional for the disk-boot path;
   the loader still has to keep a down port enabled and copy the per-machine tunables (0022 + 0028). Next: fold
   0088-0094 into the GPU daily with the n1-dt loader and no n1 line.
+
+## DISPLAY STAGE C: the DCP drives the internal panel (2026-11-07 21:35 UTC) — PASS (unattended, remote checks)
+
+Payload `dcpc-20261107-9ec63d9a.bin` = DCP kernel `7.3.0-dcp-g3671d907d570` (GPU tree + `j716s-dcp.config`, DRM_APPLE=y
+with the 27.3 method table and swap layout), m1n1 `n1-warm-gpu-dcp` with `chosen.m5,t6050-display=1`, DTB `dcp9c` (fixed9
+display nodes + internal `apple,bw-scratch` = PMC + 0x20000), `drm.debug=0x1e` + dyndbg, self-test on. Written with
+`esp-put.sh`; primary slot first pass, 75 s to SSH, Wi-Fi up.
+
+- Loader: `dcp handed off: vram 0x10bd15f4000+0x72c4000 reserved as its framebuffer; firmware-version 27.3 beta,
+  firmware-compat 27.3.0; dcp, mailbox, dart-dcp, dart-disp0 and the display subsystem` locked to the ADT's page tables
+  (`stage-c-loader-log.txt` in `contrib/validated/display/`, serial redacted).
+- Kernel: `live DCP DMA resources retained until reboot`, `negotiating RTKit with the running DCP`, the firmware
+  starts its pipeline (`start_ios_gated`, `switch to normal mode succeeded`), `boot done`, `dcp_hotplug() connected:1
+  nr_modes:6`, `DCP booted`. simpledrm is gone; `card1` = `apple-drm`, connector `card1-eDP-2` connected and enabled,
+  six 3456x2234 modes (the promoted timings predicted by the VRR analysis), backlight `apple-panel-bl` 300/600 (type
+  platform; a 50 % write read back 300/600, so brightness writes do not reach the panel yet). No `DCP has crashed`,
+  `swap failed`, `Incompatible devicetree` or timeout lines; 0 faults. The console kept printing through the DCP for the
+  whole boot (fbcon moved to eDP-2), so swaps work; the cadence was not measured (the runner's modetest parse failed
+  and tracefs was not mounted).
+- Firmware complaints to follow up (`stage-c-dcp-journal-excerpt.txt`): `DCP requested undeclared provider clock index
+  0` and `getClockFrequency returned pixelClock = 0` (clock provider missing in the DT), `Could not find table
+  'display-backlight-compensation-v1'`, `init_power_lut: failed to read power-lut-data-x`, `load_ca_data: Unrecognized
+  data version 0`, `create_default_fb_surface ... failed`, `panel charge parity violation`, `Could not find Backlight
+  service / nvram service`, `LACS_ERROR`. Analysis agent running.
+- Visual confirmation from Rolando (picture continuity at takeover, backlight level) pending; he saw the console flood
+  on the panel, which is the DCP rendering.
+- Next: the same payload with the 120 Hz (3) and VRR (2) patches and a fixed check script (modetest + tracefs),
+  measured unattended; then DCP in the daily once the brightness path and the clock provider are sorted.
