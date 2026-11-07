@@ -1,0 +1,31 @@
+From 80664b273b134f0b90d9be55dd0afd77867f31b5 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 06:28:35 -0500
+Subject: [PATCH 07/10] dt-bindings: arm: apple: apple,pmgr: Add t6050
+ compatible
+
+The T6050 (M5 Pro/Max) PMGR blocks are described as "apple,t6050-pmgr",
+"apple,t8103-pmgr", "syscon", "simple-mfd" in the T6050 device trees,
+like the other SoCs after T6000. Add the per-SoC compatible.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ Documentation/devicetree/bindings/arm/apple/apple,pmgr.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/arm/apple/apple,pmgr.yaml b/Documentation/devicetree/bindings/arm/apple/apple,pmgr.yaml
+index 5d9f55c3e589..91ae5a3ce1bc 100644
+--- a/Documentation/devicetree/bindings/arm/apple/apple,pmgr.yaml
++++ b/Documentation/devicetree/bindings/arm/apple/apple,pmgr.yaml
+@@ -41,6 +41,7 @@ properties:
+               - apple,t6030-pmgr
+               - apple,t6031-pmgr
+               - apple,t6041-pmgr
++              - apple,t6050-pmgr
+               - apple,t8122-pmgr
+               - apple,t8132-pmgr
+               - apple,t8140-pmgr
+-- 
+2.56.0
+

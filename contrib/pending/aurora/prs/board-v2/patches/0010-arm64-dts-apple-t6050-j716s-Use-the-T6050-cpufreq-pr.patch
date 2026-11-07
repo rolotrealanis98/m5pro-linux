@@ -1,0 +1,59 @@
+From 4e93573160c67b320d55cd75ee6291c338c7a31c Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 06:29:59 -0500
+Subject: [PATCH 10/10] arm64: dts: apple: t6050-j716s: Use the T6050 cpufreq
+ profile
+
+The three cluster nodes carried an "apple,t8112-cluster-cpufreq"
+fallback so that stock apple-soc-cpufreq could drive them through its
+T8112 entry. The T6050 profile, a driver entry for
+"apple,t6050-cluster-cpufreq" alone that verifies each transition and
+requires "apple,firmware-managed-thermal", replaces that route, and the
+binding allows the T6050 compatible only as a single string.
+
+Drop the override, so the J716s uses the cluster nodes of
+t6050-dieX.dtsi as the J716c does: the single compatible and
+apple,firmware-managed-thermal.
+
+Without the T6050 profile in the tree no cpufreq driver binds and the
+clusters stay at the p-states the boot loader left. Not yet booted with
+the T6050 profile.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 18 ------------------
+ 1 file changed, 18 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index d595ea555f01..ea0ea8fb289e 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -352,24 +352,6 @@ &smc_hwmon {
+ 	status = "disabled";
+ };
+ 
+-/*
+- * The clusters' DVFS blocks have the T8112 layout (status +0x50: current
+- * p-state in bits 9:5, target in 4:0, measured on the J716s), which stock
+- * apple-soc-cpufreq drives through the T8112 compatible. Kept to this board
+- * until the T6050 entry of the j716c/t6050-platform branch is in.
+- */
+-&cpufreq_mc0 {
+-	compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+-};
+-
+-&cpufreq_mc1 {
+-	compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+-};
+-
+-&cpufreq_pc {
+-	compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+-};
+-
+ /* The die's CIO reconfiguration register; no consumer is enabled yet */
+ &cio_reconfig0 {
+ 	status = "okay";
+-- 
+2.56.0
+

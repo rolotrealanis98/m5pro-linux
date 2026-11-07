@@ -1,0 +1,31 @@
+From 314e73357fc2384274046fb17a0904f26044198f Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 06:28:30 -0500
+Subject: [PATCH 04/10] dt-bindings: pwm: apple,s5l-fpwm: Add t6050 compatible
+
+The PWM controller on the Apple T6050 (M5 Pro/Max) is compatible with
+the t8103 (M1) one: on the J716s it drives the keyboard backlight
+through the apple,s5l-fpwm driver unchanged. Add "apple,t6050-fpwm" as
+its per-SoC compatible.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ Documentation/devicetree/bindings/pwm/apple,s5l-fpwm.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/pwm/apple,s5l-fpwm.yaml b/Documentation/devicetree/bindings/pwm/apple,s5l-fpwm.yaml
+index 61f610e90093..89399c897d53 100644
+--- a/Documentation/devicetree/bindings/pwm/apple,s5l-fpwm.yaml
++++ b/Documentation/devicetree/bindings/pwm/apple,s5l-fpwm.yaml
+@@ -26,6 +26,7 @@ properties:
+           - apple,t6030-fpwm
+           - apple,t6031-fpwm
+           - apple,t6041-fpwm
++          - apple,t6050-fpwm
+       - const: apple,s5l-fpwm
+ 
+   reg:
+-- 
+2.56.0
+

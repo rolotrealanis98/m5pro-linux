@@ -1,0 +1,32 @@
+From 0cae943ab021d1f808f4252492240dc39ef4bfd5 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 06:28:34 -0500
+Subject: [PATCH 06/10] dt-bindings: power: apple,pmgr-pwrstate: Add t6050
+ compatible
+
+The T6050 (M5 Pro/Max) device trees describe the PMGR power state
+registers as "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate",
+and the pmgr-pwrstate driver handles them through the T8103 entry, as
+for the other SoCs after T6000. Add the per-SoC compatible.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ Documentation/devicetree/bindings/power/apple,pmgr-pwrstate.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/power/apple,pmgr-pwrstate.yaml b/Documentation/devicetree/bindings/power/apple,pmgr-pwrstate.yaml
+index 1c3bd5a5b5d2..d9cf0b912992 100644
+--- a/Documentation/devicetree/bindings/power/apple,pmgr-pwrstate.yaml
++++ b/Documentation/devicetree/bindings/power/apple,pmgr-pwrstate.yaml
+@@ -65,6 +65,7 @@ properties:
+               - apple,t6030-pmgr-pwrstate
+               - apple,t6031-pmgr-pwrstate
+               - apple,t6041-pmgr-pwrstate
++              - apple,t6050-pmgr-pwrstate
+               - apple,t8122-pmgr-pwrstate
+               - apple,t8132-pmgr-pwrstate
+               - apple,t8140-pmgr-pwrstate
+-- 
+2.56.0
+
