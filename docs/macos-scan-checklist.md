@@ -212,7 +212,7 @@ Known: port 1 left-back (MagSafe side) = hpm0/atc-phy0/acio0/usb-drd0 = the teth
 | TB-3 | DROM | do not export. `ioreg ... DROM` stays in raw only | presence only |
 | TB-4 | LSTX / CIO-reconfig | `grep -i -E 'lstx\|cio-reconfig\|reconfig' $D` | node/property names and offsets (hardware description, fine to keep) |
 
-### 3.7 SMC (report: `contrib/pending/smc/`)
+### 3.7 SMC (report: `contrib/validated/legacy-7.2/smc/`)
 
 macOS has no read-only SMC key CLI; third-party SMC tools are out (rule 2). Get what the registry
 and `pmset` expose.
@@ -232,7 +232,7 @@ and `pmset` expose.
 | ALS-1 | ALS object and calibration | `ioreg -r -a -n als -l` (what asahi-installer's `asahi_firmware/als.py` reads); `ioreg -r -c AppleALSColorSensor -l -d1` | whether `CalibrationData` exists at the path als.py expects (size only), and whether the ALS sits under AOP directly or under the AOP exclave mailbox |
 | EXC-1 | Exclave service names | `grep -i exclave $D` (script prints a deduplicated list) | full list of `com.apple.service.*` exclave services on J716s (camera, mic, AOP, display, brightness) |
 
-### 3.9 Trackpad MTP (report: `contrib/pending/trackpad/`)
+### 3.9 Trackpad MTP (report: `contrib/validated/legacy-7.2/trackpad/`)
 
 The AFE reset fix works (3/3 boots); polarity and the 50 ms settle are inferred.
 
@@ -242,7 +242,7 @@ The AFE reset fix works (3/3 boots); polarity and the 50 ms settle are inferred.
 | MTP-2 | MTP firmware version | `grep -i -E 'AppleMTPFirmware\|FirmwareVersion' 10-trackpad-mtp.txt 01-registry.txt` | `AppleMTPFirmwareMac-6320.86.1` (seen under Linux) or a newer string |
 | MTP-3 | FUD Multitouch firmware in the bundle | `12-firmware.txt` BuildManifest section: component with `IsFUDFirmware` and a `Multitouch` path | the path `extract-tpmtfw.py` will read (`fud_firmware/<board>/Multitouch.im4p` expected) |
 
-### 3.10 USB-C ports and PD controllers (reports: `contrib/pending/usb/`, `isp-tb/`)
+### 3.10 USB-C ports and PD controllers (reports: `contrib/validated/legacy-7.2/usb/`, `isp-tb/`)
 
 | id | question | command | look for |
 |---|---|---|---|

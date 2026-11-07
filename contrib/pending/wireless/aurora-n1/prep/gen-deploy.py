@@ -3,7 +3,7 @@
 #   python3 -I gen-deploy.py
 import pathlib, subprocess, sys
 H = pathlib.Path.home()
-T = H/"Documents/GitHub/m5pro-linux/contrib/pending/aurora/tools"
+T = H/"Documents/GitHub/m5pro-linux/contrib/validated/aurora/tools"
 O = H/"Work/agents/aurora-kernel/payloads"
 HERE = pathlib.Path(__file__).resolve().parent
 DAILY = "275d84ecfee87a2441e9cbd3f550129101dc82680e38abdb01c37c159af8d030"

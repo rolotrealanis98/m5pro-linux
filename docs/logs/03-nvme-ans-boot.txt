@@ -2,7 +2,7 @@
 # Redacted excerpt. MAC addresses -> xx:xx:xx:xx:xx:xx, UUIDs -> <uuid>, ids -> <id>,
 # build host -> builder@host. Lines are copied verbatim otherwise; "..." marks omitted lines.
 # A. Failure (2026-11-05 round 1, before patch 0016). No log file was captured: there was no
-#    shell. The text below is as recorded in contrib/pending/integration/RESULTS.md and seen on
+#    shell. The text below is as recorded in contrib/validated/integration/RESULTS.md and seen on
 #    the panel / the initramfs shell (message text only; timestamps and device prefix not recorded):
 ANS did not boot
 Reset failure status: -62

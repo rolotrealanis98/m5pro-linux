@@ -8,7 +8,7 @@
 [    8.786479] macsmc-reboot macsmc-reboot: Handling poweroff requests via SMC (restart left to other handlers)
 
 # B. First Linux reboot after the fix. Transcribed from the run record
-#    (contrib/pending/integration/RESULTS.md); the raw dmesg of that boot was not saved:
+#    (contrib/validated/integration/RESULTS.md); the raw dmesg of that boot was not saved:
 PMU logged 1 boot error(s) and 0 panic(s)      (message text only; prefix and timestamp not recorded)
 #    PMU scratchpad 0xf800..0xf80f, read-only dump:
 #      after a macOS boot:              20 30 00 00 ...

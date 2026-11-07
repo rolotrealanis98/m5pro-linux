@@ -9,7 +9,7 @@ import datetime, hashlib, pathlib, re, subprocess, sys, tempfile
 H = pathlib.Path.home()
 N1 = H/"Work/agents/n1-wifi"
 OUT = H/"Work/agents/aurora-kernel/payloads"
-T = H/"Documents/GitHub/m5pro-linux/contrib/pending/aurora/tools"
+T = H/"Documents/GitHub/m5pro-linux/contrib/validated/aurora/tools"
 n = sys.argv[1] if len(sys.argv) > 1 else "1"
 assert n in ("1", "2")
 sha = lambda b: hashlib.sha256(b).hexdigest()

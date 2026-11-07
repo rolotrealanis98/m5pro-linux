@@ -9,7 +9,7 @@ the owner has handed the machine back.
 
 Every Type-C port is a dwc3 **gadget** today, so a dongle cannot enumerate.
 First boot and check the pending series in
-`~/Documents/GitHub/m5pro-linux/contrib/pending/usb/` (REPORT.md, TEST-PLAN.md):
+`~/Documents/GitHub/m5pro-linux/contrib/validated/legacy-7.2/usb/` (REPORT.md, TEST-PLAN.md):
 
 - `t6050-j716s-usbhost.dtb` turns **dwc3_1 = left-front port** into a host;
   the left-back (MagSafe side) and right ports stay gadgets.
@@ -43,7 +43,7 @@ You also need a passive USB-C (male) to USB-A (female) adapter.
 
 ```sh
 cd ~/Work/omarchy-m5
-cp ~/Documents/GitHub/m5pro-linux/contrib/pending/usb/config/omarchy-usb-host.config configs/
+cp ~/Documents/GitHub/m5pro-linux/contrib/validated/legacy-7.2/usb/config/omarchy-usb-host.config configs/
 cp ~/Work/agents/wireless/configs/omarchy-wireless-dongles.config configs/
 # optional, recommended (step 3a):
 cp ~/Work/agents/wireless/configs/omarchy-wireless-embed-fw.config configs/

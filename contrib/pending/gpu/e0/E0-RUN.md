@@ -1,7 +1,7 @@
 # E0 on the J716s: PMP and GPU power-state readback
 
 Step E0 of the GPU plan (`contrib/pending/gpu/hwdata/ANALYSIS.md`, section 4). Read-only. No GPU node, no
-Rust, no new kernel. One script: `e0-readback.sh` (extends `contrib/pending/integration/r1/pmp-readback.sh`,
+Rust, no new kernel. One script: `e0-readback.sh` (extends `contrib/validated/integration/r1/pmp-readback.sh`,
 which is untouched). It has run only against a mock reader on the Studio (syntax, dry-run and the verdict
 paths); it has never touched the MacBook.
 

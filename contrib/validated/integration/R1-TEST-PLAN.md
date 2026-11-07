@@ -105,7 +105,7 @@ Deploy `R1-A-olddtb-gated.bin` over B2.
 | NVMe, trackpad | `dmesg \| grep -E 'nvme\|Touch MT ready\|afe-reset'` | NVMe up < 12 s; `Touch MT ready`; `macsmc-low-gpio` probed (0023 moved it after hwmon/reboot/rtc) |
 | SMC core | `dmesg \| grep -iE 'macsmc\|smc'` | as B2: gpio, low-gpio, input, rtc, hwmon, reboot (poweroff-only); no `macsmc-power` line |
 | cpufreq schedutil | `grep . /sys/devices/system/cpu/cpufreq/policy{0,6,12}/{scaling_governor,scaling_cur_freq,cpuinfo_min_freq,cpuinfo_max_freq}` | schedutil x3; idle 10 s -> 1344000/1344000/1308000; max 4308000 |
-| cpufreq under load | `./cpuhz 1 & ./cpuhz 7 & ./cpuhz 13 &` (contrib/pending/cpufreq/tools) | busy cluster goes to 4308000; `cpuhz` within 2 % of `scaling_cur_freq` |
+| cpufreq under load | `./cpuhz 1 & ./cpuhz 7 & ./cpuhz 13 &` (contrib/validated/legacy-7.2/cpufreq/tools) | busy cluster goes to 4308000; `cpuhz` within 2 % of `scaling_cur_freq` |
 | OPP level offset (open question) | `./dvfs-regs` at idle and under load; `cpuhz` vs table | ours: p-state = table index + 2 (measured on J714s M cluster, guessed for P). edimoldovan's J714c DT uses index + 1 with the same frequencies. If `cpuhz 13` reads one table step higher than `scaling_cur_freq` (e.g. 1620 at 1308000), the P table is off by one: record, do not change anything today |
 | Keyboard backlight | `cat /sys/class/leds/kbd_backlight/max_brightness`; `echo 32 > .../brightness`; `echo 255 ...`; `echo 0 ...` | 255; keys dim/full/off; no fpwm0/PMGR errors |
 | eDP connector | `ls /sys/class/drm/; cat /sys/class/drm/card*-eDP-1/status /sys/class/drm/card*-eDP-1/modes` | `card0-eDP-1` (was `card0-Unknown-1`), connected, one mode |

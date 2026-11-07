@@ -245,7 +245,7 @@ Needs a trace of macOS driving the GPU:
   be serviced over RTKit for its whole life, and a started PMP that nobody services is worse than a
   stopped one.
 - `t6050pmp.im4p` needs no handling by m1n1.
-- Readback addition for `contrib/pending/integration/r1/pmp-readback.sh`: a "stage 1b" reading the
+- Readback addition for `contrib/validated/integration/r1/pmp-readback.sh`: a "stage 1b" reading the
   SRAM cold-marker words 0x2_8457_bcc0..0x2_8457_bce4 (eight 32-bit loads). These are SRAM, not ASC
   registers; edimoldovan read that range from the proxy without trouble. They show whether the
   t6050/pmp driver would accept the PMP as cold on our stub. Expect 0xfeed1b00 at +0x7bcd8 and zeros

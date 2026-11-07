@@ -37,7 +37,7 @@ Static analysis only. Nothing was built and nothing was booted. Line numbers are
 * With `<&smc_gpio_low 28 GPIO_ACTIVE_LOW>`, `gpio-macsmc.c:298-299` writes `CMD_OUTPUT | level` to gp1c:
   * OFF: 0x01000000 (pin low)
   * ON: 0x01000001
-* That is exactly what our 7.2 tree writes. Its `gpio-macsmc.c:193-194` is the same code, and our 0001 drives the same logical values (`contrib/pending/trackpad/0001`, `dchid_reset_interface`).
+* That is exactly what our 7.2 tree writes. Its `gpio-macsmc.c:193-194` is the same code, and our 0001 drives the same logical values (`contrib/validated/legacy-7.2/trackpad/0001`, `dchid_reset_interface`).
 
 **Firmware GPIO requests** (FIFO mode only):
 * `dchid_handle_gpio()` (`:1126-1182`) handles event 0xa0 command 3 as a pulse: logical 1, then `msleep(10)`, then 0.
@@ -60,7 +60,7 @@ Static analysis only. Nothing was built and nothing was booted. Line numbers are
 * `:327` `hid-generic 0019:0000:0000.0001: device has no listeners` (stm, created before the IDs).
 * `:332-333` the keyboard (.0003) binds to `apple`.
 * No line for .0002 (presumably multi-touch). No "Sending firmware", no "New AFE[0] cbor image received", no `touch_iface.c:495/512`.
-* Compare the passing 7.2 boots: "Resetting multi-touch", then "New AFE[0] cbor image received", then "Touch MT ready" (`contrib/pending/trackpad/REPORT.md` §3).
+* Compare the passing 7.2 boots: "Resetting multi-touch", then "New AFE[0] cbor image received", then "Touch MT ready" (`contrib/validated/legacy-7.2/trackpad/REPORT.md` §3).
 
 **Why our line 28 active-low "did not work" on Aurora while it works on our kernel:**
 * It was never exercised (diagnosis lines 1-3). The facts fit that and nothing else:
@@ -95,7 +95,7 @@ Total 160+/14- for 54b1237 and 46+/30- for 64f198.
 
 **The output-commands table.** Each u64 is `(hi << 32) | lo` of the ADT `pKW8('pcIO', lo, hi)`:
 * `hi` = bank << 24 | pin << 16.
-* `lo` = flags. Bit 16 is set only on the two reset functions, consistent with an invert flag (inference, see `contrib/pending/trackpad/REPORT.md` §2, §5).
+* `lo` = flags. Bit 16 is set only on the two reset functions, consistent with an invert flag (inference, see `contrib/validated/legacy-7.2/trackpad/REPORT.md` §2, §5).
 * The level goes in bits 15:0.
 
 | line | template | lo / hi | meaning |

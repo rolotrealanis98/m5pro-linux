@@ -5,7 +5,7 @@
 #   stage 1   PMGR power-state words of the PMP and PMS_SRAM        (as pmp-readback.sh stage 1)
 #   stage 1b  the PMP SRAM cold-marker words, 8 x 32 bit            (expect 0xfeed1b00 at +0x7bcd8)
 #   stage 1c  the GPU power-domain words GPX / AFR / CS / GFX       (expect GFX 0x0f040300)
-# Extends contrib/pending/integration/r1/pmp-readback.sh (not modified). Run as root on a normally
+# Extends contrib/validated/integration/r1/pmp-readback.sh (not modified). Run as root on a normally
 # booted daily kernel (CONFIG_DEVMEM=y). See E0-RUN.md.
 #
 #   bash e0-readback.sh --dry-run     validate and print the address plan, read nothing

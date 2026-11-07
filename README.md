@@ -15,8 +15,8 @@ Type-C ports as USB hosts, the trackpad and a Hyprland desktop (software renderi
 on a separate audio kernel. WFI idle is in test. The older asahi-wip 7.2 stack is kept as the fallback
 payload; everything it proved (SMP, boot chain, NVMe, trackpad, battery, cpufreq) carried over.
 
-Hardware results, round by round: [`contrib/pending/integration/RESULTS.md`](contrib/pending/integration/RESULTS.md).
-Exact ingredients of the current payload: [`contrib/pending/aurora/STATE.md`](contrib/pending/aurora/STATE.md).
+Hardware results, round by round: [`contrib/validated/integration/RESULTS.md`](contrib/validated/integration/RESULTS.md).
+Exact ingredients of the current payload: [`contrib/validated/aurora/STATE.md`](contrib/validated/aurora/STATE.md).
 Last full write-up with test labels and repro steps: [`docs/status-2026-11-06.md`](docs/status-2026-11-06.md).
 
 ### Works (tested on hardware)
@@ -39,16 +39,16 @@ Last full write-up with test labels and repro steps: [`docs/status-2026-11-06.md
 | Area | State |
 |---|---|
 | WFI idle | **WFI-T1 passes** (one boot): the cores really sleep now and idle power on the charger drops from 16.4 W to 8.6 W. m1n1 has been appending `idle=nop` since its "disable wfi if it loses state" change; the patch ignores it. The 1 h soak, the per-CPU register check and promotion to the daily are open. [`contrib/pending/wfi-idle/`](contrib/pending/wfi-idle/) |
-| Aurora PRs | Three are open on `aurora-silicon/linux`: **#1082** rtkit handshake wait 1 s to 10 s, **#1083** dockchannel-hid 50 ms settle after the AFE reset, **#1084** macsmc hwmon keeps a fan whose optional keys are missing. Held: CIO reset (#946 replaces it), cpufreq binding (#481), SMC match (#941), the J716s board DT. [`contrib/pending/aurora/prs/`](contrib/pending/aurora/prs/) |
+| Aurora PRs | Three are open on `aurora-silicon/linux`: **#1082** rtkit handshake wait 1 s to 10 s, **#1083** dockchannel-hid 50 ms settle after the AFE reset, **#1084** macsmc hwmon keeps a fan whose optional keys are missing. Held: CIO reset (#946 replaces it), cpufreq binding (#481), SMC match (#941), the J716s board DT. [`contrib/validated/aurora/prs/`](contrib/validated/aurora/prs/) |
 
 ### Blocked or not working
 
 | Area | Why |
 |---|---|
 | GPU | No public driver for the 27.x GPU firmware interface; the M5 Pro is gated off in Aurora's tree. The desktop is software rendered. [`contrib/pending/gpu/`](contrib/pending/gpu/) |
-| Display driver (DCP) | The firmware here is 27.3; Aurora's driver matches the method table of exactly 27.0.0. No scanout, no brightness control. [`contrib/pending/aurora/dcp/`](contrib/pending/aurora/dcp/) |
-| Speakers | The machine boots safely with a volume ceiling and the protection daemon. The first tone makes every amplifier report `bad TDM clock`. The stop-time faults are fixed; a burst at stream start remains. Attended tests only. [`contrib/pending/aurora/audio/`](contrib/pending/aurora/audio/) |
-| Wi-Fi and Bluetooth (N1) | The PCIe adoption, N1 transport, Wi-Fi and Bluetooth patches (16 of them) are in the series; the hardware steps have not been run. The firmware is personalised per unit and is not published. [`contrib/pending/aurora/n1-wifi/`](contrib/pending/aurora/n1-wifi/) |
+| Display driver (DCP) | The firmware here is 27.3; Aurora's driver matches the method table of exactly 27.0.0. No scanout, no brightness control. [`contrib/pending/dcp/aurora/`](contrib/pending/dcp/aurora/) |
+| Speakers | The machine boots safely with a volume ceiling and the protection daemon. The first tone makes every amplifier report `bad TDM clock`. The stop-time faults are fixed; a burst at stream start remains. Attended tests only. [`contrib/pending/audio/aurora/`](contrib/pending/audio/aurora/) |
+| Wi-Fi and Bluetooth (N1) | The PCIe adoption, N1 transport, Wi-Fi and Bluetooth patches (16 of them) are in the series; the hardware steps have not been run. The firmware is personalised per unit and is not published. [`contrib/pending/wireless/aurora-n1/`](contrib/pending/wireless/aurora-n1/) |
 | Camera, Thunderbolt/USB4, thermal zones | Design reports only. [`contrib/pending/isp-tb/`](contrib/pending/isp-tb/), [`contrib/pending/platform/`](contrib/pending/platform/) |
 
 ### The base (unchanged since 2026-11-05)
@@ -64,27 +64,27 @@ Last full write-up with test labels and repro steps: [`docs/status-2026-11-06.md
 ## Quick start: build and install a payload
 
 The payload is one file: m1n1 (0x400000 bytes) | boot arguments | `Image.gz` | device tree | initramfs.
-[`mk-daily.py`](contrib/pending/aurora/tools/mk-daily.py) builds it from named, hash-pinned ingredients and
+[`mk-daily.py`](contrib/validated/aurora/tools/mk-daily.py) builds it from named, hash-pinned ingredients and
 prints the commands for the swap; it never touches the machine. What may sit on the ESP, and how a failed test
-returns to the last good payload, is in [`ESP-POLICY.md`](contrib/pending/aurora/tools/ESP-POLICY.md): read it first.
+returns to the last good payload, is in [`ESP-POLICY.md`](contrib/validated/aurora/tools/ESP-POLICY.md): read it first.
 
 ```bash
 # 1. kernel: a worktree of aurora-silicon/linux at 33bec4016c46 + the series, then build it (recipe: series/SERIES.md)
-git am contrib/pending/aurora/series/patches/*.patch
+git am contrib/validated/aurora/series/patches/*.patch
 make LLVM=1 ARCH=arm64 defconfig asahi.config j716s.config && make LLVM=1 ARCH=arm64 -j Image.gz dtbs
 
 # 2. check the ingredients, then build a test payload (it reverts itself if the network does not come up)
-python3 -I contrib/pending/aurora/tools/mk-daily.py --list      # edit INGREDIENTS (paths, pins) for your machine first
-python3 -I contrib/pending/aurora/tools/mk-daily.py --out DIR --label my-test
+python3 -I contrib/validated/aurora/tools/mk-daily.py --list      # edit INGREDIENTS (paths, pins) for your machine first
+python3 -I contrib/validated/aurora/tools/mk-daily.py --out DIR --label my-test
 
 # 3. print the ESP swap, read it, run it yourself; boot the test with the Ethernet adapter attached
-python3 -I contrib/pending/aurora/tools/mk-daily.py --deploy-plan --payload DIR/my-test-<date>-<hash>.bin --host root@<linux-ip>
+python3 -I contrib/validated/aurora/tools/mk-daily.py --deploy-plan --payload DIR/my-test-<date>-<hash>.bin --host root@<linux-ip>
 
 # 4. once it reached the network, rebuild the same ingredients as the daily (no self-revert, battery on)
-python3 -I contrib/pending/aurora/tools/mk-daily.py --out DIR --daily --battery --force
+python3 -I contrib/validated/aurora/tools/mk-daily.py --out DIR --daily --battery --force
 ```
 
-The stage-2 m1n1 of the daily is upstream plus `patches/m1n1/` (toolchain and recipe: [`m1n1-BUILD.md`](contrib/pending/integration/m1n1-BUILD.md)):
+The stage-2 m1n1 of the daily is upstream plus `patches/m1n1/` (toolchain and recipe: [`m1n1-BUILD.md`](contrib/validated/integration/m1n1-BUILD.md)):
 
 ```bash
 git -C ~/Work/m1n1 checkout -b m5-t6050 7cde7d1a && git -C ~/Work/m1n1 am ~/Work/m5pro-linux/patches/m1n1/*.patch
@@ -127,7 +127,7 @@ commit that removed it.
 
 Questions, reports and corrections: [issues on this repo](https://github.com/rolotrealanis98/m5pro-linux/issues).
 Fixes that belong upstream go to `aurora-silicon/linux` as small PRs (see
-[`UPSTREAM-NOTES.md`](contrib/pending/aurora/series/UPSTREAM-NOTES.md)).
+[`UPSTREAM-NOTES.md`](contrib/validated/aurora/series/UPSTREAM-NOTES.md)).
 
 ## Credits
 

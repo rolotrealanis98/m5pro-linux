@@ -17,7 +17,7 @@ https://github.com/omacom/linux-aurora/issues/293#issuecomment-6662971451
   right (cpufreq REPORT table; m1n1 would refuse otherwise).
 - cpufreq: cluster 1 (M) voltage-states23-sram 1344-4380 MHz 15 states at 0x211e20000, cluster 2 (P)
   voltage-states5-sram 1308-4608 MHz 20 states at 0x212e20000, three apple-cpufreq policies on schedutil, boost to
-  4380/4380/4608 MHz. This is exactly our cpufreq agent's design (contrib/pending/cpufreq), now hardware-validated by
+  4380/4380/4608 MHz. This is exactly our cpufreq agent's design (contrib/validated/legacy-7.2/cpufreq), now hardware-validated by
   a second machine. Our stage-1 test on Sunday can go straight to schedutil.
 - Omarchy userspace: needs `CONFIG_SWAP` + `CONFIG_ZRAM` (zstd) or zram-generator waits 90 s; needs
   `CONFIG_SECURITY_LANDLOCK` + `LSM` incl. landlock or pacman 7 fails. Ours: SWAP, LANDLOCK, LSM OK; ZRAM MISSING ->

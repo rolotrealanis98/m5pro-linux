@@ -148,7 +148,7 @@ Prototype: `prototypes/configs/m5-debug.config`.
 **Problem.** The integration kernel has `# CONFIG_SOFTLOCKUP_DETECTOR is not set` (`.config:11891`),
 no hard-lockup or hung-task detector, and `CONFIG_PANIC_TIMEOUT=0` (`:11890`): a panic waits
 forever. TEST-PLAN T6 even asks for `panic=0 pause_on_oops=300` so the panel can be photographed
-(`contrib/pending/smc/TEST-PLAN.md:53`). That is where intervention 4 comes from.
+(`contrib/validated/legacy-7.2/smc/TEST-PLAN.md:53`). That is where intervention 4 comes from.
 
 **Mechanism.** Soft-lockup panic; the buddy hard-lockup detector (no NMI needed: arm64 here has
 `# CONFIG_ARM64_PSEUDO_NMI is not set` and AIC has none; the buddy detector watches CPUs from each
@@ -325,7 +325,7 @@ the camera); the camera sees the desk, so frames stay local, never in the repo.
 **Problem.** The only network is CDC-EEM via a QEMU guest, because macOS has no EEM driver
 (`boot-and-recovery.md:89-91`), and ACM/NCM fail on this port.
 
-- **(a) USB host Ethernet after Stage C** (left-front port, `contrib/pending/usb/`): an
+- **(a) USB host Ethernet after Stage C** (left-front port, `contrib/validated/legacy-7.2/usb/`): an
   AX88179/RTL8153 dongle (no firmware, both `=y` in the USB fragment) via a powered hub. DHCP from
   the Studio's LAN, SSH straight from macOS, internet for pacman. It takes the guest off the
   critical path, and it is the same port that later carries a Wi-Fi/BT dongle (ROADMAP T1.4).
