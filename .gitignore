@@ -11,3 +11,4 @@ build/
 *.tar.gz
 adt-*
 *.log
+__pycache__/

@@ -1,0 +1,18 @@
+# /etc/systemd/system/m5-netconsole.service
+# netconsole to the Studio over the USB Ethernet adapter (r8152 on the left-port xhci). The adapter
+# appears ~3 s into the boot, too late for netconsole= on the command line, so the target is made
+# through configfs once the network is up. Needs CONFIG_NETCONSOLE=y, NETCONSOLE_DYNAMIC=y and
+# /etc/m5-netconsole.conf (STUDIO_IP=...). Re-armed after an adapter replug by 90-m5-netconsole.rules.
+[Unit]
+Description=netconsole to the Studio over USB Ethernet
+Wants=network-online.target
+After=network-online.target sys-kernel-config.mount
+ConditionPathExists=/etc/m5-netconsole.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/m5-netconsole-up
+
+[Install]
+WantedBy=multi-user.target

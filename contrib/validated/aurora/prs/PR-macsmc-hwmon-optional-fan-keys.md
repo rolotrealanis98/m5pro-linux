@@ -9,3 +9,5 @@ hwmon: (macsmc) keep a fan whose optional keys are missing
 **Open questions:**
 - Is describing the T6050 mode key in the DT (`apple,fan-mode = "F0md"`, as tested) the preferred way, or should the driver try both spellings?
 - Warning level: `dev_warn` once per missing key, or `dev_info`?
+
+**v2 (2026-11-07, after RyanTheTide's pre-review):** commit 5de41949c174 (was 8125f1376ef0). The four per-key `dev_warn` lines become one `dev_info` per fan that lists the missing optional keys (`Fan F0Ac: optional keys not found: mode F0Md`). The `apple,fan-manual-control` warning is unchanged. `macsmc-hwmon.o` builds clean with W=1, and checkpatch --strict is clean. The missing-key path has still not run on hardware. Patch: `patches-v2/macsmc-hwmon-optional-fan-keys/`.
