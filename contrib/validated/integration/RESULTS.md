@@ -1484,3 +1484,20 @@ series: bring-up + RVBAR relay, N1, GPU hand-off, display hand-off, `m1n1.wdt=ke
   The session that wrote it was the omacom-m1n1-booted kernel; the pmu scratchpad was not read on that boot. The
   loop runners now print `m5pro,pmu-scrpad` so the next fallback can be classified (stage-1 0017's marks remain the
   real fix).
+
+## POWER-T1: the power kernel resets within a minute (2026-11-07 21:22 UTC) — FAIL
+
+Payload `power-t1-20261107-c15b58cd.bin` = the GPU daily tree + the 13 cpufreq/PMC/CLPC/thermal patches (kernel
+`7.3.0-g1d276f9e36c7`, PMC in observe mode by default), GPU daily DTB with the power DT changes (T6050 cpufreq
+compatibles only, `turbo-mode` on the M clusters' boost state, `apple,t6050-pmc`/`apple,t6050-clpc`, TCMb/mTPL keys),
+self-test on, written with `esp-put.sh`.
+
+- Result: the machine came back 102 s after the reboot on `fallback-after-failure`, pmu scratchpad `300130` (error
+  stage 0x30 = after the loader's hand-over, in Linux), uptime 39 s: the power kernel ran for roughly a minute and
+  reset before the network came up, then stage 1 booted the previous twin. No crash log (no netconsole yet).
+- Prime suspect: the PMC driver probing the `apple,t6050-pmc` node (the agent's own flagged risk: a read of an
+  unclocked PMC window could fault); second: the cpufreq status-register read path on T6050. Bisect payloads
+  requested (cpufreq + thermal only; PMC/CLPC only).
+- The boot before this one had come back on `fallback-after-failure` with `300100` (error stage 0x00): that one was the
+  restore after the omacom-m1n1 session, i.e. the counted-restart case, not a payload failure.
+- The GPU daily restore then booted on the primary slot (pmu `300030`, 0 errors).
