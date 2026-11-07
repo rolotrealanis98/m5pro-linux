@@ -831,7 +831,8 @@ prev = the daily `275d84ec`.
 - **Reboot after the tone: clean** (23 s to the next boot, PMU boot-error count 0, primary slot), so the B2 reboot stall
   did not reproduce on this kernel. systemd owns no runtime watchdog (`RuntimeWatchdogUSec=0`, reboot watchdog 10 min).
 - **Then:** the next boot of the same payload had no network inside 90 s; `m5-selftest` restored the daily and rebooted
-  (the loop guard's one revert). Cause under review from its saved log (USB hub enumeration is the suspect; the same first-
-  attempt failure was seen once on HWMON-T1 and recovered there).
+  (the loop guard's one revert). Its saved log shows the hub, dongle and the r8152 adapter all enumerated normally by 3.3 s
+  and `enu1u2u2` configured and UP, but with **NO-CARRIER** for the whole 90 s: an Ethernet link flake on the adapter or the
+  switch, not the kernel (the next boot on the daily had carrier at once). Not audio-related; the self-revert did its job.
 - Next: 0003 for the start-time burst (agent), then B4.
 
