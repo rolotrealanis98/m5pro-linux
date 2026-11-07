@@ -1211,3 +1211,14 @@ kernel + daily DTB: payload `crashlog-pram-20261107-de06f732`, daily twin `daily
   with an AX88179-class adapter), plus `initcall_debug` on hunt payloads. The kernel config pieces stay in the series
   (harmless); the DT node and m1n1 0028 stay in contrib/pending/crashlog for the record.
 
+### Result (DAILY-WIFI-LID promotion, 2026-11-07 16:03-16:08 UTC, Rolando watching the panel)
+
+- Test twin `w4t-lidwifi-20261107-350fd22a` (W4 stack + 0066 lid confirm, kernel `7.3.0-gb61f760243c4`): its first boot
+  (unattended, 15:59) fell back to the lid daily; the second boot, watched from the panel, came up with no hang or odd
+  line: primary, 18 CPUs, N1 adopted, wlan0 associated, hci0, `lid_wake_settle_ms` 2000. The first-boot failure is
+  unexplained (the same one-off pattern as DAILY-NEXT "full" and the crash-log T1 payload).
+- **Daily promoted: `daily-wifi-lid-20261107-bd9ebd5e.bin`** (same ingredients, no self-test flag): primary, Wi-Fi,
+  Bluetooth, lid settle, battery driver, no reboot issues on the panel. `boot.bin.prev` = the test twin (it carries the
+  N1-aware m1n1, which every rollback now needs). Modules for `b61f760243c4` (phram included) on the root.
+- The lid daily `534ca146` is retired from the ESP rotation (copies on the Studio).
+
