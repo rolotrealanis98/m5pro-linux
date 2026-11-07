@@ -114,3 +114,13 @@ limit the restart already runs. Pragmatic fix adopted: esp-put's default settle 
 MacBook and in the repo copy. Further arms (3 runs each from an omacom session): busy disk without an ESP write
 (dd 70 MB conv=fsync then reboot within 1 s), busy CPU without I/O (stress-ng 30 s then reboot), write + 60 s idle.
 0017 still worth installing (error-00 cases would boot primary).
+
+## 2026-11-07 23:56 UTC: reproduced without the ESP (exp4)
+
+A 70 MB fsync burst on the ext4 root followed by a reboot within 1 s reproduced the failure once in three tries (the
+next boot of the unchanged payload died in early Linux, error stage 0x30); write + 60 s settle was clean 3/3; plain
+reboots from the omacom-loader and power-kernel sessions were clean 6/6. So the SSD being busy at restart is the
+mechanism, FAT is irrelevant, and the 60 s settle rule holds. Open: why the *next* boot fails when the previous restart
+happened under I/O (ANS recovery after an unclean shutdown affecting iBoot's hand-over or the kernel's early NVMe/ANS
+init), and the kernel-side fix (apple-nvme shutdown waiting for idle; a longer shutdown timeout; or a reboot-path sync +
+settle).
