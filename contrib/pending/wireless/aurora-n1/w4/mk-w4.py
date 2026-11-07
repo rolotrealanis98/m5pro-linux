@@ -13,6 +13,9 @@
 #   w4t-lidwifi    kernel 7.3.0-gb61f760243c4 (= gff289b9ce8ec + the macsmc-input lid-open confirm, series 0066),
 #                  selftest on: the test twin of the daily below
 #   daily-wifi-lid the same without m5.selftest=1: the Wi-Fi + lid-sleep daily
+#   w4t-n1sleep    kernel 7.3.0-g85c770faad4b (= gb61f760243c4 + pcie-apple: adopted links kept up through s2idle,
+#                  contrib/pending/wireless/patches/linux/0003), selftest on: the test twin of the daily below
+#   daily-n1sleep  the same without m5.selftest=1
 #   --daily adds a known-good daily to the deploy guard.
 # Kernels are kept in w4/kernels/ (wt-n1shut-out holds only the newest build).
 # Output (private, 0600; the initramfs carries the FTAB): w4/private/<tag>-n1warm-<date>-<sha8>.bin, .recipe.txt,
@@ -32,16 +35,24 @@ KERNELS = {
                       "f080637018df + pcie-apple shutdown park + centauri never-booted guard"),
     "gb61f760243c4": ("6d228752b21cffe6f44c046275b3e27dbd91e6998b458b55a2f36ec42c290bdd",
                       "gff289b9ce8ec + macsmc-input lid-open confirm (series 0066)"),
+    "g85c770faad4b": ("c1d3d17a03adb26a3fe0e511b26f8cdaaddadda7ddbb50bda1c33021213e70b4",
+                      "gb61f760243c4 + pcie-apple adopted links kept up through s2idle (0003)"),
 }
 #                 kernel           selftest  initcall_debug  file label
 VARIANTS = {"w4": ("gff289b9ce8ec", True, False, "w4-n1warm"),
             "w4d": ("gff289b9ce8ec", True, True, "w4d-n1warm"),
             "w4t-lidwifi": ("gb61f760243c4", True, False, "w4t-lidwifi"),
-            "daily-wifi-lid": ("gb61f760243c4", False, False, "daily-wifi-lid")}
+            "daily-wifi-lid": ("gb61f760243c4", False, False, "daily-wifi-lid"),
+            "w4t-n1sleep": ("g85c770faad4b", True, False, "w4t-n1sleep"),
+            "daily-n1sleep": ("g85c770faad4b", False, False, "daily-n1sleep")}
 GEN = H/"Work/agents/n1-wifi/w2/prep/gen-deploy-w2.py"
 DAILIES = ["534ca14653f1bc474f597ec1b7242f8f572d5cc777a0c4cb7060f8f01852e5a4",  # lid daily (being restored)
            "dcec81eda0d83d7c746f44c767b8e2967ea038938ef76a3632edcb1857701655",
-           "275d84ecfee87a2441e9cbd3f550129101dc82680e38abdb01c37c159af8d030"]
+           "275d84ecfee87a2441e9cbd3f550129101dc82680e38abdb01c37c159af8d030",
+           "bd9ebd5eed773b01259d87182a75d35487c1069d1c5ee8f316780965f963ecf7",  # daily-wifi-lid (Wi-Fi + lid daily)
+           "350fd22adf035a370eef32e7ff6ed0836567b20d49d69fc128f946283b925b00",  # w4t-lidwifi, its test twin
+           "78b12875e600b7ca4426b03d3285d41561d24d22eeecb49896a782fc3d48a105",  # daily-wifi (next-daily), promoted 11:21
+           "7e285d949c05a69bd60db4170b74aea2091d92e038cc72f871677c4597140f5b"]  # next-daily-wifi, its test twin (prev)
 sha = lambda b: hashlib.sha256(b).hexdigest()
 
 args = sys.argv[1:]
