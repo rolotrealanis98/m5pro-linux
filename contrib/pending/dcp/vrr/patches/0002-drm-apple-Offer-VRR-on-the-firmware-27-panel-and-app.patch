@@ -1,15 +1,16 @@
-From 936ac2c876fa7f5d89ade8895443a36f114a7624 Mon Sep 17 00:00:00 2001
+From 316e53164c683acaf2404fec4a3966b5c8af130b Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:43:43 -0500
-Subject: [PATCH 2/2] drm/apple: Apply VRR_ENABLED on the firmware 27 panel
+Subject: [PATCH 2/2] drm/apple: Offer VRR on the firmware 27 panel and apply
+ VRR_ENABLED
 
-The T6050 ProMotion panel reports its 120 Hz timing with a zero
-adaptive-sync range, which the parser already turns into 24-120 Hz, so
-the connector says vrr_capable and the firmware 27 mode set sends
-adaptive sync (parameter 15) at VRR_ENABLED's minimum rate. But it does
-so only in a mode set. Compositors flip VRR_ENABLED in a plain page
-flip, which firmware 27 never saw: the panel stayed at a fixed 120 Hz
-while userspace believed VRR was on.
+The T6050 ProMotion panel reports its 120 Hz timing with both
+adaptive-sync range fields present and zero. The parser turns that into
+24-120 Hz only for desktop 26.6 firmware, so on firmware 27 the timing
+parses as fixed and the connector never says vrr_capable. And even with
+a VRR timing, firmware 27 got adaptive sync (parameter 15) only in a
+mode set, while compositors flip VRR_ENABLED in a plain page flip: the
+panel would stay at a fixed 120 Hz while userspace believed VRR was on.
 
 Firmware 27 writes the adaptive sync range into its timing generator
 when a mode is selected (UPPipeDCP_H17GSCD::program_M3_gen_config and
@@ -19,22 +20,24 @@ the current mode again, with adaptive sync at the mode's minimum rate
 or off. A plain flip keeps working without ALLOW_MODESET; the panel is
 dark for the length of the mode set.
 
-Adaptive sync has not run on a firmware 27 panel yet, so offer it only
-with appledrm.fw27_panel_vrr=1. Arm the swap watchdog while it is on:
-a swap that does not complete within a second turns it off for good
-and the retraining mode set installs the panel fixed. Swaps keep
-their ARM counter timestamps; appledrm.fw27_counter_timestamps=0 sends
-the constant the desktop 26.6 panel takes instead, to tell a stalled
-adaptive swap from a timestamp the firmware does not accept.
+Adaptive sync has not run on a firmware 27 panel yet, so all of this
+is opt-in with appledrm.fw27_panel_vrr=1: the 24-120 Hz range for the
+zero range fields, vrr_capable, and VRR_ENABLED. Arm the swap watchdog
+while it is on: a swap that does not complete within a second turns it
+off for good and the retraining mode set installs the panel fixed.
+Swaps keep their ARM counter timestamps;
+appledrm.fw27_counter_timestamps=0 sends the constant the desktop 26.6
+panel takes instead, to tell a stalled adaptive swap from a timestamp
+the firmware does not accept.
 
 Assisted-by: LLM Claude
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  drivers/gpu/drm/apple/dcp-internal.h   | 11 ++++
  drivers/gpu/drm/apple/dcp.c            | 10 +++-
- drivers/gpu/drm/apple/iomfb.c          | 72 ++++++++++++++++++++++++++
- drivers/gpu/drm/apple/iomfb_template.c | 15 ++++--
- 4 files changed, 102 insertions(+), 6 deletions(-)
+ drivers/gpu/drm/apple/iomfb.c          | 79 +++++++++++++++++++++++++-
+ drivers/gpu/drm/apple/iomfb_template.c | 15 +++--
+ 4 files changed, 108 insertions(+), 7 deletions(-)
 
 diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
 index 48a469790055..937e8f589878 100644
@@ -94,7 +97,7 @@ index 38be214e45e1..1d1f74025994 100644
  			msecs_to_jiffies(DCP_SWAP_WATCHDOG_MS);
  		mod_delayed_work(system_dfl_wq, &dcp->swap_watchdog_wq,
 diff --git a/drivers/gpu/drm/apple/iomfb.c b/drivers/gpu/drm/apple/iomfb.c
-index 5a660cb495dc..a7ad3064833b 100644
+index 5a660cb495dc..531c3d261620 100644
 --- a/drivers/gpu/drm/apple/iomfb.c
 +++ b/drivers/gpu/drm/apple/iomfb.c
 @@ -43,6 +43,33 @@
@@ -131,7 +134,21 @@ index 5a660cb495dc..a7ad3064833b 100644
  struct dcp_identity_trace {
  	struct apple_dcp *dcp;
  	atomic_t *count;
-@@ -2335,6 +2362,8 @@ int dcp_get_modes(struct drm_connector *connector)
+@@ -1976,7 +2003,12 @@ int dcp_modes_replace(struct apple_dcp *dcp, struct dcp_parse_ctx *ctx,
+ 			return ret;
+ 		ctx->metadata_timing = dcp_firmware_metadata_enabled(dcp);
+ 	}
+-	ctx->zero_vrr_range_fallback = dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP;
++	/*
++	 * The firmware 27 panel reports its 120 Hz timing with both range
++	 * fields zero, as the desktop 26.6 panel does: 24-120 Hz when asked.
++	 */
++	ctx->zero_vrr_range_fallback = dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP ||
++		(dcp_fw27_panel(dcp) && READ_ONCE(fw27_panel_vrr));
+ 	modes = enumerate_modes(ctx, &nr_modes, dcp->width_mm, dcp->height_mm,
+ 				dcp->notch_height,
+ 				dcp->fixed_connector_type == DRM_MODE_CONNECTOR_eDP,
+@@ -2335,6 +2367,8 @@ int dcp_get_modes(struct drm_connector *connector)
  		}
  		vrr_capable |= modes[i].vrr;
  	}
@@ -140,7 +157,7 @@ index 5a660cb495dc..a7ad3064833b 100644
  	drm_connector_set_vrr_capable_property(connector, vrr_capable);
  modes_done:
  	mutex_unlock(&dcp->dcpavserv.lock);
-@@ -3397,6 +3426,44 @@ static void iomfb_queue_atomic(struct apple_dcp *dcp, struct drm_crtc *crtc,
+@@ -3397,6 +3431,44 @@ static void iomfb_queue_atomic(struct apple_dcp *dcp, struct drm_crtc *crtc,
  	schedule_work(&dcp->vblank_wq);
  }
  
@@ -185,7 +202,7 @@ index 5a660cb495dc..a7ad3064833b 100644
  void dcp_flush(struct drm_crtc *crtc, struct drm_atomic_commit *commit)
  {
  	struct platform_device *pdev = to_apple_crtc(crtc)->dcp;
-@@ -3458,6 +3525,11 @@ void dcp_flush(struct drm_crtc *crtc, struct drm_atomic_commit *commit)
+@@ -3458,6 +3530,11 @@ void dcp_flush(struct drm_crtc *crtc, struct drm_atomic_commit *commit)
  	    READ_ONCE(dcp->connector->connected))
  		dcp_hdr_metadata_sync(dcp, crtc, commit);
  

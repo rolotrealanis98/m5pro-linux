@@ -1,0 +1,68 @@
+From 2b6dc4b2964a865836cf71b30919ec4f89466e43 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:41:37 -0500
+Subject: [PATCH 1/2] drm/apple: Name the firmware 27 adaptive sync parameter
+
+The firmware 27 template instance sends adaptive sync as a bare 15,
+where every other instance sends IOMFBPARAM_ADAPTIVE_SYNC (14). The DCP
+firmware of macOS 27.0 (26A428), 27.2 (26B123) and 27.3 beta 1
+(26C5035) agrees: its setParameter switch (33 cases) sends parameter 15
+to the handler that logs "IOMFBParameter_adaptive_sync Req minRR",
+which takes up to three values, and parameter 31 to external sync.
+Parameter 14 goes to an unrelated setter there.
+
+Give 15 a name next to 14 and record what the handler accepts: the
+minimum rate and media target rate in 16.16 Hz and a fractional-rate
+flag, with the last two dropped when the target is above 120 Hz or the
+flag above 1. No functional change.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/gpu/drm/apple/iomfb.h          | 7 +++++++
+ drivers/gpu/drm/apple/iomfb_template.c | 4 ++--
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/apple/iomfb.h b/drivers/gpu/drm/apple/iomfb.h
+index 3daefe70efdf..bf22bab49734 100644
+--- a/drivers/gpu/drm/apple/iomfb.h
++++ b/drivers/gpu/drm/apple/iomfb.h
+@@ -57,6 +57,13 @@ enum dcpep_type {
+  */
+ enum iomfb_parameter {
+ 	IOMFBPARAM_ADAPTIVE_SYNC = 14,
++	/*
++	 * Firmware 27 (27.0, 27.2 and 27.3 alike) numbers adaptive sync 15.
++	 * It takes up to three values: the minimum rate and the media target
++	 * rate in 16.16 Hz, then a fractional-rate flag.  The firmware drops
++	 * the last two when the target is above 120 Hz or the flag above 1.
++	 */
++	IOMFBPARAM_ADAPTIVE_SYNC_V27 = 15,
+ };
+ 
+ #define IOMFB_MESSAGE_TYPE	GENMASK_ULL( 3,  0)
+diff --git a/drivers/gpu/drm/apple/iomfb_template.c b/drivers/gpu/drm/apple/iomfb_template.c
+index 27b280998022..804386704ec0 100644
+--- a/drivers/gpu/drm/apple/iomfb_template.c
++++ b/drivers/gpu/drm/apple/iomfb_template.c
+@@ -2348,7 +2348,7 @@ static void dcp_on_set_parameter(struct apple_dcp *dcp, void *out, void *cookie)
+ 	struct dcp_set_parameter_dcp param = {
+ 		.param =
+ #if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
+-		15,
++		IOMFBPARAM_ADAPTIVE_SYNC_V27,
+ #else
+ 		IOMFBPARAM_ADAPTIVE_SYNC,
+ #endif
+@@ -3755,7 +3755,7 @@ static void dcp_set_adaptive_sync(struct apple_dcp *dcp, u32 min_vrr,
+ 	struct dcp_set_parameter_dcp param = {
+ 		.param =
+ #if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
+-		15,
++		IOMFBPARAM_ADAPTIVE_SYNC_V27,
+ #else
+ 		IOMFBPARAM_ADAPTIVE_SYNC,
+ #endif
+-- 
+2.56.0
+
