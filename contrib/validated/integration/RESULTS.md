@@ -1708,3 +1708,12 @@ dcp node + P3 gamut), `dcpc-120d-vrr` (dcp9d + `appledrm.fw27_panel_vrr=1 appled
 - Backlight: writes to `brightness` (150, 450) are accepted but `actual_brightness` stays 300; the driver logs
   `backlight restore unavailable: -61` and `no loader brightness reported; backlight starts at 300 nits without a
   panel change`: the brightness path needs work on firmware 27 (agent on it).
+
+## OMACOM-WDT-KEEP-v30 review-fixed: the PR tips boot the J716s (2026-11-07 23:11 UTC) — PASS
+
+Payload `omacom-wdt-keep-20261107-15618a15.bin` = m1n1 `v1.6.1-429-g02785a3` (the force-updated tips of omacom/m1n1
+#33-#37 after the review fixes) + the 87-patch daily kernel, `chosen.asahi,t6050-n1=4`, self-test on, 60 s settle.
+Primary slot first pass, 74 s, 18 CPUs, Wi-Fi (N1 trained by the loader) and Bluetooth up; loader log: watchdog kept,
+RVBAR relay, N1 port up, MTP DAPF, #30's USB host prep on USB0/1/2; the restore of the GPU daily was clean (primary,
+pmu 300000). The review fixes (N1 settings kept when the DT has them, storage checks on every stop, train once per
+boot, one SMC deadline per command, watchdog-keep across the CDC path) are therefore exercised on hardware.
