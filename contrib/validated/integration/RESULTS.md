@@ -1758,3 +1758,19 @@ restore of the new daily went through esp-put, whose default settle is now 60 s,
 came back clean (primary, 300000). Tally after esp-put with the 60 s settle: 6 of 6 restores clean across the
 omacom-loader, power-kernel and daily sessions; with the old ~1 s gap, 4 of 11 were counted or failed. Exp4 (busy
 disk without an ESP write, and write + 60 s, three each) is running.
+
+## RESTART-EXP4: a disk write burst right before the reboot reproduces the failure without any ESP write (2026-11-07 23:37 UTC)
+
+From the omacom-loader session (m1n1 02785a3 + daily kernel), three times: `dd if=/dev/zero of=/root/burst bs=1M count=70
+conv=fsync` on the ext4 root, then `systemctl reboot` within 1 s, no ESP write at all. Arm 2.1: `fallback-after-failure`,
+pmu `300130` (error stage 0x30: the next boot of the same, unchanged payload died in early Linux and the twin booted,
+42 s uptime at 103 s). Arms 2.2 and 2.3: clean (primary, `300030`). Then three times: re-write the same payload to the ESP
+with esp-put's 60 s settle, reboot: all three clean. Restore of the daily (60 s settle): clean.
+
+Conclusion: the failure is caused by rebooting while the SSD is still busy after a write burst, independent of the FAT ESP
+(an ext4 burst reproduces it), and it shows up as the *next* boot failing early (0x30) or as a counted restart (0x00)
+depending on where the restart stalls. A 60 s idle after any large write removes it (9 of 9 clean with the settle today,
+across the omacom-loader, power-kernel and daily sessions; 5 of 14 failed with a ~1 s gap). The 60 s settle is now the
+default in `esp-put.sh`; the loop scripts and the daily's own habits should avoid rebooting right after large writes until
+the NVMe shutdown path is fixed (next: kernel-side analysis of apple-nvme shutdown vs an in-flight background write, and
+what iBoot/ANS does on the next start).
