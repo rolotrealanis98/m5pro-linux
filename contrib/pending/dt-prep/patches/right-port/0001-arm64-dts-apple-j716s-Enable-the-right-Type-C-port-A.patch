@@ -1,0 +1,164 @@
+From 36dd2e986a858a30fe6f8c44c9a1bbf73fc6d8ee Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 04:19:25 -0500
+Subject: [PATCH] arm64: dts: apple: j716s: Enable the right Type-C port (ATC2)
+
+Describe the right-hand USB-C port the way the left-front one is: the
+SN201202x PD controller hpm2 at SPMI address 0xc on nub-spmi-a1 (the
+J716s's second HPM bus; the J716c has its hpm2 on nub-spmi-a2), ATC2's
+combo PHY with its mailbox and four power states, usb-drd2 as a
+role-switching OTG controller with its two DARTs, and the connector graph
+(port@0 to usb-drd2 for USB2, port@1 to the combo PHY for SuperSpeed and
+the orientation and mode switches).
+
+Everything but the bus and the graph is already in t6050-die0.dtsi,
+disabled for the display handoff; the addresses, interrupts and power
+gates there match the J716s runtime ADT (atc-phy2, acio-phy-cpu2,
+usb-drd2, dart-usb2, pmgr ATC2_*). NUB_SPMI_A1 is a critical pmgr device,
+so the bus needs no power domain, and it is polled like nub-spmi-a0.
+
+Only the USB route is enabled. dcpext0, the ATC2 display crossbar and the
+connector's DisplayPort endpoint stay off.
+
+The boot loader has to put hpm2 in S0 (m1n1 "usb: pd: t6050: power up
+the HPMs") for VBUS in host mode, park ATC2's PIPE and fill the PHY's
+tunables, which it does for every port it finds.
+
+Assisted-by: LLM
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 104 +++++++++++++++++++++-
+ 1 file changed, 100 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index b29968602192..4f40c5dd54c4 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -125,14 +125,15 @@ dwc3_0_dart_1: iommu@2a2f80000 {
+ 	/*
+ 	 * [ADT] /arm-io/nub-spmi-a1: reg[0] 0x8a1a8000 (+0x200000000), gen 4, the
+ 	 * HPM bus of the right-hand port (hpm2). J716c uses nub-spmi-a2 instead;
+-	 * this board has no a2. Polled, like a0.
++	 * this board has no a2. Polled, like a0: the gen 4 driver refuses an
++	 * interrupt (the ADT lists AIC 763 for it, 761 for a0). No power-domains:
++	 * [ADT] pmgr NUB_SPMI_A1 (group 2 +0x68) is critical, as NUB_SPMI_A0.
+ 	 */
+ 	nub_spmi_a1: spmi@28a1a8000 {
+ 		compatible = "apple,t6050-spmi", "apple,t8142-spmi";
+ 		reg = <0x2 0x8a1a8000 0x0 0x4000>;
+ 		#address-cells = <2>;
+ 		#size-cells = <0>;
+-		status = "disabled";
+ 	};
+ };
+ 
+@@ -309,9 +310,104 @@ atc1_phy_typec: endpoint {
+ };
+ 
+ /*
+- * The right port (ATC2: hpm2 on nub_spmi_a1, SID 0x0c) is not brought up;
+- * it shares ATC2 with the dcpext0 DisplayPort route.
++ * Right port (ATC2), the same chain as the left-front port: SN201202x hpm2
++ * on nub_spmi_a1, polled; the connector graph into usb_drd2 (USB2) and the
++ * combo PHY (SuperSpeed). [ADT] /arm-io/nub-spmi-a1/hpm2 reg[0] = 0x0c,
++ * port-number 3, port-location "right", acio-parent acio2; atc-phy2 and
++ * usb-drd2 port-number 3. Only the USB route: dcpext0's DisplayPort route
++ * through ATC2 (atc2_xbar, the PHY's DP lane, the connector's DP port)
++ * stays off, so the connector has no port@2.
+  */
++&nub_spmi_a1 {
++	hpm2: usb-pd@c {
++		compatible = "apple,sn201202x";
++		reg = <0xc SPMI_USID>;			/* [ADT] hpm2 reg[0] = 0x0c */
++
++		typec2: connector {
++			compatible = "usb-c-connector";
++			label = "USB-C Right";		/* [ADT] hpm2 port-location */
++			power-role = "dual";
++			data-role = "dual";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					typec2_hs: endpoint {
++						remote-endpoint = <&usb_drd2_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++					typec2_ss: endpoint {
++						remote-endpoint = <&atc2_phy_typec>;
++					};
++				};
++			};
++		};
++	};
++};
++
++/*
++ * [ADT] /arm-io/atc-phy2 reg[2] 0x183000000 (core), acio-phy-cpu2 reg[0]
++ * 0x183148000 with interrupts 861-864, usb-drd2 interrupt 1483, dart-usb2
++ * interrupt 1487 (arm-io ranges +0x200000000): what t6050-die0.dtsi
++ * describes. Power: [ADT] pmgr ATC2_COMMON (group 0 +0x238, gate 61, parent
++ * FAB5_SOC, critical), ATC2_USB_AON (group 2 +0x178, 266), ATC2_USB (+0x180,
++ * 267, usb-drd2's gate) and ATC2_PHYMXWRAP (+0x188, 268), parents 61 and
++ * 266, as ATC1's 56/263-265. The loader fills the PHY's tunables (it finds
++ * the node by its core window) and parks the PIPE of every usb-drdN.
++ */
++&ps_atc2_common {
++	status = "okay";
++};
++
++&ps_atc2_usb_aon {
++	status = "okay";
++};
++
++&ps_atc2_phymxwrap {
++	status = "okay";
++};
++
++&ps_atc2_usb {
++	status = "okay";
++};
++
++&atc2_phy_mbox {
++	status = "okay";
++};
++
++&atc2_phy {
++	status = "okay";
++
++	port {
++		atc2_phy_typec: endpoint {
++			remote-endpoint = <&typec2_ss>;
++		};
++	};
++};
++
++&usb_drd2 {
++	status = "okay";
++
++	port {
++		usb_drd2_hs: endpoint {
++			remote-endpoint = <&typec2_hs>;
++		};
++	};
++};
++
++&usb_drd2_dart_0 {
++	status = "okay";
++};
++
++&usb_drd2_dart_1 {
++	status = "okay";
++};
+ 
+ /* Audio is not brought up: 6x sn012776 on i2c1/i2c3 and cs42l84 on i2c2 [ADT]; i2c3 is not in the dtsi yet */
+ &i2c1 {
+-- 
+2.56.0
+

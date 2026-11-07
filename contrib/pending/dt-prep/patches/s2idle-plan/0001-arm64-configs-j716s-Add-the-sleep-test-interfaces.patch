@@ -1,0 +1,38 @@
+From a019b78abcd8b9f732911cf0f3fc2cf2f732fb3c Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 04:19:26 -0500
+Subject: [PATCH] arm64: configs: j716s: Add the sleep test interfaces
+
+CONFIG_SUSPEND is on, so s2idle can be entered, but without PM_DEBUG
+there is no /sys/power/pm_test to stop a suspend after the freezer, the
+device callbacks or the noirq phase, and no pm_print_times or
+pm_debug_messages to see which callback ran or what woke the system.
+Those are what the staged s2idle tests use before a real sleep: each
+stage returns by itself after pm_test_delay seconds, without a wake
+source, and a failure names the device and callback.
+
+PM_SLEEP_DEBUG follows from PM_DEBUG and PM_SLEEP; it is listed so the
+fragment says what it needs.
+
+Assisted-by: LLM
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/configs/j716s.config | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index caa69196ae0d..0171e1b000e8 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -72,3 +72,8 @@ CONFIG_ZRAM=y
+ CONFIG_ZRAM_BACKEND_ZSTD=y
+ CONFIG_ZRAM_DEF_COMP_ZSTD=y
+ CONFIG_DEVMEM=y
++
++# Sleep tests: /sys/power/pm_test (freezer, devices, platform for s2idle),
++# pm_print_times and pm_debug_messages
++CONFIG_PM_DEBUG=y
++CONFIG_PM_SLEEP_DEBUG=y
+-- 
+2.56.0
+

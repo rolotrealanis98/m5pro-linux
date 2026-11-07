@@ -1,0 +1,92 @@
+From 7bc333bfa25735025d453e63496ddda5baeb68ae Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 04:19:25 -0500
+Subject: [PATCH] arm64: dts: apple: j716s: Enable the SMC sensors
+
+Turn on the SMC hwmon node with the shared fan (hwmon-fan-dual), power,
+voltage and current keys (hwmon-common, hwmon-laptop), and keep the die0
+node's apple,discover-temperatures, which adds every readable float T*
+key labelled with its name.
+
+The T6050 SMC names the fan mode keys F0md/F1md (ui8), so both fans take
+those, as on the J775D. The fans stay monitor-only: no
+apple,fan-manual-control.
+
+macsmc-hwmon refuses temperature discovery once a temperature channel
+exists, and both the shared temperature-* nodes and the die0
+apple,soc-die-keys entry ("SoC die TCMb") create one, so the probe would
+fail with -EINVAL. Drop them here: their keys (TH0x, TB0T, TCHP, TW0P,
+TCMb) come back as discovered channels; only the macsmc_soc_die thermal
+zone goes, which nothing in this DT refers to. Aurora's b7891bd5f621
+("hwmon: macsmc: Let discovered temperatures join the SoC die zone")
+makes the die keys work with discovery; with it the soc-die-keys
+deletion can go.
+
+Key presence is from the T6050 J714s SMC dump; a key this machine lacks
+only drops its channel.
+
+Assisted-by: LLM
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 43 ++++++++++++++++++++---
+ 1 file changed, 38 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index b29968602192..2387b28a7f29 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -332,13 +332,46 @@ &pinctrl_ap {
+ };
+ 
+ /*
+- * SMC sensors stay off until the fan keys are checked on this machine: the
+- * T6050 SMC spells the fan mode keys F0md/F1md (ui8) rather than the F0Md
+- * of hwmon-fan-dual.dtsi [OURS], and F0Mn/F0Mx/F0Tg have not been re-probed
+- * on the J716s.
++ * SMC sensors: the shared fan, power, voltage and current keys, and every
++ * readable float T* key through t6050-die0.dtsi's apple,discover-temperatures
++ * (labelled with the key name). Key set from the T6050 J714s SMC dump [OURS
++ * smc-keys-j714s.json]: F0Ac/F1Ac, F0Mn/F0Mx/F0Tg and F1*, PSTR, PDTR, PMVR,
++ * PHPC, VD0R, SBAV, ID0R present; a key this SMC lacks drops only that
++ * channel (macsmc-hwmon skips it).
++ *
++ * Discovery refuses to run once any temperature channel exists, so the
++ * shared temperature nodes go (their keys are discovered anyway: TH0x,
++ * TB0T, TCHP, TW0P), and so does the die0 apple,soc-die-keys list, whose
++ * "SoC die TCMb" channel would also count: with this driver the probe
++ * fails with -EINVAL otherwise. TCMb stays as a discovered channel; only
++ * the macsmc_soc_die thermal zone, which nothing in this DT uses, is lost.
++ * Drop the /delete-property/ once the driver has Aurora's b7891bd5f621
++ * ("hwmon: macsmc: Let discovered temperatures join the SoC die zone").
+  */
++#include "hwmon-common.dtsi"
++#include "hwmon-fan-dual.dtsi"
++#include "hwmon-laptop.dtsi"
++
+ &smc_hwmon {
+-	status = "disabled";
++	/delete-property/ apple,soc-die-keys;
++	/delete-node/ temperature-TH0x;
++	/delete-node/ temperature-TB0T;
++	/delete-node/ temperature-TCHP;
++	/delete-node/ temperature-TW0P;
++
++	/*
++	 * The T6050 SMC spells the fan mode keys F0md/F1md (ui8, flags 0xd0),
++	 * not the F0Md/F1Md of hwmon-fan*.dtsi, as on the J775D. No
++	 * apple,fan-manual-control: the SMC drives the fans and userspace only
++	 * reads them (macsmc_hwmon.fan_control=1 opens fan*_target for tests).
++	 */
++	fan-F0Ac {
++		apple,fan-mode = "F0md";
++	};
++
++	fan-F1Ac {
++		apple,fan-mode = "F1md";
++	};
+ };
+ 
+ /*
+-- 
+2.56.0
+
