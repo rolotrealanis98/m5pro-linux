@@ -42,3 +42,13 @@ bt-agent, owed, fcitx5 absent).
 
 Scripts: ~/Work/agents/omarchy-upgrade/scripts/ (10-60; also /root/omarchy-upgrade/ on the machine); logs/; upstream/.
 Repo note: contrib/validated/desktop/omarchy-upgrade.md (bfcb493).
+
+## Addendum 2026-11-07 21:45 UTC: the desktop did not start by itself
+
+After the loop boots the panel sat at the tty1 login. Cause: `getty@tty2` (the autologin that starts `hypr-session`) was
+never enabled, only started by hand in earlier sessions; and when it starts while tty1 is the active console, Hyprland's
+aquamarine backend waits 5 s for the logind session to become active, gives up (`Session could not be activated in
+time`, `DRM Backend failed`, `CBackend::create() failed!`) and crashes. Fix applied on the MacBook: `systemctl enable
+getty@tty2` and the drop-in `/etc/systemd/system/getty@tty2.service.d/vt-active.conf` with `ExecStartPost=-/usr/bin/chvt 2`,
+so the VT is active before Hyprland starts. With tty2 active, the restarted autologin brought Hyprland up (GPU session
+on the GPU daily). Kernel messages during boot stay on tty1 (Fn+Ctrl+Option+F1 on the built-in keyboard).
