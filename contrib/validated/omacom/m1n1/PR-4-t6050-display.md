@@ -32,7 +32,7 @@ Effect on a J714c: the `__OS_LOG` reservations (commit 2) and the read-only stat
 
 MacBook Pro 16-inch, M5 Pro (J716s, Mac17,8), macOS 27.3 beta 1 stub (26C5035r, `mBoot-20457.60.65.0.1`).
 
-**This stack on hardware (2026-11-07):** the full stack, built on #26 before #30 replaced it, booted the J716s on the first pass. The DT had no display nodes and `chosen.asahi,t6050-display` was not set, so the hand-off was present but not armed. The parts that run on every T6050 boot (the `__OS_LOG` reservations and the read-only state log) were in that loader, and Linux came up on 18 CPUs with Wi-Fi. The rebase onto #30 has not booted.
+**This stack on hardware (2026-11-07):** The full stack on #30 (`omacom/wdt-keep` at 6653bb2, m1n1 `v1.6.1-429-g6653bb2`, before the review fixes) booted the J716s on the first pass, 74 s to SSH. The DT had no display nodes and `chosen.asahi,t6050-display` was not set, so the hand-off was present but not armed. The parts that run on every T6050 boot (the `__OS_LOG` reservations and the read-only state log) ran in that loader, and Linux came up on 18 CPUs with Wi-Fi.
 
 The hand-off itself ran in our own stage 2 (with the GPU hand-off code in the same image). On 2026-11-07:
 - DCP-A (unarmed): `__OS_LOG` segments reserved (`mtp`, `auss-cpu0`, ...). Linux booted, self-test passed. The first boot of the freshly written file fell back once, as about one in four freshly written payloads did that day; the retry booted.

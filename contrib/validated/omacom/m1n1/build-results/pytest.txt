@@ -1,5 +1,5 @@
-c614476 Merge pull request #25 from scottjones/j504/bringup: 465 passed, 17 skipped, 10 subtests passed in 38.98s
-ad08bf5 payload: T6050 stage 2 marks stage 1's live ANS sess: 4 failed, 303 passed, 9 skipped, 1 xfailed, 141 errors, 10 subtests passed in 41.20s
+c614476 Merge pull request #25 from scottjones/j504/bringup: 465 passed, 17 skipped, 10 subtests passed in 36.76s
+ad08bf5 payload: T6050 stage 2 marks stage 1's live ANS sess: 4 failed, 303 passed, 9 skipped, 1 xfailed, 141 errors, 10 subtests passed in 39.71s
     FAILED tests/python/test_nvme_adoption.py::test_adopted_queue_lifetime - subp...
     FAILED tests/python/test_smp_handoff_gate.py::test_pending_calls_block_dt_preparation_and_kernel_publication
     FAILED tests/python/test_t8103_inherited_reservation.py::test_inherited_reservation
@@ -145,9 +145,9 @@ ad08bf5 payload: T6050 stage 2 marks stage 1's live ANS sess: 4 failed, 303 pass
     ERROR tests/python/test_m3_defaults_optout.py::test_updater_j516c_dcp_zero_keeps_the_display_handoff_off
     ERROR tests/python/test_m3_defaults_optout.py::test_updater_j514s_gpu_zero_keeps_the_handoff_off
     ERROR tests/python/test_m3_defaults_optout.py::test_updater_read_loop_fix_keeps_a_last_line_without_newline
-80e7953 smp: t6050: forward cores locked to a stage 1 base t: 442 passed, 17 skipped, 10 subtests passed in 39.65s
-26519fb pcie: t6050: handle a warm N1 and a live port 0 at e: 442 passed, 17 skipped, 10 subtests passed in 40.30s
-be49759 kboot_gpu: hand the T6050 GPU to the G17 driver from: 442 passed, 17 skipped, 10 subtests passed in 39.24s
-256759b kboot: t6050: publish DCP firmware-compat 27.3.0 for: 442 passed, 17 skipped, 10 subtests passed in 37.09s
-6653bb2 wdt: leave the watchdog armed when the boot-args say: 443 passed, 17 skipped, 10 subtests passed in 39.96s
-a08882b wdt: leave the watchdog armed when the boot-args say: 466 passed, 17 skipped, 10 subtests passed in 37.30s
+275ecc4 smp: t6050: forward cores locked to a stage 1 base t: 442 passed, 17 skipped, 10 subtests passed in 38.38s
+f1a942e pcie: t6050: handle a warm N1 and a live port 0 at e: 442 passed, 17 skipped, 10 subtests passed in 38.23s
+4e46102 kboot_gpu: hand the T6050 GPU to the G17 driver from: 442 passed, 17 skipped, 10 subtests passed in 37.77s
+db0d3bf kboot: t6050: publish DCP firmware-compat 27.3.0 for: 442 passed, 17 skipped, 10 subtests passed in 36.87s
+02785a3 wdt: leave the watchdog armed when the boot-args say: 443 passed, 17 skipped, 10 subtests passed in 37.48s
+f723230 wdt: leave the watchdog armed when the boot-args say: 466 passed, 17 skipped, 10 subtests passed in 35.42s

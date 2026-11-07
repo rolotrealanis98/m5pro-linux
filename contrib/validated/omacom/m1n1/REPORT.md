@@ -1,3 +1,30 @@
+# Update (2026-11-07 night): review triage for PRs #33-#37
+
+Greptile findings, with our verdict:
+- not ours (#30's commits, visible because the stack sits on unmerged #30): `src/usb.c` host prep (gadget buffers
+  kept, unused mappings, registers read on unpowered ports: #33, #34, #35, #37) and `src/nvme.c:726` unused
+  `nvme_t6050_stop_coproc` branch (#37).
+- fixed:
+  - `kboot_n1.c` fills `firmware-name` and platform-id only if the DT leaves them unset;
+  - `pcie_t6050.c` compares storage again whenever the training stops after a valid reference, including partway
+    through stage A/S;
+  - `pcie_t6050_n1_train_ans()` runs once per boot, and the final check uses only a valid reference;
+  - `smc.c` gives each command and the init one 2 s deadline from the send, so notifications no longer extend it;
+  - `usb_cdc.c`: T8140 CDC neither re-arms nor disarms the watchdog under `m1n1.wdt=keep` (+ docs);
+  - `test_universal_boot` runs #30's `boot_spec`/appended-kernel cases (+ T6050 in the chip list).
+
+  Each fix is folded into the commit that introduced the code (`range-diff/review-fixups.txt`).
+- New tips: bringup 275ecc4205ad, n1 f1a942e393d1, gpu 4e461025b9ec, display db0d3bf0d1bf, wdt-keep 02785a35e046,
+  wdt-keep-standalone f723230e2f64.
+- Matrix: no new warnings; pytest passes on every tip (442/443; standalone 466); clang-format clean.
+- Payload rebuilt: `omacom-wdt-keep-20261107-15618a15` (not booted).
+- Hardware: the pre-review #30 stack (6653bb2, payload 3713d26f) booted the J716s on the first pass, 74 s to SSH:
+  watchdog kept, relay, N1 trained, MTP DAPF, #30's USB host prep on USB0/1/2, 18 CPUs, Wi-Fi and Bluetooth, no
+  gadget network.
+- Open observation: the warm restart into the regular daily after that session fell back once in early Linux (also
+  once after the #26 session); the boot after was clean. The cause is not known.
+- Replies, one per PR: `replies/`.
+
 # Update (2026-11-07 evening): rebased onto #30; #26 closed
 
 - **Why #26 closed:** edimoldovan closed it unmerged at 20:48 UTC: "Superseded by #30, which carries this together with

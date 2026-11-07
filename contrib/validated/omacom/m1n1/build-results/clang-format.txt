@@ -1,5 +1,5 @@
-== 80e7953 smp: t6050: forward cores locked to a stage 1 base the image l
-== 26519fb pcie: t6050: handle a warm N1 and a live port 0 at entry (chos
-== be49759 kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
-== 256759b kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 
-== 6653bb2 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=
+== 275ecc4 smp: t6050: forward cores locked to a stage 1 base the image l
+== f1a942e pcie: t6050: handle a warm N1 and a live port 0 at entry (chos
+== 4e46102 kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
+== db0d3bf kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 
+== 02785a3 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=
