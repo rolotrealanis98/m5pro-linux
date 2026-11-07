@@ -110,3 +110,10 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
   `m1n1-t6050-bringup-20261107-020e7150` built; boot test must be ATTENDED (this loader disables the stage-1 watchdog, so
   a hang parks the machine in the proxy; macOS recovery plan as for #65 v2). PR after the boot.
 - ASPM PR branch dropped as redundant (0085 validated by NOASPMFLAG-T1).
+
+## 2026-11-07 21:10 UTC
+- aurora-silicon/linux #1173 "drm/asahi: M5: InitData for the macOS 27.2 and 27.3 firmware (G17S bring-up on J716s)"
+  opened: `pr/m5-gpu-27.2` 34f2f5bb4d03, 13 commits stacked on #1012 (base `funkzy/t6050-gpu-on-integration`
+  b1615e3fca90). Hardware: E2b on the J716s (firmware 27.3 26C5035r identified, both InitData acknowledged, opening
+  records retired, aurora DRM device registered). Checks (A/B/C/D scripts, host tests) pass on the head; patches and
+  check scripts under prs/gpu-27.2/. Announcement comment posted on #1012.
