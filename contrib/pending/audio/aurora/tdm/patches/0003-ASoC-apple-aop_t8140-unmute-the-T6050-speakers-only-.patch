@@ -1,7 +1,7 @@
 From 7767a81937407416c9691f4271a3d1a2e46d4ddb Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 05:31:04 -0500
-Subject: [PATCH 3/3] ASoC: apple: aop_t8140: unmute the T6050 speakers only
+Subject: [PATCH 3/4] ASoC: apple: aop_t8140: unmute the T6050 speakers only
  once pwrd reads back
 
 On the MCA serializer stream (T6050) the speaker service is started from
