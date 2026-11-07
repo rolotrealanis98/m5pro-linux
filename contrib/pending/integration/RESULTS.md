@@ -791,3 +791,11 @@ prev = the daily `ce3f10af`.
   plugged into the right port once (attended, trivial) to show `usb3`/`usb4` buses and VBUS from the m1n1 0018 S0 setup.
 - Next: STACK-T1 (sensors + right port together), then that DTB becomes the daily.
 
+### Result (STACK-T1, 2026-11-07 10:00 UTC, self-revert loop + A/B stage-1, nobody at the machine)
+
+Payload `stack-t1-20261107-98d4a1a6.bin`: the daily kernel with both dt-prep DTB changes together (SMC sensors + right
+Type-C port), `m5.selftest=1`, prev = the daily `ce3f10af`. **WORKS:** primary slot, 18 CPUs, network, no revert, no
+errors; `macsmc_hwmon` plus a second Type-C source supply (`tps6598x_source_psy_2_0c`) and `port1`; right-port dwc3 bound.
+The two DT patches are now series 0059 (sensors) and 0060 (right port); the combined DTB becomes the daily
+(`daily-20261107-*` built with `--daily --battery --force`, self-test flag off). Right-port host mode still needs a plug test.
+
