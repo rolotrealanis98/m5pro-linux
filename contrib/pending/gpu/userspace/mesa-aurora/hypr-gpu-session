@@ -2,9 +2,13 @@
 # Hyprland rendering on the Apple GPU (aurora render node) while scanout stays
 # on simpledrm. Used instead of hypr-session when /run/hypr-gpu exists (one
 # boot only: /run is tmpfs). Path:
-#   Hyprland -> GBM/EGL on the simpledrm card -> Mesa kmsro -> Asahi Gallium on
-#   the aurora render node; scanout buffers are LINEAR GPU buffers imported
-#   into simpledrm, which copies them to the boot framebuffer with the CPU.
+#   Hyprland -> GBM/EGL -> zink on the Vulkan driver (Borealis) on the aurora
+#   render node; scanout buffers are LINEAR buffers imported into simpledrm,
+#   which copies them to the boot framebuffer with the CPU. The Asahi Gallium
+#   driver declines the M5 Pro (the G17 kernel runtime refuses its renders),
+#   so GL is zink. Zink renders only through a render node: a GBM device that
+#   aquamarine opens on the simpledrm card itself gets Mesa's software
+#   fallback. The renderer Hyprland picked is in the log below.
 P=/opt/mesa-aurora
 card=
 for c in /sys/class/drm/card[0-9]; do
@@ -19,12 +23,15 @@ export LIBGL_DRIVERS_PATH=$P/lib/dri
 export GBM_BACKENDS_PATH=$P/lib/gbm
 export VK_DRIVER_FILES=$P/share/vulkan/icd.d/asahi_icd.aarch64.json
 export ASAHI_M5_BRINGUP=1
-unset LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER MESA_LOADER_DRIVER_OVERRIDE
+unset LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER
+export MESA_LOADER_DRIVER_OVERRIDE=zink
 # The aurora card has no KMS, so only the display card is listed; aquamarine
 # would skip the render-only card anyway.
 export AQ_DRM_DEVICES=$card
-# simpledrm scans out LINEAR only; without modifiers Asahi picks LINEAR for
-# scanout buffers.
+# simpledrm scans out LINEAR only. Without modifiers the scanout buffers are
+# allocated LINEAR (first-frame step 4b checks that path on zink); if 4b fails
+# and 4a passes, drop AQ_NO_MODIFIERS so aquamarine passes simpledrm's LINEAR
+# modifier instead.
 export AQ_NO_MODIFIERS=1
 export WLR_NO_HARDWARE_CURSORS=1
 export HYPRLAND_NO_RT=1

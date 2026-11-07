@@ -1,0 +1,16 @@
+# offline check on the daily kernel (no GPU), noop DRM shim faking G17S, Mesa a79e5a94e316b73b327d5774d23e15dde61b428c
+## mesa-aurora (zink default) egl-offscreen-test
+GL_RENDERER: zink Vulkan 1.4(Apple M5 Pro (G17S A0) (AURORA_BOREALIS))
+GL_VERSION:  OpenGL ES 3.2 Mesa 26.3.0-devel (git-a79e5a94e3)
+## eglinfo -B -p surfaceless
+OpenGL core profile renderer: zink Vulkan 1.4(Apple M5 Pro (G17S A0) (AURORA_BOREALIS))
+OpenGL core profile version: 4.6 (Core Profile) Mesa 26.3.0-devel (git-a79e5a94e3)
+OpenGL compatibility profile renderer: zink Vulkan 1.4(Apple M5 Pro (G17S A0) (AURORA_BOREALIS))
+OpenGL compatibility profile version: 4.6 (Compatibility Profile) Mesa 26.3.0-devel (git-a79e5a94e3)
+OpenGL ES profile renderer: zink Vulkan 1.4(Apple M5 Pro (G17S A0) (AURORA_BOREALIS))
+OpenGL ES profile version: OpenGL ES 3.2 Mesa 26.3.0-devel (git-a79e5a94e3)
+## no zink override (bare environment): Gallium declines, EGL device platform has no implicit zink
+asahi: Gallium cannot render on Apple G17S with this kernel (render submissions need per-render program storage, features 0x60001); declining so that GL uses zink
+eglInitialize failed: 0x3001
+## no GPU: llvmpipe fallback
+OpenGL core profile renderer: llvmpipe (LLVM 23.1.4, 128 bits)

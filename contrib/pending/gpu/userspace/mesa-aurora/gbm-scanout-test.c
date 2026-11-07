@@ -13,6 +13,11 @@
  * With --show SECONDS it also puts the frame on the panel (left half green,
  * right half orange) with a legacy modeset, then restores the previous CRTC.
  * That needs DRM master: no compositor may hold the card (stop Hyprland).
+ * With GBM_TEST_RENDER_NODE=/dev/dri/renderD128 the GBM device and EGL display
+ * are created on the GPU's render node instead, and the finished buffer is
+ * PRIME-imported into the display card (dma-buf fd -> drmPrimeFDToHandle),
+ * which is what Hyprland (aquamarine) does and what works when GL runs on
+ * zink: zink renders only through a render node, never through kmsro.
  * Exit 0 = pass, 1 = wrong pixels or no framebuffer, 2 = setup failure.
  * Build: cc -O2 -o gbm-scanout-test gbm-scanout-test.c $(pkg-config --cflags --libs gbm egl glesv2 libdrm)
  */
@@ -120,7 +125,18 @@ int main(int argc, char **argv)
    }
    printf("buffer size: %ux%u\n", W, H);
 
-   struct gbm_device *gbm = gbm_create_device(fd);
+   const char *render_node = getenv("GBM_TEST_RENDER_NODE");
+   int gfd = fd;
+   if (render_node && *render_node) {
+      gfd = open(render_node, O_RDWR | O_CLOEXEC);
+      if (gfd < 0) {
+         fprintf(stderr, "cannot open %s\n", render_node);
+         return 2;
+      }
+      printf("render node: %s (GBM and EGL there, PRIME into the display card)\n",
+             render_node);
+   }
+   struct gbm_device *gbm = gbm_create_device(gfd);
    if (!gbm) {
       fprintf(stderr, "gbm_create_device failed\n");
       return 2;
@@ -197,7 +213,16 @@ int main(int argc, char **argv)
 
    uint32_t handles[4] = {gbm_bo_get_handle(bo).u32}, pitches[4] = {gbm_bo_get_stride(bo)},
             offsets[4] = {0}, fb = 0;
-   int r = drmModeAddFB2(fd, W, H, GBM_FORMAT_XRGB8888, handles, pitches, offsets, &fb, 0);
+   int r = 0;
+   if (gfd != fd) {
+      int dmabuf = gbm_bo_get_fd(bo);
+      r = dmabuf < 0 ? -1 : drmPrimeFDToHandle(fd, dmabuf, &handles[0]);
+      printf("PRIME import into %s: %s\n", card, r ? "failed" : "ok");
+      if (dmabuf >= 0)
+         close(dmabuf);
+   }
+   if (!r)
+      r = drmModeAddFB2(fd, W, H, GBM_FORMAT_XRGB8888, handles, pitches, offsets, &fb, 0);
    printf("drmModeAddFB2 on %s: %s (fb %u)\n", card, r ? strerror(-r) : "ok", fb);
 
    uint32_t stride = 0;
@@ -226,6 +251,8 @@ int main(int argc, char **argv)
    eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
    eglTerminate(dpy);
    gbm_device_destroy(gbm);
+   if (gfd != fd)
+      close(gfd);
    close(fd);
    return fail ? 1 : 0;
 }
