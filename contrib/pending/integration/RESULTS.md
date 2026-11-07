@@ -756,3 +756,21 @@ macaudio: "the boot loader passed no amp levels, disabling speakers" (expected o
 - **Next:** compare with edimoldovan's fix for the TDM-clock fault on J714c (his tree after 83d711c3a9), and check whether
   the fault is on stream stop only (the daemon saw a valid rate, no fault during the 2 s).
 
+### Result (HWMON-T1, 2026-11-07 09:49 UTC, self-revert loop + A/B stage-1, nobody at the machine)
+
+Payload `hwmon-t1-20261107-4f68e1be.bin`: the battery daily's kernel (`7.3.0-g4f630b11270d`) with the dt-prep SMC sensors
+DTB (`contrib/pending/dt-prep/patches/hwmon/0001`: hwmon-common, dual fans with `F0md`/`F1md`, laptop set; the `TCMb` die
+key and the shared temperature nodes removed so discovery can run), `m5.selftest=1`, prev = the daily `ce3f10af`.
+
+**WORKS.** Primary slot, 18 CPUs, network, no revert. `macsmc_hwmon` registered (hwmon2) beside `macsmc_battery`,
+`macsmc_ac`, the Type-C source and the NVMe; no probe message at all, which is the driver's success path.
+- Readings at idle on the charger: AC input 19.7 V / 0.93 A / 18.4 W, total system power 13.5 W, heatpipe 9.4 W,
+  battery 13.03 V; fans 0 rpm with min 1350 and max 5349 / 5777 rpm (fans off at 28 C, `fan*_target` 0); discovered
+  temperatures: 60+ channels (die TVD* about 51 C, memory TVM* 32-40 C, ambient Ta* 31-42 C, fan-side TfC* 36-39 C).
+- The 3.8 V rail power reads 0 (key present, value zero): check `PMVR` on macOS before trusting it.
+- Side note, this boot only: the first USB enumeration of the hub failed at 1.9-2.2 s (`device not accepting address`,
+  `hub failed to enable device`, -108) and the retry at 3.7-5.0 s brought everything up (Ethernet, hub, keyboard dongle).
+  Seen once in 12 boots today; worth watching with the PHY tunables.
+- Fan control not tried (the T6050 SMC has no `Ftst` unlock key; see `dt-prep/hwmon/CHECK.md`).
+- Next: RIGHTPORT-T1, then the combined DTB as the daily.
+
