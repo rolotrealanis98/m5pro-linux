@@ -1044,3 +1044,15 @@ boot (no pstore backend, the stage-2 phram log is overwritten by the next boot),
 stage-1 recovered it unattended, as designed.** ESP restored to the daily. Next: bisect with two payloads (haptic only,
 netfilter only) and, when Rolando is at the machine, a panel video of the failing boot.
 
+### Result (W3, 2026-11-07 13:40 UTC, cold start by Rolando): **did not stay up**
+
+Payload `w3-n1ftab-20261107-33add271.bin` = W2c with the initramfs carrying the FTAB stitched with the board's Image4
+manifest (`wireless/aurora-n1/w3/`); the same file installed on the root (`j716s-ftab.bin`, W0 copy kept as `.w0`).
+Full power-off, power button pressed by Rolando. The machine came up on `boot.bin.prev` (the WFI daily) with
+`boot-slot = fallback-after-failure`, PMU count 1: the W3 boot stopped feeding the 150 s stage-1 watchdog and reset.
+No console capture. Since W2c booted twice with the only difference being the unsigned firmware (which the ROM refused),
+the likeliest reading is that the ROM accepted the stitched image, the N1 firmware ran, and the machine froze afterwards:
+the J714c showed exactly that (a freeze 20-40 s after boot) until ASPM was stripped on the adopted port. Next: W3b = the
+same payload with `pcie_aspm=off`, filmed; then the kernel print of image_response/stage (edimoldovan 50519853a58d) if
+it still fails. ESP restored to the daily; root firmware left as W3 (rollback: the `.w0` file).
+
