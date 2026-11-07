@@ -38,7 +38,7 @@ INGREDIENTS = {
     },
     "kernel": {  # Image.gz: ONE gzip member
         "default": "series",
-        "series": {"path": SERIES / "Image.gz",   # j716s-series c2e1be601fb4 (built as 4f630b11270d, same content); SHA256SUMS has 975dab00
+        "series": {"path": SERIES / "Image.gz",   # j716s-series a83b052e9ffb (built as 4f630b11270d, same content); SHA256SUMS has 975dab00
                    "sha256": None},
         "audio": {"path": AUDIO / "kbuild/obj/arch/arm64/boot/Image.gz",   # Rust kernel 00e8df6f
                   "sha256": "00e8df6f06a95e7e48577784a75d95be054c0b148ca829a8375cf5ed476f0480"},

@@ -3,7 +3,7 @@
 58 patches on `aurora/integration` = `33bec4016c46` (aurora-silicon PR #1040 merge). They replace
 branch `aurora-j716s` (`b790125548c4`, worktree `/Volumes/linux-cs/wt-aurora`) as the kernel source
 for the J716s (MacBook Pro 16-inch, M5 Pro). Built from worktree `/Volumes/linux-cs/wt-series`
-(branch `j716s-series`, tip `c2e1be601fb4`, 62 patches since 2026-11-07 12:00 UTC: 0059 SMC sensors, 0060 right Type-C port, 0061 WFI idle override, 0062 PM_DEBUG, all loop-tested, re-authored 2026-11-07 to `Rolando Trevino <rolotrealanis@gmail.com>` with `Signed-off-by` and without assistant trailers; the content is byte-identical to `4f630b11270d`, which is the hash in the booted kernel version string), checked by `git am` in `/Volumes/linux-cs/wt-series-verify`.
+(branch `j716s-series`, tip `a83b052e9ffb`, 63 patches since 2026-11-07 14:30 UTC: 0059 SMC sensors, 0060 right Type-C port, 0061 WFI idle override, 0062 PM_DEBUG, 0066 lid-open confirm (lid sleep tested), all hardware-tested, re-authored 2026-11-07 to `Rolando Trevino <rolotrealanis@gmail.com>` with `Signed-off-by` and without assistant trailers; the content is byte-identical to `4f630b11270d`, which is the hash in the booted kernel version string), checked by `git am` in `/Volumes/linux-cs/wt-series-verify`.
 
 - `patches/series/0001..0058-*.patch`, order in `patches/series/series`. Aurora's patches keep their
   authors and messages; ours are authored and signed off by Rolando Trevino, without assistant trailers.
