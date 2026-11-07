@@ -1,0 +1,107 @@
+{
+    "node.description": "MacBook Pro J716 Speakers (bring-up)",
+    "media.name": "MacBook Pro J716 Speakers (bring-up)",
+    "filter.graph": {
+        "nodes": [
+            { "type": "builtin", "label": "mixer", "name": "volL",
+              "control": { "Gain 1": 0.3162 } },
+            { "type": "builtin", "label": "mixer", "name": "volR",
+              "control": { "Gain 1": 0.3162 } },
+
+            { "type": "builtin", "label": "bq_highpass", "name": "hpLT1",
+              "control": { "Freq": 2000.0, "Q": 0.7071 } },
+            { "type": "builtin", "label": "bq_highpass", "name": "hpLT2",
+              "control": { "Freq": 2000.0, "Q": 0.7071 } },
+            { "type": "builtin", "label": "bq_highpass", "name": "hpRT1",
+              "control": { "Freq": 2000.0, "Q": 0.7071 } },
+            { "type": "builtin", "label": "bq_highpass", "name": "hpRT2",
+              "control": { "Freq": 2000.0, "Q": 0.7071 } },
+
+            { "type": "builtin", "label": "bq_highpass", "name": "hpLW1",
+              "control": { "Freq": 180.0, "Q": 0.7071 } },
+            { "type": "builtin", "label": "bq_highpass", "name": "hpLW2",
+              "control": { "Freq": 180.0, "Q": 0.7071 } },
+            { "type": "builtin", "label": "bq_highpass", "name": "hpRW1",
+              "control": { "Freq": 180.0, "Q": 0.7071 } },
+            { "type": "builtin", "label": "bq_highpass", "name": "hpRW2",
+              "control": { "Freq": 180.0, "Q": 0.7071 } },
+
+            {
+                "type": "lv2",
+                "plugin": "http://lsp-plug.in/plugins/lv2/compressor_stereo",
+                "name": "woofer_lim",
+                "control": { "sla": 5.0, "al": 0.25, "at": 1.0, "rt": 100.0, "cr": 15.0, "kn": 0.5 }
+            },
+            {
+                "type": "lv2",
+                "plugin": "http://lsp-plug.in/plugins/lv2/compressor_stereo",
+                "name": "tweeter_lim",
+                "control": { "sla": 5.0, "al": 0.25, "at": 1.0, "rt": 100.0, "cr": 15.0, "kn": 0.5 }
+            },
+
+            { "type": "builtin", "label": "copy", "name": "copyLW" },
+            { "type": "builtin", "label": "copy", "name": "copyRW" },
+            { "type": "builtin", "label": "copy", "name": "copyLW2" },
+            { "type": "builtin", "label": "copy", "name": "copyRW2" },
+            { "type": "builtin", "label": "copy", "name": "copyLT" },
+            { "type": "builtin", "label": "copy", "name": "copyRT" }
+        ],
+        "links": [
+            { "output": "volL:Out", "input": "hpLT1:In" },
+            { "output": "volR:Out", "input": "hpRT1:In" },
+            { "output": "hpLT1:Out", "input": "hpLT2:In" },
+            { "output": "hpRT1:Out", "input": "hpRT2:In" },
+            { "output": "hpLT2:Out", "input": "tweeter_lim:in_l" },
+            { "output": "hpRT2:Out", "input": "tweeter_lim:in_r" },
+            { "output": "tweeter_lim:out_l", "input": "copyLT:In" },
+            { "output": "tweeter_lim:out_r", "input": "copyRT:In" },
+
+            { "output": "volL:Out", "input": "hpLW1:In" },
+            { "output": "volR:Out", "input": "hpRW1:In" },
+            { "output": "hpLW1:Out", "input": "hpLW2:In" },
+            { "output": "hpRW1:Out", "input": "hpRW2:In" },
+            { "output": "hpLW2:Out", "input": "woofer_lim:in_l" },
+            { "output": "hpRW2:Out", "input": "woofer_lim:in_r" },
+            { "output": "woofer_lim:out_l", "input": "copyLW:In" },
+            { "output": "woofer_lim:out_r", "input": "copyRW:In" },
+            { "output": "woofer_lim:out_l", "input": "copyLW2:In" },
+            { "output": "woofer_lim:out_r", "input": "copyRW2:In" }
+        ],
+        "inputs": [ "volL:In 1", "volR:In 1" ],
+        "outputs": [
+            "copyLW:Out",
+            "copyRW:Out",
+            "copyLW2:Out",
+            "copyRW2:Out",
+            "copyLT:Out",
+            "copyRT:Out"
+        ],
+        "capture.volumes": [
+            { "control": "volL:Gain 1", "min": 0.0, "max": 0.3162, "scale": "cubic" },
+            { "control": "volR:Gain 1", "min": 0.0, "max": 0.3162, "scale": "cubic" }
+        ]
+    },
+    "capture.props": {
+        "node.name": "audio_effect.j716-bringup",
+        "media.class": "Audio/Sink",
+        "audio.channels": "2",
+        "audio.position": ["FL", "FR"],
+        "device.api": "dsp",
+        "audio.allowed-rates": [48000, 44100],
+        "node.virtual": "false",
+        "priority.session": 850,
+        "state.default-volume": 0.1,
+        "device.icon-name": "audio-speakers"
+    },
+    "playback.props": {
+        "node.name": "effect_output.j716-bringup",
+        "node.description": "MacBook Pro J716 Speakers DSP Out",
+        "media.name": "MacBook Pro J716 Speakers DSP Out",
+        "target.object": "alsa_output.platform-sound.RawSpeakers",
+        "node.dont-fallback": "true",
+        "node.passive": "true",
+        "audio.channels": "6",
+        "audio.allowed-rates": [48000, 44100],
+        "audio.position": ["AUX0", "AUX1", "AUX2", "AUX3", "AUX4", "AUX5"]
+    }
+}
