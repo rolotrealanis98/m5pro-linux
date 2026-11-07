@@ -60,3 +60,4 @@
 0060-arm64-dts-apple-j716s-Enable-the-right-Type-C-port-A.patch
 0061-arm64-idle-T6050-idles-in-WFI-even-with-idle-nop.patch
 0062-arm64-configs-j716s-Enable-PM_DEBUG-for-s2idle-testi.patch
+0066-Input-macsmc-input-confirm-a-lid-open-report-during-.patch
