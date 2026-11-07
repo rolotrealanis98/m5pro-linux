@@ -1166,3 +1166,19 @@ once the N1 restart issue is solved (the daily must carry both stacks).
 - Desktop: `hypridle.conf` now locks after 10 min idle (`loginctl lock-session`); it takes effect at the next
   Hyprland login (hypridle is started by `hyprland.lua`).
 
+### Result (CRASHLOG-T0..T3, 2026-11-07 15:16-15:36 UTC, loop, nobody at the machine)
+
+Kernel `7.3.0-crashlog-gf080637018df` (WFI kernel + PSTORE_RAM/CONSOLE/PMSG, NETCONSOLE, PANIC_TIMEOUT 10), payloads in
+`~/Work/agents/crashlog/payloads/`, lid daily `534ca146` as `boot.bin.prev` throughout.
+- **T1 (ramoops node, mem-type 1 uncached): did not boot.** Stage-1 fell back to the lid daily (`fallback-after-failure`).
+- **TK (same kernel, the daily's DTB, no ramoops node): boots** (primary, 18 CPUs, network). So the node, not the kernel.
+- **TM2 (node, mem-type 2 cached): boots**, `Registered ramoops as persistent store backend`, `/dev/pmsg0` present.
+  Retention probe (pmsg + kmsg marker, then `systemctl reboot`): **store empty** on the next boot.
+- **TM0 (node, mem-type 0 write-combined): boots and registers; retention probe: store empty** as well.
+- Conclusion: ordinary DRAM at DRAM base + 8 GiB is not preserved across a warm reset on this machine; the route is the
+  region iBoot preserves for XNU's panic log (m1n1 fills the ramoops node from the ADT), agent running.
+- netconsole: the MacBook's USB Ethernet sits on a separate 192.168.10 network that does not forward UDP to the Studio's
+  LAN, so the units are installed with no target (they exit cleanly); pstore is the path. Attended option: move the
+  adapter onto the Studio's LAN.
+- Root-side: `m5-pstore-collect.service` (sysinit) and `m5-netconsole.service` installed and enabled on the root.
+
