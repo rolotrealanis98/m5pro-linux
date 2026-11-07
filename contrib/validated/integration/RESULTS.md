@@ -1661,3 +1661,11 @@ write. So with a settle time the omacom session restarts cleanly; the write-to-r
 for these sessions (esp-put's 5 s settle is not enough; 5 min is). The userspace stage marks work: `boot_stage` reads
 0x34 (network up) on every booted session. Round 3 and the no-write control did not run (the payload file had been moved
 by its agent); the control is re-queued with the review-fixed loader.
+
+## RESTART-EXP2: power-kernel session, plain reboots without an ESP write (2026-11-07 22:38 UTC) — all clean
+
+Boot power-T1 (primary), then `systemctl reboot` three times with no ESP write and ~60 s of Wi-Fi traffic before each:
+all three came back on the primary slot, pmu `300000`, 75-77 s. The restore of the GPU daily (esp-put, now with the 60 s
+settle) was clean too. So the power kernel's own restart path is fine when the machine is idle; the counted restart
+earlier followed a reboot one second after a 40 MB ESP write. Together with rounds 1-2 of the omacom experiment this
+supports the "restart while still busy after the write burst" model and the 60 s settle rule.
