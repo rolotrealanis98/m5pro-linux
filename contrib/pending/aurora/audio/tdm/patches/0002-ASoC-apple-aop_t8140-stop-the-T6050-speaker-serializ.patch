@@ -1,0 +1,213 @@
+From 030e2113e26bddaea986f01f2e3c9080f73fe891 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 04:58:39 -0500
+Subject: [PATCH 2/2] ASoC: apple: aop_t8140: stop the T6050 speaker serializer
+ after the amps mute
+
+On T6050 the speaker service runs from prepare and its stop (pw0) was sent
+from the work queued by the back-end's trigger STOP. ASoC mutes the
+amplifiers (the codec DAIs' mute_stream) only later, when the back-end is
+freed, and the TAS2764/SN012776 driver has no mute on trigger. So at the
+end of every stream the firmware stopped the serializer, and the TDM clock
+with it, under amplifiers that were still unmuted, and every amplifier
+latched "fault: bad TDM clock". Seen on the J716 at the end of a 2 s
+-40 dBFS tone through all six amplifiers (20 fault lines, context
+02,19,00,00,04 and 02,39,00,00,05), and the J714c driver has the same
+order.
+
+The stop work now keeps the service running after a STOP or PAUSE_PUSH
+until the back-end releases it: its new hw_free op, which ASoC calls after
+muting the codec DAIs, then sends pw0; a prepare, a shutdown or a new
+START also ends the wait. The wait is bounded (100 ms): an application
+that stops a stream and keeps the device open for longer gets the old
+order, the clock stopping under unmuted amplifiers, whose own clock-error
+protection then shuts their outputs. SUSPEND stops at once, since the card
+mutes the amplifiers before suspending the streams. The V/I sense drain
+runs on with the service, so the firmware never sees its RX undrained.
+The LEAP-fed T8140 stream is unchanged.
+
+The amplifiers still see the clock stop after they mute; with
+apple,deferred-shutdown on them, the TAS2764 driver treats that clock-only
+latch as expected once the stream has stopped.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ sound/soc/apple/aop_t8140.rs | 100 ++++++++++++++++++++++++++++++++---
+ 1 file changed, 94 insertions(+), 6 deletions(-)
+
+diff --git a/sound/soc/apple/aop_t8140.rs b/sound/soc/apple/aop_t8140.rs
+index a6327b1db916..a0985ac3979e 100644
+--- a/sound/soc/apple/aop_t8140.rs
++++ b/sound/soc/apple/aop_t8140.rs
+@@ -699,6 +699,15 @@ struct SndSocT8140AopData {
+     pd_rx0: Option<PowerDomain>,
+     /// A speaker stream has been triggered and not yet stopped.
+     spkr_want_run: AtomicFlag,
++    /// The last speaker trigger was a STOP or PAUSE_PUSH: on the MCA
++    /// serializer stream the stop work keeps the service running for up to
++    /// [`SPKR_STOP_GRACE_MS`], until the back-end is released (hw_free,
++    /// prepare or shutdown), so ASoC mutes the amplifiers before their TDM
++    /// clock stops. Not set for SUSPEND: the card muted them already.
++    spkr_stop_grace: AtomicFlag,
++    /// A sleeping back-end path (hw_free, prepare, shutdown) is flushing the
++    /// stop work: the grace ends at once.
++    spkr_release: AtomicFlag,
+     /// A microphone-array stream has been triggered and not yet stopped.
+     hpai_want_run: AtomicFlag,
+     /// The sense capture (T6050) reads the drain's ring: the bytes the drain
+@@ -741,6 +750,13 @@ struct SndSocT8140AopData {
+ }
+ 
+ const SPKR_START_WORK: u64 = 0;
++
++/// The longest the speaker service outlives a stopped playback on the MCA
++/// serializer stream (T6050) while waiting for the back-end's hw_free, which
++/// follows ASoC's amplifier mute. An application that stops a stream and
++/// keeps it open for longer gets the old order: the service stops under
++/// unmuted amplifiers, which then latch the TDM clock fault.
++const SPKR_STOP_GRACE_MS: u64 = 100;
+ const HPAI_START_WORK: u64 = 1;
+ 
+ impl_has_work! {
+@@ -1390,6 +1406,9 @@ fn spkr_start(&self) -> Result<()> {
+     /// their clock through a daemon restart, which they do not survive
+     /// otherwise.
+     fn spkr_go(&self) -> Result<()> {
++        if !self.hw.spkr_leap && self.spkr_stop_grace.load(Relaxed) {
++            self.spkr_stop_wait();
++        }
+         let _guard = self.spkr_lock.lock();
+         if self.spkr.running.load(Relaxed) {
+             if !self.spkr_want_run.load(Relaxed) {
+@@ -1419,17 +1438,55 @@ fn spkr_retire(&self) {
+         self.sense_drain_disarm();
+     }
+ 
+-    /// Called from sleeping prepare/shutdown paths while ALSA serializes
+-    /// this stream: a queued start must finish before the mute and pw0.
++    /// The stop half of `spkr_go` on the MCA serializer stream (T6050).
++    ///
++    /// ASoC mutes the amplifiers (mute_stream) only when the back-end is
++    /// freed, after the trigger STOP that queued this work. Sending pw0 right
++    /// away stopped the serializer, and the TDM clock with it, under amplifiers
++    /// that were still playing, and every one of them latched "bad TDM clock"
++    /// at the end of each stream. So the service keeps running until the
++    /// back-end's hw_free (after the mute), a prepare or a shutdown releases
++    /// it, the stream is triggered again, or the grace runs out. Called
++    /// without `spkr_lock`: the releasing paths take it after the flush.
++    fn spkr_stop_wait(&self) {
++        let mut left = SPKR_STOP_GRACE_MS;
++        while left > 0
++            && !self.spkr_release.load(Relaxed)
++            && !self.spkr_want_run.load(Relaxed)
++        {
++            kernel::time::delay::fsleep(kernel::time::Delta::from_millis(2));
++            left = left.saturating_sub(2);
++        }
++    }
++
++    /// Called from sleeping prepare/hw_free/shutdown paths while ALSA
++    /// serializes this stream: a queued start must finish before the mute
++    /// and pw0, and a stop work waiting out its grace ends now.
+     fn flush_spkr_start(&self) {
+         self.spkr_want_run.store(false, Relaxed);
++        self.spkr_release.store(true, Relaxed);
+         // SAFETY: the work item lives in `self` for the driver's lifetime;
+         // flushing waits for a queued `spkr_go` to finish.
+         unsafe { bindings::flush_work(Work::raw_get(&self.spkr_start_work)) };
++        self.spkr_release.store(false, Relaxed);
++        self.spkr_stop_grace.store(false, Relaxed);
++    }
++
++    /// Speaker back-end hw_free: ASoC has muted the amplifiers (the codec
++    /// DAIs' mute_stream runs before the DAIs' hw_free), so the serializer
++    /// can stop now. Only the MCA serializer stream defers its stop to here.
++    fn spkr_hw_free(&self) {
++        if self.hw.spkr_leap {
++            return;
++        }
++        self.flush_spkr_start();
++        let _guard = self.spkr_lock.lock();
++        self.spkr_retire();
+     }
+ 
+     /// Speaker back-end shutdown: mute, then the service; the amplifier is
+-    /// already off (codec trigger STOP) and a queued start was flushed.
++    /// already muted (ASoC mutes it before the back-end is freed) and a
++    /// queued start or stop was flushed.
+     fn spkr_shutdown(&self) {
+         self.flush_spkr_start();
+         let _guard = self.spkr_lock.lock();
+@@ -3055,14 +3112,22 @@ unsafe fn dai_context<'a>(dai: *mut bindings::snd_soc_dai) -> &'a AsocContext {
+         bindings::SNDRV_PCM_TRIGGER_START
+         | bindings::SNDRV_PCM_TRIGGER_RESUME
+         | bindings::SNDRV_PCM_TRIGGER_PAUSE_RELEASE => {
++            context.data.spkr_stop_grace.store(false, Relaxed);
+             flag.store(true, Relaxed);
+             // Err = already queued: the pending run will see the flag.
+             let _ = workqueue::system_dfl().enqueue::<_, SPKR_START_WORK>(context.data.clone());
+             0
+         }
+-        bindings::SNDRV_PCM_TRIGGER_STOP
+-        | bindings::SNDRV_PCM_TRIGGER_SUSPEND
+-        | bindings::SNDRV_PCM_TRIGGER_PAUSE_PUSH => {
++        bindings::SNDRV_PCM_TRIGGER_STOP | bindings::SNDRV_PCM_TRIGGER_PAUSE_PUSH => {
++            // The amplifiers are still unmuted: see `spkr_stop_wait`.
++            context.data.spkr_stop_grace.store(true, Relaxed);
++            flag.store(false, Relaxed);
++            let _ = workqueue::system_dfl().enqueue::<_, SPKR_START_WORK>(context.data.clone());
++            0
++        }
++        bindings::SNDRV_PCM_TRIGGER_SUSPEND => {
++            // The card muted the amplifiers before suspending the streams.
++            context.data.spkr_stop_grace.store(false, Relaxed);
+             flag.store(false, Relaxed);
+             let _ = workqueue::system_dfl().enqueue::<_, SPKR_START_WORK>(context.data.clone());
+             0
+@@ -3071,6 +3136,26 @@ unsafe fn dai_context<'a>(dai: *mut bindings::snd_soc_dai) -> &'a AsocContext {
+     }
+ }
+ 
++/// The playback back-end is freed after ASoC muted its amplifiers: the
++/// serializer stops here (`spkr_hw_free`). The capture side needs nothing.
++///
++/// # Safety
++///
++/// Called by ASoC with a live DAI of this driver's registered component
++/// (and a live substream where one is passed).
++unsafe extern "C" fn spkr_dai_hw_free(
++    substream: *mut bindings::snd_pcm_substream,
++    dai: *mut bindings::snd_soc_dai,
++) -> i32 {
++    // SAFETY: ASoC calls DAI ops with a DAI of our registered component.
++    let data = unsafe { dai_data(dai) };
++    // SAFETY: the substream is live for the duration of the op.
++    if unsafe { substream_is_playback(substream) } {
++        data.spkr_hw_free();
++    }
++    0
++}
++
+ /// # Safety
+ ///
+ /// Called by ASoC with a live DAI of this driver's registered component
+@@ -3116,6 +3201,7 @@ fn new() -> Self {
+                 startup: Some(spkr_dai_startup),
+                 prepare: Some(spkr_dai_prepare),
+                 trigger: Some(spkr_dai_trigger),
++                hw_free: Some(spkr_dai_hw_free),
+                 shutdown: Some(spkr_dai_shutdown),
+                 ..fe
+             },
+@@ -3764,6 +3850,8 @@ pub(crate) fn probe(pdev: &platform::Device<Core<'_>>, hw: &'static HwConfig) ->
+                 pd_leap_mca,
+                 pd_rx0,
+                 spkr_want_run: AtomicFlag::new(false),
++                spkr_stop_grace: AtomicFlag::new(false),
++                spkr_release: AtomicFlag::new(false),
+                 hpai_want_run: AtomicFlag::new(false),
+                 sense_ring_pos: core::sync::atomic::AtomicU64::new(0),
+                 sense_arm_base: core::sync::atomic::AtomicU64::new(0),
+-- 
+2.56.0
+

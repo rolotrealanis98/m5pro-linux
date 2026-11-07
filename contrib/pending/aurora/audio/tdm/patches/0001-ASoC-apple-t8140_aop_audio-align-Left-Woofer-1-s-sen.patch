@@ -1,0 +1,92 @@
+From fa23c99a6b491b49e57a97c5f64aebe70b7d2bb5 Mon Sep 17 00:00:00 2001
+From: ed <edimoldovan@gmail.com>
+Date: Sat, 7 Nov 2026 01:23:00 +0100
+Subject: [PATCH 1/2] ASoC: apple: t8140_aop_audio: align Left Woofer 1's sense
+ voltage with its current
+
+On the J714c the sense return of Left Woofer 1 (TDM slot 0) carries its
+current one sample after the voltage of the same instant: the phase of V/I
+exceeds Left Woofer 2's by +30/+60/+91 degrees at 4/8/12 kHz, 1.007
+samples. speakersafetyd multiplies V and I sample by sample, so it read
+LW1's power 32% low at 4 kHz and negative above about 7.5 kHz.
+
+HwConfig gains sense_late_current, a mask of amplifier pairs whose current
+arrives one frame late; the sense copy takes those pairs' voltage word from
+the frame before. T6050 sets pair 0, T8140 none.
+
+Measured on the J714c with this change (each speaker alone, 100 Hz to
+12 kHz, -26 dBFS, amps at -30 dB): LW1's V/I phase is +20.0/+33.7/+42.9
+degrees at 4/8/12 kHz against LW2's +19.7/+34.1/+42.4, its sensed power
+matches LW2's within 1%, and the other five pairs are unchanged.
+
+[port to integration/aurora (j716s-series-audio 32512dab5b4e): applied
+ unchanged to sound/soc/apple/aop_t8140.rs, t8140_aop_audio.rs's name in
+ this tree. HW_T6050 is shared by every T6050 machine, so the J716 takes
+ the J714c's measured pair 0 too; to be checked there (LW1 against LW2
+ sensed power at 4-8 kHz).]
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ sound/soc/apple/aop_t8140.rs | 20 ++++++++++++++++++--
+ 1 file changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/sound/soc/apple/aop_t8140.rs b/sound/soc/apple/aop_t8140.rs
+index 1a2e3a068b90..a6327b1db916 100644
+--- a/sound/soc/apple/aop_t8140.rs
++++ b/sound/soc/apple/aop_t8140.rs
+@@ -2661,13 +2661,21 @@ fn spkr_f32_bits(sample: i32, gain_q31: u32) -> u32 {
+                 let p = p % ring_bytes;
+                 u16::from_le_bytes([ring[p], ring[p + 1]])
+             };
++            let late = data.hw.sense_late_current;
++            let frame = frame_bytes as usize;
+             let mut chunk = [0u8; 512];
+             let mut off = 0;
+             while off < bytes {
+                 let n = core::cmp::min(chunk.len(), bytes - off) & !1;
+                 for i in (0..n).step_by(2) {
+-                    let w = word_at(pos + off + i);
+-                    let next = word_at(pos + off + i + 2);
++                    let mut p = pos + off + i;
++                    // A late pair's voltage is taken from the frame before.
++                    let ch = (p % frame) / 2;
++                    if ch & 1 == 1 && late & (1 << (ch / 2)) != 0 {
++                        p += ring_bytes - frame;
++                    }
++                    let w = word_at(p);
++                    let next = word_at(p + 2);
+                     let v = (w << 1) | (next >> 15);
+                     chunk[i..i + 2].copy_from_slice(&v.to_le_bytes());
+                 }
+@@ -3624,6 +3632,10 @@ pub(crate) struct HwConfig {
+     /// (0, T8140) or the speaker service's own V/I sense return with this
+     /// many 16-bit channels (T6050).
+     sense_channels: u32,
++    /// Amplifier pairs (bit n: sense channels 2n current, 2n+1 voltage) whose
++    /// current word arrives one frame after the voltage it belongs to; the
++    /// copy delays those voltages by a frame so each V/I pair is one instant.
++    sense_late_current: u32,
+     /// The microphone array (hpai, LEAP-S ADMAC RX0): its channel count,
+     /// float32 at 48 kHz; 0 without one.
+     hpai_channels: u32,
+@@ -3644,6 +3656,7 @@ pub(crate) struct HwConfig {
+     spkr_channels: 2,
+     spkr_output_mute: true,
+     sense_channels: 0,
++    sense_late_current: 0,
+     hpai_channels: 2,
+     hpai_pdm: false,
+     fe_dai_names: [c"j700-pcm-0", c"j700-pcm-1", c"j700-pcm-2"],
+@@ -3661,6 +3674,9 @@ pub(crate) struct HwConfig {
+     spkr_channels: 6,
+     spkr_output_mute: false,
+     sense_channels: 12,
++    // J714c: Left Woofer 1 (slot 0) reads its current one sample behind its
++    // voltage; the other five pairs are aligned (phase of V/I to 12 kHz).
++    sense_late_current: 1 << 0,
+     // ADT audio-hp-mic-proxy physical-descriptions: lpcm, float, 12 bytes
+     // per frame at 48 kHz, three microphones.
+     hpai_channels: 3,
+-- 
+2.56.0
+

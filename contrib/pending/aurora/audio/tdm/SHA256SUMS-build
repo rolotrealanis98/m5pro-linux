@@ -1,0 +1,5 @@
+bb553695ff0482a5f58a2aa4c92827862ac2905d73cae6dad475edaca1bd3aa9  obj/arch/arm64/boot/Image.gz
+d69345c1d7b0f3c4ce5edd32b254bb6e9985a637b6a8951de49d18feaa2c97f3  dtb/t6050-j716s-audio-notun-edp.dtb
+9783ccb640c8a2ecb5623f1b171861bd5c50f83259470122aa1003fe371cbceb  dtb/t6050-j716s-audio-spk-defer-notun-edp.dtb
+9dce1b4fca95107d64841871c09fa539c9a27797012ab5a9f6a234c425c58772  dtb/t6050-j716s-audio-spk-notun-edp.dtb
+8c4df67ac743a08b633f7e5233004180e5b18d9f82c56b9261ec76eb77458e6e  dtb/t6050-j716s.dtb
