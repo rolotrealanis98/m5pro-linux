@@ -1501,3 +1501,26 @@ self-test on, written with `esp-put.sh`.
 - The boot before this one had come back on `fallback-after-failure` with `300100` (error stage 0x00): that one was the
   restore after the omacom-m1n1 session, i.e. the counted-restart case, not a payload failure.
 - The GPU daily restore then booted on the primary slot (pmu `300030`, 0 errors).
+
+## K1/K2: the kernel trains the N1 port itself (2026-11-07 21:27 UTC) — PASS
+
+Kernel `7.3.0-g50d99dcea7b4` = the 87-patch series + 0088-0094 (edimoldovan's cold train, host tunables, DART
+manual availability and adopted-DART availability; our warm-N1 250 ms power reset, the J716s gP13 template write and
+the DT: tunable windows, `pwren-gpios`, first SMC GPIO bank, GP power chain). Patches in
+`contrib/pending/wireless/patches/linux/0004-0010`, m1n1 0028 in `patches/m1n1/`.
+
+- K1 (`n1kernel-k1-20261107-c62b1ca5.bin`, m1n1 n1-dt = n1-warm + 0028, NO `chosen.m5pro,n1` line): the loader logs
+  `n1: port 0 not up: root port and DART okay` and leaves the port down; the kernel prints `port 0: trained by Linux,
+  the boot loader left it down`, adopts it, `link retrained after a root-port reset`, all three functions enumerate
+  (106b:1900/1902/1903), Wi-Fi connected, Bluetooth up; 77 s to SSH, primary slot.
+- K1 warm restart with wlan0 in use: same result (trained again by the kernel). So the warm-N1 problem is solved on the
+  kernel side too (the 250 ms power-line reset), without the loader's N1 code.
+- K2 (`n1kernel-k2-20261107-96afa462.bin`, n1-warm with `n1=4`): the loader trains as before, the kernel adopts the
+  port (`Link down` then `link retrained after a root-port reset`), Wi-Fi and Bluetooth up: the adopt path still works
+  with the DART deferral and the new power-domain nodes.
+- All four boots in this run (K1, K1 warm, K2, restore) came up on the primary slot first pass with `esp-put.sh`.
+- One dmesg line matched the fault pattern on each boot; it is the benign nvme `PANICLOG not yet written` RTKit
+  syslog line (same count on the daily).
+- Consequence: loader-side N1 training (m1n1 0023, 0025-0027, the n1 modes) becomes optional for the disk-boot path;
+  the loader still has to keep a down port enabled and copy the per-machine tunables (0022 + 0028). Next: fold
+  0088-0094 into the GPU daily with the n1-dt loader and no n1 line.
