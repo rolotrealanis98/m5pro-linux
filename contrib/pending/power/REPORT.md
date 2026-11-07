@@ -51,3 +51,22 @@ note was a 7.2 `idle=nop` read artifact; measure floors with time_in_state delta
 
 Open: P boost states granted?, bandwidth/power per DCS/fabric state, PMP throttling on our chain; #481 changes the
 binding SPDX line (ask on the PR). Build tree /Volumes/linux-cs/wt-power-build + wt-power-out (~1.5 GB, deletable).
+
+## Update 2026-11-07 22:40 UTC: T1 passed on retest; T3 ready (attended)
+
+T1 (`power-t1-20261107-c15b58cd`) boots and observes: PMC "observation only: 5 agents, 4 rails, nothing is written",
+rail0-3 enable 0 (no voter enabled by the firmware: DRAM and fabric sit at state 0 today), agent0 (PMP) floor 0x15 not
+honoured, CLPC "voter agent 1 is not enabled" (expected), cpufreq profile live (300 MHz floor, 4308/4308/4608 MHz,
+boost 4380 listed, no sugov). The first T1 attempt's reset was the restart/early-panic phenomenon, not the patches
+(audit: the only new MMIO is the PMC observe reads; the ADT marks the PMC power state critical/always-on).
+T3 payload `power-t3-20261107-98336aec.bin` (sha256 98336aec…2166e4, 40291344 B) = T1 + `pmc.observe=0`, self-test on;
+mk-power.py variant `power-t3`. Attended checklist: no `observation only`, no `did not stick` / `failed to enable static
+voter`; debugfs apple-pmc status `mode: drive`, rail0/rail1 enable 0x0000000a (saved 0), rail2/3 0; no "voter agent 1 is
+not enabled"; idle: CLPC `last_vote: 0x0`, `dcs: ... state 0 enabled 1`, `update errors: 0`, agent1 floor 0, idle power
+within ±0.2 W of T1; load: CLPC `-> dcs 7 soc 3`, agent1 floor 0x00000037 honoured 0x00000037, update errors 0,
+memcpy clearly above T1; release within ~1 s; agent0 floor stays 0x15 honoured 0; clean poweroff. Rollback
+`pmc.observe=1`. Expected power: idle ±0.1 W, light use +0.1-0.5 W, sustained load +0.5-1.5 W (inferred from the
+T8132 figure). Other voters: GFX agent ignored in both modes (no domain), GPU CLPC input inactive (no `apple,clpc` on
+the GPU node), DCP uses the separate BWR interface (untouched), PMP floor 0x15 ignored. GPU soak numbers are only
+comparable within one mode. Still to measure from T1: idle 60 s floor and the load/memcpy baseline.
+Bisect builds abandoned (ENFILE from concurrent containers); wt-power-gpu back on power/t6050-gpu.
