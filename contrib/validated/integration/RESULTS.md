@@ -1086,3 +1086,16 @@ Image4 manifest stitched in, `pcie_aspm=off`, battery on, selftest on), prev = t
 - So the full kernel's failure (DAILY-NEXT-T1) is either the combination, a size effect, or a one-off. Next: re-run the
   full kernel once (and kernel D = 0064 + 0065 iwd crypto), with the crash-log capture in place if it is ready.
 
+### Result (DAILY-WIFI-T1, 2026-11-07 14:00 UTC, loop, nobody at the machine): **associated, DHCP lease, traffic**
+
+Payload `daily-wifi-t1-20261107-5e188412.bin` (WFI kernel `7.3.0-gf080637018df`, stack DTB, m1n1 `n1-smc` with
+`chosen.m5pro,n1=4`, the stitched-FTAB initramfs, `pcie_aspm=off`, battery, selftest on), warm reboot from the daily.
+N1 trained and adopted as on W3b, `Wi-Fi firmware channels` at 3.4 s, `wlan0` and `hci0` present; primary slot, no revert.
+Userspace: `wpa_supplicant` from the Arch Linux ARM repos (iwd needs kernel crypto this kernel lacks), config written
+with `wpa_passphrase` (file 0600 on the root; the passphrase is nowhere else), `wpa_supplicant@wlan0` enabled, a
+systemd-networkd `.network` for wlan0 with DHCP and route metric 2048 (Ethernet stays preferred while plugged).
+- `wpa_state=COMPLETED`, WPA2-PSK, 5 GHz (5200 MHz), signal -30 dBm; DHCPv4 lease and gateway from the home router;
+  `ping -I wlan0 1.1.1.1`: 3/3, 17 ms average. Bluetooth controller up (not paired yet).
+- Next: this stack becomes the daily (self-test flag off); a reboot from a live Wi-Fi link (the J714c needed a pcie-apple
+  shutdown park); throughput; iwd once kernel crypto 0065 is in; the ASPM strip as a patch instead of `pcie_aspm=off`.
+
