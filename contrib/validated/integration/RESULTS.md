@@ -1099,3 +1099,13 @@ systemd-networkd `.network` for wlan0 with DHCP and route metric 2048 (Ethernet 
 - Next: this stack becomes the daily (self-test flag off); a reboot from a live Wi-Fi link (the J714c needed a pcie-apple
   shutdown park); throughput; iwd once kernel crypto 0065 is in; the ASPM strip as a patch instead of `pcie_aspm=off`.
 
+### Result (DAILY-WIFI promotion attempt, 2026-11-07 14:04 UTC): **restart with the N1 link alive does not come back**
+
+`daily-20261107-915de615.bin` (the DAILY-WIFI-T1 ingredients without the self-test flag) was installed and the machine
+rebooted FROM the DAILY-WIFI-T1 boot (N1 trained, wlan0 associated earlier, `wpa_state=SCANNING` at that moment). It came
+back on `boot.bin.prev` (the WFI daily) as `fallback-after-failure`, PMU count 1. The same ingredients had booted from a
+non-N1 boot minutes earlier, so the variable is the warm, already-trained N1/port at loader time: the J714c's "a restart
+with the link alive never reached m1n1" (fixed there with a pcie-apple shutdown that parks the adopted port). The Wi-Fi
+stack therefore stays a test payload; the daily remains `dcec81ed`. Work item `wireless/aurora-n1/w4`: loader branch for
+an already-trained port and a kernel shutdown that parks it.
+
