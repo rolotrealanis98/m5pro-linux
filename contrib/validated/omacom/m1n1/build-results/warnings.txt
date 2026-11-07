@@ -5,7 +5,7 @@ c02: 15 warnings, m1n1.bin 4259840 bytes (0x410000), file part 0x110000 of 0x120
 c03: 15 warnings, m1n1.bin 4259840 bytes (0x410000), file part 0x110000 of 0x120000
 c04: 15 warnings, m1n1.bin 4259840 bytes (0x410000), file part 0x110000 of 0x120000
 c05: 15 warnings, m1n1.bin 4259840 bytes (0x410000), file part 0x110000 of 0x120000
-c06: 14 warnings, m1n1.bin 4259840 bytes (0x410000), file part 0x110000 of 0x120000
+c06: 15 warnings, m1n1.bin 4259840 bytes (0x410000), file part 0x110000 of 0x120000
 c07: 15 warnings, m1n1.bin 4259840 bytes (0x410000), file part 0x110000 of 0x120000
 c08: 15 warnings, m1n1.bin 4259840 bytes (0x410000), file part 0x110000 of 0x120000
 c09: 15 warnings, m1n1.bin 4259840 bytes (0x410000), file part 0x110000 of 0x120000

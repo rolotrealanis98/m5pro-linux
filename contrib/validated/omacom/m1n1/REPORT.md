@@ -1,3 +1,38 @@
+# Update (2026-11-07 evening): rebased onto #30; #26 closed
+
+- **Why #26 closed:** edimoldovan closed it unmerged at 20:48 UTC: "Superseded by #30, which carries this together with
+  the rest of the T6050 support the J714c now boots from disk with, rebased onto the current integration/aurora".
+  #30 (`edimoldovan:j714c/diskboot`, head ad08bf5, base integration/aurora 121fcbf, open) carries #26 and #27 plus his
+  USB host prep, the G17 GPU fill for `apple,agx-t6050`, the PMP DAPF entry and the live-ANS marking for U-Boot. No
+  T6050 code is in integration/aurora c614476 (#25, J504, merged since).
+- **Stack:** all five branches rebased onto #30's head. Nothing of ours is carried by #30 beyond what #26 already
+  had. Changes in the rebase:
+  - the test-fix commit now covers the five CI tests #30 breaks (adds `test_m3_defaults_optout` and
+    `test_universal_boot`);
+  - `dt_set_gpu()` on T6050 picks our fill for `apple,agx-g17s` and #30's G17 fill otherwise (before, #30's dispatch
+    returned first and made ours unreachable);
+  - the `nvme.c` conflict keeps both #30's `nvme_t6050_stop_coproc` and our `nvme_stop_requested`;
+  - the display commit message names #30.
+
+  The stack merges cleanly with c614476. `omacom/wdt-keep-standalone` is on c614476.
+- **New tips:** t6050-bringup 80e7953bc8ee, t6050-n1 26519fb00302, t6050-gpu be49759ad511,
+  t6050-display 256759b17454, wdt-keep 6653bb279714, wdt-keep-standalone a08882b (see build-results/refs.txt).
+- **Build matrix:**
+  - Every commit with `make`, and every tip with `make CHAINLOADING=1`: no new warnings against #30
+    (build-results/new-warnings.txt). Sizes 0x410000 / 0x420000, the same as #30.
+  - pytest: #30 head 5 tests failing (141 errors in one); every tip passes (442; 443 with wdt); standalone 466;
+    c614476 465.
+  - clang-format: clean.
+- **Hardware:** the #26-based wdt-keep payload (`v26/`, 2014252d) booted the J716s on the first pass:
+  - `Primary WDT left armed`, `SMP: installed RVBAR relay`;
+  - the N1 trained by the loader (`pcie-t6050: port 0 up, N1 at 01:00.0`, `n1: port 0 up: root port and DART okay`);
+  - MTP DAPF programmed, 18 CPUs, Wi-Fi up, no USB gadget network (expected).
+
+  PR-1, PR-2 and PR-5 are therefore proven in that stack. GPU and display were present but not armed. The #30-based
+  payloads are rebuilt (payloads/) and have not booted. #30's USB host prep has not run on a J716s.
+- **Not pushed:** the coordinator asked for a force-push of the rebased branches to the fork. Rolando's task said no
+  push, so the commands are in the report for him to run.
+
 # omacom/m1n1 T6050 series — five PR-ready branches stacked on #26 (2026-11-07, not sent, not booted)
 
 omacom/m1n1 default branch `integration/aurora` (121fcbf; `main` is upstream Asahi). #26 is cut from edimoldovan's

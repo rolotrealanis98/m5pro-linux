@@ -1,0 +1,427 @@
+ 1:  26c2c86 !  1:  46f5764 T6050 (J714c): MTP DAPF and dense secondary release mask
+    @@
+      ## Metadata ##
+    -Author: ed <edimoldovan@gmail.com>
+    +Author: Eduard Moldovan <edimoldovan@gmail.com>
+     
+      ## Commit message ##
+    -    T6050 (J714c): MTP DAPF and dense secondary release mask
+    +    T6050: MTP DAPF, one release bit per CPU, room for the J714c's i2c nodes
+     
+         kboot_boot programs only the MTP filter on T6050, dapf_init on reg 1 of
+         dart-mtp at 0x294810000: the firmware's first access is PMGR at
+    @@ Commit message
+         4*cluster+core layout never releases cores 14-17 of its three 6-core
+         clusters.
+     
+    -    The J714c ADT has nine i2c nodes; the i2c limit of dt_disable_missing_devs
+    -    is raised to 16.
+    -
+    -    Boots the J714c to a shell with keyboard on one core when chainloaded
+    -    with the secondary RVBAR writes skipped; dapf_init_all is also gated off
+    -    upstream in AsahiLinux-based m1n1 at 2e74ab9c and cadae7d5.
+    +    The J714c ADT has nine i2c nodes; the i2c limit of
+    +    dt_disable_missing_devs is raised to 16.
+     
+    +    Signed-off-by: Eduard Moldovan <edimoldovan@gmail.com>
+     
+      ## src/kboot.c ##
+    @@ src/kboot.c: int kboot_boot(void *kernel)
+     +    if (chip_id == T8142) {
+     +        ret = dapf_init_fdt(dt);
+     +    } else if (chip_id == T6050) {
+    -+        /* Only the MTP filter, reg 1 of dart-mtp; the AOP entry of the table points at the block shared by every DART and faults. */
+    ++        /* Only the MTP filter, reg 1 of dart-mtp; the AOP entry of the table points at the block
+    ++         * shared by every DART and faults. */
+     +        ret = dapf_init("/arm-io/dart-mtp", 1);
+     +        printf("kboot: MTP DAPF %s on T6050\n", ret < 0 ? "failed" : "programmed");
+     +    } else {
+ 2:  7c61d6b <  -:  ------- proxyclient: T6050 chainload and boot on the boot CPU
+ 3:  5211878 <  -:  ------- T6050: NVMe register geometry, retained heap, opt-in coprocessor stop
+ 4:  f1afac5 <  -:  ------- T6050: drop the NVMe bring-up traces
+ -:  ------- >  2:  222146d nvme: T6050 register geometry, retained heap, opt-in coprocessor stop
+ 5:  eaa6bd1 !  3:  6a740fa cpufreq: T6050 cluster 0 (M), same command model as T8142
+    @@
+      ## Metadata ##
+    -Author: ed <edimoldovan@gmail.com>
+    +Author: Eduard Moldovan <edimoldovan@gmail.com>
+     
+      ## Commit message ##
+         cpufreq: T6050 cluster 0 (M), same command model as T8142
+     
+         Cluster table for the M5 Pro/Max: MCPU0 at 0x210e00000, default
+         P-state 4; the chip shares T8142's P-state register handling and keeps
+    -    the firmware voltage, PLL and throttling configuration. Clusters 1 and
+    -    2 wait for their cores (CPU-START.md).
+    +    the firmware voltage, PLL and throttling configuration.
+     
+    +    Signed-off-by: Eduard Moldovan <edimoldovan@gmail.com>
+     
+      ## src/cpufreq.c ##
+    @@ src/cpufreq.c: static u32 pstate_reg_to_pstate(u64 val)
+      static int set_pstate(const struct cluster_t *cluster, uint32_t pstate)
+      {
+     -    if (chip_id == T8142 && poll64(cluster->base + CLUSTER_PSTATE, CLUSTER_PSTATE_BUSY, 0,
+    +-                                   CLUSTER_SWITCH_TIMEOUT) < 0) {
+     +    if ((chip_id == T8142 || chip_id == T6050) &&
+    -+        poll64(cluster->base + CLUSTER_PSTATE, CLUSTER_PSTATE_BUSY, 0,
+    -                                    CLUSTER_SWITCH_TIMEOUT) < 0) {
+    ++        poll64(cluster->base + CLUSTER_PSTATE, CLUSTER_PSTATE_BUSY, 0, CLUSTER_SWITCH_TIMEOUT) <
+    ++            0) {
+              printf("cpufreq: Cluster %s is busy before P-State request\n", cluster->name);
+              return -1;
+    +     }
+     @@ src/cpufreq.c: static int set_pstate(const struct cluster_t *cluster, uint32_t pstate)
+                  case T8122:
+                  case T8142:
+ 6:  65bbd8b <  -:  ------- usb: T6050 leaves the free ports in USB 2.0 host mode for the next stage
+ 7:  b2b1c44 !  4:  4ae1eab usb: T6050 host prep verifies the connection, retries, records the port status for the kernel
+    @@
+      ## Metadata ##
+    -Author: ed <edimoldovan@gmail.com>
+    +Author: Eduard Moldovan <edimoldovan@gmail.com>
+     
+      ## Commit message ##
+    -    usb: T6050 host prep verifies the connection, retries, records the port status for the kernel
+    +    usb: T6050 leaves the free ports in USB 2.0 host mode for the next stage
+     
+    -    usb_t6050_host_prep polls PORTSC.CCS for 300 ms after the host flip and
+    -    redoes the bring-up and flip up to three times. usb_t6050_host_record,
+    -    called after the display handoff, reads PORTSC again and writes
+    -    /chosen/apple,t6050-usbprep (per port: attempts, PORTSC after the prep,
+    -    PORTSC before the jump) through the new kboot_set_chosen_u32s.
+    -    The P_VECTOR path skips usb_hpm_restore_irqs on T6050.
+    +    Before starting the next stage on T6050, every USB port is brought up as
+    +    for the proxy (power, usb2phy, pipe handler, dwc3 device init) and
+    +    flipped to host: usb2phy host bits, gadget stopped, core soft reset,
+    +    port capability host, PHY auto-suspend off, pipe handler link detection
+    +    forced off (the parking the kernel PHY driver does for a USB 2.0-only
+    +    host).
+     
+    +    On J714c the first flip never shows a plugged device; the second
+    +    shutdown, bring-up and flip shows it at once. usb_t6050_host_prep polls
+    +    PORTSC.CCS after each flip (50 ms the first time, 100 ms after that) and
+    +    redoes the bring-up and flip up to three times. A port without a device
+    +    stays in host mode after the last attempt.
+    +
+    +    usb_t6050_host_record, called after the display handoff, writes
+    +    /chosen/apple,t6050-usbprep with four words per port: attempts, PORTSC
+    +    after the prep, PORTSC before the jump, and ms until PORTSC.CCS. It goes
+    +    through the new kboot_set_chosen_u32s, which reopens the packed tree
+    +    from a copy, since kboot_prepare_dt has packed it. The P_VECTOR path
+    +    skips usb_hpm_restore_irqs on T6050.
+    +
+    +    Signed-off-by: Eduard Moldovan <edimoldovan@gmail.com>
+     
+      ## src/kboot.c ##
+    @@ src/kboot.c: void kboot_set_initrd(void *start, size_t size)
+     +{
+     +    if (!dt)
+     +        return -1;
+    ++    /*
+    ++     * The prepared tree is packed; reopen it over its whole buffer from a
+    ++     * copy (reopening in place needs twice the packed size).
+    ++     */
+    ++    void *packed = malloc(fdt_totalsize(dt));
+    ++    if (!packed)
+    ++        return -1;
+    ++    memcpy(packed, dt, fdt_totalsize(dt));
+    ++    int ret = fdt_open_into(packed, dt, dt_bufsize);
+    ++    free(packed);
+    ++    if (ret < 0)
+    ++        return -1;
+     +    int node = fdt_path_offset(dt, "/chosen");
+     +    if (node < 0)
+     +        return -1;
+    @@ src/kboot.c: void kboot_set_initrd(void *start, size_t size)
+     +    for (int i = 0; i < n; i++)
+     +        if (fdt_appendprop_u32(dt, node, name, vals[i]) < 0)
+     +            return -1;
+    -+    return 0;
+    ++    return fdt_pack(dt);
+     +}
+     +
+      int kboot_set_chosen(const char *name, const char *value)
+    @@ src/kboot.h: struct kernel_header {
+      int kboot_set_chosen(const char *name, const char *value);
+     +int kboot_set_chosen_u32s(const char *name, const u32 *vals, int n);
+      void kboot_delete_chosen(const char *name);
+    + void kboot_set_config_lost(void);
+      int kboot_set_uboot(const char *name, const char *value);
+    - int dt_gpu_t8122_26_calibrate(void *dt);
+     
+      ## src/main.c ##
+     @@ src/main.c: next_stage:
+    + #ifndef BRINGUP
+    +     if (chip_id != T8152) {
+    +         usb_iodev_shutdown();
+    ++        usb_t6050_host_prep();
+    +         /* Its firmware may still use memory the next stage will reuse. */
+    +         if (display_shutdown(DCP_SLEEP_IF_EXTERNAL) < 0) {
+    +             printf("Display handoff failed; returning to proxy\n");
+                  uartproxy_run(NULL);
+                  panic("Display handoff failed\n");
+              }
+    @@ src/proxy.c: int proxy_process(ProxyRequest *request, ProxyReply *reply)
+     
+      ## src/usb.c ##
+     @@
+    - #include "usb_cdc.h"
+    - #include "usb_cdc_atc.h"
+    - #include "usb_dwc3.h"
+    + #include "dart.h"
+    + #include "i2c.h"
+    + #include "iodev.h"
+     +#include "kboot.h"
+    - #include "usb_dwc3_regs.h"
+    - #include "utils.h"
+    - #include "vsprintf.h"
+    + #include "malloc.h"
+    + #include "pmgr.h"
+    + #include "string.h"
+     @@ src/usb.c: void usb_iodev_init(void)
+    -  * SIG with the host bits (checked on silicon over the proxy, J714c), the
+    -  * PHY running. The kernel's generic dwc3 driver does the controller part.
+    -  */
+    -+/* Per port: attempts, PORTSC0 after the prep, PORTSC0 right before the jump. */
+    -+static u32 t6050_prep_rec[USB_IODEV_COUNT][3];
+    +     }
+    + }
+    + 
+    ++/*
+    ++ * T6050 (M5 Pro/Max): the Type-C PHY is a new generation Linux cannot drive
+    ++ * yet, but USB 2.0 needs only the small usb2phy block. Before the kernel
+    ++ * starts, leave every port except the proxy's in USB 2.0 host mode: usb2phy
+    ++ * SIG with the host bits (checked on silicon over the proxy, J714c), the
+    ++ * PHY running. The kernel's generic dwc3 driver does the controller part.
+    ++ */
+    ++/* Per port: attempts, PORTSC0 after the prep, PORTSC0 right before the jump, ms to CCS. */
+    ++static u32 t6050_prep_rec[USB_IODEV_COUNT][4];
+     +
+     +static u32 t6050_portsc0(struct usb_drd_regs *usb_regs)
+     +{
+    @@ src/usb.c: void usb_iodev_init(void)
+     +    return read32(usb_regs->drd_regs + 0x420);
+     +}
+     +
+    -+static bool usb_t6050_host_flip(u32 idx, struct usb_drd_regs *usb_regs)
+    ++static bool usb_t6050_host_flip(u32 idx, struct usb_drd_regs *usb_regs, dwc3_dev_t **devp, u32 *ms,
+    ++                                u32 wait_ms)
+     +{
+     +    /*
+     +     * Exactly the sequence checked over the proxy on J714c: the port
+    @@ src/usb.c: void usb_iodev_init(void)
+     +     * a core soft reset and the port capability set to host. The next
+     +     * stage drives the xHCI registers only.
+     +     */
+    -+    dwc3_dev_t *dev;
+    -+    if (usb_phy_bringup(idx) < 0 || !(dev = usb_iodev_bringup(idx))) {
+    ++    *devp = NULL;
+    ++    if (usb_phy_bringup(idx) < 0 || !(*devp = usb_iodev_bringup(idx))) {
+     +        printf("USB%u: bringup for host mode failed\n", idx);
+     +        return false;
+     +    }
+    @@ src/usb.c: void usb_iodev_init(void)
+     +    clear32(usb_regs->drd_regs + DWC3_GUSB2PHYCFG(0), DWC3_GUSB2PHYCFG_SUSPHY);
+     +    clear32(usb_regs->drd_regs + DWC3_GUSB3PIPECTL(0), DWC3_GUSB3PIPECTL_SUSPHY);
+     +    /* A plugged device shows up as PORTSC.CCS within a few ms of the flip. */
+    -+    for (int i = 0; i < 300; i++) {
+    ++    for (*ms = 0; *ms < wait_ms; (*ms)++) {
+     +        if (t6050_portsc0(usb_regs) & 1)
+     +            return true;
+     +        udelay(1000);
+     +    }
+    -+    usb_dwc3_shutdown(dev);
+     +    return false;
+     +}
+     +
+    - void usb_t6050_host_prep(u32 proxy_port)
+    - {
+    -     if (chip_id != T6050)
+    -@@ src/usb.c: void usb_t6050_host_prep(u32 proxy_port)
+    -             continue;
+    -         if (usb_drd_get_regs(idx, &usb_regs) < 0)
+    -             continue;
+    --        /*
+    --         * Exactly the sequence checked over the proxy on J714c: the port
+    --         * brought up as for the proxy (power, usb2phy, pipe handler, dwc3
+    --         * in device mode), then the usb2phy host bits, the gadget stopped,
+    --         * a core soft reset and the port capability set to host. The next
+    --         * stage drives the xHCI registers only.
+    --         */
+    --        if (usb_phy_bringup(idx) < 0 || !usb_iodev_bringup(idx)) {
+    --            printf("USB%u: bringup for host mode failed\n", idx);
+    --            continue;
+    -+        u32 attempts = 0;
+    ++void usb_t6050_host_prep(void)
+    ++{
+    ++    if (chip_id != T6050)
+    ++        return;
+    ++    /* Every port, the one with the proxy cable included: the proxy is over by now. */
+    ++    for (u32 idx = 0; idx < USB_IODEV_COUNT; idx++) {
+    ++        struct usb_drd_regs usb_regs;
+    ++        if (usb_drd_get_regs(idx, &usb_regs) < 0)
+    ++            continue;
+    ++        u32 attempts = 0, ms = 0;
+     +        bool connected = false;
+    -+        /* The flip loses the connection now and then; the retry tells how often. */
+    ++        /*
+    ++         * Measured on J714c: the first flip never shows a plugged device
+    ++         * (not within 1.5 s either), the second cycle of shutdown, bring-up
+    ++         * and flip shows it at once. So the first window is short, the
+    ++         * later ones give a slow device 100 ms. A port without a device
+    ++         * stays in host mode after the last attempt.
+    ++         */
+     +        while (attempts < 3 && !connected) {
+    ++            dwc3_dev_t *dev;
+     +            attempts++;
+    -+            connected = usb_t6050_host_flip(idx, &usb_regs);
+    -         }
+    --        write32(usb_regs.atc + USB2PHY_SIG, 0x01c1000f | USB2PHY_SIG_HOST);
+    --        clear32(usb_regs.drd_regs + DWC3_DCTL, DWC3_DCTL_RUN_STOP);
+    --        poll32(usb_regs.drd_regs + DWC3_DSTS, DWC3_DSTS_DEVCTRLHLT, DWC3_DSTS_DEVCTRLHLT, 10000);
+    --        set32(usb_regs.drd_regs + DWC3_GCTL, DWC3_GCTL_CORESOFTRESET);
+    --        udelay(10000);
+    --        mask32(usb_regs.drd_regs + DWC3_GCTL, DWC3_GCTL_PRTCAPDIR(3) | DWC3_GCTL_CORESOFTRESET,
+    --               DWC3_GCTL_PRTCAPDIR(DWC3_GCTL_PRTCAP_HOST));
+    --        udelay(10000);
+    --        /*
+    --         * Park the PIPE on the dummy PHY the way the kernel PHY driver does
+    --         * for a USB2-only host: link detection forced off through the pipe
+    --         * handler overrides (the dummy backend and NATIVE_RESET/POWER_DOWN
+    --         * are already set by usb_phy_bringup).
+    --         */
+    --        clear32(usb_regs.drd_regs_unk3 + 0x04, BIT(1) | BIT(2));
+    --        set32(usb_regs.drd_regs_unk3 + 0x00, BIT(0) | BIT(2));
+    --        /* No PHY auto-suspend: the next stage's host reset needs the PHY clocks. */
+    --        clear32(usb_regs.drd_regs + DWC3_GUSB2PHYCFG(0), DWC3_GUSB2PHYCFG_SUSPHY);
+    --        clear32(usb_regs.drd_regs + DWC3_GUSB3PIPECTL(0), DWC3_GUSB3PIPECTL_SUSPHY);
+    --        printf("USB%u: left in USB 2.0 host mode for the next stage (GCTL %#x)\n", idx,
+    --               read32(usb_regs.drd_regs + DWC3_GCTL));
+    ++            connected = usb_t6050_host_flip(idx, &usb_regs, &dev, &ms, attempts == 1 ? 50 : 100);
+    ++            if (!connected && attempts < 3 && dev)
+    ++                usb_dwc3_shutdown(dev);
+    ++        }
+     +        t6050_prep_rec[idx][0] = attempts;
+     +        t6050_prep_rec[idx][1] = t6050_portsc0(&usb_regs);
+    -+        printf("USB%u: left in USB 2.0 host mode for the next stage (GCTL %#x, PORTSC %#x, %u attempt%s)\n",
+    ++        t6050_prep_rec[idx][3] = ms;
+    ++        printf("USB%u: left in USB 2.0 host mode for the next stage (GCTL %#x, PORTSC %#x, %u "
+    ++               "attempt%s, %u ms)\n",
+     +               idx, read32(usb_regs.drd_regs + DWC3_GCTL), t6050_prep_rec[idx][1], attempts,
+    -+               attempts == 1 ? "" : "s");
+    ++               attempts == 1 ? "" : "s", ms);
+     +    }
+     +}
+     +
+    @@ src/usb.c: void usb_t6050_host_prep(u32 proxy_port)
+     +        if (!t6050_prep_rec[idx][0] || usb_drd_get_regs(idx, &usb_regs) < 0)
+     +            continue;
+     +        t6050_prep_rec[idx][2] = t6050_portsc0(&usb_regs);
+    -     }
+    -+    kboot_set_chosen_u32s("apple,t6050-usbprep", &t6050_prep_rec[0][0], USB_IODEV_COUNT * 3);
+    - }
+    - 
+    ++    }
+    ++    if (kboot_set_chosen_u32s("apple,t6050-usbprep", &t6050_prep_rec[0][0], USB_IODEV_COUNT * 4))
+    ++        printf("USB: could not record the host prep in the devicetree\n");
+    ++}
+    ++
+      void usb_iodev_shutdown(void)
+    + {
+    +     for (int i = FIRST_USB_IODEV; i < USB_IODEV_COUNT; i++) {
+     
+      ## src/usb.h ##
+    -@@ src/usb.h: void usb_hpm_restore_irqs(bool force);
+    +@@ src/usb.h: void usb_init(void);
+    + void usb_hpm_restore_irqs(bool force);
+      void usb_iodev_init(void);
+      void usb_iodev_shutdown(void);
+    - void usb_t6050_host_prep(u32 proxy_port);
+    ++void usb_t6050_host_prep(void);
+     +void usb_t6050_host_record(void);
+      void usb_iodev_vuart_setup(iodev_id_t iodev);
+      int usb_cdc_link_start(void (*set_step)(unsigned step), bool force_swapped);
+ 8:  d5449bb <  -:  ------- kboot: kboot_set_chosen_u32s reopens the packed tree before writing
+ 9:  52c1e5f <  -:  ------- usb: T6050 host prep keeps a device-less port in host mode after the last attempt
+10:  c2e43a7 <  -:  ------- kboot: kboot_set_chosen_u32s reopens the packed tree from a copy
+11:  4849f76 <  -:  ------- usb: T6050 host prep flips every port and records the time to connect
+12:  3b2e6dc <  -:  ------- usb: T6050 host prep: short first window, the second cycle is the one that connects
+13:  103ab88 <  -:  ------- main: T6050_NO_HOST_PREP build switch skips the USB host prep
+14:  160b644 !  5:  4b0a276 kboot: GPU handoff for T6050
+    @@
+      ## Metadata ##
+    -Author: ed <edimoldovan@gmail.com>
+    +Author: Eduard Moldovan <edimoldovan@gmail.com>
+     
+      ## Commit message ##
+         kboot: GPU handoff for T6050
+    @@ Commit message
+         T8140. Fills the OPP table and the four UAT reserved-memory regions from the
+         ADT and leaves the node enabled when the data validates.
+     
+    +    Signed-off-by: Eduard Moldovan <edimoldovan@gmail.com>
+     
+      ## src/kboot_gpu.c ##
+    @@ src/kboot_gpu.c: static int dt_set_gpu_t8140(void *dt)
+          for (u32 i = 0; i < count; i++)
+              if (states[i].volt > UINT32_MAX / 1000)
+     @@ src/kboot_gpu.c: static int dt_set_gpu_t8140(void *dt)
+    -     int opp, opp_count = 0;
+    +     int table = fdt_node_offset_by_phandle(dt, fdt32_ld(opp_ph));
+    +     if (table < 0)
+    +         goto disable;
+    +-    int opp, opp_count = 0;
+    ++    int opp;
+    ++    u32 opp_count = 0;
+          fdt_for_each_subnode(opp, dt, table)
+          {
+     -        if (++opp_count > 16 || !fdt_getprop(dt, opp, "opp-hz", &ph_len) || ph_len != sizeof(u64) ||
+    +-            !fdt_getprop(dt, opp, "opp-microvolt", &ph_len) || ph_len != sizeof(u32))
+     +        if (++opp_count > g->count || !fdt_getprop(dt, opp, "opp-hz", &ph_len) ||
+    -+            ph_len != sizeof(u64) ||
+    -             !fdt_getprop(dt, opp, "opp-microvolt", &ph_len) || ph_len != sizeof(u32))
+    ++            ph_len != sizeof(u64) || !fdt_getprop(dt, opp, "opp-microvolt", &ph_len) ||
+    ++            ph_len != sizeof(u32))
+                  goto disable;
+          }
+     -    if (opp_count != 16)
+15:  5365315 !  6:  24bb2fd payload: boot= takes the stage 1 config's proxy window without its chainload target
+    @@
+      ## Metadata ##
+    -Author: ed <edimoldovan@gmail.com>
+    +Author: Eduard Moldovan <edimoldovan@gmail.com>
+     
+      ## Commit message ##
+         payload: boot= takes the stage 1 config's proxy window without its chainload target
+    @@ Commit message
+         chainload target, and boot= plus chainload= is refused. With boot= set,
+         the config now only provides the window.
+     
+    +    Signed-off-by: Eduard Moldovan <edimoldovan@gmail.com>
+     
+      ## src/payload.c ##
+16:  fc277aa <  -:  ------- dapf: add the T6050 PMP DART (dart-pmp0)
+ -:  ------- >  7:  608a177 dapf: add the T6050 PMP DART (dart-pmp0)
+17:  70b298d =  8:  162b25f payload: an appended kernel takes the stage 1 config's proxy window without its chainload target
+18:  5bb6965 !  9:  ad08bf5 payload: T6050 stage 2 marks stage 1's live ANS session for U-Boot
+    @@
+      ## Metadata ##
+    -Author: ed <edimoldovan@gmail.com>
+    +Author: Eduard Moldovan <edimoldovan@gmail.com>
+     
+      ## Commit message ##
+         payload: T6050 stage 2 marks stage 1's live ANS session for U-Boot
+    @@ Commit message
+     
+      ## src/payload.c ##
+     @@ src/payload.c: int payload_run(void)
+    -                 printf("Failed to kboot set %s\n", var + 7);
+    -         }
+      
+    +         if (config_lost)
+    +             kboot_set_config_lost();
+    ++
+     +#ifdef ESP_STAGE2
+     +        /* T6050: stage 1 left the ANS session live; the next stage (U-Boot) adopts it. */
+     +        if (chip_id == T6050 && nvme_adopt_live_session && !boot_spec &&
