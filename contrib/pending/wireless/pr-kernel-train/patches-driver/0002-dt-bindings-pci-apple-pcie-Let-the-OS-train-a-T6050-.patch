@@ -1,0 +1,140 @@
+From e3790e581d9092259a8a2d5f651191e8fe4bdcec Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 16:43:29 -0500
+Subject: [PATCH 2/9] dt-bindings: pci: apple,pcie: Let the OS train a T6050
+ root port
+
+A T6050 root port that names its endpoint's power line can be left
+untrained by the boot loader: the OS powers the endpoint and trains the
+link itself, then adopts it like a port the boot loader trained.
+
+Allow pwren-gpios on such a port, the windows the train uses in
+reg-names (phy-shared, phy-common, axi2af, pcieclkgen, phy-window,
+phy-ip) and the six host tunable lists the boot loader copies from the
+Apple device tree, as (offset, width, mask, value) groups.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ .../devicetree/bindings/pci/apple,pcie.yaml   | 69 +++++++++++++++++--
+ 1 file changed, 62 insertions(+), 7 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/pci/apple,pcie.yaml b/Documentation/devicetree/bindings/pci/apple,pcie.yaml
+index 3abab7528489..f588314410f9 100644
+--- a/Documentation/devicetree/bindings/pci/apple,pcie.yaml
++++ b/Documentation/devicetree/bindings/pci/apple,pcie.yaml
+@@ -46,6 +46,19 @@ $defs:
+         - description: Bits to set
+     description: Register initialization tuples for one controller region.
+ 
++  t6050-tunable:
++    $ref: /schemas/types.yaml#/definitions/uint32-matrix
++    items:
++      items:
++        - description: Register offset in the named window
++        - description: Access width in bytes
++          const: 4
++        - description: Mask of the bits to replace
++        - description: Value of those bits
++    description:
++      A T6050 host tunable list, copied by the boot loader from the Apple
++      device tree.
++
+ properties:
+   compatible:
+     oneOf:
+@@ -169,6 +182,30 @@ properties:
+     $ref: '#/$defs/tunable'
+     description: Initialization tuples for the oe-fabric register region.
+ 
++  apple,tunable-axi2af:
++    $ref: '#/$defs/t6050-tunable'
++    description: T6050 tuples for the axi2af window, applied before a train.
++
++  apple,tunable-cio3pllcore:
++    $ref: '#/$defs/t6050-tunable'
++    description: T6050 tuples for the CIO3 PLL core, in the pcieclkgen window.
++
++  apple,tunable-pcieclkgen:
++    $ref: '#/$defs/t6050-tunable'
++    description: T6050 tuples for the pcieclkgen window.
++
++  apple,tunable-phy:
++    $ref: '#/$defs/t6050-tunable'
++    description: T6050 tuples for the phy-window window.
++
++  apple,tunable-phy-ip-pll:
++    $ref: '#/$defs/t6050-tunable'
++    description: T6050 PHY PLL tuples for the phy-ip window.
++
++  apple,tunable-phy-ip-auspma:
++    $ref: '#/$defs/t6050-tunable'
++    description: T6050 PHY lane tuples for the phy-ip window.
++
+   apple,piodma:
+     $ref: /schemas/types.yaml#/definitions/phandle
+     description:
+@@ -199,7 +236,9 @@ patternProperties:
+           retains responsibility for power and external reset throughout use.
+           On T6050, each such root port 00:<n>.0 is admitted with one
+           endpoint, device 0 function 0, on the secondary bus the firmware
+-          numbered, at Gen3 x1.
++          numbered, at Gen3 x1. A T6050 port that also names pwren-gpios may
++          be left untrained; the OS then trains it first and adopts it the
++          same way.
+ 
+       interrupt-controller: true
+ 
+@@ -247,15 +286,18 @@ allOf:
+       properties:
+         reg:
+           minItems: 5
+-          maxItems: 14
++          maxItems: 20
+         reg-names:
+           description:
+             config and rc, then port<n>, phy<n> and intr2axi<n> for each
+-            bootloader-trained root port 00:<n>.0.
++            adopted root port 00:<n>.0. A host with a port the OS trains
++            itself (pwren-gpios) also names the shared PHY (phy-shared), its
++            common block (phy-common) and the windows its tunable lists
++            apply to (axi2af, pcieclkgen, phy-window, phy-ip).
+           minItems: 5
+-          maxItems: 14
++          maxItems: 20
+           items:
+-            pattern: "^(config|rc|(port|phy|intr2axi)[0-3])$"
++            pattern: "^(config|rc|(port|phy|intr2axi)[0-3]|phy-shared|phy-common|axi2af|pcieclkgen|phy-window|phy-ip)$"
+         interrupts:
+           maxItems: 4
+         interrupt-names:
+@@ -275,11 +317,24 @@ allOf:
+               description:
+                 The PERST# line of a port whose endpoint needs a root-port
+                 reset after the bootloader trained the link. Left as the
+-                bootloader set it until that reset.
+-            pwren-gpios: false
++                bootloader set it until that reset, or until the OS trains
++                the port itself.
++            pwren-gpios:
++              description:
++                The endpoint's power line. A port that names it may be left
++                untrained by the bootloader; the OS then powers the endpoint
++                and trains the link itself (the host then needs phy-shared
++                and phy-common), and adopts it as a bootloader-trained one.
+           required:
+             - apple,link-trained-by-bootloader
+     else:
++      properties:
++        apple,tunable-axi2af: false
++        apple,tunable-cio3pllcore: false
++        apple,tunable-pcieclkgen: false
++        apple,tunable-phy: false
++        apple,tunable-phy-ip-pll: false
++        apple,tunable-phy-ip-auspma: false
+       patternProperties:
+         "^pci@":
+           properties:
+-- 
+2.56.0
+

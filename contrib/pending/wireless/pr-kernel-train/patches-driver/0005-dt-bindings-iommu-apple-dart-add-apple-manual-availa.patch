@@ -1,0 +1,36 @@
+From d47001a3a7ffb0fca5c271434574f541cdfd02d7 Mon Sep 17 00:00:00 2001
+From: ed <edimoldovan@gmail.com>
+Date: Sat, 7 Nov 2026 09:50:13 +0100
+Subject: [PATCH 5/9] dt-bindings: iommu: apple,dart: add
+ apple,manual-availability
+
+A DART behind a PCIe root complex answers only once the root complex is
+up. Mark such a DART so it probes only after its client says so.
+
+Link: https://github.com/edimoldovan/linux-aurora/commit/8805d2777c8b
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ Documentation/devicetree/bindings/iommu/apple,dart.yaml | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/iommu/apple,dart.yaml b/Documentation/devicetree/bindings/iommu/apple,dart.yaml
+index 5bfb6577927a..d494aaf4ad87 100644
+--- a/Documentation/devicetree/bindings/iommu/apple,dart.yaml
++++ b/Documentation/devicetree/bindings/iommu/apple,dart.yaml
+@@ -111,6 +111,13 @@ properties:
+       handoff. Linux retains occupied root slots and excludes their entire
+       IOVA spans from allocation. This does not assert immutable descendants.
+ 
++  apple,manual-availability:
++    type: boolean
++    description: >
++      The DART's registers answer only once its client, a PCIe root complex,
++      is up. The client's driver makes the DART available after bringing the
++      root complex up, and the DART probes then.
++
+   apple,tunable:
+     $ref: /schemas/types.yaml#/definitions/uint32-matrix
+     items:
+-- 
+2.56.0
+

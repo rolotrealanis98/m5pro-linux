@@ -1,0 +1,107 @@
+From bdca4904925ff6831f16f044b76236eb5a65aae0 Mon Sep 17 00:00:00 2001
+From: ed <edimoldovan@gmail.com>
+Date: Sat, 7 Nov 2026 09:50:13 +0100
+Subject: [PATCH 6/9] iommu: apple-dart: probe a manual-availability DART after
+ its client
+
+A DART marked apple,manual-availability defers its probe until its
+client calls apple_dart_make_available() for its node.
+
+[Rolando: kzalloc_obj(), which this tree prefers]
+
+Link: https://github.com/edimoldovan/linux-aurora/commit/dbd43f4ff3da
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/iommu/apple-dart.c     | 41 ++++++++++++++++++++++++++++++++++
+ include/linux/soc/apple/dart.h | 11 +++++++++
+ 2 files changed, 52 insertions(+)
+
+diff --git a/drivers/iommu/apple-dart.c b/drivers/iommu/apple-dart.c
+index 65d2ac48c495..9a254a162231 100644
+--- a/drivers/iommu/apple-dart.c
++++ b/drivers/iommu/apple-dart.c
+@@ -3997,6 +3997,43 @@ static void apple_dart_free_irq(struct apple_dart *dart)
+ 			apple_dart_display_irq_peers[i] = NULL;
+ }
+ 
++struct apple_dart_available {
++	struct list_head list;
++	struct device_node *np;
++};
++
++static DEFINE_MUTEX(apple_dart_available_lock);
++static LIST_HEAD(apple_dart_available_list);
++
++void apple_dart_make_available(struct device_node *np)
++{
++	struct apple_dart_available *a;
++
++	guard(mutex)(&apple_dart_available_lock);
++	list_for_each_entry(a, &apple_dart_available_list, list)
++		if (a->np == np)
++			return;
++	a = kzalloc_obj(*a);
++	if (!a)
++		return;
++	a->np = of_node_get(np);
++	list_add(&a->list, &apple_dart_available_list);
++}
++EXPORT_SYMBOL_GPL(apple_dart_make_available);
++
++static bool apple_dart_is_available(struct device_node *np)
++{
++	struct apple_dart_available *a;
++
++	if (!of_property_read_bool(np, "apple,manual-availability"))
++		return true;
++	guard(mutex)(&apple_dart_available_lock);
++	list_for_each_entry(a, &apple_dart_available_list, list)
++		if (a->np == np)
++			return true;
++	return false;
++}
++
+ static int apple_dart_probe(struct platform_device *pdev)
+ {
+ 	int ret, sid;
+@@ -4035,6 +4072,10 @@ static int apple_dart_probe(struct platform_device *pdev)
+ 		return -ENODEV;
+ 	}
+ 
++	/* Its registers answer only once its client is up */
++	if (!apple_dart_is_available(dev->of_node))
++		return dev_err_probe(dev, -EPROBE_DEFER, "waiting for its client\n");
++
+ 	dart = kzalloc(sizeof(*dart), GFP_KERNEL);
+ 	if (!dart)
+ 		return -ENOMEM;
+diff --git a/include/linux/soc/apple/dart.h b/include/linux/soc/apple/dart.h
+index 53baf2158670..6eaad0fb32a8 100644
+--- a/include/linux/soc/apple/dart.h
++++ b/include/linux/soc/apple/dart.h
+@@ -8,6 +8,7 @@
+ #include <linux/types.h>
+ 
+ struct device;
++struct device_node;
+ 
+ /* Retained internal-display ownership is qualified only with a built-in
+  * DART provider. Other consumers, including modular DART, keep the APIs below.
+@@ -74,4 +75,14 @@ static inline int apple_dart_restore_tunnel_state(struct device *dev) { return -
+ static inline int apple_dart_radio_check_idle(struct device *dev) { return -EOPNOTSUPP; }
+ #endif
+ 
++/*
++ * A DART marked apple,manual-availability answers only once its client (a
++ * PCIe root complex) is up. The client makes it available, and it probes then.
++ */
++#if IS_ENABLED(CONFIG_APPLE_DART)
++void apple_dart_make_available(struct device_node *np);
++#else
++static inline void apple_dart_make_available(struct device_node *np) { }
++#endif
++
+ #endif
+-- 
+2.56.0
+

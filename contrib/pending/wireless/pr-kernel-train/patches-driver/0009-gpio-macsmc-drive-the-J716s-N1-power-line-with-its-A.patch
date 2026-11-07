@@ -1,0 +1,48 @@
+From a0e28f1c1ab689c86af6ba537c3db212eb900e88 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:45:12 -0500
+Subject: [PATCH 9/9] gpio: macsmc: drive the J716s N1 power line with its ADT
+ template
+
+The J716s N1's power line is /arm-io/apcie0/pci-bridge0 function-reset,
+pKW4("gP13", 0x00800000): the descriptor J713's /amfm/function-reg_on
+uses. m1n1 trains the N1's port on the J716s by writing that template
+with the level in its low bits (0x00800000, then 0x00800001); the
+generic CMD_OUTPUT write was never tried on this machine.
+
+Drive gP13 on the J716s as on J713, so the kernel's own train of the
+port powers the N1 with the same SMC writes.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/gpio/gpio-macsmc.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpio/gpio-macsmc.c b/drivers/gpio/gpio-macsmc.c
+index b9500afad3ce..8d47818c80a8 100644
+--- a/drivers/gpio/gpio-macsmc.c
++++ b/drivers/gpio/gpio-macsmc.c
+@@ -38,7 +38,8 @@
+  * J713 /amfm/function-reg_on is pKW4("gP13", 0x00800000). The firmware
+  * function preserves the template's upper 16 bits and inserts the level
+  * into its low 16 bits. This does not establish generic CMD_OUTPUT semantics,
+- * a pin-mode command, or a readback operation for this line.
++ * a pin-mode command, or a readback operation for this line. The J716s N1's
++ * power, /arm-io/apcie0/pci-bridge0 function-reset, is the same descriptor.
+  */
+ #define MACSMC_J713_RADIO_REG_ON_GPIO	0x13
+ #define MACSMC_J713_RADIO_REG_ON_TEMPLATE	0x00800000
+@@ -363,7 +364,8 @@ static int macsmc_gpio_probe(struct platform_device *pdev)
+ 	smcgp->base_key = data ? data->base_key : _SMC_KEY("gP\0\0");
+ 	smcgp->j700_pcio = of_machine_is_compatible("apple,j700") &&
+ 				device_is_compatible(&pdev->dev, "apple,smc-gpio");
+-	smcgp->j713 = of_machine_is_compatible("apple,j713");
++	smcgp->j713 = of_machine_is_compatible("apple,j713") ||
++		      of_machine_is_compatible("apple,j716s");
+ 	mutex_init(&smcgp->j713_reg_on_lock);
+ 
+ 	smcgp->first_index = macsmc_gpio_find_first_gpio_index(smcgp);
+-- 
+2.56.0
+
