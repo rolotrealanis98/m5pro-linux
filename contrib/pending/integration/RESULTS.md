@@ -880,3 +880,27 @@ shadow tunables) that m1n1 0022 fills from the ADT. No `chosen/m5pro,n1` (W0 doe
 Not captured: m1n1's `n1: port 0: ... linksts ...` line (no `phram.ko` on the root for this kernel; the modules build will
 provide it, or a panel video). Next: W1 (`RUN-W1.md`, attended: m1n1 trains apcie0 port 0 behind `chosen.m5pro,n1=1`).
 
+### Result (W1, 2026-11-07 11:50 UTC, attended: Rolando at the machine)
+
+Payload `w1-n1train-20261107-3c0a1eff.bin` (`n1-wifi/prep/RUN-W1.md`): W0 plus m1n1 `n1-train` (0020-0023) and
+`chosen.m5pro,n1=1`. **Boots, no revert, no NVMe disturbance; the training was refused by its own guard.** The stage-2 log
+(read on the running system through `phram`: the kernel's reserved-memory `flash@...` nodes carry `compatible = "phram"`
+with labels `m1n1_stage2.log` and `adt`, so `modprobe phram` with no parameters exposes them as `/dev/mtd0` and `/dev/mtd1`;
+`phram.ko` is now installed on the root for the series kernel) says:
+
+    n1: control function: firmware-name apple/centauri/j716s-ftab.bin, platform-id 0x000c6050
+    n1: chosen.m5pro,n1=1: training apcie0 port 0
+    pcie-t6050: STOP: ANS is not running (before)
+    n1: port 0 training stopped; booting without the N1
+    n1: port 0: rc ctl 0x0 stat 0x1, port status 0x6 linksts 0xc300220c ltssm 0x0
+    n1: port 0 not up: root port and DART disabled
+
+- **W0's open question is answered:** iBoot does not train port 0 (`ltssm 0x0`, `linksts` bit 0 = 0).
+- **Why W1 stopped:** 0023 snapshots the ANS/storage state before touching the shared GP PHY and refuses when the ANS is not
+  running. In our chain (A/B stage-1 chainloads `boot.bin` from the ESP, then stage-2 runs kboot) the ANS is stopped at
+  that point; Linux's nvme-apple starts it itself. So the guard can never pass as designed on this chain.
+- The kernel therefore saw the port disabled (`pcie-apple ... -22`), the `pci@0,0` node and its tunables removed by m1n1,
+  network up, selftest "network OK"; ESP restored to the daily afterwards.
+- Next: an m1n1 change (`n1-wifi/w2/`): start the ANS in stage-2 for the training window, or train without the snapshot
+  when the ANS is down, or train in stage-1; agent analysis in progress.
+
