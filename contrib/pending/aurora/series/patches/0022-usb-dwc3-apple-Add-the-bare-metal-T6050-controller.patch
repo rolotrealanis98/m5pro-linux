@@ -14,7 +14,6 @@ start (a no-op without a PHY reset op), and a USB3 PHY failure is fatal,
 as on T8132.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---
  .../devicetree/bindings/usb/apple,dwc3.yaml   | 40 +++++++-

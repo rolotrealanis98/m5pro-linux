@@ -25,7 +25,6 @@ first DMA channel request may still stall; the serializer format the
 amps and the jack codec must be set to (macaudio's default I2S IB_IF
 is kept).
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 [port to integration/aurora (aurora-j716s 6d9f1ec652a6): the driver is
  aop_t8140.rs, a backend of aop_audio.rs, here; the compatible goes into
  aop_audio.rs's table as AopVariant::T8140(&HW_T6050) and probe takes

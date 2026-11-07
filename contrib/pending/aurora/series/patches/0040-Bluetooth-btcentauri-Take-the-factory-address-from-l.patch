@@ -10,7 +10,6 @@ byte first), falling back to local-mac-address, and let the binding
 accept either.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 
 (cherry picked from commit 562736dae347662b9d6ada221ee3fcb3fea9dba4)

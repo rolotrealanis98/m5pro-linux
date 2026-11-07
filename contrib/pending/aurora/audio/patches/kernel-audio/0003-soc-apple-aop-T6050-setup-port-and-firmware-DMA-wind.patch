@@ -37,7 +37,6 @@ logged at info level.
 Result on J714c: setup port complete, 13 AFK endpoints up, aop-audio /
 aop-audprov / aop-voicetrigger announced.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 [port to integration/aurora (aurora-j716s 6d9f1ec652a6): squashes the
  driver parts of 053f1912e7d5 ("AOP bring-up step 1") and f4427365cc8f;
  the T6050 entry carries this tree's ncal/fw_regions/bootargs fields;

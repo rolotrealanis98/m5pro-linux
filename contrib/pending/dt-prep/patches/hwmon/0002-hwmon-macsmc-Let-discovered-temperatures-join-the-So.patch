@@ -15,7 +15,6 @@ creates for it (labelled with the key) is marked for the zone instead.
 Machines that set only one of the two properties are unchanged.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---
  .../bindings/hwmon/apple,smc-hwmon.yaml           |  4 +++-

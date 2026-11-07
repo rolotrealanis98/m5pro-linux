@@ -23,7 +23,6 @@ loader left, and ANS's NVMe runs behind it (Linux boots from and writes
 to its NVMe partition).
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---
  drivers/soc/apple/sart.c | 38 ++++++++++++++++++++++++++++++++------

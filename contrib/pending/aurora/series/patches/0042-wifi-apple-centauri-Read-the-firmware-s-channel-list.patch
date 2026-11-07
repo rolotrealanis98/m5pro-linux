@@ -19,7 +19,6 @@ status reply (20) from it; the copy of the country reply (10), which
 nothing requested, goes.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 
 (cherry picked from commit 3bb5586dd340e7c50f8726874c3a2219c4c47a94)

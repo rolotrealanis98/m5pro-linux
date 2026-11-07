@@ -6,7 +6,6 @@ critical-battery event (0x71020000) arriving between the two would have its
 queued work re-initialised under the workqueue, corrupting it. Initialise
 both before the notifier is registered and drop the second INIT_WORK.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 
 diff --git a/drivers/power/supply/macsmc-power.c b/drivers/power/supply/macsmc-power.c
 index addb43489..f5d4ec0c2 100644

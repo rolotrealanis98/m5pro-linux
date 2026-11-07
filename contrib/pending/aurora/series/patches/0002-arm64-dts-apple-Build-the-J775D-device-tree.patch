@@ -7,7 +7,6 @@ Build t6050-j775d.dtb, the Mac Studio with the M5 Ultra (J775D, T6050),
 with the other Apple device trees.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---
  arch/arm64/boot/dts/apple/Makefile | 1 +

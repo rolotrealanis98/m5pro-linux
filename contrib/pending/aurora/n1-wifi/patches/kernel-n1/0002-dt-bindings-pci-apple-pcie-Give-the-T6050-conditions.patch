@@ -14,7 +14,6 @@ then".
 No change in what the binding accepts.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 (cherry picked from commit 11481f95c508b518ce462fec1c9e44f18c62cd16)
 ---

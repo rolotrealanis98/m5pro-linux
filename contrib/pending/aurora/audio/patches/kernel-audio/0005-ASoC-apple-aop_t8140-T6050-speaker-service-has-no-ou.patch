@@ -11,7 +11,6 @@ back to pw0, so the amplifiers saw a TDM clock that stopped at once
 HwConfig.spkr_output_mute, false on T6050: the stream runs unmuted from
 pwrd and the amplifiers' own shutdown mutes.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 [port to integration/aurora (aurora-j716s 6d9f1ec652a6): the
  t8140_aop_audio part of 7818011b2ba8 ("ASoC: apple: macaudio,
  t8140_aop_audio: J714 speakers on, -30 dB in every state"); its J714

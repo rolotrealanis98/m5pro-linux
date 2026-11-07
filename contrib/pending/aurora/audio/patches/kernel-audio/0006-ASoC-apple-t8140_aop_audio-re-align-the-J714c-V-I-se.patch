@@ -29,7 +29,6 @@ correlated V/I at 4.4-4.6 ohm (woofers) and 3.1-3.6 ohm (tweeters),
 speakersafetyd runs without a panic, and a tone plays on every speaker
 with the daemon holding the volume at the -30 dB ceiling.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
 [port to integration/aurora (aurora-j716s 6d9f1ec652a6): applied
  unchanged to sound/soc/apple/aop_t8140.rs, t8140_aop_audio.rs's name in
