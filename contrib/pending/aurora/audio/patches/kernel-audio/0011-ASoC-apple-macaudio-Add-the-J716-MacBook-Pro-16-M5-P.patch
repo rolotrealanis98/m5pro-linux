@@ -1,4 +1,4 @@
-From e828496cc88a15297c6b7d93f93d215699e45ab6 Mon Sep 17 00:00:00 2001
+From 1d2ac24c066e00f2e55dc7a944c14f040a2c117a Mon Sep 17 00:00:00 2001
 From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
 Date: Fri, 6 Nov 2026 19:31:21 -0500
 Subject: [PATCH 11/11] ASoC: apple: macaudio: Add the J716 (MacBook Pro 16" M5

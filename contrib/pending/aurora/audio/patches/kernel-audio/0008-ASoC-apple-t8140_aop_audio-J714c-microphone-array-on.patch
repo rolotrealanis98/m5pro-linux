@@ -1,4 +1,4 @@
-From d6fab572cfb292587e2455733c52c7371486e791 Mon Sep 17 00:00:00 2001
+From f61e36b944da850589b2fb88b4320d5d26e69167 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Fri, 6 Nov 2026 10:20:13 +0100
 Subject: [PATCH 08/11] ASoC: apple: t8140_aop_audio: J714c microphone array on

@@ -1,4 +1,4 @@
-From 13456ffdf851547af714cbc956b7a0b3f277d7ec Mon Sep 17 00:00:00 2001
+From 55d14a3eab5f74869f94cfa31948004f980852d0 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Fri, 6 Nov 2026 01:54:34 +0100
 Subject: [PATCH 06/11] ASoC: apple: t8140_aop_audio: re-align the J714c V/I

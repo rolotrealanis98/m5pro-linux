@@ -1,4 +1,4 @@
-From 4627367aae52add8669746e0382816781dc3d5a6 Mon Sep 17 00:00:00 2001
+From d443f701d401bbfb02986a744b4e69798de9d1dc Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Fri, 6 Nov 2026 00:10:57 +0100
 Subject: [PATCH 05/11] ASoC: apple: aop_t8140: T6050 speaker service has no

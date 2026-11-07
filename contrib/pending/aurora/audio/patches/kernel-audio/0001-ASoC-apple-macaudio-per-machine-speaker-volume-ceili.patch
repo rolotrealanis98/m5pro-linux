@@ -1,4 +1,4 @@
-From 19d33fcef22208962167c19751b50aa592f0dc43 Mon Sep 17 00:00:00 2001
+From 773f651a700a8f342f804032e1dd1d3fbdf3cc57 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Thu, 5 Nov 2026 20:00:51 +0100
 Subject: [PATCH 01/11] ASoC: apple: macaudio: per-machine speaker volume
