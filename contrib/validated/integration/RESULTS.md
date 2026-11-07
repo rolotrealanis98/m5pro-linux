@@ -1434,3 +1434,15 @@ The GPU kernel is the daily. `boot.bin` = `e2b-daily-20261107-fd4b3b9e.bin` (ker
 - Preceded by the 25-minute Hyprland-on-GPU soak on the same kernel (zink over Borealis, glmark2 clean, 0 GPU errors; see "GPU soak" above).
 - Desktop: `~rolo/.local/bin/hypr-session` now starts the GPU session by itself when a `/sys/class/drm/card*/device/driver` resolves to `aurora` and `/opt/mesa-aurora` exists (software session otherwise, or when `/etc/hypr-gpu-disable` exists; `/run/hypr-gpu` forces it for one boot; a GPU session that dies within 30 s is replaced by the software session). Mesa variables come from `/etc/mesa-aurora/session.env` and are exported to Hyprland, the user manager and the D-Bus activation environment. Not yet seen live: a full desktop login on this kernel (next attended boot).
 - Rollback: `put` the previous daily `daily-wifi-20261107-4feff24c.bin` back as `boot.bin` (kept in `~/Work/agents/next-daily/payloads/private/`).
+
+## First-boot fallback root cause (2026-11-07, analysis of today's logs)
+
+Not a stage-1 read problem. The timing of the fallback boots (reboot sent to kernel start 21-28 s, same as a clean
+reboot) shows the stage-1 found iBoot's error count already set on its first pass: the restart of the session that
+had just written tens of MB to the FAT ESP was counted (vfat `sync` sends no device flush; apple-nvme's final
+shutdown waits at most 5 s). Every fallback today followed an ESP write + reboot within 1 s; every reboot without a
+write was clean. Full analysis, the 0017 stage-1 patch (size check against the directory entry, watchdog re-armed
+after the read, optional 0x31/0x32 stage marks so a counted restart boots the primary) and the `esp-put.sh` write
+procedure are in `contrib/pending/boot-ab/firstboot/`. Two corrections: E2b's first boot did not fall back (it booted
+and went silent); the W4 restore fallback fits this cause, not a warm-N1 hang. Decision: use `esp-put.sh` for every
+ESP write from now on; 0017 goes on the stage-1 slots in an attended sitting.
