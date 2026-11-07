@@ -1,0 +1,82 @@
+From 12364db92c1db06187119ceda612c10002cfb0a7 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 08:52:36 -0500
+Subject: [PATCH] arm64: configs: j716s: kernel crypto for iwd and
+ wpa_supplicant
+
+iwd links no crypto library: it does its hashing, ciphers and key
+derivation through the kernel's AF_ALG sockets, and fails to start when
+the algorithms it opens are missing. The running config has
+CRYPTO_USER_API=m with USER_API_HASH, USER_API_SKCIPHER and USER_API_AEAD
+off, KEY_DH_OPERATIONS off, CRYPTO_ARC4 and CRYPTO_MD4 unset, and
+CRYPTO_DES, CRYPTO_MD5, CRYPTO_CTR, CRYPTO_CCM and CRYPTO_GCM only =m.
+The J716s root has no modules, so none of that is available and the N1
+Wi-Fi (already built in) cannot be used. Build in what is missing:
+
+- AF_ALG: CRYPTO_USER_API, USER_API_HASH and USER_API_SKCIPHER, which iwd
+  needs, and USER_API_AEAD for the AEAD ciphers (CCM, GCM). The RNG
+  interface stays =m; nothing here uses it.
+- Hashes and MACs: HMAC, CMAC, MD4, MD5, SHA1, SHA256 and SHA512.
+- Ciphers and modes: AES, ECB, CBC, CTR, CCM, GCM, DES and ARC4.
+- ECDH, for SAE (WPA3-Personal) and OWE.
+- KEY_DH_OPERATIONS: the keyctl Diffie-Hellman operations, which iwd's
+  documentation lists for WPS.
+
+The iwd wiki's kernel dependencies page names USER_API_SKCIPHER,
+USER_API_HASH, HMAC, CMAC, MD4, MD5, SHA256, SHA512, AES, ECB, DES, CBC
+and (for WPS) KEY_DH_OPERATIONS; all are in this list. The rest (AEAD,
+SHA1, CTR, CCM, GCM, ARC4, ECDH) is added for WPA3, the AEAD interface and the
+legacy EAP ciphers. AES, ECB, CBC, CMAC, HMAC, SHA1, SHA256, SHA512 and
+ECDH are already =y in the base configs; they are listed anyway so that
+a change there cannot drop them. CFG80211_WEXT stays off.
+
+The block sits after the Wi-Fi options, not at the end of the file, so
+it applies with or without the other pending j716s.config changes.
+
+Booted on the J716s (alone, and with the haptic and netfilter
+fragments): iwd starts.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/configs/j716s.config | 25 +++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index 0a467619560f..6c726cfa3a4c 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -65,6 +65,31 @@ CONFIG_APPLE_CENTAURI_WIFI=y
+ CONFIG_BT=y
+ CONFIG_BT_HCICENTAURI=y
+ 
++# Kernel crypto for iwd and wpa_supplicant: both do all of their hashing,
++# ciphers and key derivation through AF_ALG, so the user API and every
++# algorithm they name must be built in (the root has no modules)
++CONFIG_CRYPTO_USER_API=y
++CONFIG_CRYPTO_USER_API_AEAD=y
++CONFIG_CRYPTO_USER_API_HASH=y
++CONFIG_CRYPTO_USER_API_SKCIPHER=y
++CONFIG_KEY_DH_OPERATIONS=y
++CONFIG_CRYPTO_AES=y
++CONFIG_CRYPTO_ARC4=y
++CONFIG_CRYPTO_CBC=y
++CONFIG_CRYPTO_CCM=y
++CONFIG_CRYPTO_CMAC=y
++CONFIG_CRYPTO_CTR=y
++CONFIG_CRYPTO_DES=y
++CONFIG_CRYPTO_ECB=y
++CONFIG_CRYPTO_ECDH=y
++CONFIG_CRYPTO_GCM=y
++CONFIG_CRYPTO_HMAC=y
++CONFIG_CRYPTO_MD4=y
++CONFIG_CRYPTO_MD5=y
++CONFIG_CRYPTO_SHA1=y
++CONFIG_CRYPTO_SHA256=y
++CONFIG_CRYPTO_SHA512=y
++
+ # Sleep: s2idle is the only state. PM_DEBUG adds /sys/power/pm_test, which
+ # runs the suspend path and resumes on its own after 5 s
+ CONFIG_PM_DEBUG=y
+-- 
+2.56.0
+

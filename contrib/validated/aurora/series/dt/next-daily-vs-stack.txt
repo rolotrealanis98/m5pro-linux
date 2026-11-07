@@ -1,0 +1,204 @@
+# tools/compare-dt.sh next-daily t6050-j716s.dtb (series 3f2bdbc61510) vs stack-right-port+hwmon.dtb (sha256 594f2a9f..., the 63-patch tip's DTB)
+# < next-daily   > stack
+### properties (< new, > ref)
+363,364d362
+< /soc@200000000/aop@290c00000/audio: apple,chassis-name = "J716"
+< /soc@200000000/aop@290c00000/audio: apple,machine-kind = "MacBook Pro"
+366,367c364,365
+< /soc@200000000/aop@290c00000/audio: dma-names = "spkr", "spkr-sense", "cout", "cin", "hpai"
+< /soc@200000000/aop@290c00000/audio: dmas = <&{/soc@200000000/dma-controller@293800000} 0x0>, <&{/soc@200000000/dma-controller@293800000} 0x1>, <&{/soc@200000000/dma-controller@293800000} 0x4>, <&{/soc@200000000/dma-controller@293800000} 0x5>, <&{/soc@200000000/dma-controller@2d3200000} 0x1>
+---
+> /soc@200000000/aop@290c00000/audio: dma-names = "cout", "cin", "spkr", "sense"
+> /soc@200000000/aop@290c00000/audio: dmas = <&{/soc@200000000/dma-controller@293800000} 0x4>, <&{/soc@200000000/dma-controller@293800000} 0x5>, <&{/soc@200000000/dma-controller@293800000} 0x0>, <&{/soc@200000000/dma-controller@293800000} 0x1>
+372,373c370,371
+< /soc@200000000/aop@290c00000: mbox-names = "mbox", "setup"
+< /soc@200000000/aop@290c00000: mboxes = <&{/soc@200000000/mailbox@290608000}>, <&{/soc@200000000/mailbox@2d067c000}>
+---
+> /soc@200000000/aop@290c00000: mbox-names = "mbox"
+> /soc@200000000/aop@290c00000: mboxes = <&{/soc@200000000/mailbox@290608000}>
+376c374
+< /soc@200000000/aop@290c00000: status = "okay"
+---
+> /soc@200000000/aop@290c00000: status = "disabled"
+440,448c438
+< /soc@200000000/dma-controller@293800000: status = "okay"
+< /soc@200000000/dma-controller@2d3200000: #dma-cells = <0x1>
+< /soc@200000000/dma-controller@2d3200000: (node)
+< /soc@200000000/dma-controller@2d3200000: apple,dma-range = <0x110 0x0 0x0 0x10000000>
+< /soc@200000000/dma-controller@2d3200000: compatible = "apple,t6050-admac", "apple,t8140-admac"
+< /soc@200000000/dma-controller@2d3200000: dma-channels = <0x9>
+< /soc@200000000/dma-controller@2d3200000: interrupts-extended = <&{/soc@200000000/interrupt-controller@280400000} 0x0 0x0 0x27e 0x4>, <0>, <0>, <0>
+< /soc@200000000/dma-controller@2d3200000: iommus = <&{/soc@200000000/iommu@290fc0000} 0xb>
+< /soc@200000000/dma-controller@2d3200000: reg = <0x2 0xd3200000 0x0 0x34000>
+---
+> /soc@200000000/dma-controller@293800000: status = "disabled"
+483,515d472
+< /soc@200000000/i2c@505014000/codec@38: #sound-dai-cells = <0x0>
+< /soc@200000000/i2c@505014000/codec@38: (node)
+< /soc@200000000/i2c@505014000/codec@38: apple,deferred-shutdown
+< /soc@200000000/i2c@505014000/codec@38: apple,speaker-config = <0xa0002>
+< /soc@200000000/i2c@505014000/codec@38: compatible = "ti,sn012776", "ti,tas2764"
+< /soc@200000000/i2c@505014000/codec@38: interrupts-extended = <&{/soc@200000000/pinctrl@29c000000} 0x6a 0x8>
+< /soc@200000000/i2c@505014000/codec@38: reg = <0x38>
+< /soc@200000000/i2c@505014000/codec@38: shutdown-gpios = <&{/soc@200000000/pinctrl@29c000000} 0x6b 0x0>
+< /soc@200000000/i2c@505014000/codec@38: sound-name-prefix = "Left Woofer 1"
+< /soc@200000000/i2c@505014000/codec@38: ti,imon-slot-no = <0x0>
+< /soc@200000000/i2c@505014000/codec@38: ti,vmon-slot-no = <0x2>
+< /soc@200000000/i2c@505014000/codec@39: #sound-dai-cells = <0x0>
+< /soc@200000000/i2c@505014000/codec@39: (node)
+< /soc@200000000/i2c@505014000/codec@39: apple,deferred-shutdown
+< /soc@200000000/i2c@505014000/codec@39: apple,speaker-config = <0x20a080a>
+< /soc@200000000/i2c@505014000/codec@39: compatible = "ti,sn012776", "ti,tas2764"
+< /soc@200000000/i2c@505014000/codec@39: interrupts-extended = <&{/soc@200000000/pinctrl@29c000000} 0x6a 0x8>
+< /soc@200000000/i2c@505014000/codec@39: reg = <0x39>
+< /soc@200000000/i2c@505014000/codec@39: shutdown-gpios = <&{/soc@200000000/pinctrl@29c000000} 0x6b 0x0>
+< /soc@200000000/i2c@505014000/codec@39: sound-name-prefix = "Left Woofer 2"
+< /soc@200000000/i2c@505014000/codec@39: ti,imon-slot-no = <0x8>
+< /soc@200000000/i2c@505014000/codec@39: ti,vmon-slot-no = <0xa>
+< /soc@200000000/i2c@505014000/codec@3a: #sound-dai-cells = <0x0>
+< /soc@200000000/i2c@505014000/codec@3a: (node)
+< /soc@200000000/i2c@505014000/codec@3a: apple,deferred-shutdown
+< /soc@200000000/i2c@505014000/codec@3a: apple,speaker-config = <0x40a1012>
+< /soc@200000000/i2c@505014000/codec@3a: compatible = "ti,sn012776", "ti,tas2764"
+< /soc@200000000/i2c@505014000/codec@3a: interrupts-extended = <&{/soc@200000000/pinctrl@29c000000} 0x6a 0x8>
+< /soc@200000000/i2c@505014000/codec@3a: reg = <0x3a>
+< /soc@200000000/i2c@505014000/codec@3a: shutdown-gpios = <&{/soc@200000000/pinctrl@29c000000} 0x6b 0x0>
+< /soc@200000000/i2c@505014000/codec@3a: sound-name-prefix = "Left Tweeter"
+< /soc@200000000/i2c@505014000/codec@3a: ti,imon-slot-no = <0x10>
+< /soc@200000000/i2c@505014000/codec@3a: ti,vmon-slot-no = <0x12>
+525,532c482
+< /soc@200000000/i2c@505014000: status = "okay"
+< /soc@200000000/i2c@505018000/codec@4b: #sound-dai-cells = <0x0>
+< /soc@200000000/i2c@505018000/codec@4b: (node)
+< /soc@200000000/i2c@505018000/codec@4b: compatible = "cirrus,cs42l84"
+< /soc@200000000/i2c@505018000/codec@4b: interrupts-extended = <&{/soc@200000000/pinctrl@29c000000} 0x86 0x8>
+< /soc@200000000/i2c@505018000/codec@4b: reg = <0x4b>
+< /soc@200000000/i2c@505018000/codec@4b: reset-gpios = <&{/soc@200000000/pinctrl@29c000000} 0x8b 0x0>
+< /soc@200000000/i2c@505018000/codec@4b: sound-name-prefix = "Jack"
+---
+> /soc@200000000/i2c@505014000: status = "disabled"
+542,584c492
+< /soc@200000000/i2c@505018000: status = "okay"
+< /soc@200000000/i2c@50501c000/codec@3b: #sound-dai-cells = <0x0>
+< /soc@200000000/i2c@50501c000/codec@3b: (node)
+< /soc@200000000/i2c@50501c000/codec@3b: apple,deferred-shutdown
+< /soc@200000000/i2c@50501c000/codec@3b: apple,speaker-config = <0x10a0406>
+< /soc@200000000/i2c@50501c000/codec@3b: compatible = "ti,sn012776", "ti,tas2764"
+< /soc@200000000/i2c@50501c000/codec@3b: interrupts-extended = <&{/soc@200000000/pinctrl@29c000000} 0x6a 0x8>
+< /soc@200000000/i2c@50501c000/codec@3b: reg = <0x3b>
+< /soc@200000000/i2c@50501c000/codec@3b: shutdown-gpios = <&{/soc@200000000/pinctrl@29c000000} 0x6b 0x0>
+< /soc@200000000/i2c@50501c000/codec@3b: sound-name-prefix = "Right Woofer 1"
+< /soc@200000000/i2c@50501c000/codec@3b: ti,imon-slot-no = <0x4>
+< /soc@200000000/i2c@50501c000/codec@3b: ti,vmon-slot-no = <0x6>
+< /soc@200000000/i2c@50501c000/codec@3c: #sound-dai-cells = <0x0>
+< /soc@200000000/i2c@50501c000/codec@3c: (node)
+< /soc@200000000/i2c@50501c000/codec@3c: apple,deferred-shutdown
+< /soc@200000000/i2c@50501c000/codec@3c: apple,speaker-config = <0x30a0c0e>
+< /soc@200000000/i2c@50501c000/codec@3c: compatible = "ti,sn012776", "ti,tas2764"
+< /soc@200000000/i2c@50501c000/codec@3c: interrupts-extended = <&{/soc@200000000/pinctrl@29c000000} 0x6a 0x8>
+< /soc@200000000/i2c@50501c000/codec@3c: reg = <0x3c>
+< /soc@200000000/i2c@50501c000/codec@3c: shutdown-gpios = <&{/soc@200000000/pinctrl@29c000000} 0x6b 0x0>
+< /soc@200000000/i2c@50501c000/codec@3c: sound-name-prefix = "Right Woofer 2"
+< /soc@200000000/i2c@50501c000/codec@3c: ti,imon-slot-no = <0xc>
+< /soc@200000000/i2c@50501c000/codec@3c: ti,vmon-slot-no = <0xe>
+< /soc@200000000/i2c@50501c000/codec@3d: #sound-dai-cells = <0x0>
+< /soc@200000000/i2c@50501c000/codec@3d: (node)
+< /soc@200000000/i2c@50501c000/codec@3d: apple,deferred-shutdown
+< /soc@200000000/i2c@50501c000/codec@3d: apple,speaker-config = <0x50a1416>
+< /soc@200000000/i2c@50501c000/codec@3d: compatible = "ti,sn012776", "ti,tas2764"
+< /soc@200000000/i2c@50501c000/codec@3d: interrupts-extended = <&{/soc@200000000/pinctrl@29c000000} 0x6a 0x8>
+< /soc@200000000/i2c@50501c000/codec@3d: reg = <0x3d>
+< /soc@200000000/i2c@50501c000/codec@3d: shutdown-gpios = <&{/soc@200000000/pinctrl@29c000000} 0x6b 0x0>
+< /soc@200000000/i2c@50501c000/codec@3d: sound-name-prefix = "Right Tweeter"
+< /soc@200000000/i2c@50501c000/codec@3d: ti,imon-slot-no = <0x14>
+< /soc@200000000/i2c@50501c000/codec@3d: ti,vmon-slot-no = <0x16>
+< /soc@200000000/i2c@50501c000: #address-cells = <0x1>
+< /soc@200000000/i2c@50501c000: #size-cells = <0x0>
+< /soc@200000000/i2c@50501c000: (node)
+< /soc@200000000/i2c@50501c000: clocks = <&{/clock-ref}>
+< /soc@200000000/i2c@50501c000: compatible = "apple,t6050-i2c", "apple,t8103-i2c"
+< /soc@200000000/i2c@50501c000: interrupt-parent = <&{/soc@200000000/interrupt-controller@280400000}>
+< /soc@200000000/i2c@50501c000: interrupts = <0x0 0x0 0x562 0x4>
+< /soc@200000000/i2c@50501c000: power-domains = <&{/soc@200000000/power-management@280900000/power-controller@2d8}>
+< /soc@200000000/i2c@50501c000: reg = <0x5 0x501c000 0x0 0x4000>
+---
+> /soc@200000000/i2c@505018000: status = "disabled"
+593c501
+< /soc@200000000/iommu@290fc0000: compatible = "apple,t6050-dart", "apple,t8142-dart", "apple,t8110-dart"
+---
+> /soc@200000000/iommu@290fc0000: compatible = "apple,t6050-dart", "apple,t8110-dart"
+597c505
+< /soc@200000000/iommu@290fc0000: status = "okay"
+---
+> /soc@200000000/iommu@290fc0000: status = "disabled"
+707c615
+< /soc@200000000/mailbox@290608000: status = "okay"
+---
+> /soc@200000000/mailbox@290608000: status = "disabled"
+727,735d634
+< /soc@200000000/mailbox@2d067c000: #mbox-cells = <0x0>
+< /soc@200000000/mailbox@2d067c000: (node)
+< /soc@200000000/mailbox@2d067c000: apple,dma-range = <0x200 0x0 0x10 0x0>
+< /soc@200000000/mailbox@2d067c000: compatible = "apple,t6050-aop-setup-mailbox", "apple,t8140-aop-setup-mailbox"
+< /soc@200000000/mailbox@2d067c000: interrupt-names = "send-empty", "recv-not-empty"
+< /soc@200000000/mailbox@2d067c000: interrupt-parent = <&{/soc@200000000/interrupt-controller@280400000}>
+< /soc@200000000/mailbox@2d067c000: interrupts = <0x0 0x0 0x246 0x4 0x0 0x0 0x249 0x4>
+< /soc@200000000/mailbox@2d067c000: iommus = <&{/soc@200000000/iommu@290fc0000} 0x1>
+< /soc@200000000/mailbox@2d067c000: reg = <0x2 0xd067c000 0x0 0x4000>
+866c765
+< /soc@200000000/pinctrl@29c000000: gpio-reserved-ranges = <0x0 0x50 0x51 0x19 0x6c 0x1a 0x87 0x4 0x8c 0x51>
+---
+> /soc@200000000/pinctrl@29c000000: gpio-reserved-ranges = <0x0 0x50 0x51 0x8c>
+957,962d855
+< /soc@200000000/power-management@280900000/power-controller@2d8: #power-domain-cells = <0x0>
+< /soc@200000000/power-management@280900000/power-controller@2d8: #reset-cells = <0x0>
+< /soc@200000000/power-management@280900000/power-controller@2d8: (node)
+< /soc@200000000/power-management@280900000/power-controller@2d8: compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate"
+< /soc@200000000/power-management@280900000/power-controller@2d8: label = "i2c3"
+< /soc@200000000/power-management@280900000/power-controller@2d8: reg = <0x2d8 0x4>
+1312,1334d1204
+< /sound/dai-link@0/codec: (node)
+< /sound/dai-link@0/codec: sound-dai = <&{/soc@200000000/i2c@505018000/codec@4b}>
+< /sound/dai-link@0/cpu: (node)
+< /sound/dai-link@0/cpu: sound-dai = <&{/soc@200000000/aop@290c00000/audio} 0x0>
+< /sound/dai-link@0: (node)
+< /sound/dai-link@0: link-name = "Headphone Jack"
+< /sound/dai-link@0: reg = <0x0>
+< /sound/dai-link@1/codec: (node)
+< /sound/dai-link@1/codec: sound-dai = <&{/soc@200000000/i2c@505014000/codec@38}>, <&{/soc@200000000/i2c@50501c000/codec@3b}>, <&{/soc@200000000/i2c@505014000/codec@39}>, <&{/soc@200000000/i2c@50501c000/codec@3c}>, <&{/soc@200000000/i2c@505014000/codec@3a}>, <&{/soc@200000000/i2c@50501c000/codec@3d}>
+< /sound/dai-link@1/cpu: (node)
+< /sound/dai-link@1/cpu: sound-dai = <&{/soc@200000000/aop@290c00000/audio} 0x4>
+< /sound/dai-link@1: (node)
+< /sound/dai-link@1: dai-tdm-idle-mode-0 = "zero"
+< /sound/dai-link@1: dai-tdm-idle-mode-1 = "zero"
+< /sound/dai-link@1: dai-tdm-slot-tx-idle-mask-0 = <0xf0f0f0>
+< /sound/dai-link@1: dai-tdm-slot-tx-idle-mask-1 = <0xf0f0f>
+< /sound/dai-link@1: link-name = "Speakers"
+< /sound/dai-link@1: reg = <0x1>
+< /sound: #address-cells = <0x1>
+< /sound: #size-cells = <0x0>
+< /sound: (node)
+< /sound: compatible = "apple,j716-macaudio", "apple,macaudio"
+< /sound: model = "MacBook Pro J716"
+### child order (< new, > ref)
+1c1
+< /: memory@10000000000 reserved-memory cpus opp-table-mcluster opp-table-pcluster clock-ref clock-405m timer soc@200000000 pcie@1cb0000000 aliases chosen led-controller sound
+---
+> /: memory@10000000000 reserved-memory cpus opp-table-mcluster opp-table-pcluster clock-ref clock-405m timer soc@200000000 pcie@1cb0000000 aliases chosen led-controller
+5c5
+< /soc@200000000: performance-controller@210e20000 performance-controller@211e20000 performance-controller@212e20000 power-management@280600000 power-management@280900000 power-management@288300000 iommu@2b2340000 iommu@2b2300000 mailbox@2b2e08000 pmc-metadata@286700000 dcp@2b2e00000 mailbox@2ab148000 phy@2ab000000 usb@2aa280000 iommu@2aaf00000 iommu@2aaf80000 interrupt-controller@280400000 serial@288e3c000 watchdog@28836c000 mailbox@28c608000 pinctrl@290824000 smc@28c600000 iommu@41dc50000 mailbox@419608000 nvme@45dcc0000 iommu@412000000 iommu@410000000 iommu@413000000 spmi@28a014000 power-management@286806000 reset-controller@280620000 mailbox@383148000 phy@383000000 mux@38324c000 spmi@28a188000 usb@382280000 iommu@382f00000 iommu@382f80000 mailbox@389108000 cio@389ac0000 mailbox@38b148000 phy@38b000000 usb@38a280000 iommu@38af00000 iommu@38af80000 spmi@28a1c8000 pinctrl@29c000000 i2c@505014000 i2c@505018000 spi@505118000 mailbox@290608000 iommu@290fc0000 dma-controller@293800000 aop@290c00000 mailbox@294608000 iommu@294800000 mtp@294600000 fifo@294b14000 pwm@505040000 usb@2a2280000 iommu@2a2f00000 iommu@2a2f80000 spmi@28a1a8000 i2c@50501c000 mailbox@2d067c000 dma-controller@2d3200000
+---
+> /soc@200000000: performance-controller@210e20000 performance-controller@211e20000 performance-controller@212e20000 power-management@280600000 power-management@280900000 power-management@288300000 iommu@2b2340000 iommu@2b2300000 mailbox@2b2e08000 pmc-metadata@286700000 dcp@2b2e00000 mailbox@2ab148000 phy@2ab000000 usb@2aa280000 iommu@2aaf00000 iommu@2aaf80000 interrupt-controller@280400000 serial@288e3c000 watchdog@28836c000 mailbox@28c608000 pinctrl@290824000 smc@28c600000 iommu@41dc50000 mailbox@419608000 nvme@45dcc0000 iommu@412000000 iommu@410000000 iommu@413000000 spmi@28a014000 power-management@286806000 reset-controller@280620000 mailbox@383148000 phy@383000000 mux@38324c000 spmi@28a188000 usb@382280000 iommu@382f00000 iommu@382f80000 mailbox@389108000 cio@389ac0000 mailbox@38b148000 phy@38b000000 usb@38a280000 iommu@38af00000 iommu@38af80000 spmi@28a1c8000 pinctrl@29c000000 i2c@505014000 i2c@505018000 spi@505118000 mailbox@290608000 iommu@290fc0000 dma-controller@293800000 aop@290c00000 mailbox@294608000 iommu@294800000 mtp@294600000 fifo@294b14000 pwm@505040000 usb@2a2280000 iommu@2a2f00000 iommu@2a2f80000 spmi@28a1a8000
+7c7
+< /soc@200000000/power-management@280900000: power-controller@2c8 power-controller@2d0 power-controller@308 power-controller@350 power-controller@2a8 power-controller@2d8
+---
+> /soc@200000000/power-management@280900000: power-controller@2c8 power-controller@2d0 power-controller@308 power-controller@350 power-controller@2a8
+32,33d31
+< /soc@200000000/i2c@505014000: codec@38 codec@39 codec@3a
+< /soc@200000000/i2c@505018000: codec@4b
+43d40
+< /soc@200000000/i2c@50501c000: codec@3b codec@3c codec@3d
+48,50d44
+< /sound: dai-link@0 dai-link@1
+< /sound/dai-link@0: cpu codec
+< /sound/dai-link@1: cpu codec

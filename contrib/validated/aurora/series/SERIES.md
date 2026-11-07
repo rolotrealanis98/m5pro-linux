@@ -1,14 +1,14 @@
 # J716s patch series on Aurora `integration/aurora`
 
-87 patches (58 + 29 added since) on `aurora/integration` = `33bec4016c46` (aurora-silicon PR #1040 merge). They replace
+86 patches (58 + 28 added since) on `aurora/integration` = `33bec4016c46` (aurora-silicon PR #1040 merge). They replace
 branch `aurora-j716s` (`b790125548c4`, worktree `/Volumes/linux-cs/wt-aurora`) as the kernel source
 for the J716s (MacBook Pro 16-inch, M5 Pro). Built from worktree `/Volumes/linux-cs/wt-series`
-(branch `j716s-series`, tip `ff9c25b3c581`, 87 patches since 2026-11-07 "next daily" (see "Next daily" below; the previous tip `a83b052e9ffb` with 63 patches is kept as branch `j716s-series-pre-next-daily`). 63-patch state: 0059 SMC sensors, 0060 right Type-C port, 0061 WFI idle override, 0062 PM_DEBUG, 0066 lid-open confirm (lid sleep tested), all hardware-tested, re-authored 2026-11-07 to `Rolando Trevino <rolotrealanis@gmail.com>` with `Signed-off-by` and without assistant trailers; the content is byte-identical to `4f630b11270d`, which is the hash in the booted kernel version string), checked by `git am` in `/Volumes/linux-cs/wt-series-verify`.
+(branch `j716s-series`, tip `3f2bdbc61510`, 86 patches since 2026-11-07 "next daily" (see "Next daily" below; the previous tip `a83b052e9ffb` with 63 patches is kept as branch `j716s-series-pre-next-daily`). 63-patch state: 0059 SMC sensors, 0060 right Type-C port, 0061 WFI idle override, 0062 PM_DEBUG, 0066 lid-open confirm (lid sleep tested), all hardware-tested, re-authored 2026-11-07 to `Rolando Trevino <rolotrealanis@gmail.com>` with `Signed-off-by` and without assistant trailers; the content is byte-identical to `4f630b11270d`, which is the hash in the booted kernel version string), checked by `git am` in `/Volumes/linux-cs/wt-series-verify`.
 
-- `patches/0001..0087-*.patch`, order in `patches/series` (0066 comes before 0063-0065; 0063-0065 and 0067-0087 were added on 2026-11-07, see "Next daily"). Aurora's patches keep their
+- `patches/0001..0086-*.patch`, order in `patches/series` (0066 comes before 0063-0065; 0063-0065 and 0067-0086 were added on 2026-11-07, see "Next daily"). Aurora's patches keep their
   authors and messages; ours are authored and signed off by Rolando Trevino, without assistant trailers.
-- `j716s.config`: the config fragment as of the series tip (`arch/arm64/configs/j716s.config`, from 0058 plus 0062-0065, 0083, 0085).
-- `dt/t6050-j716s.dts`: the source device tree as of the series tip (0057 + 0059, 0060, 0082, 0084); `dt/next-daily-vs-stack.txt` and `dt/next-daily-vs-audio-defer.txt` are its comparisons (below); `dt/t6050-j716s.dtb` built from the
+- `j716s.config`: the config fragment as of the series tip (`arch/arm64/configs/j716s.config`, from 0058 plus 0062-0065, 0083, 0084).
+- `dt/t6050-j716s.dts`: the source device tree as of the series tip (0057 + 0059, 0060, 0082); `dt/next-daily-vs-stack.txt` and `dt/next-daily-vs-audio-defer.txt` are its comparisons (below); `dt/t6050-j716s.dtb` built from the
   series, `dt/t6050-j716s.decompiled.dts`, `dt/dt-diff.txt` (against the booted DTB).
 - `tools/dtnorm.py`, `tools/compare-dt.sh`: the DTB comparison used below.
 
@@ -102,21 +102,20 @@ A = Aurora's work we carry, B = ours. "Upstream" is where the patch lives or sho
 | 0081 | Rolando Trevino | ASoC: apple: macaudio: run the J716 speakers in the J616s frame | B | tdm 0004 (B6, unchanged) |
 | 0082 | Rolando Trevino | arm64: dts: apple: j716s: Add the audio hardware | B | with the J716s DT PR |
 | 0083 | Rolando Trevino | arm64: configs: j716s: Build in the AOP audio stack | B | ours |
-| 0084 | Rolando Trevino | arm64: dts: apple: j716s: Reserve a ramoops region | B | ours (cached, mem-type 2) |
-| 0085 | Rolando Trevino | arm64: configs: j716s: Build in ramoops and netconsole | B | ours |
-| 0086 | ed | PCI: apple: T6050 adopted ports: no ASPM, and a shutdown that holds the port | A (Ed's) | edimoldovan `ab24d156868e`; W4, not booted on the J716s |
-| 0087 | ed | wifi: apple: centauri: leave an N1 that never booted alone at remove and shutdown | A (Ed's) | edimoldovan `3a1bae4f8550`; W4, not booted on the J716s |
+| 0084 | Rolando Trevino | arm64: configs: j716s: Build in netconsole and ramoops | B | ours (no ramoops node in the DT) |
+| 0085 | ed | PCI: apple: T6050 adopted ports: no ASPM, and a shutdown that holds the port | A (Ed's) | edimoldovan `ab24d156868e`; W4 (the W4 kernel booted with it) |
+| 0086 | ed | wifi: apple: centauri: leave an N1 that never booted alone at remove and shutdown | A (Ed's) | edimoldovan `3a1bae4f8550`; W4 (the W4 kernel booted with it) |
 
 Patches 0001-0044 are the commits of `aurora-j716s` cherry-picked unchanged in this order (PR #945 linearised
 instead of merged). 0045-0050 are `aurora-j716s`'s own commits with rewritten messages (the rtkit one gained
 a body); 0049 is Dj's and unchanged. 0051-0058 are new and replace
 `6a6d7dfdc307` (the J716s DT that was not what we boot) and the hand-edited DTB.
 
-## Next daily (2026-11-07): 0063-0065, 0067-0087
+## Next daily (2026-11-07): 0063-0065, 0067-0086
 
 Appended to `a83b052e9ffb` (the 63-patch tip) in this order, one commit per patch; all apply as plain
-cherry-picks or `git am` except where noted. `git apply` of the 87 files in `patches/series` on `33bec4016c46`
-gives the tree of `ff9c25b3c581` (`d49b1368b8ee`).
+cherry-picks or `git am` except where noted. `git apply` of the 86 files in `patches/series` on `33bec4016c46`
+gives the tree of `3f2bdbc61510` (`63fec9cee9d4`).
 
 - **0063-0065** (haptic, netfilter/routing/WireGuard, iwd crypto): `j716s-daily-next` `595c6158`/`80bbf87e`/
   `24e777af` cherry-picked; tree identical to the full2 kernel plus 0066. The "Not booted" sentences now state the
@@ -130,13 +129,15 @@ gives the tree of `ff9c25b3c581` (`d49b1368b8ee`).
   the jack codec, the AOP/dart-aop/ADMAC enables, the five audio pins, the sound card.
 - **0083** (audio config, new): `RUST=y` (was `=n`), `APPLE_PMP` and `DRM_ASAHI` off, and the options of
   `contrib/pending/audio/aurora/audio.config` incl. `I2C_CHARDEV` and `DYNAMIC_DEBUG` as in the audio candidate.
-- **0084-0085** (crash log): `contrib/pending/crashlog/patches/0001-0002`. 0084 now maps the ramoops region cached
-  (`mem-type = <2>`): the unbuffered `<1>` kernel did not boot on the J716s, the cached one boots and registers the
-  store; comment and message say so. 0085's hunk conflicted only on context (0064 rewrote the `# Userspace` block);
-  its block was placed after `PM_DEBUG`, content unchanged.
-- **0086-0087** (W4 pcie-apple adopted-port ASPM strip and shutdown park, centauri never-booted remove): edimoldovan's
+- **0084** (crash log, config only): `contrib/pending/crashlog/patches/0002`, reworded: netconsole, `PANIC_TIMEOUT=10`,
+  and `PSTORE_RAM`/`CONSOLE`/`PMSG` built in for a loader-supplied node. The ramoops DT node (crashlog 0001) is **not**
+  in the series: iBoot zeroes the ECC DRAM and clears `/pram` at every boot (CRASHLOG-PRAM in `RESULTS.md`), and a DT
+  node would block m1n1 0028's own node. Its hunk conflicted only on context (0064 rewrote the `# Userspace` block);
+  the block sits after `PM_DEBUG`.
+- **0085-0086** (W4 pcie-apple adopted-port ASPM strip and shutdown park, centauri never-booted remove): edimoldovan's
   commits from `contrib/pending/wireless/patches/linux`, author kept, Signed-off-by Rolando Trevino; they applied
-  cleanly. Not booted on the J716s; inert while the payload's m1n1 does not train port 0 (port00 stays disabled).
+  cleanly. The same two patches are in the W4 kernel (`7.3.0-gff289b9ce8ec`, three warm restarts with the N1 in use);
+  on a payload whose m1n1 does not train port 0 they are inert (port00 stays disabled).
 
 **Config:** `defconfig asahi.config j716s.config` sets every fragment symbol as written. Against the full2 kernel's
 config the differences are the audio stack with Rust and its selects, the crash-log options (with `NETPOLL`,
@@ -145,9 +146,9 @@ against the audio candidate's config: 0062-0065 and the crash-log options.
 
 **DT:** `t6050-j716s.dtb` from the tip against the stack DTB (`~/Work/agents/dt-prep/build/stack-right-port+hwmon.dtb`,
 sha256 `594f2a9f`, = the 63-patch tip's DTB) with `tools/compare-dt.sh`: the only differences are the audio nodes and
-properties of 0082 and `/reserved-memory/ramoops@10200000000` (`dt/next-daily-vs-stack.txt`); right port, SMC
-sensors and everything else are unchanged. Against the defer DTB the audio nodes match property for property; the
-remaining differences are the right port, hwmon, ramoops, the four rows of the table below, the explicit
+properties of 0082 (`dt/next-daily-vs-stack.txt`); right port, SMC sensors, the empty `/reserved-memory` and
+everything else are unchanged; there is no ramoops node. Against the defer DTB the audio nodes match property for property; the
+remaining differences are the right port, hwmon, the four rows of the table below, the explicit
 `status = "okay"` the defer DTB carries on its three new nodes, and child order (`dt/next-daily-vs-audio-defer.txt`).
 
 **Build:** Rust needs Aurora's bindgen, so the kernel is built in the Fedora 43 container (clang 21, rustc 1.99.1)
@@ -156,7 +157,7 @@ with `BINDGEN=<tree>/tools/aurora-bindgen/build/bin/bindgen` on the make line, i
 binary). Release string, hashes and payloads: `~/Work/agents/next-daily/REPORT.md`.
 
 **Revert:** `git -C /Volumes/linux-cs/wt-series reset --hard a83b052e9ffb` (or `j716s-series-pre-next-daily`), and
-drop 0063-0065 and 0067-0087 from `patches/series`.
+drop 0063-0065 and 0067-0086 from `patches/series`.
 
 ## Differences from `aurora-j716s`
 

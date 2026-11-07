@@ -1,0 +1,169 @@
+# tools/compare-dt.sh next-daily t6050-j716s.dtb (series 3f2bdbc61510) vs t6050-j716s-audio-spk-notun-edp.dtb (the B5/B6 defer DTB, sha256 9783ccb6...)
+# < next-daily   > defer DTB
+### properties (< new, > ref)
+448a449
+> /soc@200000000/dma-controller@2d3200000: status = "okay"
+584a586
+> /soc@200000000/i2c@50501c000: status = "okay"
+649c651
+< /soc@200000000/iommu@382f00000: status = "okay"
+---
+> /soc@200000000/iommu@382f00000: status = "disabled"
+657c659
+< /soc@200000000/iommu@382f80000: status = "okay"
+---
+> /soc@200000000/iommu@382f80000: status = "disabled"
+735a738
+> /soc@200000000/mailbox@2d067c000: status = "okay"
+742c745
+< /soc@200000000/mailbox@383148000: status = "okay"
+---
+> /soc@200000000/mailbox@383148000: status = "disabled"
+815,817d817
+< /soc@200000000/phy@383000000/port/endpoint: (node)
+< /soc@200000000/phy@383000000/port/endpoint: remote-endpoint = <&{/soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@1/endpoint}>
+< /soc@200000000/phy@383000000/port: (node)
+831c831
+< /soc@200000000/phy@383000000: status = "okay"
+---
+> /soc@200000000/phy@383000000: status = "disabled"
+874a875,880
+> /soc@200000000/power-management@280600000/power-controller@140: #power-domain-cells = <0x0>
+> /soc@200000000/power-management@280600000/power-controller@140: #reset-cells = <0x0>
+> /soc@200000000/power-management@280600000/power-controller@140: (node)
+> /soc@200000000/power-management@280600000/power-controller@140: compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate"
+> /soc@200000000/power-management@280600000/power-controller@140: label = "ans"
+> /soc@200000000/power-management@280600000/power-controller@140: reg = <0x140 0x4>
+887c893
+< /soc@200000000/power-management@280600000/power-controller@238: status = "okay"
+---
+> /soc@200000000/power-management@280600000/power-controller@238: status = "disabled"
+1017c1023
+< /soc@200000000/power-management@288300000/power-controller@178: status = "okay"
+---
+> /soc@200000000/power-management@288300000/power-controller@178: status = "disabled"
+1025c1031
+< /soc@200000000/power-management@288300000/power-controller@180: status = "okay"
+---
+> /soc@200000000/power-management@288300000/power-controller@180: status = "disabled"
+1033c1039
+< /soc@200000000/power-management@288300000/power-controller@188: status = "okay"
+---
+> /soc@200000000/power-management@288300000/power-controller@188: status = "disabled"
+1067c1073
+< /soc@200000000/reset-controller@280620000: compatible = "apple,t6050-cio-reset"
+---
+> /soc@200000000/reset-controller@280620000: compatible = "apple,t6050-cio-reset", "apple,t8142-cio-reset"
+1069d1074
+< /soc@200000000/reset-controller@280620000: status = "okay"
+1083,1117d1087
+< /soc@200000000/smc@28c600000/hwmon/current-ID0R: (node)
+< /soc@200000000/smc@28c600000/hwmon/current-ID0R: apple,key-id = "ID0R"
+< /soc@200000000/smc@28c600000/hwmon/current-ID0R: label = "AC Input Current"
+< /soc@200000000/smc@28c600000/hwmon/fan-F0Ac: (node)
+< /soc@200000000/smc@28c600000/hwmon/fan-F0Ac: apple,fan-maximum = "F0Mx"
+< /soc@200000000/smc@28c600000/hwmon/fan-F0Ac: apple,fan-minimum = "F0Mn"
+< /soc@200000000/smc@28c600000/hwmon/fan-F0Ac: apple,fan-mode = "F0md"
+< /soc@200000000/smc@28c600000/hwmon/fan-F0Ac: apple,fan-target = "F0Tg"
+< /soc@200000000/smc@28c600000/hwmon/fan-F0Ac: apple,key-id = "F0Ac"
+< /soc@200000000/smc@28c600000/hwmon/fan-F0Ac: label = "Fan 1"
+< /soc@200000000/smc@28c600000/hwmon/fan-F1Ac: (node)
+< /soc@200000000/smc@28c600000/hwmon/fan-F1Ac: apple,fan-maximum = "F1Mx"
+< /soc@200000000/smc@28c600000/hwmon/fan-F1Ac: apple,fan-minimum = "F1Mn"
+< /soc@200000000/smc@28c600000/hwmon/fan-F1Ac: apple,fan-mode = "F1md"
+< /soc@200000000/smc@28c600000/hwmon/fan-F1Ac: apple,fan-target = "F1Tg"
+< /soc@200000000/smc@28c600000/hwmon/fan-F1Ac: apple,key-id = "F1Ac"
+< /soc@200000000/smc@28c600000/hwmon/fan-F1Ac: label = "Fan 2"
+< /soc@200000000/smc@28c600000/hwmon/power-PDTR: (node)
+< /soc@200000000/smc@28c600000/hwmon/power-PDTR: apple,key-id = "PDTR"
+< /soc@200000000/smc@28c600000/hwmon/power-PDTR: label = "AC Input Power"
+< /soc@200000000/smc@28c600000/hwmon/power-PHPC: (node)
+< /soc@200000000/smc@28c600000/hwmon/power-PHPC: apple,key-id = "PHPC"
+< /soc@200000000/smc@28c600000/hwmon/power-PHPC: label = "Heatpipe Power"
+< /soc@200000000/smc@28c600000/hwmon/power-PMVR: (node)
+< /soc@200000000/smc@28c600000/hwmon/power-PMVR: apple,key-id = "PMVR"
+< /soc@200000000/smc@28c600000/hwmon/power-PMVR: label = "3.8 V Rail Power"
+< /soc@200000000/smc@28c600000/hwmon/power-PSTR: (node)
+< /soc@200000000/smc@28c600000/hwmon/power-PSTR: apple,key-id = "PSTR"
+< /soc@200000000/smc@28c600000/hwmon/power-PSTR: label = "Total System Power"
+< /soc@200000000/smc@28c600000/hwmon/voltage-SBAV: (node)
+< /soc@200000000/smc@28c600000/hwmon/voltage-SBAV: apple,key-id = "SBAV"
+< /soc@200000000/smc@28c600000/hwmon/voltage-SBAV: label = "Battery Voltage"
+< /soc@200000000/smc@28c600000/hwmon/voltage-VD0R: (node)
+< /soc@200000000/smc@28c600000/hwmon/voltage-VD0R: apple,key-id = "VD0R"
+< /soc@200000000/smc@28c600000/hwmon/voltage-VD0R: label = "Charger Input Voltage"
+1119a1090
+> /soc@200000000/smc@28c600000/hwmon: apple,soc-die-keys = "TCMb"
+1120a1092
+> /soc@200000000/smc@28c600000/hwmon: status = "disabled"
+1130c1102
+< /soc@200000000/smc@28c600000: compatible = "apple,t6050-smc"
+---
+> /soc@200000000/smc@28c600000: compatible = "apple,t6050-smc", "apple,t8103-smc"
+1195,1213d1166
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@0/endpoint: (node)
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@0/endpoint: remote-endpoint = <&{/soc@200000000/usb@382280000/port/endpoint}>
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@0: (node)
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@0: reg = <0x0>
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@1/endpoint: (node)
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@1/endpoint: remote-endpoint = <&{/soc@200000000/phy@383000000/port/endpoint}>
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@1: (node)
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@1: reg = <0x1>
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports: #address-cells = <0x1>
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports: #size-cells = <0x0>
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports: (node)
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector: (node)
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector: compatible = "usb-c-connector"
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector: data-role = "dual"
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector: label = "USB-C Right"
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector: power-role = "dual"
+< /soc@200000000/spmi@28a1a8000/usb-pd@c: (node)
+< /soc@200000000/spmi@28a1a8000/usb-pd@c: compatible = "apple,sn201202x"
+< /soc@200000000/spmi@28a1a8000/usb-pd@c: reg = <0xc 0x0>
+1218a1172
+> /soc@200000000/spmi@28a1a8000: status = "disabled"
+1258,1260d1211
+< /soc@200000000/usb@382280000/port/endpoint: (node)
+< /soc@200000000/usb@382280000/port/endpoint: remote-endpoint = <&{/soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@0/endpoint}>
+< /soc@200000000/usb@382280000/port: (node)
+1279c1230
+< /soc@200000000/usb@382280000: status = "okay"
+---
+> /soc@200000000/usb@382280000: status = "disabled"
+### child order (< new, > ref)
+1c1
+< /: memory@10000000000 reserved-memory cpus opp-table-mcluster opp-table-pcluster clock-ref clock-405m timer soc@200000000 pcie@1cb0000000 aliases chosen led-controller sound
+---
+> /: memory@10000000000 reserved-memory cpus opp-table-mcluster opp-table-pcluster clock-ref clock-405m timer soc@200000000 pcie@1cb0000000 sound aliases chosen led-controller
+5,7c5,7
+< /soc@200000000: performance-controller@210e20000 performance-controller@211e20000 performance-controller@212e20000 power-management@280600000 power-management@280900000 power-management@288300000 iommu@2b2340000 iommu@2b2300000 mailbox@2b2e08000 pmc-metadata@286700000 dcp@2b2e00000 mailbox@2ab148000 phy@2ab000000 usb@2aa280000 iommu@2aaf00000 iommu@2aaf80000 interrupt-controller@280400000 serial@288e3c000 watchdog@28836c000 mailbox@28c608000 pinctrl@290824000 smc@28c600000 iommu@41dc50000 mailbox@419608000 nvme@45dcc0000 iommu@412000000 iommu@410000000 iommu@413000000 spmi@28a014000 power-management@286806000 reset-controller@280620000 mailbox@383148000 phy@383000000 mux@38324c000 spmi@28a188000 usb@382280000 iommu@382f00000 iommu@382f80000 mailbox@389108000 cio@389ac0000 mailbox@38b148000 phy@38b000000 usb@38a280000 iommu@38af00000 iommu@38af80000 spmi@28a1c8000 pinctrl@29c000000 i2c@505014000 i2c@505018000 spi@505118000 mailbox@290608000 iommu@290fc0000 dma-controller@293800000 aop@290c00000 mailbox@294608000 iommu@294800000 mtp@294600000 fifo@294b14000 pwm@505040000 usb@2a2280000 iommu@2a2f00000 iommu@2a2f80000 spmi@28a1a8000 i2c@50501c000 mailbox@2d067c000 dma-controller@2d3200000
+< /soc@200000000/power-management@280600000: power-controller@210 power-controller@238 power-controller@240 power-controller@248 power-controller@2f8 power-controller@410 power-controller@418 power-controller@420
+< /soc@200000000/power-management@280900000: power-controller@2c8 power-controller@2d0 power-controller@308 power-controller@350 power-controller@2a8 power-controller@2d8
+---
+> /soc@200000000: performance-controller@210e20000 performance-controller@211e20000 performance-controller@212e20000 power-management@280600000 power-management@280900000 power-management@288300000 iommu@2b2340000 iommu@2b2300000 mailbox@2b2e08000 pmc-metadata@286700000 dcp@2b2e00000 mailbox@2ab148000 phy@2ab000000 usb@2aa280000 iommu@2aaf00000 iommu@2aaf80000 interrupt-controller@280400000 serial@288e3c000 watchdog@28836c000 mailbox@28c608000 pinctrl@290824000 smc@28c600000 iommu@41dc50000 mailbox@419608000 nvme@45dcc0000 iommu@412000000 iommu@410000000 iommu@413000000 spmi@28a014000 power-management@286806000 reset-controller@280620000 mailbox@383148000 phy@383000000 mux@38324c000 spmi@28a188000 usb@382280000 iommu@382f00000 iommu@382f80000 mailbox@389108000 cio@389ac0000 mailbox@38b148000 phy@38b000000 usb@38a280000 iommu@38af00000 iommu@38af80000 spmi@28a1c8000 pinctrl@29c000000 i2c@505014000 i2c@505018000 i2c@50501c000 spi@505118000 mailbox@290608000 mailbox@2d067c000 iommu@290fc0000 dma-controller@293800000 dma-controller@2d3200000 aop@290c00000 mailbox@294608000 iommu@294800000 mtp@294600000 fifo@294b14000 pwm@505040000 usb@2a2280000 iommu@2a2f00000 iommu@2a2f80000 spmi@28a1a8000
+> /soc@200000000/power-management@280600000: power-controller@140 power-controller@210 power-controller@238 power-controller@240 power-controller@248 power-controller@2f8 power-controller@410 power-controller@418 power-controller@420
+> /soc@200000000/power-management@280900000: power-controller@2c8 power-controller@2d0 power-controller@2d8 power-controller@308 power-controller@350 power-controller@2a8
+16d15
+< /soc@200000000/smc@28c600000/hwmon: power-PSTR power-PDTR power-PMVR voltage-VD0R current-ID0R fan-F0Ac fan-F1Ac power-PHPC voltage-SBAV
+21,22d19
+< /soc@200000000/phy@383000000: port
+< /soc@200000000/phy@383000000/port: endpoint
+29,30d25
+< /soc@200000000/usb@382280000: port
+< /soc@200000000/usb@382280000/port: endpoint
+33a29
+> /soc@200000000/i2c@50501c000: codec@3b codec@3c codec@3d
+37,43d32
+< /soc@200000000/spmi@28a1a8000: usb-pd@c
+< /soc@200000000/spmi@28a1a8000/usb-pd@c: connector
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector: ports
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports: port@0 port@1
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@0: endpoint
+< /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@1: endpoint
+< /soc@200000000/i2c@50501c000: codec@3b codec@3c codec@3d
+46,47d34
+< /chosen: framebuffer@0
+< /led-controller: led-0
+50a38,39
+> /chosen: framebuffer@0
+> /led-controller: led-0

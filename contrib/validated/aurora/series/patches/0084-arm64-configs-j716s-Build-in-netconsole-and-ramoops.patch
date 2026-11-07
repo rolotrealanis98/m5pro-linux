@@ -1,0 +1,65 @@
+From 3e5adcf09230677083433620bcd92ad363dab00f Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 09:18:30 -0500
+Subject: [PATCH] arm64: configs: j716s: Build in netconsole and ramoops
+
+The J716s has no serial console, and a boot that hangs or panics before
+the network is up leaves no record.
+
+NETCONSOLE with NETCONSOLE_DYNAMIC lets userspace point a target at the
+USB Ethernet adapter once it is up. netconsole= on the command line
+cannot: the adapter appears about 3 s into the boot. This is the route
+that works on this machine: lines printed before a panic get out, and
+with an adapter whose driver sends directly (AX88179) the panic too.
+
+PANIC_TIMEOUT=10 restarts a panicked kernel after 10 s instead of
+leaving it to the boot loader's watchdog, or spinning forever when
+nothing armed one.
+
+PSTORE_RAM was =m and the root loads no modules. It is built in, with
+the console and pmsg front ends (ftrace off), for a loader that supplies
+a ramoops node; the device tree carries none. On the J716s no RAM region
+survives a reset today: iBoot initialises the (ECC) DRAM again at every
+boot, and clears its /pram panic-log region too, so a ramoops region in
+either came back empty after a warm reboot and after a panic. With no
+node, ramoops stays idle.
+
+Against defconfig + asahi.config + j716s.config this changes those
+symbols and what they select: NETPOLL, NET_POLL_CONTROLLER,
+PRINTK_EXECUTION_CTX, and REED_SOLOMON from =m to =y.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/configs/j716s.config | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index a2caebaa0399..d011225f5d69 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -132,6 +132,22 @@ CONFIG_DYNAMIC_DEBUG=y
+ # runs the suspend path and resumes on its own after 5 s
+ CONFIG_PM_DEBUG=y
+ 
++# Crash logs (no serial console). netconsole streams
++# the log over the USB Ethernet adapter once userspace has configured a
++# target through configfs (the adapter appears too late for netconsole=).
++# A panic restarts after 10 s instead of waiting for the watchdog.
++# pstore/ramoops is built in for a loader that supplies a ramoops node; the
++# DT has none, since iBoot clears both ordinary DRAM and its /pram region at
++# every boot, so nothing in RAM survives a reset on this machine today.
++CONFIG_PSTORE_RAM=y
++CONFIG_PSTORE_CONSOLE=y
++CONFIG_PSTORE_PMSG=y
++# CONFIG_PSTORE_FTRACE is not set
++CONFIG_NETCONSOLE=y
++CONFIG_NETCONSOLE_DYNAMIC=y
++CONFIG_PRINTK_TIME=y
++CONFIG_PANIC_TIMEOUT=10
++
+ # Userspace: pacman's download sandbox, compressed swap, /dev/mem
+ CONFIG_SECURITY_LANDLOCK=y
+ CONFIG_ZRAM=y
+-- 
+2.56.0
+

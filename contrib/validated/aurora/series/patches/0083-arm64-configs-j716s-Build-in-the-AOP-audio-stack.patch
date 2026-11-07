@@ -1,0 +1,100 @@
+From 897d0f3aa01ae384710f250442638e40f52ede79 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 10:37:47 -0500
+Subject: [PATCH] arm64: configs: j716s: Build in the AOP audio stack
+
+The J716s speakers, headphone jack and microphone array run through the
+AOP: the AOP driver (aop.rs) and its T6050 audio backend (aop_audio.rs,
+aop_t8140.rs) are Rust, and macaudio drives the SN012776 amps and the
+CS42L84 jack codec. The root has no modules, so all of it is built in:
+
+- RUST=y in place of RUST=n. APPLE_PMP, which Rust enables by default on
+  ARCH_APPLE, stays off: it is not brought up on the T6050.
+- APPLE_AOP and SND_SOC_APPLE_AOP_AUDIO (selecting the Rust RTKit and
+  mailbox bindings), the ADMAC driver for the base-ns and LEAP-S
+  controllers, I2C_APPLE for the three buses.
+- GPIO_SHARED and its proxy: the six amps share one shutdown GPIO, and
+  without the proxy every amp defers.
+- ALSA and ASoC with macaudio, TAS2764, CS42L84, and what macaudio
+  selects (MCA, TAS2770, CS42L83, MAX98357A, the simple card helpers,
+  the NCO clock), so none of it is left at =m.
+- I2C_CHARDEV, for reading the amps' registers with i2c-tools, and
+  DYNAMIC_DEBUG for the AOP and macaudio.
+- DRM_ASAHI off: the GPU is not brought up, and as =m it would still
+  build its Rust DRM helpers (scheduler, GPUVM) into the kernel.
+
+These are the audio options of the kernels the R3-AUDIO runs booted
+(A2: microphone; B5/B6: speakers through the J716 graph, no amp faults).
+The Rust part is built on a Linux host (a container on macOS) with
+Aurora's bindgen from tools/aurora-bindgen, whose patch and layout
+checks are made for Linux.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/configs/j716s.config | 42 +++++++++++++++++++++++++++++++--
+ 1 file changed, 40 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index 6c726cfa3a4c..a2caebaa0399 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -3,9 +3,15 @@
+ # and asahi.config:
+ #   make ARCH=arm64 LLVM=1 defconfig asahi.config j716s.config
+ 
+-# No Rust: nothing on the T6050 boot path needs it yet
+-CONFIG_RUST=n
++# Rust: the AOP (aop.rs) and its audio backend (aop_audio.rs,
++# aop_t8140.rs) are Rust drivers. APPLE_PMP, which Rust turns on by
++# default on ARCH_APPLE, is not brought up on the T6050 and stays off.
++CONFIG_RUST=y
++# CONFIG_APPLE_PMP is not set
+ CONFIG_DRM_APPLE=n
++# The GPU is not brought up; DRM_ASAHI=m would still build its Rust DRM
++# helpers (scheduler, GPUVM) into the kernel
++# CONFIG_DRM_ASAHI is not set
+ 
+ # Storage: ANS NVMe behind SART, RTKit
+ CONFIG_NVME_APPLE=y
+@@ -90,6 +96,38 @@ CONFIG_CRYPTO_SHA1=y
+ CONFIG_CRYPTO_SHA256=y
+ CONFIG_CRYPTO_SHA512=y
+ 
++# Audio: the AOP (co-processor, setup port, RTKit and mailbox), its T6050
++# audio backend (jack and speaker CPU DAIs, the microphone card), the
++# base-ns and LEAP-S ADMACs, the three I2C buses and the audio GPIOs, and
++# macaudio with the SN012776 amps and the CS42L84 jack codec. The six amps
++# share their shutdown GPIO, which needs the shared GPIO proxy.
++CONFIG_APPLE_AOP=y
++CONFIG_SND_SOC_APPLE_AOP_AUDIO=y
++CONFIG_DMADEVICES=y
++CONFIG_APPLE_ADMAC=y
++CONFIG_I2C_APPLE=y
++CONFIG_GPIO_SHARED=y
++CONFIG_GPIO_SHARED_PROXY=y
++CONFIG_SOUND=y
++CONFIG_SND=y
++CONFIG_SND_SOC=y
++CONFIG_SND_PROC_FS=y
++CONFIG_SND_DMAENGINE_PCM=y
++CONFIG_SND_SOC_APPLE_MACAUDIO=y
++CONFIG_SND_SOC_TAS2764=y
++CONFIG_SND_SOC_CS42L84=y
++# selected by macaudio; listed so they are not left at =m
++CONFIG_SND_SOC_APPLE_MCA=y
++CONFIG_SND_SOC_TAS2770=y
++CONFIG_SND_SOC_CS42L83=y
++CONFIG_SND_SOC_MAX98357A=y
++CONFIG_SND_SIMPLE_CARD_UTILS=y
++CONFIG_COMMON_CLK_APPLE_NCO=y
++# /dev/i2c-* for reading the amps' registers with i2c-tools, and dynamic
++# debug for the AOP and macaudio
++CONFIG_I2C_CHARDEV=y
++CONFIG_DYNAMIC_DEBUG=y
++
+ # Sleep: s2idle is the only state. PM_DEBUG adds /sys/power/pm_test, which
+ # runs the suspend path and resumes on its own after 5 s
+ CONFIG_PM_DEBUG=y
+-- 
+2.56.0
+

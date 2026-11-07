@@ -1,0 +1,98 @@
+From a5fdf82c2acb942eaef777f07fb017b057d780fb Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 07:20:10 -0500
+Subject: [PATCH] ASoC: apple: macaudio: run the J716 speakers in the J616s
+ frame
+
+On the J716 every amplifier latched "bad TDM clock" about every 3 ms for
+the whole of every speaker stream: 635-641 fault interrupts per 2 s
+tone on the shared line, all handled (none spurious), all six amps,
+with or without speakersafetyd, and none with no stream. The faults
+start with the amps' unmute and end with the stream: the clock they
+see is wrong for what they were set up to expect, all the time.
+
+The J716s ADT gives the speaker serializer as
+/arm-io/iop-audio-controller/audio-speaker reg = 0102 0000 0c10 0100
+001bb700 fa00 0100 3000 0100 3f000000 ff0f0000 060c1810 00002010: a
+12 MHz bit clock (0xb71b00) in a 250-bit frame (0xfa) at 48 kHz, six
+32-bit playback slots (mask 0x3f) and twelve 16-bit sense slots (mask
+0xfff). That is the J616s and J713 speaker link, which macaudio runs as
+I2S with an inverted frame clock and a normal bit clock in a 250-bit
+secondary frame. The J716 entry took macaudio's defaults instead
+(inverted bit clock, 256-bit frame, as the J714 does), so the amps
+sampled the frame clock and their data on the edge the serializer
+changes them on.
+
+Give the J716 entry the J616s speaker format and the 250-bit secondary
+frame. The format applies to the speaker back-end only, through a new
+speaker_dai_fmt: on the J716 the jack shares the card, on a different
+serializer (a 64-bit frame) whose format is unverified, and keeps the
+default. Other machines are unchanged.
+
+On the J716 with this change: no clock fault in three 2 s six-channel
+tones (one with speakersafetyd stopped) and a Speaker Switch toggle,
+11-20 interrupts per tone on the shared line (the muted amplifiers'
+expected clock latches at the stream end), against about 638 before;
+the amplifiers read TDM_CFG1 0x02 and TDM_CFG4 0x13.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ sound/soc/apple/macaudio.c | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/sound/soc/apple/macaudio.c b/sound/soc/apple/macaudio.c
+index e73aeb7864ca..b1701a5364c6 100644
+--- a/sound/soc/apple/macaudio.c
++++ b/sound/soc/apple/macaudio.c
+@@ -121,6 +121,12 @@ struct macaudio_platform_cfg {
+ 	unsigned int dai_fmt;
+ 	unsigned int primary_bclk_ratio;
+ 	unsigned int secondary_bclk_ratio;
++	/*
++	 * The speaker back-end's DAI format when it differs from the card's
++	 * (dai_fmt): a card whose jack and speaker serializers the firmware
++	 * runs with different bit clock edges.
++	 */
++	unsigned int speaker_dai_fmt;
+ 	/*
+ 	 * The front-ends' CPU component is their PCM provider as well: no
+ 	 * platform lookup by OF node, which takes every component on that
+@@ -1236,6 +1242,8 @@ static int macaudio_parse_of(struct macaudio_snd_data *ma)
+ 							    ncodecs_per_cpu, cpu, codec);
+ 			if (ret)
+ 				goto err_free;
++			if (speakers && ma->cfg->speaker_dai_fmt)
++				link->dai_fmt = ma->cfg->speaker_dai_fmt;
+ 
+ 			link_props->is_speakers = speakers;
+ 			link_props->is_headphones = !speakers;
+@@ -2481,6 +2489,15 @@ struct macaudio_platform_cfg macaudio_j713_cfg = {
+  * dai-link 0 (cout/cin, a 2 x 32-bit frame), speakers on dai-link 1 (base-ns
+  * TX0, V/I sense back on RX0).
+  *
++ * The J716s ADT describes the speaker serializer as the J616s's
++ * (/arm-io/iop-audio-controller/audio-speaker reg: a 12 MHz bit clock in a
++ * 250-bit frame at 48 kHz, six 32-bit playback and twelve 16-bit sense
++ * slots), so the amps take the J616s link: I2S with an inverted frame clock
++ * and a normal bit clock, and a 250-bit secondary frame. With macaudio's
++ * default (inverted bit clock) all six amps latched "bad TDM clock" all
++ * through every stream. The jack keeps the default format: its serializer
++ * is a different one (64-bit frame) and has not been tested.
++ *
+  * Bring-up values until a speakersafetyd profile is measured on AID41:
+  * -30 dB with or without the daemon holding the volume (safe_vol and
+  * max_vol), as the J714 ran before its profile was trusted. Each amp's
+@@ -2495,7 +2512,10 @@ struct macaudio_platform_cfg macaudio_j716_cfg = {
+ 	.safe_vol = -30,
+ 	.max_vol = -30,
+ 	.fe_dai_names = { "j714-pcm-0", "j714-pcm-1", "j714-pcm-2" },
++	.speaker_dai_fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_CBC_CFC |
++			   SND_SOC_DAIFMT_GATED | SND_SOC_DAIFMT_NB_IF,
+ 	.primary_bclk_ratio = 64,
++	.secondary_bclk_ratio = 250,
+ };
+ 
+ /*
+-- 
+2.56.0
+

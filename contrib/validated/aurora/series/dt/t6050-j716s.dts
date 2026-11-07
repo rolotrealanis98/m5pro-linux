@@ -54,45 +54,6 @@
 		};
 	};
 
-	reserved-memory {
-		/*
-		 * pstore/ramoops: the previous boot's console, oops/panic dumps
-		 * and /dev/pmsg0 survive a warm reset (watchdog, panic restart,
-		 * reboot) for the next boot to read in /sys/fs/pstore. There is no
-		 * serial console on this machine, so this is the only record of a
-		 * boot that dies before, or without, the network.
-		 *
-		 * 2 MiB at DRAM base + 8 GiB: inside the RAM the loader hands to
-		 * Linux on any memory size from 16 GiB up ([OURS] boot logs: RAM
-		 * 0x10003b6c000..0x10bc89f8000 on 48 GiB). The loader stays clear
-		 * of it: its heap grows up from the end of the kernel data (a few
-		 * hundred MiB at most) and its carve-outs (log buffer, SIO, ISP,
-		 * GPU) come from the top of RAM. The firmware regions iBoot
-		 * reports lie outside the Linux RAM range.
-		 *
-		 * no-map keeps it out of the linear map, so only ramoops writes
-		 * it. Cached (mem-type 2): a kernel with the unbuffered mapping
-		 * (mem-type 1) did not boot on the J716s, the cached one boots and
-		 * registers the store. Writes still in the cache when a reset
-		 * skips the write-back are lost, so the newest part of a record
-		 * can come back missing; how much survives a watchdog or panic
-		 * reset is to be measured. 16 bytes of ECC per 128-byte block
-		 * repair a few corrupted bytes. Layout: 512 KiB
-		 * console, 256 KiB pmsg, 10 x 128 KiB dmesg records (compressed),
-		 * no ftrace.
-		 */
-		ramoops@10200000000 {
-			compatible = "ramoops";
-			reg = <0x102 0x00000000 0x0 0x200000>;
-			no-map;
-			record-size = <0x20000>;
-			console-size = <0x80000>;
-			pmsg-size = <0x40000>;
-			ecc-size = <16>;
-			mem-type = <2>;
-		};
-	};
-
 	/*
 	 * Keyboard backlight. [ADT] /arm-io/pwm0/kbd-backlight: channel 0,
 	 * default-hz 25000 -> period 40000 ns. [OURS t6050-j716s.dts:35-46]

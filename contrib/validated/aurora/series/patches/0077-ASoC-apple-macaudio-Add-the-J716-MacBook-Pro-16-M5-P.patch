@@ -1,0 +1,82 @@
+From 0b48fa4d097998cbe250c0a7a5e441e7de2500d8 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Fri, 6 Nov 2026 19:31:21 -0500
+Subject: [PATCH] ASoC: apple: macaudio: Add the J716 (MacBook Pro 16" M5
+ Pro/Max)
+
+apple,j716-macaudio: the J316 amp layout (six SN012776, 2W+1T per side)
+on the T6050 AOP, through aop_t8140's T6050 variant as on edimoldovan's
+J714c: jack on dai-link 0 with a 64-SCLK frame, speakers on dai-link 1
+with their V/I sense, front-end DAIs j714-pcm-0..2.
+
+Bring-up values: the speaker volume stays at -30 dB whether or not
+speakersafetyd holds it (safe_vol and max_vol), until a profile is
+measured on AID41. The amps' levels come from apple,speaker-config in
+the DT, so a DT without it binds the jack and leaves the speakers off.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ .../bindings/sound/apple,macaudio.yaml        |  1 +
+ sound/soc/apple/macaudio.c                    | 27 +++++++++++++++++++
+ 2 files changed, 28 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/sound/apple,macaudio.yaml b/Documentation/devicetree/bindings/sound/apple,macaudio.yaml
+index 78cd6910dfba..874bc2390e18 100644
+--- a/Documentation/devicetree/bindings/sound/apple,macaudio.yaml
++++ b/Documentation/devicetree/bindings/sound/apple,macaudio.yaml
+@@ -40,6 +40,7 @@ properties:
+               - apple,j700-macaudio
+               - apple,j713-macaudio
+               - apple,j713-macaudio-jack
++              - apple,j716-macaudio
+           - const: apple,macaudio
+       - description:
+           Machines that share the speaker and jack layout of an earlier
+diff --git a/sound/soc/apple/macaudio.c b/sound/soc/apple/macaudio.c
+index 92b67d0a00ee..e73aeb7864ca 100644
+--- a/sound/soc/apple/macaudio.c
++++ b/sound/soc/apple/macaudio.c
+@@ -2473,6 +2473,31 @@ struct macaudio_platform_cfg macaudio_j713_cfg = {
+ 	.speaker_fe_channels = 6,
+ };
+ 
++/*
++ * J716 (T6050, MacBook Pro 16" M5 Pro/Max), AID41: the J316 amp layout,
++ * six SN012776 amps, 2W+1T per side (i2c1 0x38-0x3a left, i2c3 0x3b-0x3d
++ * right), fed by the AOP: the CPU component is aop_t8140's T6050 variant,
++ * whose front-end DAIs keep the J714c names it was brought up on. Jack on
++ * dai-link 0 (cout/cin, a 2 x 32-bit frame), speakers on dai-link 1 (base-ns
++ * TX0, V/I sense back on RX0).
++ *
++ * Bring-up values until a speakersafetyd profile is measured on AID41:
++ * -30 dB with or without the daemon holding the volume (safe_vol and
++ * max_vol), as the J714 ran before its profile was trusted. Each amp's
++ * level comes from its apple,speaker-config in the DT; a DT without it
++ * leaves the speakers off and the jack working.
++ */
++struct macaudio_platform_cfg macaudio_j716_cfg = {
++	.enable_speakers = true,
++	.amp = AMP_SN012776,
++	.speakers = SPKR_2W1T,
++	.stereo = true,
++	.safe_vol = -30,
++	.max_vol = -30,
++	.fe_dai_names = { "j714-pcm-0", "j714-pcm-1", "j714-pcm-2" },
++	.primary_bclk_ratio = 64,
++};
++
+ /*
+  * The J614s and J616s headphone jack, a card of its own: a CS42L84 on the
+  * AOP's "jack" back-end, which the firmware runs on MCA cluster 2 as a 64-SCLK
+@@ -2563,6 +2588,8 @@ static const struct of_device_id macaudio_snd_device_id[]  = {
+ 	{ .compatible = "apple,j713-macaudio", .data = &macaudio_j713_cfg },
+ 	/* The J713 jack runs on the AOP like the J616s one. */
+ 	{ .compatible = "apple,j713-macaudio-jack", .data = &macaudio_j616_jack_cfg },
++	/* j716    AID41   sn012776    DT      2x 2W+1T (AOP-fed, T6050; -30 dB bring-up) */
++	{ .compatible = "apple,j716-macaudio", .data = &macaudio_j716_cfg },
+ 	/* Fallback, jack only */
+ 	{ .compatible = "apple,macaudio"},
+ 	{ }
+-- 
+2.56.0
+

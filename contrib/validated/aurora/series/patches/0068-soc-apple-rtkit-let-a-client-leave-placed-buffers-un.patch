@@ -1,0 +1,120 @@
+From 8850128b66aa9ef268c2101e5fffb09ab052e4ba Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Fri, 6 Nov 2026 19:24:28 -0500
+Subject: [PATCH] soc: apple: rtkit: let a client leave placed buffers
+ unacknowledged
+
+The T6050 AOP places its crashlog buffer itself and takes no reply to
+that request; edimoldovan's J714c bring-up dropped the echo from
+rtkit.c for every client. DCP, the G17 GPU and the T6040 USB2 PHY still
+need it, so make it opt-in: APPLE_RTKIT_PLACED_BUFFERS_UNACKED sets the
+placed buffer up as before and sends nothing back. Rust clients get it
+through RtKit::new_with_placed_buffers_unacked(), which also sets
+APPLE_RTKIT_COPROC_PLACES_BUFFERS.
+
+No client sets the flag yet; behaviour is unchanged.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/soc/apple/rtkit.c       |  8 +++++++-
+ include/linux/soc/apple/rtkit.h |  7 +++++++
+ rust/bindings/bindings_helper.h |  1 +
+ rust/kernel/soc/apple/rtkit.rs  | 19 +++++++++++++++++++
+ 4 files changed, 34 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/soc/apple/rtkit.c b/drivers/soc/apple/rtkit.c
+index 6e7e1a1a9559..0950ec8246e2 100644
+--- a/drivers/soc/apple/rtkit.c
++++ b/drivers/soc/apple/rtkit.c
+@@ -148,6 +148,12 @@ static bool apple_rtkit_coproc_places_buffers(struct apple_rtkit *rtk)
+ 	return rtk->ops->flags & APPLE_RTKIT_COPROC_PLACES_BUFFERS;
+ }
+ 
++static bool apple_rtkit_acks_placed_buffers(struct apple_rtkit *rtk)
++{
++	return apple_rtkit_coproc_places_buffers(rtk) &&
++	       !(rtk->ops->flags & APPLE_RTKIT_PLACED_BUFFERS_UNACKED);
++}
++
+ static bool apple_rtkit_needs_coreanalytics(struct apple_rtkit *rtk)
+ {
+ 	return rtk->ops->flags & APPLE_RTKIT_NEEDS_COREANALYTICS;
+@@ -460,7 +466,7 @@ static int apple_rtkit_common_rx_get_buffer(struct apple_rtkit *rtk,
+ 					    buffer->iova);
+ 		}
+ 		apple_rtkit_send_message(rtk, ep, reply, NULL, false);
+-	} else if (apple_rtkit_coproc_places_buffers(rtk) ||
++	} else if (apple_rtkit_acks_placed_buffers(rtk) ||
+ 		   (apple_rtkit_firmware_owns_crashlog(rtk) &&
+ 		    ep == APPLE_RTKIT_EP_CRASHLOG)) {
+ 		/* acknowledge the co-processor's own buffer with its request */
+diff --git a/include/linux/soc/apple/rtkit.h b/include/linux/soc/apple/rtkit.h
+index 35508001fbea..edf4cecbcffd 100644
+--- a/include/linux/soc/apple/rtkit.h
++++ b/include/linux/soc/apple/rtkit.h
+@@ -67,6 +67,13 @@ struct apple_rtkit_inherited_buffer {
+ /* Start the crashlog endpoint before acknowledging its endpoint map. */
+ #define APPLE_RTKIT_EARLY_CRASHLOG		BIT(3)
+ 
++/*
++ * With APPLE_RTKIT_COPROC_PLACES_BUFFERS: set up a buffer the co-processor
++ * placed itself, but do not send its request back (the T6050 AOP takes no
++ * reply to its crashlog request).
++ */
++#define APPLE_RTKIT_PLACED_BUFFERS_UNACKED	BIT(4)
++
+ /*
+  * Struct to represent implementation-specific RTKit operations.
+  *
+diff --git a/rust/bindings/bindings_helper.h b/rust/bindings/bindings_helper.h
+index b7d6e19cc22a..b733ed9a58ed 100644
+--- a/rust/bindings/bindings_helper.h
++++ b/rust/bindings/bindings_helper.h
+@@ -160,6 +160,7 @@ const u32 RUST_CONST_HELPER_APPLE_RTKIT_COPROC_PLACES_BUFFERS = APPLE_RTKIT_COPR
+ const u32 RUST_CONST_HELPER_APPLE_RTKIT_NEEDS_COREANALYTICS = APPLE_RTKIT_NEEDS_COREANALYTICS;
+ const u32 RUST_CONST_HELPER_APPLE_RTKIT_FIRMWARE_OWNED_CRASHLOG = APPLE_RTKIT_FIRMWARE_OWNED_CRASHLOG;
+ const u32 RUST_CONST_HELPER_APPLE_RTKIT_EARLY_CRASHLOG = APPLE_RTKIT_EARLY_CRASHLOG;
++const u32 RUST_CONST_HELPER_APPLE_RTKIT_PLACED_BUFFERS_UNACKED = APPLE_RTKIT_PLACED_BUFFERS_UNACKED;
+ 
+ const u64 BINDINGS_SNDRV_PCM_FMTBIT_FLOAT_LE = SNDRV_PCM_FMTBIT_FLOAT_LE;
+ const u64 BINDINGS_SNDRV_PCM_FMTBIT_S32_LE = SNDRV_PCM_FMTBIT_S32_LE;
+diff --git a/rust/kernel/soc/apple/rtkit.rs b/rust/kernel/soc/apple/rtkit.rs
+index ac9d7ab5032b..9fa5ad1cdec3 100644
+--- a/rust/kernel/soc/apple/rtkit.rs
++++ b/rust/kernel/soc/apple/rtkit.rs
+@@ -250,6 +250,13 @@ impl<T: Operations> RtKit<T> {
+         ..Self::VTABLE
+     };
+ 
++    const PLACED_UNACKED_VTABLE: bindings::apple_rtkit_ops = bindings::apple_rtkit_ops {
++        flags: Self::VTABLE.flags
++            | bindings::APPLE_RTKIT_COPROC_PLACES_BUFFERS
++            | bindings::APPLE_RTKIT_PLACED_BUFFERS_UNACKED,
++        ..Self::VTABLE
++    };
++
+     const G17P_VTABLE: bindings::apple_rtkit_ops = bindings::apple_rtkit_ops {
+         flags: Self::FIRMWARE_CRASHLOG_VTABLE.flags | bindings::APPLE_RTKIT_EARLY_CRASHLOG,
+         ..Self::FIRMWARE_CRASHLOG_VTABLE
+@@ -289,6 +296,18 @@ pub fn new_with_firmware_crashlog(
+         Self::new_with_ops(dev, mbox_name, mbox_idx, data, &Self::FIRMWARE_CRASHLOG_VTABLE)
+     }
+ 
++    /// Creates a client whose co-processor places some of its buffers itself
++    /// and takes no reply to those requests (the T6050 AOP). The placed
++    /// buffers are served by [`Operations::shmem_map`].
++    pub fn new_with_placed_buffers_unacked(
++        dev: &device::Device,
++        mbox_name: Option<&'static CStr>,
++        mbox_idx: usize,
++        data: T::Data,
++    ) -> Result<Self> {
++        Self::new_with_ops(dev, mbox_name, mbox_idx, data, &Self::PLACED_UNACKED_VTABLE)
++    }
++
+     /// Creates a G17P/G18G client whose crash DVA belongs to the GPU UAT.
+     ///
+     /// The crashlog endpoint starts before its map is acknowledged. The
+-- 
+2.56.0
+

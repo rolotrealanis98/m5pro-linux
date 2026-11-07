@@ -81,7 +81,6 @@
 0081-ASoC-apple-macaudio-run-the-J716-speakers-in-the-J61.patch
 0082-arm64-dts-apple-j716s-Add-the-audio-hardware.patch
 0083-arm64-configs-j716s-Build-in-the-AOP-audio-stack.patch
-0084-arm64-dts-apple-j716s-Reserve-a-ramoops-region.patch
-0085-arm64-configs-j716s-Build-in-ramoops-and-netconsole.patch
-0086-PCI-apple-T6050-adopted-ports-no-ASPM-and-a-shutdown.patch
-0087-wifi-apple-centauri-leave-an-N1-that-never-booted-al.patch
+0084-arm64-configs-j716s-Build-in-netconsole-and-ramoops.patch
+0085-PCI-apple-T6050-adopted-ports-no-ASPM-and-a-shutdown.patch
+0086-wifi-apple-centauri-leave-an-N1-that-never-booted-al.patch
