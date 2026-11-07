@@ -774,3 +774,20 @@ key and the shared temperature nodes removed so discovery can run), `m5.selftest
 - Fan control not tried (the T6050 SMC has no `Ftst` unlock key; see `dt-prep/hwmon/CHECK.md`).
 - Next: RIGHTPORT-T1, then the combined DTB as the daily.
 
+### Result (RIGHTPORT-T1, 2026-11-07 09:55 UTC, self-revert loop + A/B stage-1, nobody at the machine, nothing in the port)
+
+Payload `rightport-t1-20261107-ee1dba8e.bin`: the daily kernel with the dt-prep right Type-C port DTB
+(`contrib/pending/dt-prep/patches/right-port/0001`: ATC2 dwc3, combo PHY, mailbox, two DARTs and the three power
+domains enabled; `hpm2: usb-pd@c` on the previously disabled `nub_spmi_a1`; connector graph), `m5.selftest=1`,
+prev = the daily `ce3f10af`.
+
+**WORKS at the probe level.** Primary slot, 18 CPUs, left-port Ethernet and dongle as before, no revert, no new errors.
+- Every right-port node bound: `382280000.usb` -> `dwc3-apple`, `383000000.phy` -> `apple-t6050-dp-phy`,
+  `383148000.mailbox` -> `apple-mailbox`, both DARTs -> `apple-dart`.
+- The a1 SPMI bus works on Linux for the first time: `spmi-2`, device `2-0c` -> `sn201202x`, giving Type-C `port1`
+  (revision 1.2, PD revision file present, `waiting_for_supplier` no longer set, role defaults device/sink with nothing
+  plugged). The dependency-cycle notices for the new connector match the left port's.
+- No host bus on it yet, as expected: dwc3 starts in device role until the PD controller reports a partner. Needs the hub
+  plugged into the right port once (attended, trivial) to show `usb3`/`usb4` buses and VBUS from the m1n1 0018 S0 setup.
+- Next: STACK-T1 (sensors + right port together), then that DTB becomes the daily.
+
