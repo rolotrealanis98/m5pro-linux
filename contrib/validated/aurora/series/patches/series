@@ -84,3 +84,4 @@
 0084-arm64-configs-j716s-Build-in-netconsole-and-ramoops.patch
 0085-PCI-apple-T6050-adopted-ports-no-ASPM-and-a-shutdown.patch
 0086-wifi-apple-centauri-leave-an-N1-that-never-booted-al.patch
+0087-PCI-apple-T6050-adopted-ports-keep-the-link-up-throu.patch
