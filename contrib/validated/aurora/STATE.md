@@ -172,3 +172,10 @@ b0c7ed56f1c9 dt-bindings: iommu: apple,dart: Add the T6050 DART
 Landmarks: `6a6d7dfdc307` is the J716s device tree, `4c77a4dae7e4` is our 0016 (RTKit 10 s wait), the
 NVMe/SART commits are PR #936, the combo-PHY and dwc3 commits are PR #939 plus Aurora's PIPE commits, and
 `116500d14b78` merges PR #945 (J716c DT).
+
+## 2026-11-07 17:00 UTC
+- Daily: `daily-wifi-20261107-4feff24c.bin` = series tip `a0f2f30c967b` (87 patches) + m1n1 `n1-warm` (0020-0023, 0025-0027)
+  + stitched-FTAB initramfs; chosen `n1=4`, `pcie_aspm=off`, battery on; rollback = its test twin `ee3d0dd8`.
+  Every payload must carry the N1-aware m1n1 from now on (a loader without 0027 hangs once on a warm N1).
+- Open on the daily: lid sleep confirmation on this kernel, speaker listening check, netconsole path (double NAT).
+
