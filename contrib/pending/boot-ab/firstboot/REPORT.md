@@ -74,3 +74,32 @@ watchdog > 150 s) with slot, pmu scrpad and unsafe_shutdowns.
 
 Studio: `~/Work/agents/stage1-firstboot/` (branch firstboot c3fe53bc on 0016, built images m1n1-chain-firstboot.bin
 a80a6de0…, m1n1-plain-firstboot.bin 7f0ca1fd…, SHA256SUMS, esp-put.sh, firstboot-probe.sh).
+
+## Revised model (2026-11-07 22:30 UTC)
+
+The ESP write is not what gets a restart counted; the outgoing session's own restart is (the plain no-write reboot from
+the twin and 7 clean esp-put restores rule out write timing as the main factor; the earlier correlation was confounded
+because nearly every reboot followed a write; esp-put stays, it costs nothing). Two classes:
+- Error stage 00 ("first pass"): the outgoing session died after Linux's reboot notifier wrote boot_stage 0, so the
+  reset was not the normal SMC restart. Cases: #26 restore (+2-5 s), power-kernel restore (+5-8 s), crash-log T1
+  (+6 s), audio B2 (+30 s). Leading mechanism: macsmc's restart handler writes MBSE=`phra` in atomic mode;
+  `apple_smc_write_atomic` waits up to 5 s (another 5 s if an earlier command is pending); on failure, or if the SoC has
+  not reset 100 ms after the write, the notifier chain falls through to `apple_wdt_restart`, a watchdog reset, which
+  iBoot counts with error stage = current boot_stage = 00. Timing fits (+5/+10 s = unanswered phra, +0 = phra slower
+  than 100 ms, +30 = a stall earlier in device_shutdown). The power kernel plausibly adds SMC traffic during shutdown
+  (cpufreq, SoC-die zone, PMC observation); the omacom loader changes the SMC RTKit session Linux inherits and the NVMe
+  shutdown path (live ANS adoption).
+- Error stage 0x30: the newly started payload panicked in its first seconds of Linux, then PANIC_TIMEOUT=10 reset it
+  (DCP-A, the first T1 attempt, the GPU daily after omacom #30). External warm state (N1) is the suspect.
+
+Discriminating experiment: no-write `systemctl reboot` x3 from a power-T1 session and from an omacom #30 session, with
+firstboot-probe.sh after each (counted with no write = the session's restart path; +5/+10 s = atomic timeout). If counted:
+unbind the power kernel's new drivers before rebooting, x3. Attended confirmation: film the panel for `Atomic SMC command
+timed out`, `atomic: earlier command still pending`, `Failed to issue MBSE = phra`, `Unable to restart system`, `nvme …
+shutdown notification failed`. Real fix lives in macsmc and the power drivers (quiesce SMC users before atomic mode; wait
+longer than 100 ms before the watchdog fallthrough).
+
+0017 with `chainload.stage-mark=1` would have booted the primary slot on all three error-00 fallbacks today
+(`why=restart-failure`), still falls back on the 0x30 panics (macsmc overwrites 0x31 with 0x30 at probe, so the
+userspace marks 0x33/0x34 add the information), reports 0x31 for a death in stage 2, 0x32 for the fallback slot dying,
+plus read_ms/size/wdt on every boot. Recommendation: install it (attended ~25 min ceremony, rollback image ready).
