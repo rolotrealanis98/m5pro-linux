@@ -1283,3 +1283,16 @@ adopted-link s2idle fix 0087), N1-aware m1n1, W4 chosen lines, stitched-FTAB ini
 - Still to confirm on this exact kernel when Rolando is home: one lid-close sleep (the fix is the same code that passed
   on the W4 line), and a speaker listening check.
 
+### Result (NOASPMFLAG-T1 and BOARDV2-T1, 2026-11-07 17:10-17:21 UTC, loop, nobody at the machine)
+
+- **No `pcie_aspm=off`** (`next-daily-noaspmflag-20261107-bc0c69a0`, series kernel a0f2f30c967b): boots primary, N1 adopted,
+  `pci 0000:00:00.0: ASPM: Link Capabilities L0s L1 treated as unsupported to avoid device defect` (series 0085 strips
+  ASPM on the adopted root port), `LnkCtl: ASPM Disabled`, wlan0 associated; **5-minute soak with Wi-Fi traffic: alive,
+  no freeze** (the W3 freeze came ~30 s after login). **PASS: the boot flag is redundant with 0085**; the next daily
+  build drops `pcie_aspm=off`. Side note: 14 % loss on the Wi-Fi ping during the soak (rtt 2-15 ms), to look at
+  separately (association quality, not ASPM).
+- **Board-v2 DTB** (`next-daily-boardv2-20261107-7fac672d`: the PR v2 DT + the local ATC0 gadget node, no audio nodes):
+  first boot **fell back** to the test twin. Retry running to separate a one-off from a real failure.
+- The separate ASPM PR branch (`pr/pcie-apple-adopted-port-aspm`) is redundant with edimoldovan's ab24d156868e (our
+  0085), now validated here; hold it and point to his.
+
