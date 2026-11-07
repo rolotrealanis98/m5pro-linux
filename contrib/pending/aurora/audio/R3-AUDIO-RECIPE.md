@@ -51,32 +51,42 @@ make ARCH=arm64 LLVM=1 -j12 Image.gz
 
 sha256 of each patch: `SHA256SUMS` in this folder.
 
-## 2. DTBs and payloads
-DTBs (already built, private: per-unit values from fixed8; never publish):
+## 2. DTBs and payloads (current lineage: fixed8-notun-edp, kernel from the container build)
 ```
-python3 -I ~/Work/agents/audio-aurora/mk-audio-dtb.py      # deterministic; refuses a changed fixed8
+python3 -I ~/Work/agents/audio-aurora/mk-audio-dtb.py           # from ~/Work/agents/aurora-kernel/dts/j716s-typec-fixed8-notun-edp.dts
+python3 -I ~/Work/agents/audio-aurora/mk-audio-dtb.py fixed8    # older fixed8 lineage (per-unit tunables baked in; private)
 ```
-| DTB | sha256 | difference from fixed8 |
-|---|---|---|
-| `dt/t6050-j716s-audio.dtb` | 6f40015081e0d5d73adcb6cd66ee3cdb1591bea2de3fd81a7fde7906deaa92cd | pinctrl_ap opens pins 106/107/134/139; i2c1, i2c2 on; new i2c3 + I2C3 power state (pmgr 0x2d8); 6 amps (no `apple,speaker-config`) + cs42l84; aop_mbox, aop_dart (+`apple,t8142-dart`), base-ns ADMAC, aop on; new setup mailbox 0x2d067c000 and LEAP-S proxy ADMAC 0x2d3200000; aop audio node with Ed's DMA names + `hpai`, chassis J716; sound card `apple,j716-macaudio` |
-| `dt/t6050-j716s-audio-spk.dtb` | 68f6c84df349da6b40f8bc6465cbdca1c553a717207b93cad3c9916c2c867685 | the above + `apple,speaker-config` on each amp, level byte 10 |
+| DTB | sha256 |
+|---|---|
+| `dt/t6050-j716s-audio-notun-edp.dtb` (speakers off, mic + jack on) | d69345c1d7b0f3c4ce5edd32b254bb6e9985a637b6a8951de49d18feaa2c97f3 |
+| `dt/t6050-j716s-audio-spk-notun-edp.dtb` (+ `apple,speaker-config`, amp level 10) | 9dce1b4fca95107d64841871c09fa539c9a27797012ab5a9f6a234c425c58772 |
+| `dt/t6050-j716s-audio.dtb` / `-spk.dtb` (fixed8 lineage, private) | 6f400150... / 68f6c84d... (unchanged) |
 
-Payloads, after the kernel is rebuilt:
+The audio delta to the source DT is the same 192 decompiled lines in both lineages: pinctrl_ap opens 106/107/134/139;
+i2c1/i2c2 on, new i2c3 + I2C3 power state; 6 amps + cs42l84; aop_mbox, aop_dart (+`apple,t8142-dart`), base-ns ADMAC,
+aop on; new setup mailbox 0x2d067c000 and LEAP-S proxy ADMAC 0x2d3200000; aop audio node (Ed's DMA names + `hpai`,
+chassis J716); sound card `apple,j716-macaudio`. The notun-edp DTS files (`dt/j716s-audio*-notun-edp.dts`) carry no
+per-unit values (no tunables; MAC/BD addresses are zero placeholders) and can be published.
+
+Payloads:
 ```
-python3 -I ~/Work/agents/audio-aurora/mk-r3audio.py          # payloads/R3-AUDIO-A-aurora-j716s-audio-selftest.bin
-python3 -I ~/Work/agents/audio-aurora/mk-r3audio.py spk      # payloads/R3-AUDIO-B-aurora-j716s-spk-selftest.bin
+python3 -I ~/Work/agents/audio-aurora/mk-r3audio.py          # payloads/R3-AUDIO-A-aurora-j716s-audio-notun-edp-selftest.bin
+python3 -I ~/Work/agents/audio-aurora/mk-r3audio.py spk      # payloads/R3-AUDIO-B-aurora-j716s-spk-notun-edp-selftest.bin
 ```
-- Layout as R3-R: m1n1 (0x400000), `chosen.bootargs=`, `chosen.asahi,show-notch=1`, Image.gz, DTB, initramfs.
-- The script refuses an Image.gz without the ceiling patch, the AOP T6050 strings, the AOP-audio and J716 compatibles, a
-  built-in macaudio, or HID_MAGICMOUSE. It pins m1n1, the initramfs and both DTBs.
-- Bootargs: R3-R's (with the macsmc_power blacklist; `power` as second argument drops it, only if R3-S passed). B adds
+- Layout as R3-X: m1n1 (0x400000), `chosen.bootargs=`, `chosen.asahi,show-notch=1`, Image.gz, DTB, initramfs.
+- **m1n1 must be pipepark-atc** (0020 + 0021): the notun DT relies on 0021 to fill the ATC tunables.
+- The script pins every input, and also checks the kernel for the audio series, the built-in drivers, patch 0029
+  (`apple,internal-panel`) and HID_MAGICMOUSE.
+- Bootargs: R3-X's (with the macsmc_power blacklist; `power` as second argument drops it, only if R3-S passed). B adds
   `snd_soc_macaudio.speaker_max_db=-40`.
 
 | input | path | sha256 |
 |---|---|---|
-| m1n1 | `~/Work/agents/pipe-park/build/m1n1-plain-r2-pipepark.bin` | a28b1815432f27fd8126a1f4a561dc639f398151ff4ff9a6aaa740a5ad18ff46 |
+| m1n1 | `~/Work/agents/pipe-park/build/m1n1-plain-r2-pipepark-atc.bin` | 28b26ebcf91e11e512ef100aae0b3e66d174ebf8a380c243dea4763ae2459a33 |
+| kernel | `~/Work/agents/audio-aurora/kbuild/obj/arch/arm64/boot/Image.gz` (aurora-j716s-audio, RUST=y) | 00e8df6f06a95e7e48577784a75d95be054c0b148ca829a8375cf5ed476f0480 |
 | initramfs | `~/Work/omarchy-m5/build/initramfs-selftest.cpio.gz` | ce0b462c0ce465d7cde5fa73bac413f0bc4bf9c833efdf70c782dde06eba217a |
-| kernel | `/Volumes/linux-cs/wt-aurora/arch/arm64/boot/Image.gz` (rebuilt) | printed by the script |
+| R3-AUDIO-A payload | `payloads/R3-AUDIO-A-aurora-j716s-audio-notun-edp-selftest.bin` | a7c05d1aa8556756ebad620db127753dd7994f5005f9c8052939fe0b152362e2 |
+| R3-AUDIO-B payload | `payloads/R3-AUDIO-B-aurora-j716s-spk-notun-edp-selftest.bin` | 34e9603708ea25e1b1314f89a4d63f4678a2e5cdca8214e1520889c5242b363c |
 
 ## 3. What proves each stage (R3-AUDIO-A)
 Run `dmesg` after boot; then the ROOT-SETUP.md §4 commands.
@@ -122,4 +132,4 @@ R3-AUDIO-B adds (ROOT-SETUP.md §5 has the commands and the stop rules):
 | B: right speakers' power ~4x the left in the daemon | J714c's i2c3 V/I doubling | halve right `is_scale`/`vs_scale` (ROOT-SETUP.md §5) |
 
 ## Rollback
-As R3-R: restore `boot.bin.prev`. m1n1 and the initramfs are unchanged; kernel and DTB differ.
+As R3-X: restore `boot.bin.prev`. m1n1 (pipepark-atc) and the initramfs are R3-X's; kernel and DTB differ.
