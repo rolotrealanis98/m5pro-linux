@@ -982,3 +982,18 @@ fine, no revert, PMU count 0. The storage register 0x419600048 moved 0x6e -> 0x6
 block read identical. Next (agent): decode the J716s `function-reset` descriptor and implement the right release
 (SMC key or GPIO) with the J813-style pulse and timings, then W2c.
 
+### Result (R3-AUDIO-B5, 2026-11-07 12:35 UTC, self-revert loop + A/B stage-1, nobody at the machine)
+
+Payload `audio-b5-20261107-14da9666.bin`: kernel `7.3.0-ge5a4712a3f0d` (`audio/aurora/tdm` 0001-0004; 0004 gives the J716
+speaker link the J616s format: normal bit clock, inverted frame clock, 250-bit frame, as the J716s ADT's speaker serializer
+describes), the deferred-shutdown spk DTB, battery on, `speaker_max_db=-40`, `m5.selftest=1`, prev = the WFI daily.
+
+**The TDM clock fault is gone.** Gates as before. Idle: amp IRQ +0. Three 2 s six-channel tones at -40 dBFS, then one
+with speakersafetyd stopped, then `Speaker Switch` off: **0 `bad TDM clock` lines**, amp IRQ deltas +11 / +20 / +15 / +13
+per tone (B4: +635..+641), speakersafetyd up throughout, `pwrd reached after 0 ms`. Amp registers after the run (page 0,
+all six): `0x08=0x08 0x09=0x02 0x0a=0x1a 0x0d=0x13` (the new edge: TDM_CFG1 0x02, TDM_CFG4 bit 0 set), playback slots
+`0x0c` = 0x00/0x22/0x44 on i2c0 and 0x11/0x33/0x55 on i2c2, latches `0x49=0x00 0x4a=0x02 0x4b=0x00`, `0x5c=0x19`.
+- Not yet: anything audible (-40 dBFS under a -40 dB ceiling), the left/right V/I sense scaling check, the protective
+  PipeWire graph, the meaning of the residual interrupts and latch 0x4a bit 1 (agent).
+- Next: B6 with `speaker_max_db=-30` and a -10 dBFS tone (about -40 dB out, quiet but audible) with Rolando listening.
+
