@@ -1,0 +1,33 @@
+From 66ae0c4926bca1242ec3e01cbc7933adce2db3ea Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:49:23 -0500
+Subject: [PATCH 2/9] dt-bindings: iommu: apple,dart: Add the T6050 ANE DART
+
+The T6050 (M5 Pro, Max and Ultra) Neural Engine sits behind three DARTs
+that the cold-acquired ANE backend owns for SID 0 only, as on the T8140.
+Give them their own compatible in front of the T6050 DART one.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ Documentation/devicetree/bindings/iommu/apple,dart.yaml | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/iommu/apple,dart.yaml b/Documentation/devicetree/bindings/iommu/apple,dart.yaml
+index 9ba41ab9806d..4bb84fb9cd26 100644
+--- a/Documentation/devicetree/bindings/iommu/apple,dart.yaml
++++ b/Documentation/devicetree/bindings/iommu/apple,dart.yaml
+@@ -36,6 +36,10 @@ properties:
+           - const: apple,t8140-ane-dart
+           - const: apple,t8140-dart
+           - const: apple,t8110-dart
++      - items:
++          - const: apple,t6050-ane-dart
++          - const: apple,t6050-dart
++          - const: apple,t8110-dart
+       - items:
+           - enum:
+               - apple,t6000-dart
+-- 
+2.56.0
+

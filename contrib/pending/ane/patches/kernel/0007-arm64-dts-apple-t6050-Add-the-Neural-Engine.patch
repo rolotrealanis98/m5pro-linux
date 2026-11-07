@@ -1,0 +1,155 @@
+From 742dbcdb01a18efc0631b9899ea811f150c145ef Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:55:00 -0500
+Subject: [PATCH 7/9] arm64: dts: apple: t6050: Add the Neural Engine
+
+Describe the T6050 ANE from the J716s ADT (/arm-io/ane0, dart-ane0 and
+PMGR device 219): the seven register windows, both interrupts, the three
+SID0-only ANE DARTs on their shared interrupt, ANE_SYS in PMGR group 1
+and the five DAPF records. Add disabled /reserved-memory placeholders
+for the iBoot firmware preload that the loader fills in, as on the
+T8140. Everything stays disabled; boards enable it.
+
+The child power states (ANE_MPM, ANE_CPU, ANE_TDBASE) are left out on
+purpose: the ANE backend and its firmware own them.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-base.dtsi | 21 ++++++
+ arch/arm64/boot/dts/apple/t6050-die0.dtsi | 90 +++++++++++++++++++++++
+ 2 files changed, 111 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-base.dtsi b/arch/arm64/boot/dts/apple/t6050-base.dtsi
+index 1be5e14cb12f..f9dc78234574 100644
+--- a/arch/arm64/boot/dts/apple/t6050-base.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-base.dtsi
+@@ -74,6 +74,27 @@ reserved-memory {
+ 		#size-cells = <2>;
+ 		ranges;
+ 		/* The boot loader adds its own reservations. */
++
++		/*
++		 * The ANE firmware preload. The loader fills reg from the ADT ANE node's
++		 * segment-ranges (TEXT 0xbc000 and DATA 0x2b0000 bytes with the measured
++		 * firmware), renames each node to its physical address and enables it,
++		 * together with /chosen/apple,ane-cold-boot. Left disabled, the ANE driver
++		 * leaves the engine alone. Neither segment may be reclaimed before reboot.
++		 */
++		ane_fw_text: ane-firmware-text@0 {
++			compatible = "apple,asc-mem";
++			reg = <0 0 0 0>;
++			no-map;
++			status = "disabled";
++		};
++
++		ane_fw_data: ane-firmware-data@0 {
++			compatible = "apple,asc-mem";
++			reg = <0 0 0 0>;
++			no-map;
++			status = "disabled";
++		};
+ 	};
+ 
+ 	/* The size's file lists its CPUs (T6050_M_CPU, T6050_P_CPU). */
+diff --git a/arch/arm64/boot/dts/apple/t6050-die0.dtsi b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+index 3c136b3692f5..33039cfc34aa 100644
+--- a/arch/arm64/boot/dts/apple/t6050-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+@@ -1023,3 +1023,93 @@ pcie0: pcie@1cb0000000 {
+ 			 <0x43000000 0xb 0xc0000000 0xb 0xc0000000 0x0 0x20000000>;
+ 	};
+ };
++
++/*
++ * ANE_SYS, the Neural Engine's system power state (ADT PMGR device 219, group 1 +0x3a8; its
++ * fabric parents FAB8_SOC and FAB9_SOC are not described and stay on). ANE_MPM, ANE_CPU and
++ * ANE_TDBASE (+0x3c0, +0x3c8, +0x3d0) are its children; they are not power controllers here:
++ * the ANE backend and the ANE firmware drive them, as on the T8140.
++ */
++&pmgr1 {
++	ps_ane_sys: power-controller@3a8 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x3a8 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "ane_sys";
++	};
++};
++
++&die0 {
++	/*
++	 * The Neural Engine (H17 firmware, board type 0x220, 16 cores) and its three DARTs, from
++	 * the ADT: /arm-io/ane0 and /arm-io/dart-ane0 (arm-io ranges +0x200000000). The DARTs share
++	 * interrupt 955; dart-ane0 reg[3] is the DAPF bank at DART0 +0x10000, reg[4] (PS_PROT,
++	 * 0x2803f0000) is not used. The firmware DVAs reach 0x100_xxxx_xxxx and the DAPF identity
++	 * pages lie below 0x6400000000, so the DMA window covers the low 4 TiB. Only die 0's ANE
++	 * is described. Boards enable the ANE and its DARTs; the driver binds it for observation
++	 * only (it never starts the engine on this SoC yet).
++	 */
++	ane_dart0: iommu@509800000 {
++		compatible = "apple,t6050-ane-dart", "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x5 0x09800000 0x0 0xc000>;
++		#iommu-cells = <1>;
++		interrupts = <AIC_IRQ 0 955 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_ane_sys>;
++		apple,dma-range = <0x0 0x0 0x400 0x0>;
++		status = "disabled";
++	};
++
++	ane_dart1: iommu@509820000 {
++		compatible = "apple,t6050-ane-dart", "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x5 0x09820000 0x0 0xc000>;
++		#iommu-cells = <1>;
++		interrupts = <AIC_IRQ 0 955 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_ane_sys>;
++		apple,dma-range = <0x0 0x0 0x400 0x0>;
++		status = "disabled";
++	};
++
++	ane_dart2: iommu@509840000 {
++		compatible = "apple,t6050-ane-dart", "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x5 0x09840000 0x0 0xc000>;
++		#iommu-cells = <1>;
++		interrupts = <AIC_IRQ 0 955 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_ane_sys>;
++		apple,dma-range = <0x0 0x0 0x400 0x0>;
++		status = "disabled";
++	};
++
++	/*
++	 * ADT reg order: engine, PMGR group 1 (ANE_SYS and its children), PMGR group 1 +0x20000,
++	 * and four more windows. The DAPF ranges are the ADT's dapf-instance-0 records: ANE_SYS,
++	 * the three child power states, and three SoC words (the last at the die-1 stride).
++	 * The loader fills the preload reservations and the iovas from the ADT segment-ranges.
++	 */
++	ane: ane@508000000 {
++		compatible = "apple,t6050-ane";
++		reg = <0x5 0x08000000 0x0 0x2000000>,
++		      <0x2 0x80900000 0x0 0x18000>,
++		      <0x2 0x80920000 0x0 0x4000>,
++		      <0x2 0x84240000 0x0 0x40000>,
++		      <0x2 0x12000000 0x0 0xff4000>,
++		      <0x5 0x84000000 0x0 0x2000000>,
++		      <0x2 0x88374000 0x0 0x4000>;
++		reg-names = "engine", "pmgr", "aux-0", "aux-1", "aux-2", "aux-3", "aux-4";
++		interrupts = <AIC_IRQ 0 954 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 967 IRQ_TYPE_LEVEL_HIGH>;
++		iommus = <&ane_dart0 0>, <&ane_dart1 0>, <&ane_dart2 0>;
++		power-domains = <&ps_ane_sys>;
++		memory-region = <&ane_fw_text>, <&ane_fw_data>;
++		memory-region-names = "firmware-text", "firmware-data";
++		apple,ane-type = <0x220>;
++		apple,firmware-preloaded;
++		apple,firmware-iovas = /bits/ 64 <0x10000000000 0x100000bc000>;
++		apple,dapf-ranges = /bits/ 64 <0x2809003a8 0x2809003ab
++					     0x2809003c0 0x2809003d3
++					     0x581668000 0x581668003
++					     0x2302668000 0x2302668003
++					     0x6302668000 0x6302668003>;
++		status = "disabled";
++	};
++};
+-- 
+2.56.0
+

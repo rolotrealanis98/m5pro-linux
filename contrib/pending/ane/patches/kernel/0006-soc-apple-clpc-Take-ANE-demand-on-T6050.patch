@@ -1,0 +1,76 @@
+From ee7410f6131de922ceb2f9b690467011f3adb85e Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:54:22 -0500
+Subject: [PATCH 6/9] soc: apple: clpc: Take ANE demand on T6050
+
+The staged ANE backend asks the CLPC for a memory and fabric floor while
+an EXECUTE runs, but only a T8140 CLPC is accepted as its provider.
+Accept the T6050 CLPC too, and give "apple,t6050-clpc" its own table:
+the T6040 CPU and GPU policy it falls back to today, plus ANE demand at
+the top of that map (DCS 5, fabric 2). The T6050 ANE demand itself is
+not measured yet.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/soc/apple/clpc.c | 27 +++++++++++++++++++++++++--
+ 1 file changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/soc/apple/clpc.c b/drivers/soc/apple/clpc.c
+index fa94e1d52293..50173fb6aaa0 100644
+--- a/drivers/soc/apple/clpc.c
++++ b/drivers/soc/apple/clpc.c
+@@ -344,11 +344,15 @@ int apple_clpc_ane_get(struct device *dev, struct apple_clpc_ane **out)
+ 	if (!dev->of_node)
+ 		return 0;
+ 	np = of_parse_phandle(dev->of_node, "apple,clpc", 0);
+-	if (!np && !of_find_property(dev->of_node, "apple,clpc", NULL))
++	if (!np && !of_find_property(dev->of_node, "apple,clpc", NULL)) {
+ 		np = of_find_compatible_node(NULL, NULL, "apple,t8140-clpc");
++		if (!np)
++			np = of_find_compatible_node(NULL, NULL, "apple,t6050-clpc");
++	}
+ 	if (!np)
+ 		return 0;
+-	if (!of_device_is_compatible(np, "apple,t8140-clpc")) {
++	if (!of_device_is_compatible(np, "apple,t8140-clpc") &&
++	    !of_device_is_compatible(np, "apple,t6050-clpc")) {
+ 		of_node_put(np);
+ 		return 0;
+ 	}
+@@ -1183,6 +1187,24 @@ static const struct apple_clpc_hw apple_clpc_hw_t6040 = {
+ 	.gpu_input = true,
+ };
+ 
++/*
++ * T6050: the T6040 CPU and GPU policy (the T6050 DT falls back to it), plus
++ * ANE demand at the top of that map, DCS 5 and fabric 2. Provisional: the
++ * T6050 ANE demand is not measured; the T8140 one is DCS 4 with fabric 3,
++ * the GPU's streaming floor there.
++ */
++static const struct apple_clpc_hw apple_clpc_hw_t6050 = {
++	.rail = { [APPLE_CLPC_DCS] = 0, [APPLE_CLPC_SOC] = 1 },
++	.map = {
++		[APPLE_CLPC_DCS] = { 1, 2, 5, 5 },
++		[APPLE_CLPC_SOC] = { 0, 1, 2, 2 },
++	},
++	.sustain = 3,
++	.gpu_demand = false,
++	.gpu_input = true,
++	.ane = { [APPLE_CLPC_DCS] = 5, [APPLE_CLPC_SOC] = 2 },
++};
++
+ /*
+  * T8142: DCS states 0-7 on rail 0, fabric states 0-4 on rail 1. The fabric
+  * state bounds CPU memory bandwidth: four P cores copy at ~40 GB/s with the
+@@ -1500,6 +1522,7 @@ static const struct of_device_id apple_clpc_of_match[] = {
+ 	{ .compatible = "apple,t8142-clpc", .data = &apple_clpc_hw_t8142 },
+ 	{ .compatible = "apple,t8152-clpc", .data = &apple_clpc_hw_t8152 },
+ 	{ .compatible = "apple,t6041-clpc", .data = &apple_clpc_hw_t6040 },
++	{ .compatible = "apple,t6050-clpc", .data = &apple_clpc_hw_t6050 },
+ 	{}
+ };
+ MODULE_DEVICE_TABLE(of, apple_clpc_of_match);
+-- 
+2.56.0
+

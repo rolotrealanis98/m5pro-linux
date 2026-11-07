@@ -1,0 +1,151 @@
+From 2500a24b70449cecb258beff3177592564acbf16 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:50:53 -0500
+Subject: [PATCH 5/9] accel/ane: h17: bind the T6050 ANE for observation
+
+The T6050 (M5 Pro, Max and Ultra) ANE runs H17 firmware: its IORegistry
+reports architecture "h17", CPU subtype 9 and board type 0x220, and its
+ADT node is exclave-assigned with iBoot-preloaded TEXT and DATA. Its SoC
+integration is the T6041's: seven register windows, ANE_SYS in PMGR
+group 1 at +0x3a8 with ANE_MPM, ANE_CPU and ANE_TDBASE at +0x3c0, +0x3c8
+and +0x3d0, three DARTs with a DAPF bank at DART0 +0x10000, and five
+DAPF records in the ADT.
+
+Add "apple,t6050-ane" on the staged backend with that layout and the
+preload layout of the measured firmware (TEXT 0xbc000 bytes at
+0x10000000000, DATA 0x2b0000 bytes at 0x100000bc000). The PWGATE window,
+the engine and DART reset values and the TEXT pin are not measured on
+this SoC, so the platform is cold_unmeasured: the device binds, the
+observer logs the loader hand-off, the TEXT digest and the PMGR words,
+and only the read-only probe stage is accepted. Nothing starts at boot.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/accel/ane/Kconfig                   |  4 +-
+ drivers/accel/ane/ane_fw_platform.c         | 55 +++++++++++++++++++++
+ drivers/accel/ane/ane_fw_platform.h         |  3 +-
+ drivers/accel/ane/ane_t6021_rtclient_main.c |  5 ++
+ 4 files changed, 65 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/accel/ane/Kconfig b/drivers/accel/ane/Kconfig
+index 6b40340d69e3..8627fb3af5ac 100644
+--- a/drivers/accel/ane/Kconfig
++++ b/drivers/accel/ane/Kconfig
+@@ -22,7 +22,9 @@ config DRM_ACCEL_ANE
+ 	  staged cold-boot backend that requires loader ownership evidence and
+ 	  reserved preload memory, driven from its firmware_stage sysfs file.
+ 	  On both, the last stage, program, adds an ABI 3 accel node that
+-	  loads original HWX programs.
++	  loads original HWX programs. The H17 engine of the M5 Pro and Max
++	  (T6050) binds for observation only: it reports the loader hand-off
++	  and its power state and is never started.
+ 
+ 	  The interface exposed to userspace is described in
+ 	  include/uapi/drm/ane_accel.h.
+diff --git a/drivers/accel/ane/ane_fw_platform.c b/drivers/accel/ane/ane_fw_platform.c
+index 9e649775d664..cf6c56c257ec 100644
+--- a/drivers/accel/ane/ane_fw_platform.c
++++ b/drivers/accel/ane/ane_fw_platform.c
+@@ -128,6 +128,61 @@ const struct ane_fw_platform ane_h17_platform = {
+ 	 */
+ };
+ 
++/*
++ * T6050 (M5 Pro, Max and Ultra), from the J716s ADT and IORegistry: H17
++ * firmware (ANEArchitectureTypeStr "h17", CPU subtype 9) on board type
++ * 0x220, exclave-assigned, with the T6041's seven windows. ANE_SYS is
++ * PMGR group 1 +0x3a8 (pmgr reg[1]); ANE_MPM, ANE_CPU and ANE_TDBASE
++ * follow at +0x3c0, +0x3c8 and +0x3d0. The ANE's own gates hang off
++ * ANE_CPU. Which child is the T8140 sequence's sub-block is not known;
++ * MPM is assumed. The preload layout is the ADT segment-ranges of the
++ * measured firmware (UUID 0ed2752b-154d-317a-a52f-35606973e9c4).
++ *
++ * Not measured here: the PWGATE window, the engine and DART reset values
++ * and the TEXT pin. Until they are, the device binds for observation only.
++ */
++static const char * const ane_t6050_reg_names[] = {
++	"engine", "pmgr", "aux-0", "aux-1", "aux-2", "aux-3", "aux-4",
++};
++
++static const u32 ane_t6050_reg_sizes[] = {
++	0x2000000, 0x18000, 0x4000, 0x40000, 0xff4000, 0x2000000, 0x4000,
++};
++
++const struct ane_fw_platform ane_t6050_platform = {
++	.soc = 0x6050,
++	.chip_family = 17,
++	.ane_type = 0x220,
++	.hwx_subtype = 9,
++	/* As on the T8140; not reported by the ADT. */
++	.task_generation = 19,
++	.interrupt_count = 2,
++	.owner = ANE_FW_OWNER_EXCLAVE,
++	.reg_names = ane_t6050_reg_names,
++	.reg_sizes = ane_t6050_reg_sizes,
++	.reg_count = ARRAY_SIZE(ane_t6050_reg_names),
++	/* The engine layout shared by H16 and H17, assumed here. */
++	.wrapper = 0x1600000,
++	.mailbox = 0x1608000,
++	.scratch = 0x1880020,
++	.doorbell = 0x1884000,
++	.irq_status = 0x188c000,
++	.irq_ack = 0x1890000,
++	.preload_dva = { 0x10000000000, 0x100000bc000 },
++	.preload_size = { 0xbc000, 0x2b0000 },
++	.stream_mask = BIT(0),
++	.firmware_preloaded = true,
++	.safe_reset = false,
++	.exclave_mode_stop = true,
++	.pmgr_sys = 0x3a8,
++	.pmgr_cpu = 0x3c8,
++	.pmgr_subblock = 0x3c0,
++	.dart_compatible = "apple,t6050-ane-dart",
++	.dapf_count = 5,
++	.boot_start = false,
++	.cold_unmeasured = "PWGATE, cold reset values and TEXT pin",
++};
++
+ /*
+  * The iBoot preload is firmware memory. Accept it only as a no-map child of
+  * /reserved-memory that Linux does not manage as System RAM, whether the
+diff --git a/drivers/accel/ane/ane_fw_platform.h b/drivers/accel/ane/ane_fw_platform.h
+index 207e6f308be9..c296d8479a01 100644
+--- a/drivers/accel/ane/ane_fw_platform.h
++++ b/drivers/accel/ane/ane_fw_platform.h
+@@ -145,7 +145,8 @@ ane_fw_sleep_path(const struct ane_fw_platform *platform)
+ 	return platform ? ANE_SLEEP_FW_BACKEND : ANE_SLEEP_RTCLIENT;
+ }
+ 
+-extern const struct ane_fw_platform ane_h16_platform, ane_h17_platform;
++extern const struct ane_fw_platform ane_h16_platform, ane_h17_platform,
++	ane_t6050_platform;
+ int ane_fw_platform_preflight(struct platform_device *pdev,
+ 			      const struct ane_fw_platform *soc);
+ 
+diff --git a/drivers/accel/ane/ane_t6021_rtclient_main.c b/drivers/accel/ane/ane_t6021_rtclient_main.c
+index c444b7ac6483..e43a8556dce2 100644
+--- a/drivers/accel/ane/ane_t6021_rtclient_main.c
++++ b/drivers/accel/ane/ane_t6021_rtclient_main.c
+@@ -4112,6 +4112,10 @@ static const struct ane_t602x_soc ane_h17_soc = {
+ 	.platform = &ane_h17_platform,
+ };
+ 
++static const struct ane_t602x_soc ane_t6050_ane_soc = {
++	.platform = &ane_t6050_platform,
++};
++
+ static const struct of_device_id ane_rtclient_of_match[] = {
+ 	{ .compatible = "apple,t6020-ane", .data = &ane_t6020_soc },
+ 	{ .compatible = "apple,t6021-ane", .data = &ane_t6021_soc },
+@@ -4119,6 +4123,7 @@ static const struct of_device_id ane_rtclient_of_match[] = {
+ 	{ .compatible = "apple,t8112-ane", .data = &ane_t8112_soc },
+ 	{ .compatible = "apple,t6041-ane", .data = &ane_h16_soc },
+ 	{ .compatible = "apple,t8140-ane", .data = &ane_h17_soc },
++	{ .compatible = "apple,t6050-ane", .data = &ane_t6050_ane_soc },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, ane_rtclient_of_match);
+-- 
+2.56.0
+

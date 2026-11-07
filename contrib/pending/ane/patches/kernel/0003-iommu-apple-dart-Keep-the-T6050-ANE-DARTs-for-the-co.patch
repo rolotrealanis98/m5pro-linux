@@ -1,0 +1,35 @@
+From 3745912327364e590fabcbcd342a9eb985fe82f7 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:49:24 -0500
+Subject: [PATCH 3/9] iommu: apple-dart: Keep the T6050 ANE DARTs for the cold
+ ANE backend
+
+The T6050 ANE DARTs are owned like the T8140 ones: the staged ANE backend
+takes SID 0 only, after its own cold checks, and every inherited stream
+stays as the boot loader left it. Treat "apple,t6050-ane-dart" as a cold
+ANE DART: no reset, no global enable, no IRQ, and a refused probe when
+the DART is locked or not the expected revision.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/iommu/apple-dart.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/iommu/apple-dart.c b/drivers/iommu/apple-dart.c
+index d39ee78d9d73..2c62a7350e4d 100644
+--- a/drivers/iommu/apple-dart.c
++++ b/drivers/iommu/apple-dart.c
+@@ -4199,7 +4199,8 @@ static int apple_dart_probe(struct platform_device *pdev)
+ 	dart->dev = dev;
+ 	dart->hw = of_device_get_match_data(dev);
+ 	dart->tunneled = tunneled;
+-	dart->cold_ane = of_device_is_compatible(dev->of_node, "apple,t8140-ane-dart");
++	dart->cold_ane = of_device_is_compatible(dev->of_node, "apple,t8140-ane-dart") ||
++			 of_device_is_compatible(dev->of_node, "apple,t6050-ane-dart");
+ 	if (dart->cold_ane && !IS_BUILTIN(CONFIG_APPLE_DART))
+ 		return -EOPNOTSUPP;
+ 	dart->per_stream = of_device_is_compatible(dev->of_node, "apple,t8140-dart") ||
+-- 
+2.56.0
+

@@ -1,0 +1,466 @@
+From e6d857984408e61badbfd1693401027eb4f6fe0c Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:49:03 -0500
+Subject: [PATCH 1/9] accel/ane: h17: take the cold-boot SoC layout from the
+ platform
+
+The staged backend hardcodes the T8140: ANE_SYS and the two child power
+states at PMGR +0x290/+0xc000/+0xc008, the "apple,t8140-ane-dart" DART
+compatible, four DAPF ranges, the 26.6.2 TEXT pin, and the start at boot.
+Move these into struct ane_fw_platform so another SoC with the same H17
+firmware interface can describe its own layout, and dispatch the staged
+path on the platform's owner instead of on soc == 0x8140.
+
+Add cold_unmeasured for a SoC whose cold-boot sequence has not been
+measured yet. Such a platform needs no TEXT pin: with a loader hand-off
+the observer is installed and binds without holding ANE_SYS, logs the
+preload TEXT digest and the PMGR words, and accepts only the read-only
+probe stage. Every acquiring stage refuses before any power, DMA or
+engine access. A preload whose layout does not match the platform is
+now logged with its addresses and sizes, and an apple,ane-type in the
+DT must match the platform's.
+
+The T8140 values are unchanged.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/accel/ane/ane_fw_cold.c             | 123 +++++++++++++-------
+ drivers/accel/ane/ane_fw_cold.h             |   3 +-
+ drivers/accel/ane/ane_fw_platform.c         |  19 +++
+ drivers/accel/ane/ane_fw_platform.h         |  22 ++++
+ drivers/accel/ane/ane_t6021_rtclient_main.c |   2 +-
+ 5 files changed, 122 insertions(+), 47 deletions(-)
+
+diff --git a/drivers/accel/ane/ane_fw_cold.c b/drivers/accel/ane/ane_fw_cold.c
+index 5ea7e8fc865b..bea36fb28e54 100644
+--- a/drivers/accel/ane/ane_fw_cold.c
++++ b/drivers/accel/ane/ane_fw_cold.c
+@@ -104,7 +104,7 @@ struct ane_fw_backend {
+ 	u32 sys_off_pmgr, sys_on_pmgr;
+ 	u64 sys_off_at, sys_off_ns;
+ 	struct ane_fw_cold_state cold;
+-	u64 ranges[ANE_FW_DAPF_RANGES * 2];
++	u64 ranges[ANE_FW_DAPF_MAX * 2];
+ 	u64 next_dva;
+ 	enum ane_fw_stage stage;
+ 	bool retained;
+@@ -215,9 +215,9 @@ static void ane_fw_snapshot_pmgr(struct ane_fw_backend *b)
+ {
+ 	struct ane_fw_cold_state *s = &b->cold;
+ 
+-	s->sys = ane_rd32(b, b->pmgr + 0x290);
+-	s->cpu = ane_rd32(b, b->pmgr + 0xc000);
+-	s->subblock = ane_rd32(b, b->pmgr + 0xc008);
++	s->sys = ane_rd32(b, b->pmgr + b->soc->pmgr_sys);
++	s->cpu = ane_rd32(b, b->pmgr + b->soc->pmgr_cpu);
++	s->subblock = ane_rd32(b, b->pmgr + b->soc->pmgr_subblock);
+ 	dev_info(&b->pdev->dev, "U2 ANE_SYS=%#x CPU_PS=%#x subblock=%#x\n",
+ 		 s->sys, s->cpu, s->subblock);
+ }
+@@ -265,7 +265,7 @@ static void ane_fw_snapshot_engine(struct ane_fw_backend *b)
+ 				dev_info(dev, "U2 DART%u stream enable word %u=%#x\n", i, j,
+ 					 s->dart[i].enabled[j]);
+ 	}
+-	for (i = 0; i < ANE_FW_DAPF_RANGES; i++) {
++	for (i = 0; i < b->soc->dapf_count; i++) {
+ 		void __iomem *r = b->engine + 0x1810000 + i * 0x40;
+ 
+ 		dev_info(dev, "U2 DAPF%u flags=%#x start=%#llx end=%#llx enable=%#x\n",
+@@ -506,7 +506,6 @@ static int ane_fw_suspend_firmware(struct ane_fw_backend *b)
+ 	return ret;
+ }
+ 
+-static const u8 ane_fw_text_pin[SHA256_DIGEST_SIZE];
+ static int ane_fw_boot(struct ane_fw_backend *b);
+ static int ane_fw_startup(struct ane_fw_backend *b);
+ static int ane_fw_rvbar_ready(struct ane_fw_backend *b);
+@@ -514,19 +513,21 @@ static int ane_fw_rvbar_ready(struct ane_fw_backend *b);
+ /* Reverse of the proven power-up: sub-block, PWGATE, CPU, then ANE_SYS. */
+ static int ane_fw_power_down(struct ane_fw_backend *b)
+ {
++	void __iomem *cpu = b->pmgr + b->soc->pmgr_cpu;
++	void __iomem *subblock = b->pmgr + b->soc->pmgr_subblock;
+ 	u32 sys;
+ 	int ret;
+ 
+-	ane_wr32(b, ane_rd32(b, b->pmgr + 0xc008) & ~0xf, b->pmgr + 0xc008);
+-	ret = ane_poll32(b, b->pmgr + 0xc008, 0xf0, 0, 1, 100000);
++	ane_wr32(b, ane_rd32(b, subblock) & ~0xf, subblock);
++	ret = ane_poll32(b, subblock, 0xf0, 0, 1, 100000);
+ 	if (ret)
+ 		return ret;
+ 	ane_wr32(b, 3, b->gate + 0xc);
+ 	ret = ane_poll32(b, b->gate + 0xc, 3, 3, 1, 100000);
+ 	if (ret)
+ 		return ret;
+-	ane_wr32(b, ane_rd32(b, b->pmgr + 0xc000) & ~0xf, b->pmgr + 0xc000);
+-	ret = ane_poll32(b, b->pmgr + 0xc000, 0xf0, 0, 1, 100000);
++	ane_wr32(b, ane_rd32(b, cpu) & ~0xf, cpu);
++	ret = ane_poll32(b, cpu, 0xf0, 0, 1, 100000);
+ 	if (ret)
+ 		return ret;
+ 	/* No engine or DART access from here until ANE_SYS is back on. */
+@@ -537,7 +538,7 @@ static int ane_fw_power_down(struct ane_fw_backend *b)
+ 	 * PMGR reads are safe in any power state. ANE_SYS's actual state
+ 	 * (bits 7:4) reads 0 once genpd has really turned the domain off.
+ 	 */
+-	sys = ane_rd32(b, b->pmgr + 0x290);
++	sys = ane_rd32(b, b->pmgr + b->soc->pmgr_sys);
+ 	/*
+ 	 * Here only requested: while other devices of the domain (the ANE
+ 	 * DARTs) are active, genpd turns it off in the noirq phase of the
+@@ -644,7 +645,7 @@ static int ane_fw_reload_segment(struct ane_fw_backend *b, unsigned int i)
+ 	memunmap(source);
+ 	dma_wmb();
+ 	sha256(s->cpu, s->size, digest);
+-	return memcmp(digest, i ? b->data_digest : ane_fw_text_pin, sizeof(digest)) ?
++	return memcmp(digest, i ? b->data_digest : b->soc->text_pin, sizeof(digest)) ?
+ 	       -EKEYREJECTED : 0;
+ }
+ 
+@@ -812,11 +813,11 @@ static int ane_fw_genpd_event(struct notifier_block *nb, unsigned long action, v
+ 
+ 	if (action == GENPD_NOTIFY_OFF) {
+ 		b->sys_offs++;
+-		b->sys_off_pmgr = ane_rd32(b, b->pmgr + 0x290);
++		b->sys_off_pmgr = ane_rd32(b, b->pmgr + b->soc->pmgr_sys);
+ 		b->sys_off_at = now;
+ 	} else if (action == GENPD_NOTIFY_ON) {
+ 		b->sys_ons++;
+-		b->sys_on_pmgr = ane_rd32(b, b->pmgr + 0x290);
++		b->sys_on_pmgr = ane_rd32(b, b->pmgr + b->soc->pmgr_sys);
+ 		if (b->sys_off_at)
+ 			b->sys_off_ns += now - b->sys_off_at;
+ 		b->sys_off_at = 0;
+@@ -1106,6 +1107,8 @@ static int ane_fw_power(struct ane_fw_backend *b, bool raw_boot)
+  */
+ static int ane_fw_power_up(struct ane_fw_backend *b, bool raw_boot, bool cold_engine)
+ {
++	void __iomem *cpu = b->pmgr + b->soc->pmgr_cpu;
++	void __iomem *subblock = b->pmgr + b->soc->pmgr_subblock;
+ 	struct device *dev = &b->pdev->dev;
+ 	u64 ce;
+ 	int ret;
+@@ -1117,7 +1120,7 @@ static int ane_fw_power_up(struct ane_fw_backend *b, bool raw_boot, bool cold_en
+ 			return ret;
+ 		b->power_ref = true;
+ 	}
+-	if ((ane_rd32(b, b->pmgr + 0x290) & 0xff) != 0xff)
++	if ((ane_rd32(b, b->pmgr + b->soc->pmgr_sys) & 0xff) != 0xff)
+ 		return -EIO;
+ 	/* The child state may not have moved since the probe stage. */
+ 	ane_fw_snapshot_pmgr(b);
+@@ -1126,16 +1129,16 @@ static int ane_fw_power_up(struct ane_fw_backend *b, bool raw_boot, bool cold_en
+ 		dev_info(dev, "H17 ANE: child power or gate not in the cold state; refusing\n");
+ 		return -EPERM;
+ 	}
+-	ane_wr32(b, ane_rd32(b, b->pmgr + 0xc000) | 0xf, b->pmgr + 0xc000);
+-	ret = ane_poll32(b, b->pmgr + 0xc000, 0xff, 0xff, 1, 100000);
++	ane_wr32(b, ane_rd32(b, cpu) | 0xf, cpu);
++	ret = ane_poll32(b, cpu, 0xff, 0xff, 1, 100000);
+ 	if (ret)
+ 		return ret;
+ 	ane_wr32(b, 0, b->gate + 0xc);
+ 	ret = ane_poll32(b, b->gate + 0xc, 3, 0, 1, 100000);
+ 	if (ret)
+ 		return ret;
+-	ane_wr32(b, ane_rd32(b, b->pmgr + 0xc008) | 0xf, b->pmgr + 0xc008);
+-	ret = ane_poll32(b, b->pmgr + 0xc008, 0xff, 0xff, 1, 100000);
++	ane_wr32(b, ane_rd32(b, subblock) | 0xf, subblock);
++	ret = ane_poll32(b, subblock, 0xff, 0xff, 1, 100000);
+ 	if (ret)
+ 		return ret;
+ 	ret = ane_poll32(b, b->gate + 0x30, U32_MAX, 0, 1, 100000);
+@@ -1165,7 +1168,7 @@ static int ane_fw_dapf(struct ane_fw_backend *b)
+ {
+ 	unsigned int i;
+ 
+-	for (i = 0; i < ANE_FW_DAPF_RANGES; i++) {
++	for (i = 0; i < b->soc->dapf_count; i++) {
+ 		void __iomem *r = b->engine + 0x1810000 + i * 0x40;
+ 		u64 start = b->ranges[i * 2], end = b->ranges[i * 2 + 1];
+ 
+@@ -1184,17 +1187,6 @@ static int ane_fw_dapf(struct ane_fw_backend *b)
+ 	return 0;
+ }
+ 
+-/*
+- * The measured 26.6.2 H17 TEXT. A different firmware build is refused before
+- * anything is powered or written.
+- */
+-static const u8 ane_fw_text_pin[SHA256_DIGEST_SIZE] = {
+-	0xcd, 0xa0, 0x9e, 0xc1, 0xae, 0xe6, 0x8b, 0x88,
+-	0xb4, 0x7e, 0xdc, 0x0e, 0xeb, 0xc8, 0x10, 0x45,
+-	0x25, 0x32, 0xa8, 0x55, 0x56, 0x3f, 0xbd, 0x65,
+-	0x0b, 0x95, 0xe2, 0x84, 0x6c, 0x34, 0x53, 0x10,
+-};
+-
+ /*
+  * The loader's preload hand-off. apple,preload-data-sha256 is optional: with
+  * it the private DATA copy must match the loader's digest of what it handed
+@@ -1264,7 +1256,7 @@ static int ane_fw_preload(struct ane_fw_backend *b)
+ 		sha256_init(&hash);
+ 		sha256_update(&hash, snapshots[i].cpu, size[i]);
+ 		sha256_final(&hash, digest);
+-		if (memcmp(digest, i ? data_pin : ane_fw_text_pin, sizeof(digest)))
++		if (memcmp(digest, i ? data_pin : b->soc->text_pin, sizeof(digest)))
+ 			return -EKEYREJECTED;
+ 	}
+ 	/* Preserve every personalized DATA byte, including the iBoot TLV table. */
+@@ -1317,7 +1309,7 @@ static int ane_fw_prepare(struct ane_fw_backend *b)
+ 	ret = ane_fw_preload(b);
+ 	if (ret)
+ 		return ret;
+-	for (i = 0; i < ANE_FW_DAPF_RANGES; i++) {
++	for (i = 0; i < b->soc->dapf_count; i++) {
+ 		u64 page = round_down(b->ranges[i * 2], SZ_16K);
+ 
+ 		ret = ane_fw_map(b, page, page, SZ_16K, IOMMU_READ | IOMMU_WRITE | IOMMU_MMIO);
+@@ -1650,6 +1642,11 @@ static ssize_t ane_fw_stage_action(struct device *dev, const char *buf, size_t c
+ 		dev_info(dev, "ANE probe: raw-boot evidence and cold child power verified; no writes\n");
+ 		return count;
+ 	}
++	if (b->soc->cold_unmeasured) {
++		dev_info(dev, "H17 ANE: %s unmeasured on this SoC; no acquisition\n",
++			 b->soc->cold_unmeasured);
++		return -EOPNOTSUPP;
++	}
+ 	if (sysfs_streq(buf, "map"))
+ 		next = ANE_STAGE_MAPPED;
+ 	else if (sysfs_streq(buf, "boot"))
+@@ -1739,8 +1736,21 @@ static bool ane_fw_handoff_present(struct platform_device *pdev,
+ 		if (text) {
+ 			sha256(text, h.size[0], digest);
+ 			memunmap(text);
+-			h.text_ok = !memcmp(digest, ane_fw_text_pin, sizeof(digest));
++			/*
++			 * Without a measured pin only the observer may start
++			 * (cold_unmeasured refuses every acquiring stage).
++			 */
++			h.text_ok = soc->text_pin ?
++				    !memcmp(digest, soc->text_pin, sizeof(digest)) :
++				    !!soc->cold_unmeasured;
++			if (!soc->text_pin || !h.text_ok)
++				dev_info(&pdev->dev, "H17 ANE: preload TEXT SHA-256 %*phN\n",
++					 (int)sizeof(digest), digest);
+ 		}
++	} else if (h.regions_ok) {
++		dev_info(&pdev->dev,
++			 "H17 ANE: preload TEXT %#llx+%#llx at %#llx, DATA %#llx+%#llx at %#llx\n",
++			 h.phys[0], h.size[0], h.dva[0], h.phys[1], h.size[1], h.dva[1]);
+ 	}
+ 	*hp = h;
+ 	if (ane_fw_cold_handoff_loader_ok(&h, soc))
+@@ -1819,10 +1829,20 @@ int ane_fw_staged_init(struct platform_device *pdev, const struct ane_fw_platfor
+ 	struct ane_fw_backend *b;
+ 	unsigned int i;
+ 	u32 dart_phandles[ANE_FW_DARTS];
++	u32 ane_type;
+ 	int ret = -EINVAL;
+ 
+-	if (ane_backend || soc->soc != 0x8140)
++	if (ane_backend || !ane_fw_platform_staged(soc) || !soc->dart_compatible ||
++	    !soc->dapf_count || soc->dapf_count > ANE_FW_DAPF_MAX ||
++	    (!soc->text_pin && !soc->cold_unmeasured))
+ 		return -EOPNOTSUPP;
++	/* A board DT may name the generation; the loader does not supply it. */
++	if (!of_property_read_u32(np, "apple,ane-type", &ane_type) &&
++	    ane_type != soc->ane_type) {
++		dev_info(&pdev->dev, "H17 ANE: apple,ane-type %#x, expected %#x; leaving the engine alone\n",
++			 ane_type, soc->ane_type);
++		return -ENODEV;
++	}
+ 	/* No hand-off (an older loader, a warm boot): leave the engine alone. */
+ 	if (!ane_fw_handoff_present(pdev, soc, &handoff))
+ 		return -ENODEV;
+@@ -1849,10 +1869,11 @@ int ane_fw_staged_init(struct platform_device *pdev, const struct ane_fw_platfor
+ 		    strcmp(name, soc->reg_names[i]))
+ 			goto fail;
+ 	}
+-	if (of_property_read_u64_array(np, "apple,dapf-ranges", b->ranges,
+-				       ARRAY_SIZE(b->ranges)))
++	if (of_property_count_u64_elems(np, "apple,dapf-ranges") != soc->dapf_count * 2 ||
++	    of_property_read_u64_array(np, "apple,dapf-ranges", b->ranges,
++				       soc->dapf_count * 2))
+ 		goto fail;
+-	for (i = 0; i < ANE_FW_DAPF_RANGES; i++) {
++	for (i = 0; i < b->soc->dapf_count; i++) {
+ 		u64 start = b->ranges[i * 2], end = b->ranges[i * 2 + 1];
+ 
+ 		if (start > end || round_down(start, SZ_16K) != round_down(end, SZ_16K))
+@@ -1870,7 +1891,7 @@ int ane_fw_staged_init(struct platform_device *pdev, const struct ane_fw_platfor
+ 		if (ret)
+ 			goto fail;
+ 		if (args.args_count != 1 || args.args[0] ||
+-		    !of_device_is_compatible(args.np, "apple,t8140-ane-dart")) {
++		    !of_device_is_compatible(args.np, soc->dart_compatible)) {
+ 			of_node_put(args.np);
+ 			ret = -EINVAL;
+ 			goto fail;
+@@ -1907,7 +1928,7 @@ int ane_fw_staged_init(struct platform_device *pdev, const struct ane_fw_platfor
+ 	ane_fw_snapshot_pmgr(b);
+ 	handoff.pmgr = &b->cold;
+ 	handoff.crash_kernel = is_kdump_kernel();
+-	if (!ane_fw_cold_handoff_valid(&handoff, soc)) {
++	if (!ane_fw_cold_handoff_valid(&handoff, soc) && !soc->cold_unmeasured) {
+ 		dev_info(&pdev->dev, "H17 ANE: engine not cold (%s); leaving it alone\n",
+ 			 handoff.crash_kernel ? "kdump kernel" : "CPU or sub-block powered");
+ 		ret = -ENODEV;
+@@ -1919,7 +1940,14 @@ int ane_fw_staged_init(struct platform_device *pdev, const struct ane_fw_platfor
+ 		ane_backend = NULL;
+ 		goto fail;
+ 	}
+-	dev_info(&pdev->dev, "H17 ANE: loader hand-off verified; starting the engine\n");
++	if (soc->cold_unmeasured)
++		dev_info(&pdev->dev, "H17 ANE: loader hand-off present, PMGR %s; observation only (%s)\n",
++			 ane_fw_cold_handoff_valid(&handoff, soc) ? "cold" : "not cold",
++			 soc->cold_unmeasured);
++	else if (soc->boot_start)
++		dev_info(&pdev->dev, "H17 ANE: loader hand-off verified; starting the engine\n");
++	else
++		dev_info(&pdev->dev, "H17 ANE: loader hand-off verified; firmware_stage starts the engine\n");
+ 	INIT_WORK(&b->start, ane_fw_start_work);
+ 	return 0;
+ fail:
+@@ -1942,7 +1970,8 @@ int ane_fw_staged_bind(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+ 	struct ane_fw_backend *b = ane_backend;
+-	bool handoff = b && b->pdev == pdev;
++	/* An observer that may not acquire leaves ANE_SYS to genpd. */
++	bool handoff = b && b->pdev == pdev && !b->soc->cold_unmeasured;
+ 	int ret;
+ 
+ 	if (ane_fw_bound_dev)
+@@ -1971,7 +2000,9 @@ int ane_fw_staged_bind(struct platform_device *pdev)
+ 			dev_info(dev, "H17 ANE: no genpd notifier; ANE_SYS transitions not recorded\n");
+ 	}
+ 	dev_info(dev, "H17 ANE: bound; %s\n", handoff ?
+-		 "ANE_SYS held until the bring-up owns it" : "no hand-off, engine left off");
++		 "ANE_SYS held until the bring-up owns it" :
++		 b && b->pdev == pdev ? "observer only, engine left off" :
++		 "no hand-off, engine left off");
+ 	return 0;
+ }
+ 
+@@ -2016,8 +2047,10 @@ int ane_fw_staged_suspend(struct device *dev)
+  */
+ void ane_fw_staged_start(void)
+ {
+-	if (ane_backend)
+-		schedule_work(&ane_backend->start);
++	struct ane_fw_backend *b = ane_backend;
++
++	if (b && b->soc->boot_start && !b->soc->cold_unmeasured)
++		schedule_work(&b->start);
+ }
+ 
+ bool ane_fw_staged_exit(void)
+diff --git a/drivers/accel/ane/ane_fw_cold.h b/drivers/accel/ane/ane_fw_cold.h
+index 6fc23b417fc2..a8d972f49de3 100644
+--- a/drivers/accel/ane/ane_fw_cold.h
++++ b/drivers/accel/ane/ane_fw_cold.h
+@@ -5,7 +5,8 @@
+ #include "ane_fw_transport.h"
+ 
+ #define ANE_FW_DARTS 3
+-#define ANE_FW_DAPF_RANGES 4
++/* DAPF records described by the DT, at most. */
++#define ANE_FW_DAPF_MAX 5
+ 
+ struct ane_fw_cold_state {
+ 	u32 sys, cpu, subblock, gate_request, gate_ack;
+diff --git a/drivers/accel/ane/ane_fw_platform.c b/drivers/accel/ane/ane_fw_platform.c
+index 1f0d50a1f0d8..9e649775d664 100644
+--- a/drivers/accel/ane/ane_fw_platform.c
++++ b/drivers/accel/ane/ane_fw_platform.c
+@@ -4,6 +4,7 @@
+  * 12 and 15, and the H16 cold-boot facts, round 5. Metadata preflight
+  * performs no MMIO, DMA mapping or power access.
+  */
++#include <crypto/sha2.h>
+ #include <linux/ioport.h>
+ #include <linux/mm.h>
+ #include <linux/of.h>
+@@ -31,6 +32,17 @@ static const u32 ane_h16_power_words[] = {
+ static const char * const ane_h17_reg_names[] = { "engine", "pmgr", "pwgate" };
+ static const u32 ane_h17_reg_sizes[] = { 0x2000000, 0x18000, 0x34 };
+ 
++/*
++ * The measured 26.6.2 H17 TEXT. A different firmware build is refused before
++ * anything is powered or written.
++ */
++static const u8 ane_h17_text_pin[SHA256_DIGEST_SIZE] = {
++	0xcd, 0xa0, 0x9e, 0xc1, 0xae, 0xe6, 0x8b, 0x88,
++	0xb4, 0x7e, 0xdc, 0x0e, 0xeb, 0xc8, 0x10, 0x45,
++	0x25, 0x32, 0xa8, 0x55, 0x56, 0x3f, 0xbd, 0x65,
++	0x0b, 0x95, 0xe2, 0x84, 0x6c, 0x34, 0x53, 0x10,
++};
++
+ const struct ane_fw_platform ane_h16_platform = {
+ 	.h16_profiles = ane_h16_profiles,
+ 	.h16_profile_count = ARRAY_SIZE(ane_h16_profiles),
+@@ -97,6 +109,13 @@ const struct ane_fw_platform ane_h17_platform = {
+ 	.stream_mask = BIT(0),
+ 	.firmware_preloaded = true,
+ 	.safe_reset = false,
++	.pmgr_sys = 0x290,
++	.pmgr_cpu = 0xc000,
++	.pmgr_subblock = 0xc008,
++	.dart_compatible = "apple,t8140-ane-dart",
++	.dapf_count = 4,
++	.text_pin = ane_h17_text_pin,
++	.boot_start = true,
+ 	/* 25G83 boots this firmware in Exclave mode (SPEC-ANE-SLEEP-H17.md). */
+ 	.exclave_mode_stop = true,
+ 	/*
+diff --git a/drivers/accel/ane/ane_fw_platform.h b/drivers/accel/ane/ane_fw_platform.h
+index 6978b1b6fe55..207e6f308be9 100644
+--- a/drivers/accel/ane/ane_fw_platform.h
++++ b/drivers/accel/ane/ane_fw_platform.h
+@@ -77,6 +77,28 @@ struct ane_fw_platform {
+ 	 * Without either, H16 refuses system sleep.
+ 	 */
+ 	bool sleep_cold;
++	/*
++	 * Staged backends: the PMGR words of ANE_SYS, of the power state
++	 * turned on first (CPU) and of the one turned on after PWGATE (the
++	 * sub-block), as offsets in the "pmgr" window.
++	 */
++	u32 pmgr_sys;
++	u32 pmgr_cpu;
++	u32 pmgr_subblock;
++	/* The compatible every DART in "iommus" must carry. */
++	const char *dart_compatible;
++	/* Start/end pairs in "apple,dapf-ranges". */
++	u8 dapf_count;
++	/* SHA-256 of the measured preload TEXT, or NULL. */
++	const u8 *text_pin;
++	/* With a loader hand-off, run the stages at boot. */
++	bool boot_start;
++	/*
++	 * Set while this SoC's cold-boot sequence is unmeasured: the device
++	 * binds and the observer reports the hand-off and the PMGR state,
++	 * but no stage past probe touches the engine. Names what is missing.
++	 */
++	const char *cold_unmeasured;
+ };
+ 
+ /* Pure range check: the boot loader supplies the physical addresses. */
+diff --git a/drivers/accel/ane/ane_t6021_rtclient_main.c b/drivers/accel/ane/ane_t6021_rtclient_main.c
+index e70f0acb4f07..c444b7ac6483 100644
+--- a/drivers/accel/ane/ane_t6021_rtclient_main.c
++++ b/drivers/accel/ane/ane_t6021_rtclient_main.c
+@@ -4231,7 +4231,7 @@ static int __init ane_rtclient_init(void)
+ 			pr_info("ane: H16 ANE: firmware transport unvalidated; keeping disabled\n");
+ 			return -EOPNOTSUPP;
+ 		}
+-		if (soc->platform->soc == 0x8140) {
++		if (ane_fw_platform_staged(soc->platform)) {
+ 			ret = ane_fw_staged_init(pdev, soc->platform);
+ 			/* No loader hand-off: the probe below refuses quietly. */
+ 			if (ret == -ENODEV)
+-- 
+2.56.0
+

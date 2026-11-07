@@ -1,0 +1,159 @@
+From 91a907259bcad47572b4c0f5b2b5c5579e79a4a3 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 14:10:13 -0500
+Subject: [PATCH] kboot: Hand the T6050 ANE firmware preload to the kernel
+
+iBoot preloads the T6050 Neural Engine firmware below the OS and lists
+its __TEXT and __DATA segments in /arm-io/ane0 segment-ranges. Fill the
+"apple,t6050-ane" node's two /reserved-memory placeholders with them
+(no-map, renamed to their physical addresses, enabled), set
+apple,firmware-iovas to the segments' remap addresses, and disable the
+node when the preload cannot be handed over.
+
+Running at EL2 straight from iBoot, nothing has run the ANE since iBoot
+loaded it: say so with /chosen/apple,ane-cold-boot, the evidence the
+kernel's ANE driver requires before it touches the engine.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ src/kboot.c | 117 ++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 117 insertions(+)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index 6ba1452c..95490c0e 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -1863,6 +1863,121 @@ static int dt_reserve_asc_firmware(const char *adt_path, const char *adt_path_al
+     return 0;
+ }
+ 
++/*
++ * The T6050 Neural Engine runs firmware that iBoot preloads into DRAM below the OS:
++ * /arm-io/ane0 is "pre-loaded" with exactly a __TEXT and a __DATA segment range. Hand both
++ * segments to the ANE node: fill its two /reserved-memory placeholders (no-map, renamed to
++ * their physical addresses, enabled), and set apple,firmware-iovas to the addresses the
++ * firmware runs them at (the segments' remap addresses). The node is disabled if the preload
++ * cannot be handed over.
++ *
++ * m1n1 runs at EL2 straight from iBoot: no XNU, SPTM or exclave has run the ANE since iBoot
++ * loaded it. Only then does /chosen/apple,ane-cold-boot say so.
++ */
++static int dt_ane_fill_region(uint32_t phandle, const char *kind, u64 phys, u64 size)
++{
++    int resv = fdt_path_offset(dt, "/reserved-memory");
++    int node = fdt_node_offset_by_phandle(dt, phandle);
++    if (resv < 0 || node < 0 || fdt_parent_offset(dt, node) != resv)
++        return -1;
++
++    char name[48];
++    snprintf(name, sizeof(name), "ane-firmware-%s@%lx", kind, phys);
++    int other = fdt_subnode_offset(dt, resv, name);
++    if (other >= 0 && other != node)
++        return -1;
++
++    u64 reg[2] = {cpu_to_fdt64(phys), cpu_to_fdt64(size)};
++    if (fdt_setprop(dt, node, "reg", reg, sizeof(reg)) || fdt_setprop_empty(dt, node, "no-map") ||
++        fdt_setprop_string(dt, node, "status", "okay"))
++        return -1;
++    node = fdt_node_offset_by_phandle(dt, phandle);
++    if (node < 0 || fdt_set_name(dt, node, name))
++        return -1;
++    return 0;
++}
++
++static int dt_set_ane(void)
++{
++    static const char seg_names[] = "__TEXT;__DATA";
++    static const char *const kinds[2] = {"text", "data"};
++    const char *reason = "invalid ADT firmware segments";
++    char path[64];
++
++    int node = fdt_node_offset_by_compatible(dt, -1, "apple,t6050-ane");
++    if (node < 0)
++        return 0;
++    if (fdt_get_path(dt, node, path, sizeof(path)))
++        bail("FDT: ANE node path too long\n");
++
++    int anode = adt_path_offset(adt, "/arm-io/ane0");
++    if (anode < 0) {
++        reason = "no /arm-io/ane0";
++        goto disable;
++    }
++
++    u32 preloaded;
++    if (ADT_GETPROP(adt, anode, "pre-loaded", &preloaded) != sizeof(preloaded) || preloaded != 1) {
++        reason = "firmware not preloaded";
++        goto disable;
++    }
++
++    u32 seg_len, names_len;
++    const struct adt_segment_ranges *seg = adt_getprop(adt, anode, "segment-ranges", &seg_len);
++    const char *names = adt_getprop(adt, anode, "segment-names", &names_len);
++    if (!seg || seg_len != 2 * sizeof(*seg) || !names || names_len < sizeof(seg_names) - 1 ||
++        names_len > sizeof(seg_names) || memcmp(names, seg_names, sizeof(seg_names) - 1))
++        goto disable;
++
++    u64 span[2];
++    for (int i = 0; i < 2; i++) {
++        span[i] = ALIGN_UP((u64)seg[i].size, SZ_16K);
++        /* Below the OS: never inside the RAM Linux is given. */
++        if (!seg[i].size || !seg[i].remap || (seg[i].phys & (SZ_16K - 1)) ||
++            (seg[i].remap & (SZ_16K - 1)) || seg[i].phys > cur_boot_args.phys_base ||
++            span[i] > cur_boot_args.phys_base - seg[i].phys)
++            goto disable;
++    }
++    if ((seg[0].phys < seg[1].phys + span[1] && seg[1].phys < seg[0].phys + span[0]) ||
++        (seg[0].remap < seg[1].remap + span[1] && seg[1].remap < seg[0].remap + span[0]))
++        goto disable;
++
++    reason = "no preload placeholders";
++    int len = 0;
++    const fdt32_t *regions = fdt_getprop(dt, node, "memory-region", &len);
++    if (!regions || len != 2 * sizeof(fdt32_t))
++        goto disable;
++    uint32_t phandles[2] = {fdt32_ld(&regions[0]), fdt32_ld(&regions[1])};
++
++    reason = "preload reservation failed";
++    for (int i = 0; i < 2; i++)
++        if (dt_ane_fill_region(phandles[i], kinds[i], seg[i].phys, span[i]))
++            goto disable;
++
++    fdt64_t iovas[2] = {cpu_to_fdt64(seg[0].remap), cpu_to_fdt64(seg[1].remap)};
++    node = fdt_path_offset(dt, path);
++    if (node < 0 || fdt_setprop(dt, node, "apple,firmware-iovas", iovas, sizeof(iovas)))
++        goto disable;
++
++    printf("FDT: %s: ANE firmware TEXT 0x%lx+0x%lx DATA 0x%lx+0x%lx reserved\n", path,
++           seg[0].phys, span[0], seg[1].phys, span[1]);
++
++    if (in_el2()) {
++        static const char marker[] = "raw-no-xnu-ane-untouched-v1";
++        int chosen = fdt_path_offset(dt, "/chosen");
++        if (chosen < 0 || fdt_setprop(dt, chosen, "apple,ane-cold-boot", marker, sizeof(marker)))
++            printf("FDT: ANE cold-boot marker not set\n");
++    }
++    return 0;
++
++disable:
++    node = fdt_path_offset(dt, path);
++    if (node < 0 || fdt_setprop_string(dt, node, "status", "disabled"))
++        return -1;
++    printf("FDT: ANE disabled: %s\n", reason);
++    return 0;
++}
++
+ static const char dcpext_aliases[][8] = {
+     "dcpext",  "dcpext0", "dcpext1", "dcpext2", "dcpext3",
+     "dcpext4", "dcpext5", "dcpext6", "dcpext7",
+@@ -2904,6 +3019,8 @@ int kboot_prepare_dt(void *fdt)
+         return -1;
+     if (dt_set_isp_fwdata())
+         return -1;
++    if (dt_set_ane())
++        return -1;
+     if (dt_set_pmgr())
+         return -1;
+ #ifndef RELEASE
+-- 
+2.56.0
+

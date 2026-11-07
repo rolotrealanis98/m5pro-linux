@@ -1,0 +1,47 @@
+From e0d6ff5624babae673509ba71122ae807c4fba4d Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:55:09 -0500
+Subject: [PATCH 8/9] arm64: dts: apple: t6050-j716s: Enable the Neural Engine
+
+Enable the ANE and its three DARTs, following the J700. On the T6050 the
+ANE driver only observes: it reports the loader hand-off and the ANE
+power state and never starts the engine.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 54b75345f2bb..d9ada381df5e 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -470,3 +470,24 @@ tp-accel {
+  *   2 afe-reset      (0x10000, 0x11c0000)
+  */
+ /delete-node/ &smc_pcio;
++
++/*
++ * The ANE binds for observation only: with a loader hand-off (the filled firmware preload
++ * reservations and /chosen/apple,ane-cold-boot) its driver logs the hand-off and the ANE
++ * power state; it never starts the engine on this SoC yet.
++ */
++&ane {
++	status = "okay";
++};
++
++&ane_dart0 {
++	status = "okay";
++};
++
++&ane_dart1 {
++	status = "okay";
++};
++
++&ane_dart2 {
++	status = "okay";
++};
+-- 
+2.56.0
+

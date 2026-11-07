@@ -1,0 +1,32 @@
+From 6b290c11f705ca73b1a97bf7a569bad4584a02cf Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:55:10 -0500
+Subject: [PATCH 9/9] arm64: configs: j716s: Build the Neural Engine driver in
+
+The staged ANE backend observes and acquires only when built in, with
+the DART driver built in as well. Build both in, and debugfs for its
+statistics files.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/configs/j716s.config | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index caa69196ae0d..f2fccd370195 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -72,3 +72,9 @@ CONFIG_ZRAM=y
+ CONFIG_ZRAM_BACKEND_ZSTD=y
+ CONFIG_ZRAM_DEF_COMP_ZSTD=y
+ CONFIG_DEVMEM=y
++
++# Neural Engine: built in, as its staged backend requires (observation only on T6050)
++CONFIG_DRM_ACCEL=y
++CONFIG_DRM_ACCEL_ANE=y
++CONFIG_APPLE_DART=y
++CONFIG_DEBUG_FS=y
+-- 
+2.56.0
+
