@@ -117,3 +117,14 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
   b1615e3fca90). Hardware: E2b on the J716s (firmware 27.3 26C5035r identified, both InitData acknowledged, opening
   records retired, aurora DRM device registered). Checks (A/B/C/D scripts, host tests) pass on the head; patches and
   check scripts under prs/gpu-27.2/. Announcement comment posted on #1012.
+
+## 2026-11-07 (m1n1 GPU hand-off PR prepared)
+- aurora-silicon/m1n1 `pr/t6050-gpu-handoff` 686e792 (1 commit, `src/kboot_gpu.c` only) stacked on `pr/t6050-bringup`
+  d8a0458; does not need #65 (cherry-picks cleanly onto it, builds). Reshaped from lineage 0028 to aurora-wip's
+  T6040 fill: no chosen.* opt-in (runs when the DT enables `&gpu`), `/reserved-memory/uat-*` + `gpu-fw-text/-data`
+  via `dt_set_resvmem()`, mailbox windows from the ADT (enabled with the GPU), no PMGR check, disable path as T6040.
+  Build: 15 warnings = base, none new, clang-format clean, plain image stays 0x410000 (with #65: 0x420000); base,
+  bring-up and lineage n1-warm rebuild byte-identical. Host test vs the J716s ADT passes (fill, control, 4 negatives).
+  Boot-test payload `m1n1-t6050-gpu-20261107-30a40882` (E2 kernel, E2 DTB + `&gpu`/`&pmgr_gfx` okay, Wi-Fi daily
+  initramfs, selftest, battery): ATTENDED boot (no stage-1 watchdog). PR text and copies under prs/m1n1-gpu/. Not
+  pushed, PR not opened.

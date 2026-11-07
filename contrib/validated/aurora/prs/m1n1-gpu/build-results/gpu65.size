@@ -1,0 +1,24 @@
+build/m1n1.elf  :
+section                size      addr
+.header               65536         0
+.init                  3088     65536
+.rodata              208128    786432
+.data                196608   1048576
+.text                655360    131072
+.rela.dyn             54016    994560
+.bss                3145728   1245184
+.debug_aranges        35392         0
+.debug_info         1223890         0
+.debug_abbrev        108320         0
+.debug_line          601692         0
+.debug_frame             40         0
+.debug_str           438942         0
+.debug_loc              546         0
+.debug_ranges        170624         0
+.debug_line_str        3664         0
+.debug_loclists      576479         0
+.debug_rnglists       84851         0
+Total               7572904
+
+
+text used to 0xb246c of 0xc0000 (0xdb94 free); rodata+rela used to 0xffd80 of 0x100000 (0x280 free)

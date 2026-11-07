@@ -1,0 +1,130 @@
+=== E2 DTB (53429ff0), mode asis
+FDT: GPU: T6050 GPU is disabled in the device tree, not filling it
+dt_set_gpu_t6050 -> 0
+  /reserved-memory/uat-ttbs                status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-pagetables          status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-handoff             status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-l2-pagetables       status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/gpu-fw-text             status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/gpu-fw-data             status=disabled reg=00000000 00000000 00000000 00000000 
+  /soc@2300000000/mailbox@2302600000       status=disabled reg=00000023 02600000 00000000 00088000 00000023 02050000 00000000 00000008 
+  /soc@2300000000/mailbox@2302e00000       status=disabled reg=00000023 02e00000 00000000 00088000 00000023 02850000 00000000 00000008 
+  /soc@2300000000/gpu@2300000000           status=disabled reg=00000023 00000000 00000000 03fdc000 
+  /soc@2300000000/power-management@2300e80000 status=disabled reg=00000023 00e80000 00000000 00030000 
+=== E2 DTB (53429ff0), mode enable
+FDT: GPU: T6050: /reserved-memory/uat-handoff       0x10bfff20000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-l2-pagetables 0x10bfff24000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-pagetables    0x10bfff28000+0x80000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-ttbs          0x10bfffa8000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/gpu-fw-text       0x10000ff0000+0xa4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/gpu-fw-data       0x10002518000+0x184000, outside Linux RAM
+FDT: GPU: T6050: mailbox GFX: wrapper 0x2302600000, iop-vbar 0x2302050000 (/arm-io/gfx-asc)
+FDT: GPU: T6050: mailbox GFX1: wrapper 0x2302e00000, iop-vbar 0x2302850000 (/arm-io/gfx1-asc)
+FDT: GPU: T6050 GPU handed off: UAT, firmware and mailboxes from the ADT
+dt_set_gpu_t6050 -> 0
+  /reserved-memory/uat-ttbs                status=okay     reg=0000010b fffa8000 00000000 00004000 
+  /reserved-memory/uat-pagetables          status=okay     reg=0000010b fff28000 00000000 00080000 
+  /reserved-memory/uat-handoff             status=okay     reg=0000010b fff20000 00000000 00004000 
+  /reserved-memory/uat-l2-pagetables       status=okay     reg=0000010b fff24000 00000000 00004000 
+  /reserved-memory/gpu-fw-text             status=okay     reg=00000100 00ff0000 00000000 000a4000 
+  /reserved-memory/gpu-fw-data             status=okay     reg=00000100 02518000 00000000 00184000 
+  /soc@2300000000/mailbox@2302600000       status=okay     reg=00000023 02600000 00000000 00088000 00000023 02050000 00000000 00000008 
+  /soc@2300000000/mailbox@2302e00000       status=okay     reg=00000023 02e00000 00000000 00088000 00000023 02850000 00000000 00000008 
+  /soc@2300000000/gpu@2300000000           status=okay     reg=00000023 00000000 00000000 03fdc000 
+  /soc@2300000000/power-management@2300e80000 status=okay     reg=00000023 00e80000 00000000 00030000 
+=== E2 DTB (53429ff0), mode bad-sgx
+FDT: GPU: T6050: gpu sgx is not the ADT's
+FDT: GPU: invalid T6050 ADT or DT data, disabling GPU
+dt_set_gpu_t6050 -> 0
+  /reserved-memory/uat-ttbs                status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-pagetables          status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-handoff             status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-l2-pagetables       status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/gpu-fw-text             status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/gpu-fw-data             status=disabled reg=00000000 00000000 00000000 00000000 
+  /soc@2300000000/mailbox@2302600000       status=disabled reg=00000023 02600000 00000000 00088000 00000023 02050000 00000000 00000008 
+  /soc@2300000000/mailbox@2302e00000       status=disabled reg=00000023 02e00000 00000000 00088000 00000023 02850000 00000000 00000008 
+  /soc@2300000000/gpu@2300000000           status=disabled reg=00000023 00004000 00000000 03fd8000 
+  /soc@2300000000/power-management@2300e80000 status=okay     reg=00000023 00e80000 00000000 00030000 
+=== E2 DTB (53429ff0), mode bad-role
+FDT: GPU: T6050: /reserved-memory/uat-handoff       0x10bfff20000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-l2-pagetables 0x10bfff24000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-pagetables    0x10bfff28000+0x80000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-ttbs          0x10bfffa8000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/gpu-fw-text       0x10000ff0000+0xa4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/gpu-fw-data       0x10002518000+0x184000, outside Linux RAM
+FDT: GPU: T6050: mailbox GFX: wrapper 0x2302600000, iop-vbar 0x2302050000 (/arm-io/gfx-asc)
+FDT: GPU: T6050: no GPU coprocessor window for mailbox role GFX
+FDT: GPU: invalid T6050 ADT or DT data, disabling GPU
+dt_set_gpu_t6050 -> 0
+  /reserved-memory/uat-ttbs                status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-pagetables          status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-handoff             status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-l2-pagetables       status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/gpu-fw-text             status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/gpu-fw-data             status=disabled reg=00000000 00000000 00000000 00000000 
+  /soc@2300000000/mailbox@2302600000       status=disabled reg=00000023 02600000 00000000 00088000 00000023 02050000 00000000 00000008 
+  /soc@2300000000/mailbox@2302e00000       status=disabled reg=00000023 02e00000 00000000 00088000 00000023 02850000 00000000 00000008 
+  /soc@2300000000/gpu@2300000000           status=disabled reg=00000023 00000000 00000000 03fdc000 
+  /soc@2300000000/power-management@2300e80000 status=okay     reg=00000023 00e80000 00000000 00030000 
+=== E2 DTB (53429ff0), mode bad-irq
+FDT: GPU: T6050: /reserved-memory/uat-handoff       0x10bfff20000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-l2-pagetables 0x10bfff24000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-pagetables    0x10bfff28000+0x80000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-ttbs          0x10bfffa8000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/gpu-fw-text       0x10000ff0000+0xa4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/gpu-fw-data       0x10002518000+0x184000, outside Linux RAM
+FDT: GPU: T6050: mailbox GFX irq 2801 is not /arm-io/gfx-asc's
+FDT: GPU: invalid T6050 ADT or DT data, disabling GPU
+dt_set_gpu_t6050 -> 0
+  /reserved-memory/uat-ttbs                status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-pagetables          status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-handoff             status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-l2-pagetables       status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/gpu-fw-text             status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/gpu-fw-data             status=disabled reg=00000000 00000000 00000000 00000000 
+  /soc@2300000000/mailbox@2302600000       status=disabled reg=00000023 02600000 00000000 00088000 00000023 02050000 00000000 00000008 
+  /soc@2300000000/mailbox@2302e00000       status=disabled reg=00000023 02e00000 00000000 00088000 00000023 02850000 00000000 00000008 
+  /soc@2300000000/gpu@2300000000           status=disabled reg=00000023 00000000 00000000 03fdc000 
+  /soc@2300000000/power-management@2300e80000 status=okay     reg=00000023 00e80000 00000000 00030000 
+=== E2 DTB (53429ff0), mode one-mbox
+FDT: GPU: T6050: /reserved-memory/uat-handoff       0x10bfff20000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-l2-pagetables 0x10bfff24000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-pagetables    0x10bfff28000+0x80000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-ttbs          0x10bfffa8000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/gpu-fw-text       0x10000ff0000+0xa4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/gpu-fw-data       0x10002518000+0x184000, outside Linux RAM
+FDT: GPU: T6050: gpu needs two mboxes
+FDT: GPU: invalid T6050 ADT or DT data, disabling GPU
+dt_set_gpu_t6050 -> 0
+  /reserved-memory/uat-ttbs                status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-pagetables          status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-handoff             status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/uat-l2-pagetables       status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/gpu-fw-text             status=disabled reg=00000000 00000000 00000000 00000000 
+  /reserved-memory/gpu-fw-data             status=disabled reg=00000000 00000000 00000000 00000000 
+  /soc@2300000000/mailbox@2302600000       status=disabled reg=00000023 02600000 00000000 00088000 00000023 02050000 00000000 00000008 
+  /soc@2300000000/mailbox@2302e00000       status=disabled reg=00000023 02e00000 00000000 00088000 00000023 02850000 00000000 00000008 
+  /soc@2300000000/gpu@2300000000           status=disabled reg=00000023 00000000 00000000 03fdc000 
+  /soc@2300000000/power-management@2300e80000 status=okay     reg=00000023 00e80000 00000000 00030000 
+=== payload DTB (adada7fc), mode asis
+FDT: GPU: T6050: /reserved-memory/uat-handoff       0x10bfff20000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-l2-pagetables 0x10bfff24000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-pagetables    0x10bfff28000+0x80000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/uat-ttbs          0x10bfffa8000+0x4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/gpu-fw-text       0x10000ff0000+0xa4000, outside Linux RAM
+FDT: GPU: T6050: /reserved-memory/gpu-fw-data       0x10002518000+0x184000, outside Linux RAM
+FDT: GPU: T6050: mailbox GFX: wrapper 0x2302600000, iop-vbar 0x2302050000 (/arm-io/gfx-asc)
+FDT: GPU: T6050: mailbox GFX1: wrapper 0x2302e00000, iop-vbar 0x2302850000 (/arm-io/gfx1-asc)
+FDT: GPU: T6050 GPU handed off: UAT, firmware and mailboxes from the ADT
+dt_set_gpu_t6050 -> 0
+  /reserved-memory/uat-ttbs                status=okay     reg=0000010b fffa8000 00000000 00004000 
+  /reserved-memory/uat-pagetables          status=okay     reg=0000010b fff28000 00000000 00080000 
+  /reserved-memory/uat-handoff             status=okay     reg=0000010b fff20000 00000000 00004000 
+  /reserved-memory/uat-l2-pagetables       status=okay     reg=0000010b fff24000 00000000 00004000 
+  /reserved-memory/gpu-fw-text             status=okay     reg=00000100 00ff0000 00000000 000a4000 
+  /reserved-memory/gpu-fw-data             status=okay     reg=00000100 02518000 00000000 00184000 
+  /soc@2300000000/mailbox@2302600000       status=okay     reg=00000023 02600000 00000000 00088000 00000023 02050000 00000000 00000008 
+  /soc@2300000000/mailbox@2302e00000       status=okay     reg=00000023 02e00000 00000000 00088000 00000023 02850000 00000000 00000008 
+  /soc@2300000000/gpu@2300000000           status=okay     reg=00000023 00000000 00000000 03fdc000 
+  /soc@2300000000/power-management@2300e80000 status=okay     reg=00000023 00e80000 00000000 00030000 
