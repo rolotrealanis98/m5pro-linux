@@ -14,15 +14,18 @@ container rm -f alarmpkg >/dev/null 2>&1 || true
 container run -d --name alarmpkg -m 12g -c 8 -v "$OUT:/out" --arch arm64 docker.io/menci/archlinuxarm:base-devel sleep infinity >/dev/null
 trap 'container rm -f alarmpkg >/dev/null 2>&1 || true' EXIT
 container exec alarmpkg bash -c '
-set -euo pipefail
-pacman-key --init >/dev/null 2>&1; pacman-key --populate archlinuxarm >/dev/null 2>&1
-pacman -Syu --noconfirm --needed base-devel git rust cargo cmake meson ninja lv2 pkgconf alsa-lib pipewire wireplumber python >/dev/null 2>&1
+set -uo pipefail
+echo "== keyring =="; pacman-key --init 2>&1 | tail -2; pacman-key --populate archlinuxarm 2>&1 | tail -2
+# pacman 7 sandboxes downloads with Landlock + the alpm user; neither works inside this container runtime.
+grep -q "^DisableSandbox" /etc/pacman.conf || sed -i "s/^\[options\]/[options]\nDisableSandbox/" /etc/pacman.conf
+grep -n "DisableSandbox" /etc/pacman.conf | head -1
+echo "== packages =="; pacman -Syu --noconfirm --needed base-devel git rust cargo cmake meson ninja lv2 pkgconf alsa-lib pipewire wireplumber python 2>&1 | tail -5 || { echo "PACMAN FAILED"; exit 1; }
 useradd -m build 2>/dev/null || true; echo "build ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/build
 su - build -c "
 set -e
 git clone -q --depth 1 https://github.com/AsahiLinux/PKGBUILDs.git
-for p in speakersafetyd bankstown-lv2 triforce-lv2 asahi-audio alsa-ucm-conf-asahi; do
-  if [ -d PKGBUILDs/\$p ]; then (cd PKGBUILDs/\$p && echo \"== \$p ==\" && makepkg -s --noconfirm --nocheck 2>&1 | tail -3 && cp -v *.pkg.tar.* /out/ ) || echo \"FAILED \$p\"; else echo \"no PKGBUILD for \$p\"; fi
+for p in speakersafetyd bankstown triforce-lv2 alsa-ucm-conf-asahi asahi-audio; do
+  if [ -d PKGBUILDs/\$p ]; then (cd PKGBUILDs/\$p && echo \"== \$p ==\" && makepkg -s --noconfirm --nocheck 2>&1 | tail -3 && cp -v *.pkg.tar.* /out/ && sudo pacman -U --noconfirm *.pkg.tar.* >/dev/null ) || echo \"FAILED \$p\"; else echo \"no PKGBUILD for \$p\"; fi
 done
 "
 ls -la /out

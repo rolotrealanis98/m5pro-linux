@@ -1,0 +1,96 @@
+From b7891bd5f621f23b7c4f66062363084b96dc8d17 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 11:59:40 -0800
+Subject: [PATCH] hwmon: macsmc: Let discovered temperatures join the SoC die
+ zone
+
+apple,soc-die-keys adds a "SoC die <key>" channel per listed key for the
+macsmc_soc_die zone, and apple,discover-temperatures refuses to run once
+any temperature channel exists, so a machine that discovers its
+temperatures (T8142, J775D) could not have the zone: the probe failed
+with -EINVAL.
+
+With discovery, a listed key now adds no channel; the channel discovery
+creates for it (labelled with the key) is marked for the zone instead.
+Machines that set only one of the two properties are unchanged.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ .../bindings/hwmon/apple,smc-hwmon.yaml           |  4 +++-
+ Documentation/hwmon/macsmc-hwmon.rst              |  2 ++
+ drivers/hwmon/macsmc-hwmon.c                      | 15 ++++++++++++++-
+ 3 files changed, 19 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/hwmon/apple,smc-hwmon.yaml b/Documentation/devicetree/bindings/hwmon/apple,smc-hwmon.yaml
+index fcfe475d4dcf..1c4249cfc5b9 100644
+--- a/Documentation/devicetree/bindings/hwmon/apple,smc-hwmon.yaml
++++ b/Documentation/devicetree/bindings/hwmon/apple,smc-hwmon.yaml
+@@ -53,7 +53,9 @@ properties:
+       follow the temperature-* children in the listed order and are labelled
+       "SoC die <key>". Keys absent from the running firmware or with an
+       unsupported format are skipped. These channels do not change the indices
+-      used by thermal-sensors references to temperature-* children.
++      used by thermal-sensors references to temperature-* children. With
++      apple,discover-temperatures, a listed key adds no channel; its
++      discovered channel (labelled with the key) supplies the zone.
+ 
+   apple,thermal-pressure-key:
+     $ref: /schemas/types.yaml#/definitions/string
+diff --git a/Documentation/hwmon/macsmc-hwmon.rst b/Documentation/hwmon/macsmc-hwmon.rst
+index b0c78c341208..23baece30154 100644
+--- a/Documentation/hwmon/macsmc-hwmon.rst
++++ b/Documentation/hwmon/macsmc-hwmon.rst
+@@ -43,6 +43,8 @@ Only readable four-byte floating-point keys are used. When thermal support is
+ enabled, their hottest reading supplies the ``macsmc_soc_die`` thermal zone.
+ A failed or implausible reading fails the zone read rather than reporting a
+ partial result. Keys absent from the firmware are skipped.
++With ``apple,discover-temperatures`` the listed keys add no channels: the
++discovered channel of each listed key, labelled with the key, joins the zone.
+ 
+ The optional ``apple,thermal-pressure-key`` on the same node describes a
+ readable signed 32-bit firmware thermal pressure level. Neither feature needs
+diff --git a/drivers/hwmon/macsmc-hwmon.c b/drivers/hwmon/macsmc-hwmon.c
+index cb824b252ddc..d791c0c872f5 100644
+--- a/drivers/hwmon/macsmc-hwmon.c
++++ b/drivers/hwmon/macsmc-hwmon.c
+@@ -889,6 +889,9 @@ static int macsmc_hwmon_discover_temperatures(struct macsmc_hwmon *hwmon)
+ 	if (!smc->key_count || smc->key_count > U16_MAX)
+ 		return -EINVAL;
+ 
++	ret = of_property_count_strings(hwmon->dev->of_node, "apple,soc-die-keys");
++	hwmon->die_listed = ret > 0 ? ret : 0;
++
+ 	hwmon->temp.sensors = devm_kcalloc(hwmon->dev, smc->key_count,
+ 					   sizeof(*sensor), GFP_KERNEL);
+ 	if (!hwmon->temp.sensors)
+@@ -922,6 +925,12 @@ static int macsmc_hwmon_discover_temperatures(struct macsmc_hwmon *hwmon)
+ 		/* Key identity only: do not invent locations or calibration. */
+ 		snprintf(sensor->label, sizeof(sensor->label), "%c%c%c%c",
+ 			 key >> 24, (key >> 16) & 0xff, (key >> 8) & 0xff, key & 0xff);
++		/* A listed SoC die key keeps its discovered channel and joins the die zone. */
++		if (of_property_match_string(hwmon->dev->of_node, "apple,soc-die-keys",
++					     sensor->label) >= 0) {
++			sensor->die = true;
++			hwmon->die_count++;
++		}
+ 	}
+ 
+ 	return 0;
+@@ -1090,7 +1099,11 @@ static int macsmc_hwmon_populate_sensors(struct macsmc_hwmon *hwmon,
+ 	for_each_child_of_node_with_prefix(hwmon_node, key_node, "temperature-") {
+ 		n_temperature++;
+ 	}
+-	n_temperature += n_die_keys;
++	/* With discovery, listed die keys mark discovered channels instead (see there). */
++	if (!of_property_read_bool(hwmon_node, "apple,discover-temperatures"))
++		n_temperature += n_die_keys;
++	else
++		n_die_keys = 0;
+ 
+ 	if (n_temperature) {
+ 		hwmon->temp.sensors = devm_kcalloc(hwmon->dev, n_temperature,
+-- 
+2.56.0
+
