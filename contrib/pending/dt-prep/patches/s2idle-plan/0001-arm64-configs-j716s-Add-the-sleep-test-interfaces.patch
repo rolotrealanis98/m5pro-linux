@@ -16,6 +16,7 @@ fragment says what it needs.
 
 Assisted-by: LLM
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  arch/arm64/configs/j716s.config | 5 +++++
  1 file changed, 5 insertions(+)

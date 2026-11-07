@@ -27,6 +27,7 @@ only drops its channel.
 
 Assisted-by: LLM
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  arch/arm64/boot/dts/apple/t6050-j716s.dts | 43 ++++++++++++++++++++---
  1 file changed, 38 insertions(+), 5 deletions(-)

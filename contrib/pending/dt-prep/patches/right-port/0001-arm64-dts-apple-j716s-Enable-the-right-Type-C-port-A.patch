@@ -26,6 +26,7 @@ tunables, which it does for every port it finds.
 
 Assisted-by: LLM
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  arch/arm64/boot/dts/apple/t6050-j716s.dts | 104 +++++++++++++++++++++-
  1 file changed, 100 insertions(+), 4 deletions(-)
