@@ -1,0 +1,17 @@
+5125f15be6cf5933256e105e78097067274d8071367bf993888c237881c3d1b9  kbuild/gpu/Image.gz
+53429ff0ce4e15323bee684e391835beda86c5a73e075802f5468add6a84e999  kbuild/gpu/t6050-j716s-gpu27.dtb
+fd61adc2d7c7de86ced441f77a342438030c4bf361656cb56349cbac86daeb0b  kbuild/gpu/config
+e79894ac5cc15d64e765c0621e3c04a24d678a1d9ad466c725e81929879bf43a  kbuild/dcp/Image.gz
+904b20c9a3868c7d492825f5bb874d3bc99628759ac5f0c4cd9ac829cccca819  kbuild/dcp/config
+4c202e9dbf0738cb256fb3903f02c6abd2d653b8cfecea74d764f19d9ce6e1d5  build/m1n1-plain-n1-warm.bin
+fecf701bccb3e462d8f33c779b88a174ca0f8adcde728a37d56d8495f6f8c18e  build/m1n1-plain-n1-warm-gpu.bin
+085a2734c6f29c4fb28231eedf0420bf90e1befcb1209d5381019dcc43fb31f3  build/m1n1-plain-n1-warm-gpu-dcp.bin
+e26dcbbc1d3dadde11e44ff15c8b1185d907b564b0ec999643b83f335f5ffe7d  payloads/private/dt/t6050-j716s-daily-dcp9.dtb
+165d6391bc9fd85914c133afce63a2037a8394905dc9233a7a33a0eddc4d1bd4  ../modules-gpu27/modules-7.3.0-g3671d907d570.tar.zst
+90bd36a21147fe21a140ea02158519cdf9aa0eb18159a859037d055e19ee0e8f  ../modules-gpu27/dcp/modules-7.3.0-dcp-g3671d907d570.tar.zst
+e0a474e85fa91c1a074f10bc16d582a6b64e2e3457183a59fe6472b73fb01e9a  payloads/private/dcpa-20261107-e0a474e8.bin
+02a4e1d0dc10fb74754519359ea617632fd149d2b95da0988b4a0dc8db72615e  payloads/private/dcpb-20261107-02a4e1d0.bin
+fe531c17e91043334935333500806be887761ecfc58f144160b9a24356d38bbc  payloads/private/dcpb0-20261107-fe531c17.bin
+e71fc225920cbe8ef3c08bbad8dc1467ee3954318a8ebbdb0ded7da70fb03659  payloads/private/e2a-ctl-20261107-e71fc225.bin
+3f2fec043191711b28b764cc3ee0045cfe5b08eaec60abc79c182fe3e2ff0bf2  payloads/private/e2b-gpu-20261107-3f2fec04.bin
+6e5351561e053ce27ad746893fb57062931eeb2368d29dbe810bb21db532af89  contrib/pending/gpu/patches/m1n1/0028-kboot-T6050-hand-the-GPU-to-Linux-behind-chosen.m5pr.patch
