@@ -1394,3 +1394,22 @@ once). Aurora Mesa agx3c (`/opt/mesa-aurora`, `ASAHI_M5_BRINGUP=1`) via `gpu-fir
 - 7 of 12 steps pass. Agent on the GL submit EINVAL (kernel validation vs Gallium submission). Hyprland on the GPU
   waits for it (Hyprland renders through GLES).
 
+### Result (GPU first frame on zink + Hyprland on the GPU, 2026-11-07 19:57-20:03 UTC, loop): 13 of 13 PASS
+
+Root cause of the GL failure: on the M5 the kernel requires each render submission to carry its program list
+(`DRM_ASAHI_SET_RENDER_RESOURCES`, `backend.rs:197` returns EINVAL without it, feature `DRM_ASAHI_FEATURE_RENDER_RESOURCES`);
+Aurora's Vulkan driver sends it, the Gallium GL driver never does, and Gallium's native M5 path only covers the base
+M5 (G17G). Upstream runs M5 Pro GL through zink on Vulkan. Fix (Mesa `a79e5a94e31` on agx3c, installed): Gallium
+declines G17S/G17C, the wrapper and the GPU session set `MESA_LOADER_DRIVER_OVERRIDE=zink`.
+- E2b payload written with the unmount/remount path: primary on the first boot (second time in a row).
+- `gpu-first-frame.sh --screen`: **13 passed, 0 failed**, no `submit failed` in the kernel log. Vulkan identity; GLES
+  headless render on renderD128 (`GL_RENDERER: zink Vulkan 1.4(Apple M5 Pro (G17S B1) (AURORA_BOREALIS))`, correct
+  pixels); eglinfo surfaceless (GL core/compat/ES all on zink over the M5 Pro); GBM on renderD128 with PRIME into
+  simpledrm, explicit and implicit modifiers, correct readback; Vulkan compute/render/stress (2 passed, 61 s) and
+  vkmark; gpubench-gl on zink; aurora-diag; **step 8: a GPU-rendered frame modeset onto the panel (left green, right
+  orange, 10 s): PASS**.
+- **Hyprland on the GPU session** (`/run/hypr-gpu`, zink): started on tty2 (pid up, the Omarchy bar and wallpaper), a
+  `grim` screenshot through the session captured the desktop (private copy in `~/Work/agents/gpu-e2/logs/firstframe/`).
+  Which renderer Hyprland picked (zink on the GPU vs software) is not yet confirmed from its log; the next GPU boot
+  copies the runtime Hyprland log before the restore.
+
