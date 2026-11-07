@@ -1,31 +1,27 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# mk-selftest-initramfs.sh - debug initramfs plus a self-reverting test boot.
+# mk-debug-initramfs.sh - make the omarchy-m5 bring-up initramfs debuggable.
 #
-# Same base as host/macos/mk-debug-initramfs.sh (appends an overlay cpio to an existing
-# initramfs; dropbear on the USB gadget link; 60 s root wait; the nvme-apple rebind loop),
-# and in addition:
-#   * when the root does not mount, prints a DIAG block on the panel
-#     (bound platform drivers, nvme/sart/smc/mailbox/rtkit/dockchannel lines, platform
-#     devices without a driver);
-#   * when the root mounts and the kernel command line has m5.selftest=1, it installs
-#     /usr/local/sbin/m5-selftest and m5-selftest.service into the root before switch_root.
-#     The service waits 90 s; if there is no route and no ping to 1.1.1.1 it saves
-#     dmesg/journal/links/cmdline and the failed boot.bin to /boot/r1-logs/selftest-*/,
-#     copies /boot/m1n1/boot.bin.prev over /boot/m1n1/boot.bin and reboots.
-#   * Limit: the revert only exists once the root has mounted. A payload that never
-#     reaches the root stays in the initramfs and needs a manual recovery.
-#   * Before deploying a test payload, boot.bin.prev on the ESP must hold the last
-#     known-good payload.
+# Appends an overlay cpio to an existing initramfs (the kernel unpacks
+# concatenated archives; later entries win) that:
+#   * replaces /init: waits up to 60 s (not 10 s) for m5.root, and keeps the
+#     USB gadget network + an SSH server (dropbear, Alpine package) running
+#     while it waits, so a boot whose root never appears can still be read
+#     with `eem-vm.py --keep 'dmesg'` instead of a photo of the panel;
+#   * ships dropbear + its libs from the Alpine 3.21 aarch64 repository
+#     (the base initramfs is the Alpine minirootfs already);
+#   * authorizes ~/.ssh/mbp.pub for root and unlocks the root account in
+#     /etc/shadow (dropbear refuses locked accounts even for key auth).
 #
-# Written for macOS (BSD stat/shasum). Output is ONE gzip member (m1n1 keeps only the last).
+# Nothing here changes what happens on a successful boot: dropbear is killed
+# right before switch_root, exactly where the old init handed over.
 #
-# Usage: mk-selftest-initramfs.sh [--base IN.cpio.gz] [--out OUT.cpio.gz]
-#                                 [--pubkey ~/.ssh/mbp.pub] [--cache DIR] [--wait SECONDS]
+# Usage: mk-debug-initramfs.sh [--base IN.cpio.gz] [--out OUT.cpio.gz]
+#                              [--pubkey ~/.ssh/mbp.pub] [--cache DIR] [--wait SECONDS]
 set -euo pipefail
 
 BASE=$HOME/Work/omarchy-m5/build/initramfs-tp.cpio.gz
-OUT=$HOME/Work/omarchy-m5/build/initramfs-selftest.cpio.gz
+OUT=$HOME/Work/omarchy-m5/build/initramfs-debug.cpio.gz
 PUBKEY=$HOME/.ssh/mbp.pub
 CACHE=$HOME/Work/omarchy-m5/build/cache/apk-debug
 WAIT=60
@@ -69,7 +65,7 @@ printf 'root:x:0:0:root:/root:/bin/sh\n' > "$T/ov/etc/passwd"
 
 cat > "$T/ov/init" <<EOF
 #!/bin/sh
-# omarchy-m5 bring-up init, selftest variant (m5pro-linux contrib/pending/aurora/tools/mk-selftest-initramfs.sh).
+# omarchy-m5 bring-up init, debug variant (m5pro-linux host/macos/mk-debug-initramfs.sh).
 BB=/bin/busybox
 \$BB mkdir -p /proc /sys /dev /tmp /run
 \$BB mount -t proc     proc     /proc
@@ -122,10 +118,16 @@ if ip route get 1.1.1.1 >/dev/null 2>&1 && ping -c1 -W3 1.1.1.1 >/dev/null 2>&1;
     logger -t m5-selftest "network OK, keeping this payload"; exit 0
 fi
 mountpoint -q /boot || mount /dev/nvme0n1p4 /boot
+G=/boot/r1-logs/.reverted-once
+if [ -e "\$G" ]; then
+    logger -t m5-selftest "network down again after a revert: NOT reverting a second time (guard \$G); staying up for inspection"
+    D=/boot/r1-logs/selftest-\$(date +%Y%m%d-%H%M)-noloop; mkdir -p "\$D"; dmesg > "\$D/dmesg.txt"; ip -br link > "\$D/links.txt"; sync; exit 0
+fi
+touch "\$G"
 D=/boot/r1-logs/selftest-\$(date +%Y%m%d-%H%M); mkdir -p "\$D"
 dmesg > "\$D/dmesg.txt"; journalctl -b --no-pager > "\$D/journal.txt" 2>&1; ip -br link > "\$D/links.txt"
 ls /sys/bus/usb/devices > "\$D/usb-devices.txt" 2>&1; cat /proc/cmdline > "\$D/cmdline.txt"
-cp /boot/m1n1/boot.bin "\$D/boot.bin.failed" 2>/dev/null
+sha256sum /boot/m1n1/boot.bin > "\$D/boot.bin.failed.sha256" 2>/dev/null
 cp /boot/m1n1/boot.bin.prev /boot/m1n1/boot.bin && sync && echo "reverted to boot.bin.prev" > "\$D/REVERTED"
 sync; systemctl reboot
 SFT

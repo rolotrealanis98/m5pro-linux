@@ -59,7 +59,7 @@ INGREDIENTS = {
     "initramfs": {  # ONE gzip member (m1n1 keeps only the last); DIAG block + self-revert installer
         "default": "selftest",
         "selftest": {"path": H / "Work/omarchy-m5/build/initramfs-selftest.cpio.gz",
-                     "sha256": "ce0b462c0ce465d7cde5fa73bac413f0bc4bf9c833efdf70c782dde06eba217a"},
+                     "sha256": "1f61a850fb49764126d7a79e9f8adce5508cd6109b302e1441989bb89cd7903b"},
     },
 }
 
