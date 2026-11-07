@@ -60,7 +60,7 @@ What can go wrong, plainly:
 - After a hang, `readback.log` on the ESP ends with `about to read <addr>`; each line is synced
   before the load. That line is the answer.
 - This is the after-Linux-boot point. The handover point (stage-1 proxy, untouched) needs the
-  tether and `integration/r1/pmp-dump.py`.
+  tether and `contrib/validated/integration/r1/pmp-dump.py`.
 
 Run, as root, from wherever the script was copied:
 

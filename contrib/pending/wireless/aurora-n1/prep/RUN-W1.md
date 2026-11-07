@@ -6,7 +6,7 @@
 Payload: `~/Work/agents/aurora-kernel/payloads/w1-n1train-20261107-3c0a1eff.bin`
 (sha256 `3c0a1eff5525cf20495e61f33481f2b9aec2d7d38a6b1322ae5d52468183e97b`, 38 MB). Identical to W0 except the m1n1
 (`n1-train`, `d31e5248`: 0020+0021+0022+0023) and one inserted line, `chosen.m5pro,n1=1` (18 bytes after the notch line;
-`prep/mk-w1.py` is the recipe). Same kernel, DTB, initramfs and bootargs as W0.
+`contrib/pending/wireless/aurora-n1/prep/mk-w1.py` is the recipe). Same kernel, DTB, initramfs and bootargs as W0.
 
 Risk (from the plan): 0023 starts the GP PHY and applies tunables on apcie0 while the NVMe controller shares those blocks. m1n1 snapshots storage
 state before and after and stops if it changed, but a change cannot be undone: NVMe may be lost for that boot. No data is written by m1n1.

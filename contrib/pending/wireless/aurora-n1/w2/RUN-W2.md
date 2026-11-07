@@ -8,8 +8,8 @@ Payload: `~/Work/agents/aurora-kernel/payloads/w2-n1ans-20261107-2dedddda.bin`
 (sha256 `2dedddda0ae91e45696b6fd0f4917dfb1a5d96ae835ea77244e8ba42296daccb`, 38 MB). Byte-identical to W1 from
 0x400000 on except `chosen.m5pro,n1=3` (was `=1`); same kernel `7.3.0-g4f630b11270d`, DTB, initramfs (with the FTAB)
 and bootargs as W0/W1. m1n1 `m1n1-plain-n1-ans.bin` `69730b19...` (0020+0021+0022+0023+0025, `v2.0.0-76-g3e7019df`).
-Recipe: `w2/prep/mk-w2.py` (it pins W1's bootargs, since mk-daily.py's BASE now adds `kvm-arm.wfi_trap_policy=trap`,
-and asserts the W1 equality). Deploy script: `w2/prep/deploy-W2.sh` (`gen-deploy-w2.py`).
+Recipe: `contrib/pending/wireless/aurora-n1/w2/prep/mk-w2.py` (it pins W1's bootargs, since mk-daily.py's BASE now adds `kvm-arm.wfi_trap_policy=trap`,
+and asserts the W1 equality). Deploy script: `contrib/pending/wireless/aurora-n1/w2/prep/deploy-W2.sh` (`gen-deploy-w2.py`).
 
 ```
 export HOST=root@<macbook-ip>                       # Ethernet adapter attached

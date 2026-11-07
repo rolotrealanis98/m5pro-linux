@@ -55,7 +55,7 @@ last section.
 
 ## P1. Automatic A/B fallback in stage-1 m1n1
 
-Prototype: `patches/m1n1/0016-chainload-A-B-fallback-on-iBoot-s-PMU-boot-error-cou.patch`
+Prototype: `patches/m1n1-stage1/0016-chainload-A-B-fallback-on-iBoot-s-PMU-boot-error-cou.patch`
 (commit `d52d4dd9` on `plan/boot-ab`); `patches/mk-stage1-ab-vars.diff`; `prototypes/rootfs/m5-boot-slot{,.service}`.
 
 **Problem.** A payload that does not boot needs Rolando: macOS, `sudo diskutil mount`, copy

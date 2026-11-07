@@ -24,7 +24,7 @@ The J716s uses Aurora's T6050 combo PHY, `drivers/phy/apple/atc-t6050-dp.c` (+ `
 | 0020 | hold the USB domain for the USB2 banks | the USB2 PHY registers are unclocked without the USB domain |
 | 0023, 0024 | dummy PIPE PHY for the USB3 lock; stay on USB2 when the PIPE never left the dummy | USB2 keeps working when USB3 does not come up |
 | 0025 | accept every Type-C port but the debug port (ATC0) | ATC1 and ATC2 are served; ATC0 is not |
-| 0026, 0027, 0028 (Erik Bourget, `j716c/thunderbolt`) | park the PIPE from a dummy producer on any clock; carry on when the PIPE lock is not acknowledged; restart the PHY firmware on its original data | 0028 is the fix for "any second start: an unplug and replug, a role change, or suspend" (`pipe-park/ANALYSIS-R3O.md`) |
+| 0026, 0027, 0028 (Erik Bourget, `j716c/thunderbolt`) | park the PIPE from a dummy producer on any clock; carry on when the PIPE lock is not acknowledged; restart the PHY firmware on its original data | 0028 is the fix for "any second start: an unplug and replug, a role change, or suspend" (`contrib/validated/aurora/pipe-park/ANALYSIS-R3O.md`) |
 | m1n1 0020 | `pipepark-atc`: park the PIPE before Linux | first start |
 | 0057, 0060 | hpm1 (ATC1) and hpm2 (ATC2) nodes, polled, connector graph into dwc3 and the PHY | attach and detach events reach the PHY |
 

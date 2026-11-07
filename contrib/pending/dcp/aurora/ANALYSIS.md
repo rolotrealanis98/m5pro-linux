@@ -117,7 +117,7 @@ That is about 1.1 MB that running coprocessors keep writing. Nothing reserves it
 
 ## 3. Patches
 
-### 3.1 m1n1 draft `patches/m1n1/0024-kboot-T6050-reserve-coprocessor-logs-describe-the-in.patch`
+### 3.1 m1n1 draft `contrib/pending/dcp/patches/m1n1/0024-kboot-T6050-reserve-coprocessor-logs-describe-the-in.patch`
 
 On `pipe-park-r2-atc` (`f7555558`), commit `eb13da2e` in the private clone `~/Work/agents/dcp-aurora/m1n1` (branch `dcp-0024`). `git apply --check` passes on `pipe-park-r2-atc`, `pipe-park-atc` and `m1n1-r2`. Not built: `build.sh` needs the Fedora container. A host `clang-23 --target=aarch64-linux-gnu -fsyntax-only` with m1n1's warning flags is clean for `kboot.c` and `firmware.c`. Line numbers below are in the patched `src/kboot.c`:
 

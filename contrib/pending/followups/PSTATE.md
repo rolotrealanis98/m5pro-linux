@@ -94,7 +94,7 @@ match, the exceptions being the 300 MHz level 1; with entry = level - 1, none): 
 - Not on the J716s: [ADT] and [meas] agree on the table, the hardware is the same SoC (T6050) as the J714s, but
   nobody has run `cpuhz` on the J716s. `RESULTS.md` lists "OPP offset (`cpuhz`/`dvfs-regs`)" as SKIP in R1-A and
   as not run in R2. The P cluster has no measurement on any machine (betizzel's own generator says "NOT
-  measured yet" and `cpufreq/REPORT.md` says "Guessed: P offset 2").
+  measured yet" and `contrib/validated/legacy-7.2/cpufreq/REPORT.md` says "Guessed: P offset 2").
 
 ## 4. edimoldovan's J714c table
 
