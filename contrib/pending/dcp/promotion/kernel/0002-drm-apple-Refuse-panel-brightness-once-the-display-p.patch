@@ -1,0 +1,47 @@
+From c9c843f7082e299f4a582b4fea03de2f3c52d876 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 18:21:40 -0500
+Subject: [PATCH 2/2] drm/apple: Refuse panel brightness once the display
+ processor crashed
+
+A panel that presents its level in the swap gets a new level only with
+a present. Once the IOMFB queue has timed out and marked the processor
+crashed, every present is discarded, but brightness writes were still
+accepted and actual_brightness kept reporting the last requested level,
+so userspace saw a level change that never reached the panel.
+
+Fail both with -EIO while the processor is crashed.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/gpu/drm/apple/dcp_backlight.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/gpu/drm/apple/dcp_backlight.c b/drivers/gpu/drm/apple/dcp_backlight.c
+index 00f29157241f..46c162f20121 100644
+--- a/drivers/gpu/drm/apple/dcp_backlight.c
++++ b/drivers/gpu/drm/apple/dcp_backlight.c
+@@ -246,6 +246,9 @@ static int dcp_get_brightness(struct backlight_device *bd)
+ 
+ 	if (READ_ONCE(dcp->quiescing))
+ 		return -ENODEV;
++	/* Nothing is presented any more: there is no level to report. */
++	if (READ_ONCE(dcp->crashed))
++		return -EIO;
+ 
+ 	if (dcp_backlight_active(dcp) || dcp_backlight_desktop(dcp)) {
+ 		/*
+@@ -772,6 +775,9 @@ static int dcp_set_brightness(struct backlight_device *bd)
+ 
+ 	if (READ_ONCE(dcp->quiescing))
+ 		return -ENODEV;
++	/* A crashed processor discards every present, the level with it. */
++	if (READ_ONCE(dcp->crashed))
++		return -EIO;
+ 
+ 	if (dcp_backlight_active(dcp) || dcp_backlight_desktop(dcp)) {
+ 		struct dcp_backlight_state *state = &dcp->backlight.state;
+-- 
+2.56.0
+
