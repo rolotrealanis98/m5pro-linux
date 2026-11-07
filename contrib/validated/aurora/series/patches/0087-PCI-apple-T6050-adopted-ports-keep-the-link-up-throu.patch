@@ -1,0 +1,200 @@
+From a0f2f30c967b79dc30c124574580bb9c3eecebe8 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 11:19:58 -0500
+Subject: [PATCH] PCI: apple: T6050 adopted ports: keep the link up through
+ suspend-to-idle
+
+With the N1 adopted on port 0 of the J716s, every suspend-to-idle
+aborted:
+
+  pcie-apple 1cb0000000.pcie: PM: failed to suspend noirq: error -16
+  PM: noirq suspend of devices failed
+
+apple_pcie_suspend_noirq() refused every system sleep on an adopt_link
+host, whatever its ports carried. Nothing on the host needs that.
+Suspend-to-idle leaves a T6050 powered: its CPUs idle in WFI, an
+adopt_link host has no power domain of its own (probe refuses one), and
+the boot loader keeps the port's power, clocks and PHY. The link stays
+in L0, since ASPM is stripped from the adopted root ports, and the N1's
+drivers already keep their functions in D0 through the sleep
+(apple_centauri and btcentauri only save state; the Wi-Fi function has
+an empty PM domain). Parking the port the way shutdown does would reset
+the N1, which would then have to boot its firmware again.
+
+Keep an adopted link up for suspend-to-idle instead of refusing it.
+Every function on the link, and the root port, must still be in D0 when
+the host suspends; a function in D3hot would take the link to L1, which
+these ports are not qualified for, so such a sleep is refused as before,
+as is any target other than suspend-to-idle. A port whose link has
+already failed has nothing to keep. On resume a kept link must still be
+up with no link-down latched while the host slept; otherwise the
+hierarchy behind it is marked disconnected, as after a surprise removal,
+so that neither the PCI core nor the endpoint's drivers reach a function
+that may have been reset.
+
+Hosts that are not adopt_link are unchanged.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/pci/controller/pcie-apple.c | 124 +++++++++++++++++++++++++++-
+ 1 file changed, 123 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/pci/controller/pcie-apple.c b/drivers/pci/controller/pcie-apple.c
+index 31267ddd475e..06d6bd9515e7 100644
+--- a/drivers/pci/controller/pcie-apple.c
++++ b/drivers/pci/controller/pcie-apple.c
+@@ -473,6 +473,8 @@ struct apple_pcie_port {
+ 	u8			adopted_bus;	/* adopt_link: the secondary bus */
+ 	unsigned long		adopted_slots;	/* adopt_link: RID2SID slots routed (slot == SID) */
+ 	struct gpio_desc	*perst;		/* adopt_link: its PERST# line, for a root-port reset */
++	bool			s2idle_kept;	/* adopt_link: link kept up for this sleep */
++	bool			s2idle_down;	/* adopt_link: link-down latched before it */
+ };
+ 
+ static int apple_pcie_managed_admit(struct apple_pcie_port *port);
+@@ -4633,6 +4635,124 @@ static void apple_pcie_stop_for_sleep(struct device *dev)
+ 		apple_pcie_tunnel_hierarchy_lost(dev);
+ }
+ 
++static bool apple_pcie_adopted_link_up(struct apple_pcie_port *port)
++{
++	return !READ_ONCE(port->link_failed) &&
++	       (apple_pcie_port_readl(port, PORT_LINKSTS) &
++		(PORT_LINKSTS_UP | PORT_LINKSTS_BUSY)) == PORT_LINKSTS_UP;
++}
++
++static struct pci_dev *apple_pcie_adopted_root_port(struct device *dev,
++						    struct apple_pcie_port *port)
++{
++	struct pci_host_bridge *bridge = dev_get_drvdata(dev);
++
++	return pci_get_domain_bus_and_slot(pci_domain_nr(bridge->bus), 0,
++					   PCI_DEVFN(port->idx, 0));
++}
++
++static int apple_pcie_adopted_in_d0(struct pci_dev *pdev, void *data)
++{
++	int *ret = data;
++	u16 pmcsr;
++
++	if (!pdev->pm_cap)
++		return 0;
++	if (pci_read_config_word(pdev, pdev->pm_cap + PCI_PM_CTRL, &pmcsr) ||
++	    PCI_POSSIBLE_ERROR(pmcsr))
++		*ret = -ENOLINK;
++	else if (pmcsr & PCI_PM_CTRL_STATE_MASK)
++		*ret = -EBUSY;
++	if (*ret)
++		pci_info(pdev, "not in D0 (%d): adopted link not kept for suspend-to-idle\n",
++			 *ret);
++	return *ret;
++}
++
++/*
++ * Suspend-to-idle leaves a T6050 powered: its CPUs idle in WFI, an adopt_link host has
++ * no power domain of its own, and the boot loader keeps each adopted port's power,
++ * clocks and PHY. An adopted link is kept up through the sleep, in L0 (no ASPM, see
++ * apple_pcie_tunnel_pci_notify()), and nothing is retrained after it: a retrain resets
++ * the endpoint, and the N1 would lose the firmware it runs from host memory. Every
++ * function on the link has to stay in D0, quiesced in place by its driver (as the N1's
++ * drivers do); one in D3hot would take the link to L1, which these ports are not
++ * qualified for, so that sleep is refused as before. A port whose link has already
++ * failed has nothing reachable behind it and nothing to keep.
++ */
++static int apple_pcie_adopted_suspend(struct device *dev, struct apple_pcie *pcie)
++{
++	struct apple_pcie_port *port;
++	struct pci_dev *rp;
++	int ret = 0;
++
++	if (pm_suspend_target_state != PM_SUSPEND_TO_IDLE)
++		return -EBUSY;
++	list_for_each_entry(port, &pcie->ports, entry) {
++		port->s2idle_kept = false;
++		if (!apple_pcie_adopted_link_up(port))
++			continue;
++		rp = apple_pcie_adopted_root_port(dev, port);
++		if (!rp)
++			continue;
++		apple_pcie_adopted_in_d0(rp, &ret);
++		if (!ret && rp->subordinate)
++			pci_walk_bus(rp->subordinate, apple_pcie_adopted_in_d0, &ret);
++		pci_dev_put(rp);
++		if (ret == -ENOLINK && !apple_pcie_adopted_link_up(port)) {
++			dev_warn(dev, "port %d: link lost before suspend-to-idle\n", port->idx);
++			ret = 0;
++			continue;
++		}
++		if (ret)
++			goto refuse;
++		port->s2idle_down = apple_pcie_port_readl(port, PORT_INTSTAT) &
++				    BIT(PORT_INT_LINK_DOWN);
++		port->s2idle_kept = true;
++	}
++	return 0;
++
++refuse:
++	list_for_each_entry(port, &pcie->ports, entry)
++		port->s2idle_kept = false;
++	return ret;
++}
++
++/*
++ * A kept link must still be up, with no link-down latched while the host slept. If it
++ * went down the endpoint may have been reset with it, and what its drivers set up is
++ * gone: fail like a surprise removal, so that neither the PCI core nor they reach it
++ * again (its config accesses already complete with an error once the link is down).
++ */
++static int apple_pcie_adopted_resume(struct device *dev, struct apple_pcie *pcie)
++{
++	struct apple_pcie_port *port;
++	struct pci_dev *rp;
++	bool down;
++	int ret = 0;
++
++	list_for_each_entry(port, &pcie->ports, entry) {
++		if (!port->s2idle_kept)
++			continue;
++		port->s2idle_kept = false;
++		down = !port->s2idle_down &&
++		       (apple_pcie_port_readl(port, PORT_INTSTAT) & BIT(PORT_INT_LINK_DOWN));
++		if (!down && apple_pcie_adopted_link_up(port)) {
++			dev_info(dev, "port %d: adopted link kept through suspend-to-idle\n",
++				 port->idx);
++			continue;
++		}
++		WRITE_ONCE(port->link_failed, true);
++		dev_err(dev, "port %d: adopted link lost in suspend-to-idle\n", port->idx);
++		rp = apple_pcie_adopted_root_port(dev, port);
++		if (rp && rp->subordinate)
++			pci_walk_bus(rp->subordinate, pci_dev_set_disconnected, NULL);
++		pci_dev_put(rp);
++		ret = -ENOLINK;
++	}
++	return ret;
++}
++
+ static int apple_pcie_suspend_noirq(struct device *dev)
+ {
+ 	struct apple_pcie *pcie = apple_pcie_lookup(dev);
+@@ -4644,7 +4764,7 @@ static int apple_pcie_suspend_noirq(struct device *dev)
+ 	if (pcie->managed_sids)
+ 		return pm_suspend_target_state == PM_SUSPEND_TO_IDLE ? 0 : -EBUSY;
+ 	if (pcie->hw->adopt_link)
+-		return -EBUSY;
++		return apple_pcie_adopted_suspend(dev, pcie);
+ 	if (!pcie->hw->tunneled)
+ 		return 0;
+ 	pcie->reset_on_resume = false;
+@@ -4701,6 +4821,8 @@ static int apple_pcie_resume_noirq(struct device *dev)
+ 	struct apple_pcie_port *port;
+ 	int ret;
+ 
++	if (pcie->hw->adopt_link)
++		return apple_pcie_adopted_resume(dev, pcie);
+ 	if (!pcie->hw->tunneled)
+ 		return 0;
+ 	/* The domain's hold for the sleep ends first, whatever follows. */
+-- 
+2.56.0
+

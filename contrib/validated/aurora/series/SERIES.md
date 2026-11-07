@@ -1,11 +1,11 @@
 # J716s patch series on Aurora `integration/aurora`
 
-86 patches (58 + 28 added since) on `aurora/integration` = `33bec4016c46` (aurora-silicon PR #1040 merge). They replace
+87 patches (58 + 29 added since) on `aurora/integration` = `33bec4016c46` (aurora-silicon PR #1040 merge). They replace
 branch `aurora-j716s` (`b790125548c4`, worktree `/Volumes/linux-cs/wt-aurora`) as the kernel source
 for the J716s (MacBook Pro 16-inch, M5 Pro). Built from worktree `/Volumes/linux-cs/wt-series`
-(branch `j716s-series`, tip `3f2bdbc61510`, 86 patches since 2026-11-07 "next daily" (see "Next daily" below; the previous tip `a83b052e9ffb` with 63 patches is kept as branch `j716s-series-pre-next-daily`). 63-patch state: 0059 SMC sensors, 0060 right Type-C port, 0061 WFI idle override, 0062 PM_DEBUG, 0066 lid-open confirm (lid sleep tested), all hardware-tested, re-authored 2026-11-07 to `Rolando Trevino <rolotrealanis@gmail.com>` with `Signed-off-by` and without assistant trailers; the content is byte-identical to `4f630b11270d`, which is the hash in the booted kernel version string), checked by `git am` in `/Volumes/linux-cs/wt-series-verify`.
+(branch `j716s-series`, tip `a0f2f30c967b`, 87 patches since 2026-11-07 "next daily" (see "Next daily" below; 0087 added the same day; the 86-patch tip was `3f2bdbc61510`; the previous tip `a83b052e9ffb` with 63 patches is kept as branch `j716s-series-pre-next-daily`). 63-patch state: 0059 SMC sensors, 0060 right Type-C port, 0061 WFI idle override, 0062 PM_DEBUG, 0066 lid-open confirm (lid sleep tested), all hardware-tested, re-authored 2026-11-07 to `Rolando Trevino <rolotrealanis@gmail.com>` with `Signed-off-by` and without assistant trailers; the content is byte-identical to `4f630b11270d`, which is the hash in the booted kernel version string), checked by `git am` in `/Volumes/linux-cs/wt-series-verify`.
 
-- `patches/0001..0086-*.patch`, order in `patches/series` (0066 comes before 0063-0065; 0063-0065 and 0067-0086 were added on 2026-11-07, see "Next daily"). Aurora's patches keep their
+- `patches/0001..0087-*.patch`, order in `patches/series` (0066 comes before 0063-0065; 0063-0065 and 0067-0087 were added on 2026-11-07, see "Next daily"). Aurora's patches keep their
   authors and messages; ours are authored and signed off by Rolando Trevino, without assistant trailers.
 - `j716s.config`: the config fragment as of the series tip (`arch/arm64/configs/j716s.config`, from 0058 plus 0062-0065, 0083, 0084).
 - `dt/t6050-j716s.dts`: the source device tree as of the series tip (0057 + 0059, 0060, 0082); `dt/next-daily-vs-stack.txt` and `dt/next-daily-vs-audio-defer.txt` are its comparisons (below); `dt/t6050-j716s.dtb` built from the
@@ -105,17 +105,18 @@ A = Aurora's work we carry, B = ours. "Upstream" is where the patch lives or sho
 | 0084 | Rolando Trevino | arm64: configs: j716s: Build in netconsole and ramoops | B | ours (no ramoops node in the DT) |
 | 0085 | ed | PCI: apple: T6050 adopted ports: no ASPM, and a shutdown that holds the port | A (Ed's) | edimoldovan `ab24d156868e`; W4 (the W4 kernel booted with it) |
 | 0086 | ed | wifi: apple: centauri: leave an N1 that never booted alone at remove and shutdown | A (Ed's) | edimoldovan `3a1bae4f8550`; W4 (the W4 kernel booted with it) |
+| 0087 | Rolando Trevino | PCI: apple: T6050 adopted ports: keep the link up through suspend-to-idle | B | `j716s-n1shut` `85c770faad4b`; hardware-validated 2026-11-07 (two lid-close sleeps, Wi-Fi back after resume) |
 
 Patches 0001-0044 are the commits of `aurora-j716s` cherry-picked unchanged in this order (PR #945 linearised
 instead of merged). 0045-0050 are `aurora-j716s`'s own commits with rewritten messages (the rtkit one gained
 a body); 0049 is Dj's and unchanged. 0051-0058 are new and replace
 `6a6d7dfdc307` (the J716s DT that was not what we boot) and the hand-edited DTB.
 
-## Next daily (2026-11-07): 0063-0065, 0067-0086
+## Next daily (2026-11-07): 0063-0065, 0067-0087
 
 Appended to `a83b052e9ffb` (the 63-patch tip) in this order, one commit per patch; all apply as plain
 cherry-picks or `git am` except where noted. `git apply` of the 86 files in `patches/series` on `33bec4016c46`
-gives the tree of `3f2bdbc61510` (`63fec9cee9d4`).
+gives the tree of `3f2bdbc61510` (`63fec9cee9d4`); with 0087 the tip is `a0f2f30c967b` (tree `29128c1c5008`).
 
 - **0063-0065** (haptic, netfilter/routing/WireGuard, iwd crypto): `j716s-daily-next` `595c6158`/`80bbf87e`/
   `24e777af` cherry-picked; tree identical to the full2 kernel plus 0066. The "Not booted" sentences now state the
@@ -138,6 +139,12 @@ gives the tree of `3f2bdbc61510` (`63fec9cee9d4`).
   commits from `contrib/pending/wireless/patches/linux`, author kept, Signed-off-by Rolando Trevino; they applied
   cleanly. The same two patches are in the W4 kernel (`7.3.0-gff289b9ce8ec`, three warm restarts with the N1 in use);
   on a payload whose m1n1 does not train port 0 they are inert (port00 stays disabled).
+- **0087** (N1 sleep fix, ours): `j716s-n1shut` `85c770faad4b` cherry-picked onto `3f2bdbc61510` without conflicts, author and
+  Signed-off-by Rolando Trevino. `apple_pcie_suspend_noirq()` no longer refuses suspend-to-idle on an `adopt_link` host: the
+  adopted link stays in L0 (every function and the root port must be in D0, else the sleep is refused as before) and on resume a
+  kept link must be up with no link-down latched, otherwise the hierarchy behind it is marked disconnected. Hosts that are not
+  `adopt_link` are unchanged. Validated on hardware 2026-11-07: two lid-close sleeps (`adopted link kept through
+  suspend-to-idle`), Wi-Fi back after resume. Also saved as `contrib/pending/wireless/patches/linux/0003-*`.
 
 **Config:** `defconfig asahi.config j716s.config` sets every fragment symbol as written. Against the full2 kernel's
 config the differences are the audio stack with Rust and its selects, the crash-log options (with `NETPOLL`,
@@ -157,7 +164,7 @@ with `BINDGEN=<tree>/tools/aurora-bindgen/build/bin/bindgen` on the make line, i
 binary). Release string, hashes and payloads: `~/Work/agents/next-daily/REPORT.md`.
 
 **Revert:** `git -C /Volumes/linux-cs/wt-series reset --hard a83b052e9ffb` (or `j716s-series-pre-next-daily`), and
-drop 0063-0065 and 0067-0086 from `patches/series`.
+drop 0063-0065 and 0067-0087 from `patches/series`.
 
 ## Differences from `aurora-j716s`
 
