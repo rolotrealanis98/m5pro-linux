@@ -1,5 +1,5 @@
 From 459a3af220df4434aa6da6289655f9b6e1227bb7 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 17:59:05 -0500
 Subject: [PATCH] smp: redirect a locked RVBAR to a relocated m1n1 with a reset
  trampoline
@@ -16,6 +16,8 @@ an exception guard. Any failure, and every other case, keeps the previous "Faile
 bounded wait. kboot reserves the patched slot in the FDT so Linux never overwrites it.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  src/kboot.c |  9 +++++
  src/smp.c   | 95 +++++++++++++++++++++++++++++++++++++++++++++++++++--

@@ -1,5 +1,5 @@
 From ccbb51bce4082d2874cd3e78097db4b871bb7fe3 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 11:29:08 -0500
 Subject: [PATCH 18/18] usb: pd: t6050: power up the HPMs, with bounded SPMI
  and HPM commands
@@ -46,6 +46,8 @@ Worst case with every controller unresponsive: about 6.5 s per HPM
 (four HPMs on J716s), instead of a hang.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  Makefile                    |   2 +-
  src/spmi.c                  |  12 +++-

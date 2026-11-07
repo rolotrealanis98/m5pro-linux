@@ -1,8 +1,7 @@
-From 921eb4024929505324d2de40202e179ddc82df22 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From 0b8423c69abb374cd7c372c549e27ac71daf92d6 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:57:06 -0500
-Subject: [PATCH 55/58] arm64: dts: apple: t6050: Describe the SMC's second
- GPIO bank
+Subject: [PATCH] arm64: dts: apple: t6050: Describe the SMC's second GPIO bank
 
 The T6050 SMC has a second bank of GPIO keys, the lower-case gp keys,
 as T6030 and T6031 do; on the J716s macsmc-low-gpio finds gp01 as its
@@ -16,6 +15,7 @@ Tested on J716s.
 
 Assisted-by: LLM
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  arch/arm64/boot/dts/apple/t6050-die0.dtsi | 11 +++++++++++
  1 file changed, 11 insertions(+)
@@ -42,3 +42,6 @@ index 86eaef24e98f..fd2991f2cca9 100644
  		/* T8142's key discovery (every readable T* float key); boards add their fan and power keys. */
  		smc_hwmon: hwmon {
  			compatible = "apple,smc-hwmon";
+-- 
+2.56.0
+

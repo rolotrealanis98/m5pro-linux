@@ -1,5 +1,5 @@
 From a5e3412d4f028e65901a10cd904c26e31b05d62f Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:54:41 -0500
 Subject: [PATCH 24/33] power: supply: macsmc-power: decide B0RM byte order
  apart from the BCF0 size
@@ -21,6 +21,8 @@ Based on edimoldovan/linux-aurora (t6050-j714c)
 drivers/power/supply/macsmc-power.c.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/power/supply/macsmc-power.c | 21 +++++++++++++--------
  1 file changed, 13 insertions(+), 8 deletions(-)

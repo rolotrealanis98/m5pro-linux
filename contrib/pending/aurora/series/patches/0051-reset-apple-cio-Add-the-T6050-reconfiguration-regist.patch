@@ -1,8 +1,7 @@
-From 12bf34282617becb335b719ea9c9ece475c3e66c Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From 5c9d7144a41e4632de74cccb4ea7ec102b008608 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:55:39 -0500
-Subject: [PATCH 51/58] reset: apple-cio: Add the T6050 reconfiguration
- register
+Subject: [PATCH] reset: apple-cio: Add the T6050 reconfiguration register
 
 The T6050 (M5 Pro/Max) keeps the CIO reconfiguration requests of a die in
 one register with the T8142 bit layout (request BIT(2 * port), busy
@@ -22,6 +21,7 @@ is enabled, so no request has been issued at either offset.
 
 Assisted-by: LLM
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  .../bindings/reset/apple,t8103-cio-reset.yaml |  4 +++-
  drivers/reset/reset-apple-cio.c               | 23 +++++++++++++++----
@@ -128,3 +128,6 @@ index af299473a6c8..68734df4528f 100644
  	{
  		.compatible = "apple,t8103-cio-reset",
  		.data = &apple_t8103_cio_reset,
+-- 
+2.56.0
+

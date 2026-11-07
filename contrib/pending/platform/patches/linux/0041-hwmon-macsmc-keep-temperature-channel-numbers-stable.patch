@@ -1,4 +1,4 @@
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Subject: [PATCH 0041] hwmon: macsmc: keep temperature channel numbers stable
 
 macsmc-hwmon registers with HWMON_C_REGISTER_TZ, so a DT thermal zone
@@ -17,6 +17,8 @@ Base: asahi-wip-7.2 236788cd2 (applies with or without the SMC agent's
 0010; the hunks are disjoint).
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
 diff --git a/drivers/hwmon/macsmc-hwmon.c b/drivers/hwmon/macsmc-hwmon.c
 --- a/drivers/hwmon/macsmc-hwmon.c

@@ -1,5 +1,5 @@
 From e3a8fd436382a3b19eed9ca307fb12b01a3c214b Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:55:27 -0500
 Subject: [PATCH 25/33] power: supply: macsmc-power: serialise charge settings;
  a write's reply size is not an error
@@ -25,6 +25,8 @@ checks, the CHTE length check). The AUTO_DISCHARGE charge behaviour from
 the same tree needs a new power-supply UAPI value and is not ported.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/power/supply/macsmc-power.c | 49 ++++++++++++++++++++++++-----
  1 file changed, 41 insertions(+), 8 deletions(-)

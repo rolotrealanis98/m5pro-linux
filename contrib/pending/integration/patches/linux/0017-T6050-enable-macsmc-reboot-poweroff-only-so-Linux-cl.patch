@@ -1,5 +1,5 @@
 From 238f169617cc7b42eac12190231058b1e58e28ee Mon Sep 17 00:00:00 2001
-From: m5pro-linux <m5pro-linux@localhost>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 06:06:58 -0500
 Subject: [PATCH] T6050: enable macsmc-reboot (poweroff-only) so Linux clears
  iBoot's boot-failure counters
@@ -11,6 +11,8 @@ iBoot then treats every Linux boot as a failed one and drops into the
 driver in, enable the DT node with the abbey scratchpad cells (0xf801..),
 keep restart on the watchdog (apple,poweroff-only, platform agent patch
 0040) but still write boot_stage = 0 before a restart.
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  .../power/reset/apple,smc-reboot.yaml         | 11 ++++-
  arch/arm64/boot/dts/apple/t6050-smc.dtsi      |  4 +-

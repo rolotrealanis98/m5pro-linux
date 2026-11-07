@@ -1,5 +1,5 @@
 From aa7512027d1c2e04c55ea66f6171c165b0fc9c73 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 17:57:43 -0500
 Subject: [PATCH 2/3] cpufreq: apple-soc: log the DVFS state handed over and
  warn if APSC is off
@@ -13,6 +13,8 @@ bit (bit 22 on M1, bit 23 on M2 and later, as named by m1n1) is set,
 because the cluster then ignores p-state requests.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/cpufreq/apple-soc-cpufreq.c | 23 +++++++++++++++++++++++
  1 file changed, 23 insertions(+)

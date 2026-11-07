@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Rolando <rolotrealanis@gmail.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 19:29:32 -0500
 Subject: [PATCH] drm/apple: say why a T6050 DCP is not started
 
@@ -10,6 +10,8 @@ compat it refused, as the T6041 and T6030 paths do, and the firmware
 version it accepted.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/gpu/drm/apple/dcp.c | 8 +++++++-
  1 file changed, 7 insertions(+), 1 deletion(-)

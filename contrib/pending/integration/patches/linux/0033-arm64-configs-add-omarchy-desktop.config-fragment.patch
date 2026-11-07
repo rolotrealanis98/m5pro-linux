@@ -1,5 +1,5 @@
 From b6b0170984cdfa960ac163b3ca167f75f72c4c77 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 21:03:01 -0500
 Subject: [PATCH 33/33] arm64: configs: add omarchy-desktop.config fragment
 
@@ -25,6 +25,8 @@ The zram and keyboard-backlight items follow edimoldovan/linux-aurora
 derived from ufw's before/after rules.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  arch/arm64/configs/omarchy-desktop.config | 97 +++++++++++++++++++++++
  1 file changed, 97 insertions(+)

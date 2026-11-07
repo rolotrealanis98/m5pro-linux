@@ -1,5 +1,5 @@
 From 0bc8917e0b6a99885fdfcbf0e4984fa17463c03c Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 19:27:05 -0500
 Subject: [PATCH 22/23] kboot: n1: fill the T6050 N1 hand-off in the DT
 
@@ -23,6 +23,8 @@ The MAC addresses already travel through the wifi0/bluetooth0 aliases.
 Nothing here trains a link.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  Makefile       |   2 +-
  src/kboot.c    |   3 +

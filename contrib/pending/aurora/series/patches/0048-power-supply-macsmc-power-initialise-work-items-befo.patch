@@ -1,8 +1,8 @@
-From 30f1d215e709569fd37bed2a890f8cb55069c8f5 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From cef2396c0b544d89bfe425c9d492317f9b82c469 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 18:48:35 -0500
-Subject: [PATCH 48/58] power: supply: macsmc-power: initialise work items
- before the notifier
+Subject: [PATCH] power: supply: macsmc-power: initialise work items before the
+ notifier
 
 Probe initialises critical_work twice: once before devm_work_autocancel()
 (which initialises it itself) and again, together with dbg_log_work,
@@ -15,6 +15,7 @@ Port of m5pro-linux integration patch 0004 to the Aurora driver.
 
 Assisted-by: LLM
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  drivers/power/supply/macsmc-power.c | 12 ++++++++----
  1 file changed, 8 insertions(+), 4 deletions(-)
@@ -53,3 +54,6 @@ index 1bc23703654a..26580a8eb63a 100644
  	g_power = power;
  
  	if (log_power)
+-- 
+2.56.0
+

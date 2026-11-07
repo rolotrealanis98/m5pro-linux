@@ -1,5 +1,5 @@
 From f8c3f941322f9136cba80ec2c3dc1f2e4ac35db9 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 17:11:03 -0500
 Subject: [PATCH] smp: MAX_CPUS 32 -> 24 to keep the raw image under the T6050
  stage-1 size cliff
@@ -10,6 +10,8 @@ Most of the file is zeros from secondary_stacks[MAX_CPUS][0x10000]; 24 covers ev
 (18 cores) and matches GravityLinux's fork, saving 0x80000.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  src/smp_asm.h | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)

@@ -1,5 +1,5 @@
 From 71a91b1b87f14ef95acc64d9eb326f36d9f9ecae Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 18:07:54 -0500
 Subject: [PATCH 21/21] kboot: atc: produce the T6050 combo PHY tunables from
  the ADT
@@ -23,6 +23,8 @@ On J716s ATC1 this reproduces the 14 lists of the hand-made DT word for
 word (checked against the runtime ADT).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  src/kboot_atc.c | 120 ++++++++++++++++++++++++++++++++++++++++++++++++
  1 file changed, 120 insertions(+)

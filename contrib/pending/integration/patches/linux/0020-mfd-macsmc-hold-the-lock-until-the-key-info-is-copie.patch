@@ -1,5 +1,5 @@
 From 93977bd68f9d2a93817f4fa831aa8906bfa4dad5 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:53:41 -0500
 Subject: [PATCH 20/33] mfd: macsmc: hold the lock until the key info is copied
  out
@@ -17,6 +17,8 @@ macsmc-power decides the BCF0 width from this (1 byte on 27.x firmware,
 Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/mfd/macsmc.c | 8 +++++++-
  1 file changed, 7 insertions(+), 1 deletion(-)

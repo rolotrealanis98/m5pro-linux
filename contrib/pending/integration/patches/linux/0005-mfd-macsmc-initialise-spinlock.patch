@@ -1,3 +1,5 @@
+From: Rolando Trevino <rolotrealanis@gmail.com>
+
 mfd: macsmc: initialise the atomic-write spinlock
 
 smc->lock (used by apple_smc_write_atomic(), i.e. macsmc-reboot) was never

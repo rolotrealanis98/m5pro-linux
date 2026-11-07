@@ -1,8 +1,7 @@
-From e8b45940cc1a8d91e15421ddc706c8ac8e5a725c Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From a365284fb844c334f9dfe631600c68e3444cc990 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 16:51:54 -0500
-Subject: [PATCH 45/58] soc: apple: rtkit: wait up to 10 s for a handshake
- reply
+Subject: [PATCH] soc: apple: rtkit: wait up to 10 s for a handshake reply
 
 apple_rtkit_wait_for_completion() gives the co-processor 1 s to answer.
 On the T6050 (J716s, MacBook Pro 16-inch M5 Pro) the ANS firmware that
@@ -16,6 +15,7 @@ only a dead co-processor is reported later.
 
 Assisted-by: LLM
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  drivers/soc/apple/rtkit.c | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
@@ -33,3 +33,6 @@ index 536ba515f826..6e7e1a1a9559 100644
  	if (t < 0)
  		return t;
  	else if (t == 0)
+-- 
+2.56.0
+

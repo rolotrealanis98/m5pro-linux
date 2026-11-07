@@ -1,5 +1,5 @@
 From ffd211fd10b2e9d7260fb0f5b03b171a679859b6 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 21:11:28 -0500
 Subject: [PATCH] j716s R1: SMC/battery fixes, macsmc_power.trace, desktop
  bundle (eDP, keyboard backlight, zram, ufw netfilter)
@@ -46,6 +46,8 @@ macsmc-power stays gated by initcall_blacklist=macsmc_power_driver_init
 in the boot arguments until its test passes.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  configs/omarchy-desktop.config                |  97 +++++++++
  dt/t6050-j716s.dts                            |  26 +++

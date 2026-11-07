@@ -1,5 +1,5 @@
 From dd784f7904ee5cef198350236e30bd49c609d534 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:59:44 -0500
 Subject: [PATCH 32/33] arm64: dts: apple: t6050-j716s: keyboard backlight on
  fpwm0
@@ -22,6 +22,8 @@ without it leds-pwm starts the LED "off" and takes the period from the
 pwms specifier, so brightness writes still work.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  arch/arm64/boot/dts/apple/t6050-j716s.dts | 26 +++++++++++++++++++++++
  arch/arm64/boot/dts/apple/t6050.dtsi      | 14 ++++++++++++

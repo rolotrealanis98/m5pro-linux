@@ -1,5 +1,5 @@
 From bb42c2edab8745773a68a7e99e267c55306ac887 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:54:00 -0500
 Subject: [PATCH 22/33] mfd: macsmc: treat a short key-count reply as an I/O
  error
@@ -13,6 +13,8 @@ error the guard uses for a size mismatch, rather than -EINVAL.
 Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/mfd/macsmc.c | 8 +++++---
  1 file changed, 5 insertions(+), 3 deletions(-)

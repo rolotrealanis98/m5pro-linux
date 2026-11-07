@@ -1,5 +1,5 @@
 From acb21cf3c34c42362d40718eb88c813f2c1c3637 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:53:12 -0500
 Subject: [PATCH 18/33] mfd: macsmc: refuse SMC replies larger than the read
  buffer
@@ -36,6 +36,8 @@ the "rsize && ret > rsize" guard and the copy of ret bytes; kunit hooks
 left out.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/mfd/macsmc.c | 16 +++++++++++++---
  1 file changed, 13 insertions(+), 3 deletions(-)

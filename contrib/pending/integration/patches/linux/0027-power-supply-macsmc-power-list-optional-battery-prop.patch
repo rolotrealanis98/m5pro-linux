@@ -1,5 +1,5 @@
 From 6f4086d573d5b5ef3e866aad5e02929ce29218e2 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:56:22 -0500
 Subject: [PATCH 27/33] power: supply: macsmc-power: list optional battery
  properties only when their keys exist
@@ -18,6 +18,8 @@ Based on edimoldovan/linux-aurora (t6050-j714c)
 drivers/power/supply/macsmc-power.c.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/power/supply/macsmc-power.c | 24 ++++++++++++++++++------
  1 file changed, 18 insertions(+), 6 deletions(-)

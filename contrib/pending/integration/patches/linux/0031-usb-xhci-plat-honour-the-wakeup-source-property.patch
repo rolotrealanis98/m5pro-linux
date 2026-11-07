@@ -1,5 +1,5 @@
 From da09fc453f397c06565f8949ed33e222e6cd8e5e Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:59:01 -0500
 Subject: [PATCH 31/33] usb: xhci-plat: honour the wakeup-source property
 
@@ -23,6 +23,8 @@ wakeup-source; J714c USB controllers keep their PHY across s2idle"),
 driver hunk only.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/usb/host/xhci-plat.c | 2 ++
  1 file changed, 2 insertions(+)

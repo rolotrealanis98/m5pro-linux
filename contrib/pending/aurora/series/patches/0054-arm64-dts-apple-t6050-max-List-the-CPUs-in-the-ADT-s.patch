@@ -1,8 +1,8 @@
-From 356db801dde0793b7a80ce69cd42266f57e98357 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From 2d2ce38d22b1aac0bad69622a3d3da4424e78ee2 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:56:34 -0500
-Subject: [PATCH 54/58] arm64: dts: apple: t6050-max: List the CPUs in the
- ADT's order
+Subject: [PATCH] arm64: dts: apple: t6050-max: List the CPUs in the ADT's
+ order
 
 t6050-max.dtsi lists the sixth core of each cluster (cpu5, cpu11, cpu17)
 after the other fifteen. m1n1's dt_set_cpus() walks the CPU nodes in
@@ -24,6 +24,7 @@ Tested on J716s: all 18 cores come up.
 
 Assisted-by: LLM
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  arch/arm64/boot/dts/apple/t6050-max.dtsi | 13 +++++++------
  1 file changed, 7 insertions(+), 6 deletions(-)
@@ -69,3 +70,6 @@ index 487288170c9a..d3b0a1f7b80a 100644
  		T6050_P_CPU(cpu17, 10205, cpufreq_pc);
  	};
  };
+-- 
+2.56.0
+

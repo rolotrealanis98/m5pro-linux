@@ -1,4 +1,4 @@
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 00:00:00 +0000
 Subject: [PATCH 0030] ASoC: apple: macaudio: add J716 (16-inch M5 Pro/Max), speakers off
 
@@ -20,6 +20,8 @@ owned by the AOP firmware on M4/M5), so this only takes effect once that
 transport exists.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
 diff --git a/sound/soc/apple/macaudio.c b/sound/soc/apple/macaudio.c
 index 2f26adc5b..28177b5a7 100644

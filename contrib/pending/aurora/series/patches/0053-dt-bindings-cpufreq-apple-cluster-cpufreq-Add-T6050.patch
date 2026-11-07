@@ -1,7 +1,7 @@
-From 134eac3ba33d4680b8e35775d75ad73e276e61e1 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From 3846c7a33cc1c264b57e5d6074734769b1dc1796 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:56:12 -0500
-Subject: [PATCH 53/58] dt-bindings: cpufreq: apple,cluster-cpufreq: Add T6050
+Subject: [PATCH] dt-bindings: cpufreq: apple,cluster-cpufreq: Add T6050
 
 The T6050 (M5 Pro/Max) cluster DVFS block has the T8112 register layout:
 on the J716s the status register at +0x50 carries the current p-state in
@@ -17,6 +17,7 @@ precedence without a device tree change.
 
 Assisted-by: LLM
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  .../devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml       | 1 +
  1 file changed, 1 insertion(+)
@@ -33,3 +34,6 @@ index 84e5ce2657dc..f43bfc4fb9f3 100644
                - apple,t8122-cluster-cpufreq
            - const: apple,t8112-cluster-cpufreq
  
+-- 
+2.56.0
+

@@ -1,5 +1,5 @@
 From 119168fa6bf1d3c0db588da7e4716c061f4fa303 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 19:29:44 -0500
 Subject: [PATCH 23/23] pcie: t6050: train apcie0 port 0 (the N1) behind
  chosen.m5pro,n1
@@ -26,6 +26,8 @@ T6050 has a no_ps APCIE_PHY_SW), tunables_validate_local() and
 tunables_check_local_addr() from Aura, and kboot_get_chosen().
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  Makefile         |   2 +-
  src/kboot.c      |  12 +

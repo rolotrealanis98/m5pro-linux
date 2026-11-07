@@ -1,5 +1,5 @@
 From 07a0599e54235ac046083bddfd09b91e8a9af4f2 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 18:10:16 -0500
 Subject: [PATCH 4/5] arm64: dts: apple: t6050: USB 2.0 host on one Type-C port
 
@@ -15,6 +15,8 @@ Add t6050-j716s-usbhost.dts, which is t6050-j716s.dts plus that file, as a
 separate DTB: t6050-j716s.dtb stays byte-identical for rollback.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  arch/arm64/boot/dts/apple/Makefile            |  1 +
  .../boot/dts/apple/t6050-j716s-usbhost.dts    | 18 ++++

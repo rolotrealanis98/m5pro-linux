@@ -1,5 +1,5 @@
 From e2b0eeade57f12b508190153f29bdea09827c14b Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 18:06:17 -0500
 Subject: [PATCH 20/21] usb: t6050: park the PIPE on the dummy producer in the
  T6050 field layout
@@ -26,6 +26,8 @@ write releases the reset afterwards, as before. Other SoCs keep the 0x22
 write.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  src/usb.c | 43 ++++++++++++++++++++++++++++++++++++++++++-
  1 file changed, 42 insertions(+), 1 deletion(-)

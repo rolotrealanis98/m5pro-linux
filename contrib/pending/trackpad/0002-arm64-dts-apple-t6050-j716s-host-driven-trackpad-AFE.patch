@@ -1,5 +1,5 @@
 From 61c807bf41a128aba22566015e7e2f10bde19e2f Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 18:39:36 -0500
 Subject: [PATCH 2/2] arm64: dts: apple: t6050-j716s: host-driven trackpad AFE
  reset
@@ -12,6 +12,8 @@ post-init-providers keeps the transport probe from waiting on the GPIO
 chip.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  arch/arm64/boot/dts/apple/t6050-j716s.dts | 25 +++++++++++++++++++++++
  arch/arm64/boot/dts/apple/t6050-smc.dtsi  | 12 ++++++++++-

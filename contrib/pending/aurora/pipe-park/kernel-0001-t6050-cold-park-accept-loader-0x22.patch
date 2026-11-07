@@ -1,4 +1,4 @@
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Subject: [PATCH] phy: apple: t6050: Re-park a PIPE that a loader left on the T8103 dummy value
 
 m1n1's usb_phy_bringup() writes PIPEHANDLER_MUX_CTRL = 0x22 before every
@@ -19,6 +19,8 @@ USB3 (0x10) or USB4 producer is still refused.
 Fallback only: the loader-side fix (m1n1 0020) is preferred.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
 --- a/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h	2026-11-06 18:13:57
 +++ b/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h	2026-11-06 18:13:57

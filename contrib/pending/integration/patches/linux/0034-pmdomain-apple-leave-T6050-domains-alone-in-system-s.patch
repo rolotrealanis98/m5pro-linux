@@ -1,5 +1,5 @@
 From e1d2d7313745455790cc92adbb5b6e487c2b9e52 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 21:32:11 -0500
 Subject: [PATCH] pmdomain: apple: leave T6050 domains alone in system sleep
 
@@ -21,6 +21,8 @@ Platform agent patch 0042 (contrib/pending/platform), carried into the R1
 kernel as the s2idle guard; it changes nothing outside system sleep.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/pmdomain/apple/pmgr-pwrstate.c | 41 ++++++++++++++++++++++++++
  1 file changed, 41 insertions(+)

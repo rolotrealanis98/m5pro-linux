@@ -1,8 +1,8 @@
-From 43ea82e28e855e95bfc57d51e4b3215d1e59610f Mon Sep 17 00:00:00 2001
+From 39db81e64803117087ec45a8abe3d9c9259b3969 Mon Sep 17 00:00:00 2001
 From: Dj <hey@djdev.me>
 Date: Fri, 6 Nov 2026 18:48:49 -0500
-Subject: [PATCH 49/58] power: supply: macsmc-power: read battery identity
- strings at their key size
+Subject: [PATCH] power: supply: macsmc-power: read battery identity strings at
+ their key size
 
 Probe reads BMDN, BMSN and BMDT with the size of the destination buffer
 instead of the size of the key. SMC read requests must describe the key,
@@ -21,6 +21,7 @@ established.
 Signed-off-by: Dj <hey@djdev.me>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  drivers/power/supply/macsmc-power.c | 41 ++++++++++++++++++++++++-----
  1 file changed, 34 insertions(+), 7 deletions(-)
@@ -94,3 +95,6 @@ index 26580a8eb63a..d98e5347af77 100644
  
  		apple_smc_read_u8(power->smc, SMC_KEY(BNCB), &power->num_cells);
  		power->nominal_voltage_mv = MACSMC_NOMINAL_CELL_VOLTAGE_MV * power->num_cells;
+-- 
+2.56.0
+

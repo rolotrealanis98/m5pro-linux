@@ -1,7 +1,7 @@
-From 4f630b11270dc2525a81fb4323b177fec35b9453 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From b9cea5ab1b7d418fdea75ee45c27b44eb23f3082 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:58:53 -0500
-Subject: [PATCH 58/58] arm64: configs: Add a J716s fragment
+Subject: [PATCH] arm64: configs: Add a J716s fragment
 
 The J716s boots with no modules on its root file system, so every
 driver on its boot path has to be built in. Add the fragment it is built
@@ -17,6 +17,7 @@ nftables, zram with zstd and /dev/mem for the userspace it runs.
 
 Assisted-by: LLM
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  arch/arm64/configs/j716s.config | 74 +++++++++++++++++++++++++++++++++
  1 file changed, 74 insertions(+)
@@ -102,3 +103,6 @@ index 000000000000..caa69196ae0d
 +CONFIG_ZRAM_BACKEND_ZSTD=y
 +CONFIG_ZRAM_DEF_COMP_ZSTD=y
 +CONFIG_DEVMEM=y
+-- 
+2.56.0
+

@@ -1,4 +1,4 @@
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Subject: [PATCH] drm/apple: dcp: refuse T6050 and report an undriven coprocessor
 
 T6050 (M5 Pro/Max) only ships DCP firmware from macOS 27.x, whose IOMFB
@@ -20,6 +20,7 @@ Base: AsahiLinux/linux 236788cd2 (+ omarchy-m5 patches 0001-0009, which
 do not touch drivers/gpu/drm/apple).
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---
 diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h

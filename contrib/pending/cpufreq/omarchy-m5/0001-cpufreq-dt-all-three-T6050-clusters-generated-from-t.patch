@@ -1,5 +1,5 @@
 From 7efa8920e7695fdadd4310c51ba54b34eef056b2 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 18:00:07 -0500
 Subject: [PATCH] cpufreq dt: all three T6050 clusters, generated from the
  J716s ADT
@@ -24,6 +24,8 @@ from build/adt-runtime-j716s.bin.
   the driver matched the t8112 entry before and still does.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  dt/t6050-cpufreq.dtsi     | 188 +++++++++++++++++++++++++++++++++++++-
  scripts/gen-cpufreq-dt.py |  66 +++++++------

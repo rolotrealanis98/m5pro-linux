@@ -1,4 +1,4 @@
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Subject: [PATCH] firmware: recognise the 27.1 and 27.2 beta iBoot strings seen on J716s
 
 The J716s stub (build 26C5035r) reports mBoot-20457.60.65.0.1, which is not
@@ -20,6 +20,7 @@ Base: ~/Work/m1n1 m5-t6050 459a3af2 (also applies to AsahiLinux/m1n1 main
 70757dc7).
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---
 diff --git a/src/firmware.c b/src/firmware.c

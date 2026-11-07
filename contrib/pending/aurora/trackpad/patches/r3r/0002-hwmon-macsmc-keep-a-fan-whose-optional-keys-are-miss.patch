@@ -1,5 +1,5 @@
 From c7cad7cbd86ead529bc07bf18ec77aa14967ece4 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 18:48:25 -0500
 Subject: [PATCH 2/4] hwmon: (macsmc) keep a fan whose optional keys are
  missing
@@ -17,6 +17,8 @@ has since gained apple,fan-manual-control; that check is unchanged and
 still sees the mode key cleared when manual control is not possible.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/hwmon/macsmc-hwmon.c | 44 ++++++++++++++++++++----------------
  1 file changed, 25 insertions(+), 19 deletions(-)

@@ -1,4 +1,4 @@
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Subject: [PATCH 0001] j716s: keyboard backlight, SMC power-off, thermal zones (stage A)
 
 - dt/t6050-j716s-platform.dtsi (new), included from t6050-j716s.dts before
@@ -27,6 +27,8 @@ missing; delete vendor/linux/.config (or run olddefconfig after merging)
 to pick up the new fragment.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
 diff --git a/configs/omarchy-platform.config b/configs/omarchy-platform.config
 new file mode 100644

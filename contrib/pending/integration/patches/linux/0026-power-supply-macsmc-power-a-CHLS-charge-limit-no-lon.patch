@@ -1,5 +1,5 @@
 From 34fc3765a29374e3237e2540bfe904a44e674f15 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:56:05 -0500
 Subject: [PATCH 26/33] power: supply: macsmc-power: a CHLS charge limit no
  longer forces discharge
@@ -27,6 +27,8 @@ macsmc_battery_clear_stray_discharge, macsmc_battery_charge_behaviours,
 the threshold setter).
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/power/supply/macsmc-power.c | 102 ++++++++++++++++++++++------
  1 file changed, 82 insertions(+), 20 deletions(-)

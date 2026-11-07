@@ -1,5 +1,5 @@
 From 123149e3bc078bdff2de53311c27fff3e9c08698 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 18:10:15 -0500
 Subject: [PATCH 3/5] usb: typec: tipd: sn201202x: work without SPMI interrupts
 
@@ -21,6 +21,8 @@ which made the polled probe fail. Also cast the match data through
 uintptr_t (W=1 -Wvoid-pointer-to-enum-cast).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/usb/typec/tipd/core.c     |   5 ++
  drivers/usb/typec/tipd/spmi.c     | 144 ++++++++++++++++++++++++------

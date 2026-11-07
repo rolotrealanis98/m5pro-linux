@@ -1,7 +1,7 @@
-From 42f2654041acee9149b634a46316a48433b11d98 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From 3c9d7a26496a94ae0467663ff1bfafdef5cc265c Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:55:57 -0500
-Subject: [PATCH 52/58] mfd: macsmc: Match the T6050 SMC
+Subject: [PATCH] mfd: macsmc: Match the T6050 SMC
 
 t6050-die0.dtsi describes the SMC as "apple,t6050-smc" alone, which no
 driver matches in this tree, so on the J716s (MacBook Pro 16-inch, M5 Pro)
@@ -20,6 +20,7 @@ trackpad's AFE reset on gp1c works. Not built with this entry yet.
 
 Assisted-by: LLM
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  Documentation/devicetree/bindings/mfd/apple,smc.yaml | 2 ++
  drivers/mfd/macsmc.c                                 | 1 +
@@ -50,3 +51,6 @@ index 546e5cdbb72a..e60e4dc160d9 100644
  	{ .compatible = "apple,t8103-smc" },
  	{ .compatible = "apple,smc" },
  	{},
+-- 
+2.56.0
+

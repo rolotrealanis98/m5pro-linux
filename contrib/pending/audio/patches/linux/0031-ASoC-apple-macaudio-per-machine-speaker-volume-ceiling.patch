@@ -1,4 +1,4 @@
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 00:00:00 +0000
 Subject: [PATCH 0031] ASoC: apple: macaudio: per-machine speaker volume ceiling
 
@@ -18,6 +18,8 @@ alsa-lib, which clamps to the control's reported maximum.
 Applies on top of 0030.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
 diff --git a/sound/soc/apple/macaudio.c b/sound/soc/apple/macaudio.c
 index 28177b5a7..fee4b0299 100644

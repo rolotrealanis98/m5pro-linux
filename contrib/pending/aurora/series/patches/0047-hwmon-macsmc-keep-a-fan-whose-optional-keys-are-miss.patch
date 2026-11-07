@@ -1,8 +1,7 @@
-From f789734d4415291bcd9609b5af3ae46dfdf5b009 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From af58110c503083263c0884cb4ca8af849829cb71 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 18:48:25 -0500
-Subject: [PATCH 47/58] hwmon: (macsmc) keep a fan whose optional keys are
- missing
+Subject: [PATCH] hwmon: (macsmc) keep a fan whose optional keys are missing
 
 macsmc_hwmon_create_fan() returns an error, dropping the whole fan, when
 any of apple,fan-minimum/-maximum/-target/-mode names a key the SMC does
@@ -18,6 +17,7 @@ still sees the mode key cleared when manual control is not possible.
 
 Assisted-by: LLM
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  drivers/hwmon/macsmc-hwmon.c | 44 ++++++++++++++++++++----------------
  1 file changed, 25 insertions(+), 19 deletions(-)
@@ -89,3 +89,6 @@ index cb824b252ddc..e78e71da59cd 100644
  	if (of_property_read_bool(fan_node, "apple,fan-manual-control")) {
  		if (fan->mode.macsmc_key && (fan->attrs & HWMON_F_TARGET))
  			fan->manual_control = true;
+-- 
+2.56.0
+

@@ -1,5 +1,5 @@
 From e2156105c652b729cc33f146b1ce58efc852a6de Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 18:39:35 -0500
 Subject: [PATCH 1/2] HID: dockchannel-hid: drive the AFE reset for power
  method 2
@@ -29,6 +29,8 @@ host-held line, pulsed for 50 ms as macOS does; FIFO mode is unchanged.
 Compile-tested only.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/hid/dockchannel-hid/dockchannel-hid.c | 115 ++++++++++++++++--
  1 file changed, 105 insertions(+), 10 deletions(-)

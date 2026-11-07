@@ -1,5 +1,5 @@
 From c9d20fff668f1bc30708369f255a6f2dbbf9dcb0 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 18:17:53 -0500
 Subject: [PATCH] USB 2.0 host on one T6050 Type-C port (J716s usbhost DTB)
 
@@ -18,6 +18,8 @@ Subject: [PATCH] USB 2.0 host on one T6050 Type-C port (J716s usbhost DTB)
   require its key symbols so an old .config is regenerated.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  configs/omarchy-usb-host.config               |  50 +++
  dt/t6050-j716s-usbhost.dts                    |  18 +

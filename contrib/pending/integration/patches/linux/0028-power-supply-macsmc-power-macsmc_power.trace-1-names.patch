@@ -1,5 +1,5 @@
 From a0cc4db88f62d66b3c1ddab18118739ac518c9d2 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:58:08 -0500
 Subject: [PATCH 28/33] power: supply: macsmc-power: macsmc_power.trace=1 names
  every SMC key during probe
@@ -29,6 +29,8 @@ The tracing wraps this file's SMC accessors in macros, so no call site
 changes and nothing is traced in other drivers.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/power/supply/macsmc-power.c | 98 +++++++++++++++++++++++++++++
  1 file changed, 98 insertions(+)

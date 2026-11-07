@@ -1,5 +1,5 @@
 From eb13da2ed416638a88e209b2e4b8c173b84d2b6a Mon Sep 17 00:00:00 2001
-From: Rolando <rolotrealanis@gmail.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 19:29:15 -0500
 Subject: [PATCH] kboot: T6050: reserve coprocessor logs; describe the internal
  display handoff
@@ -25,6 +25,8 @@ walked or shut down. chosen.m5,t6050-dcp-compat=27.0.0 publishes
 Add the 27.2 and 27.3 beta 1 stub iBoot strings to the firmware table.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  src/firmware.c |   4 +
  src/firmware.h |   2 +

@@ -1,5 +1,5 @@
 From b1f2347962ff36f925f4ea30949ed0cead616ef6 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 19:24:28 -0500
 Subject: [PATCH 02/11] soc: apple: rtkit: let a client leave placed buffers
  unacknowledged
@@ -15,6 +15,8 @@ APPLE_RTKIT_COPROC_PLACES_BUFFERS.
 No client sets the flag yet; behaviour is unchanged.
 
 Assisted-by: LLM
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/soc/apple/rtkit.c       |  8 +++++++-
  include/linux/soc/apple/rtkit.h |  7 +++++++

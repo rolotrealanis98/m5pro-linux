@@ -1,5 +1,5 @@
 From 4351a6a0dc8cb3c610c2c3d265de55b4d50a6fa6 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 21:34:24 -0500
 Subject: [PATCH] patches/linux: carry the s2idle PMGR guard (platform 0042)
  for R1
@@ -12,6 +12,8 @@ is the guard the R1 s2idle step (S1) and later steps rely on.
 Apply after 0004.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  ...ave-T6050-domains-alone-in-system-sl.patch | 110 ++++++++++++++++++
  1 file changed, 110 insertions(+)

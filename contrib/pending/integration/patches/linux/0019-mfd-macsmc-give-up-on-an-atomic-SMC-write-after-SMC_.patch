@@ -1,5 +1,5 @@
 From d602c2f9e829c5a2d528061ed06480cf6c451711 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:53:25 -0500
 Subject: [PATCH 19/33] mfd: macsmc: give up on an atomic SMC write after
  SMC_TIMEOUT_MS
@@ -19,6 +19,8 @@ or restart handler (the watchdog for restart).
 This is a safety bound, not a behaviour change when the SMC replies.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/mfd/macsmc.c | 11 ++++++++++-
  1 file changed, 10 insertions(+), 1 deletion(-)

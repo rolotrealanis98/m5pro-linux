@@ -1,5 +1,5 @@
 From e18ed970aedd4062015277693f201a689c4cd6b4 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 18:10:14 -0500
 Subject: [PATCH 2/5] usb: typec: descend into tipd/ when only SN201202x is
  enabled
@@ -11,6 +11,8 @@ sn201202x.o is compiled but never linked into vmlinux (obj-m dir).
 Key the directory on TYPEC_TPS6598X_CORE, which both front ends select.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/usb/typec/Makefile | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)

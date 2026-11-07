@@ -1,5 +1,5 @@
 From dece1ac1cd712a3a036e21d59462d8ff3b1b1155 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 15:27:14 -0500
 Subject: [PATCH] chainload: relocate above the CTRR window instead of refusing
 
@@ -8,6 +8,8 @@ below T6050's secondary-only CTRR window (~12 MiB of room on a J716s). Place it 
 and above its own staging buffer; the next m1n1's heap starts above the relocated image.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  src/chainload.c | 18 ++++++++++++------
  1 file changed, 12 insertions(+), 6 deletions(-)

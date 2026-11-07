@@ -1,5 +1,5 @@
 From 4d9ab5fd1a43dee0616f6d164b09455a7649311b Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:53:43 -0500
 Subject: [PATCH 21/33] mfd: macsmc: bounds-check apple_smc_get_key_by_index()
 
@@ -14,6 +14,8 @@ enumeration (debug tools, macsmc-hwmon experiments).
 Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/mfd/macsmc.c | 10 ++++++++--
  1 file changed, 8 insertions(+), 2 deletions(-)

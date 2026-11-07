@@ -1,8 +1,8 @@
-From 367cefbf1dfde0e36a74eb9516f417de374c1a18 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From 7131d41671b523742d66f70a5e73fc51ab0a15e4 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 18:48:03 -0500
-Subject: [PATCH 46/58] HID: dockchannel-hid: settle 50 ms after releasing the
- AFE reset
+Subject: [PATCH] HID: dockchannel-hid: settle 50 ms after releasing the AFE
+ reset
 
 Power method 2 with a host-driven AFE reset releases the line for a
 power-on and sends HasChanged immediately. The sequence validated on the
@@ -17,6 +17,7 @@ line as an error, so a boot log shows whether the reset ran at all
 
 Assisted-by: LLM
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  drivers/hid/dockchannel-hid/dockchannel-hid.c | 24 ++++++++++++++-----
  1 file changed, 18 insertions(+), 6 deletions(-)
@@ -64,3 +65,6 @@ index da0f2ab1403d..e1d8f3ca86a5 100644
  	}
  
  	dchid_pm2_command(iface->index, state, true, msg);
+-- 
+2.56.0
+

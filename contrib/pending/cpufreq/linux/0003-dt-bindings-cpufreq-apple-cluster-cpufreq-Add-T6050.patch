@@ -1,5 +1,5 @@
 From c92c7c3b7950f5ea1a51bd2972efd282116649a9 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 17:58:41 -0500
 Subject: [PATCH 3/3] dt-bindings: cpufreq: apple,cluster-cpufreq: Add T6050
 
@@ -10,6 +10,8 @@ J714s and J716s). Like T6020 it is described as
 "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq".
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  .../devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml    | 4 +++-
  1 file changed, 3 insertions(+), 1 deletion(-)

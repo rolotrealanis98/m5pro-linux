@@ -1,5 +1,5 @@
 From ac8720424720e165e6e257b1c509f58889e17fce Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:58:35 -0500
 Subject: [PATCH 29/33] drm/sysfb: simpledrm: report an eDP connector for an
  Apple built-in panel
@@ -18,6 +18,8 @@ Based on edimoldovan/linux-aurora 9dee12b1266c ("drm/sysfb: simpledrm:
 eDP connector for an Apple built-in panel"), tested by him on J714c.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/gpu/drm/sysfb/simpledrm.c | 4 +++-
  1 file changed, 3 insertions(+), 1 deletion(-)

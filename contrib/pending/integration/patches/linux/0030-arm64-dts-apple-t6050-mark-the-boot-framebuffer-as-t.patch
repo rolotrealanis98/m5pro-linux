@@ -1,5 +1,5 @@
 From a3caf053629f2d549946bd8764316a8af8d6ee36 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:58:47 -0500
 Subject: [PATCH 30/33] arm64: dts: apple: t6050: mark the boot framebuffer as
  the built-in panel
@@ -16,6 +16,8 @@ is not measured.
 Based on edimoldovan/linux-aurora 9dee12b1266c (t6050-j714c.dts hunk).
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  arch/arm64/boot/dts/apple/t6050-jxxx.dtsi | 2 ++
  1 file changed, 2 insertions(+)

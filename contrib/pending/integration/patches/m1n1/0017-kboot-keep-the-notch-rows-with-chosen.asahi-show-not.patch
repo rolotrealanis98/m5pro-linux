@@ -1,5 +1,5 @@
 From 7b0acd19eb35e543094f079eb5765d5cfab0a71c Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 21:04:42 -0500
 Subject: [PATCH] kboot: keep the notch rows with chosen.asahi,show-notch=1
 
@@ -14,6 +14,8 @@ Without the variable nothing changes.
 Based on edimoldovan/m1n1 t6050-aurora src/kboot.c (kboot_show_notch).
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  src/kboot.c | 32 ++++++++++++++++++++++++++++----
  1 file changed, 28 insertions(+), 4 deletions(-)

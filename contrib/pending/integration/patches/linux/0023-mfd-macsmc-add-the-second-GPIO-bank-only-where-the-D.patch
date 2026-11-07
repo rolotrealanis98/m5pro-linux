@@ -1,5 +1,5 @@
 From 3673eadd42290f457bd81fbefd73c2c5a8c332b0 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Thu, 5 Nov 2026 20:54:20 -0500
 Subject: [PATCH 23/33] mfd: macsmc: add the second GPIO bank only where the DT
  has it
@@ -17,6 +17,8 @@ already waits for it through post-init-providers.
 Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c.
 
 Co-Authored-By: Claude <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  drivers/mfd/macsmc.c | 20 +++++++++++++++++++-
  1 file changed, 19 insertions(+), 1 deletion(-)

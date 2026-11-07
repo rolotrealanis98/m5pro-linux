@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Wed, 4 Nov 2026 20:30:00 -0600
 Subject: [PATCH] dt: t6050: describe the camera ISP, disabled
 
@@ -22,6 +22,8 @@ by the four new disabled nodes and phandle renumbering; the "okay"
 node count is unchanged (8). LLVM=1 W=1: no warnings for j716s/j714s.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
 ---
  dt/t6050.dtsi | 70 ++++++++++++++++++++++++++++++++++++++++++++++++++
  1 file changed, 70 insertions(+)
