@@ -1,0 +1,94 @@
+From dab7ad643b4797a9eb762b3627e2b216528523d9 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:50:12 -0500
+Subject: [PATCH 5/6] arm64: dts: apple: j716s: Describe the front camera
+
+Add the ISP firmware hand-off, as on T8132: placeholder text and data
+regions the loader fills from the ADT's isp0 segment-ranges (iBoot
+places the firmware below the kernel's memory, at addresses that move
+with the boot firmware), the 32 MiB main memory at 0x100_0000_0000, the
+"isp" alias the loader looks the node up by, the ADT's sensor-type (118)
+and cam-connections-scheme (0x10), and the J616s's IMX958 presets. The
+loader enables the ISP, its DARTs and their power states once it has
+filled the regions.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 56 +++++++++++++++++++++++
+ 1 file changed, 56 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 54b75345f2bb..461f6f2306fc 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -30,6 +30,8 @@ aliases {
+ 		bluetooth0 = &n1_beta;
+ 		/* The loader fills the keyboard layout from the ADT's keyboard node */
+ 		keyboard = &keyboard;
++		/* The loader fills the ISP firmware regions through this */
++		isp = &isp;
+ 	};
+ 
+ 	chosen {
+@@ -470,3 +472,57 @@ tp-accel {
+  *   2 afe-reset      (0x10000, 0x11c0000)
+  */
+ /delete-node/ &smc_pcio;
++
++/*
++ * The front camera. iBoot loads the ISP firmware below the kernel's memory, at addresses that
++ * move with the boot firmware. The loader fills these placeholders from the ADT's isp0
++ * segment-ranges: reg, and iommu-addresses where the firmware runs them, from 0x100_0000_0000
++ * on; it then enables the ISP, its DARTs and their power states. The driver checks that the
++ * coprocessor never ran and that its reset vector is this text before it starts the firmware.
++ */
++/ {
++	reserved-memory {
++		isp_fw_text: isp-firmware-text {
++			no-map;
++		};
++
++		isp_fw_data: isp-firmware-data {
++			no-map;
++		};
++
++		/* the firmware's 32 MiB main memory, the driver allocates above it */
++		isp_heap: isp-heap {
++			iommu-addresses = <&isp 0x100 0x0 0x0 0x2000000>;
++		};
++	};
++};
++
++&isp {
++	memory-region = <&isp_fw_text>, <&isp_fw_data>, <&isp_heap>;
++	memory-region-names = "text", "data", "heap";
++	/* ADT isp0 sensor-type and cam-connections-scheme */
++	apple,platform-id = <118>;
++	apple,cam-connections-scheme = <0x10>;
++
++	/*
++	 * The 12 MP front camera, taken to be the J616s's IMX958 (setfile 2224_01): firmware
++	 * configuration 5, as on the J616s. The driver adds the firmware's other usable
++	 * configurations and drops a preset whose configuration the firmware lacks.
++	 */
++	sensor-presets {
++		/* 1920x1080 */
++		preset0 {
++			apple,config-index = <5>;
++			apple,input-size = <1920 2160>;
++			apple,output-size = <1920 1080>;
++			apple,crop = <0 0 1920 1080>;
++		};
++		/* 1280x720: the same window as 1920x1080, scaled down */
++		preset1 {
++			apple,config-index = <5>;
++			apple,input-size = <1920 2160>;
++			apple,output-size = <1280 720>;
++			apple,crop = <0 0 1920 1080>;
++		};
++	};
++};
+-- 
+2.56.0
+

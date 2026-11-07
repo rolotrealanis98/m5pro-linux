@@ -1,0 +1,123 @@
+From fd7f500f7cccf62625416da0f0676d78a2f467fb Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:48:25 -0500
+Subject: [PATCH 3/6] media: apple: isp: Add T6050 (M5 Pro/Max)
+
+The J716s ADT describes T6050's ISP (isp0 at 0x580000000, dart-isp0 at
+0x5828c0000 with streams 1, 6, 7, 10 and 11 remapped to 0) where T6040's
+is, and iBoot pre-loads its firmware the same way: TEXT 0xc1c000 and
+DATA 0x13d0000 bytes, which fill the same 32 MiB of main memory as on
+T6040 less its 0x14000-byte tail. The ANE and the video encoder of this
+SoC are the H17 generation, as T6040's.
+
+What moved are the windows the firmware reaches through its DART: the
+PMGR power states of the ISP blocks (pmgr1 +0x3b0..+0x3f3), the PMGR and
+PMP scratch pages and four AMCC broadcast-clear windows at 0x22x0004000.
+Take them, in the ADT's order, from dart-isp0 dapf-instance-0, and
+program them after each power-up as on T8132, with the ADT's control
+word 0xcc3.
+
+Leave out PMP_CTRL_SET until T6050's PMP scratch offsets are known.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/media/platform/apple/isp/isp-drv.c | 75 ++++++++++++++++++++++
+ 1 file changed, 75 insertions(+)
+
+diff --git a/drivers/media/platform/apple/isp/isp-drv.c b/drivers/media/platform/apple/isp/isp-drv.c
+index 3830b75629d5..7266191892ad 100644
+--- a/drivers/media/platform/apple/isp/isp-drv.c
++++ b/drivers/media/platform/apple/isp/isp-drv.c
+@@ -1142,6 +1142,80 @@ static const struct apple_isp_hw apple_isp_hw_t8142 = {
+ 	.setfile_stride_fixup = true,
+ };
+ 
++/*
++ * T6050 (M5 Pro/Max): the J716s ADT's dart-isp0 dapf-instance-0 windows,
++ * rounded out to 16 KiB pages. The ISP itself (isp0, dart-isp0) sits where
++ * T6040's does; the PMGR, PMP and DSID windows it reaches moved.
++ */
++static const struct isp_mmio_window apple_isp_fw_mmio_t6050[] = {
++	{ 0x2220004000, 0x14000 },	/* DSID broadcast-clear windows */
++	{ 0x2222004000, 0x14000 },
++	{ 0x2224004000, 0x14000 },
++	{ 0x2226004000, 0x14000 },
++	{ 0x280680000, 0x8000 },
++	{ 0x280900000, 0x4000 },	/* PMGR, ISP power states */
++	{ 0x284240000, 0x28000 },	/* PMGR, with the PMP clock scratch */
++	{ 0x284e3c000, 0x4000 },
++	{ 0x286724000, 0x4000 },	/* PMP bandwidth scratch */
++	{ 0x29062c000, 0x20000 },
++	{ 0x509660000, 0x4000 },
++};
++
++/* The ADT's DART address filter windows, in its order and with its ends */
++static const struct isp_dapf_window apple_isp_dapf_t6050[] = {
++	{ 0x2809003b0, 0x2809003f3 },	/* PMGR, ISP power states */
++	{ 0x280680000, 0x280687fff },
++	{ 0x284e3c000, 0x284e3c003 },
++	{ 0x29062c000, 0x290648003 },
++	{ 0x509660000, 0x509660003 },
++	{ 0x286724000, 0x286724004 },	/* PMP bandwidth scratch */
++	{ 0x284240000, 0x284264000 },	/* PMGR, with the PMP clock scratch */
++	{ 0x2220004000, 0x22200162fc },	/* DSID broadcast-clear windows */
++	{ 0x2222004000, 0x22220162fc },
++	{ 0x2224004000, 0x22240162fc },
++	{ 0x2226004000, 0x22260162fc },
++};
++
++/*
++ * T6050 runs T6040's coprocessor, booted the same way: iBoot loads the
++ * firmware (32 MiB of main memory, as on T6040: TEXT 0xc1c000 and DATA
++ * 0x13d0000 bytes), and it starts once, without a reset. Four AMCCs give
++ * four broadcast-clear windows. The DART loses its address filter with
++ * ISP_SYS, so the ADT's windows are programmed after every power-up, with
++ * the ADT's control words. No PMP_CTRL_SET is sent: T6050's PMP scratch
++ * offsets are not established.
++ */
++static const struct apple_isp_hw apple_isp_hw_t6050 = {
++	.gen = ISP_GEN_T6040,
++	.fw_abi = ISP_FW_ABI_H17,
++	.pmu_base = 0x0,
++
++	.dsid_count = 4,
++	.dsid_slots = 8,
++	.dsid_clr_base0 = 0x2220014000,
++	.dsid_clr_base1 = 0x2222014000,
++	.dsid_clr_base2 = 0x2224014000,
++	.dsid_clr_base3 = 0x2226014000,
++	.dsid_clr_range0 = 0x2fc,
++
++	.mbox_irq_enable = ISP_MBOX_IRQ_ENABLE_T6031,
++
++	.scl1 = true,
++	.lpdp = false,
++	.meta_size = ISP_META_SIZE_T8140,
++	.fw_mmio = apple_isp_fw_mmio_t6050,
++	.num_fw_mmio = ARRAY_SIZE(apple_isp_fw_mmio_t6050),
++	.dapf = apple_isp_dapf_t6050,
++	.num_dapf = ARRAY_SIZE(apple_isp_dapf_t6050),
++	.dapf_ctrl2 = 0xcc3,
++
++	.coproc_control = ISP_COPROC_CONTROL_T8140,
++	.boot_mode = 1,
++	.shared_size = 0xde600000,
++	.resident_fw = true,
++	.meta_exposure = true,
++};
++
+ static const struct of_device_id apple_isp_of_match[] = {
+ 	{ .compatible = "apple,t8103-isp", .data = &apple_isp_hw_t8103 },
+ 	{ .compatible = "apple,t8112-isp", .data = &apple_isp_hw_t8112 },
+@@ -1153,6 +1227,7 @@ static const struct of_device_id apple_isp_of_match[] = {
+ 	{ .compatible = "apple,t8140-isp", .data = &apple_isp_hw_t8140 },
+ 	{ .compatible = "apple,t8142-isp", .data = &apple_isp_hw_t8142 },
+ 	{ .compatible = "apple,t6041-isp", .data = &apple_isp_hw_t6040 },
++	{ .compatible = "apple,t6050-isp", .data = &apple_isp_hw_t6050 },
+ 	{ .compatible = "apple,t8132-isp", .data = &apple_isp_hw_t8132 },
+ 	{},
+ };
+-- 
+2.56.0
+

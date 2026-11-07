@@ -1,0 +1,190 @@
+From 9c35f2a35fe6fa6554a3bef0c1989feaaef00027 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:50:12 -0500
+Subject: [PATCH 4/6] arm64: dts: apple: t6050: Describe the camera ISP
+
+Add the ISP (ADT isp0), its three DART instances (dart-isp0) and the
+power states it needs, all disabled.
+
+From the J716s ADT: the ISP and its DARTs sit at T6040's addresses with
+T6040's stream remap (1, 6, 7, 10 and 11 to 0); the first DART carries
+the address filter (ADT reg[5]) the driver programs. ISP_SYS and
+ISPSENS0 have pmgr1 offsets in the ADT; ISP_CPU, ISP_FE, DPRX,
+ISP_SECURE, ISP_BE and ISP_CLR are listed without one. Their slots follow
+the group's linear device-ID layout (+0x380 for ID 214, 8 bytes per ID),
+which every listed offset from ID 214 to 224 and DPTX_PHY at +0x3f8 also
+follow, and they fall in dart-isp0's first DAPF window (+0x3b0..+0x3f3).
+The parents are the ADT's.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/boot/dts/apple/t6050-die0.dtsi | 152 ++++++++++++++++++++++
+ 1 file changed, 152 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-die0.dtsi b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+index 3c136b3692f5..a9ce0bd56540 100644
+--- a/arch/arm64/boot/dts/apple/t6050-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+@@ -970,6 +970,158 @@ ps_atc3_phymxwrap: power-controller@1a0 {
+ 	};
+ };
+ 
++/*
++ * The camera ISP's power states (ADT /arm-io/pmgr, group 1). ISP_SYS (+0x3a0) and ISPSENS0
++ * (+0x100) have ADT offsets. The ADT lists ISP_CPU, ISP_FE, DPRX, ISP_SECURE, ISP_BE and
++ * ISP_CLR without one (no_ps); their slots follow the group's linear device-ID layout (ID 214
++ * at +0x380, 8 bytes per ID: IDs 220, 221, 225, 226, 227 and 228), which the ADT's offsets for
++ * IDs 214-224 and DPTX_PHY at +0x3f8 also follow, and lie inside the first DAPF window of
++ * dart-isp0 (+0x3b0..+0x3f3). The parents are the ADT's; FAB9_SOC above ISP_SYS is left out.
++ * All stay disabled until a board enables the camera.
++ */
++&pmgr1 {
++	ps_ispsens0: power-controller@100 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x100 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "ispsens0";
++		status = "disabled";
++	};
++
++	ps_isp_sys: power-controller@3a0 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x3a0 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "isp_sys";
++		status = "disabled";
++	};
++
++	ps_isp_cpu: power-controller@3b0 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x3b0 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "isp_cpu";
++		power-domains = <&ps_isp_sys>;
++		status = "disabled";
++	};
++
++	ps_isp_fe: power-controller@3b8 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x3b8 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "isp_fe";
++		power-domains = <&ps_isp_sys>;
++		status = "disabled";
++	};
++
++	ps_isp_dprx: power-controller@3d8 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x3d8 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "isp_dprx";
++		power-domains = <&ps_isp_fe>;
++		status = "disabled";
++	};
++
++	ps_isp_secure: power-controller@3e0 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x3e0 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "isp_secure";
++		power-domains = <&ps_isp_fe>;
++		status = "disabled";
++	};
++
++	ps_isp_be: power-controller@3e8 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x3e8 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "isp_be";
++		power-domains = <&ps_isp_fe>;
++		status = "disabled";
++	};
++
++	ps_isp_clr: power-controller@3f0 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x3f0 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "isp_clr";
++		power-domains = <&ps_isp_be>;
++		status = "disabled";
++	};
++};
++
++&die0 {
++	/*
++	 * The camera ISP (ADT /arm-io/isp0, firmware pre-loaded by iBoot), at T6040's address and
++	 * with its layout: "coproc" is the coprocessor up to its control block; "mbox", "gpio" and
++	 * "mbox2" are the interrupt words, the firmware handshake words and the doorbell of its
++	 * mailbox at +0x2924000. The first of the ADT's interrupts (513-516, 526) carries the
++	 * mailbox. The board adds the firmware regions, the platform ID and the sensor presets.
++	 */
++	isp: isp@580000000 {
++		compatible = "apple,t6050-isp", "apple,isp";
++		reg = <0x5 0x80000000 0x0 0x1604000>,
++		      <0x5 0x82924000 0x0 0x40>,
++		      <0x5 0x829241d0 0x0 0x20>,
++		      <0x5 0x82924464 0x0 0x10>;
++		reg-names = "coproc", "mbox", "gpio", "mbox2";
++		interrupts = <AIC_IRQ 0 513 IRQ_TYPE_LEVEL_HIGH>;
++		iommus = <&isp_dart0 0>, <&isp_dart1 0>, <&isp_dart2 0>;
++		power-domains = <&ps_isp_sys>, <&ps_isp_cpu>, <&ps_isp_fe>,
++				<&ps_isp_dprx>, <&ps_isp_secure>, <&ps_isp_be>,
++				<&ps_isp_clr>, <&ps_ispsens0>;
++		/* the shared memory window above the firmware's 32 MiB, as on T6040 */
++		apple,dart-vm-size = /bits/ 64 <0xde600000>;
++		status = "disabled";
++	};
++
++	/*
++	 * ADT dart-isp0: three instances on one interrupt, the first with the address filter
++	 * (ADT reg[5]) the driver programs. ADT "remap": streams 1, 6, 7, 10 and 11 are stream 0.
++	 * Streams 4, 5, 8 and 9 (the ADT's exclave-sid) are not used.
++	 */
++	isp_dart0: iommu@5828c0000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x5 0x828c0000 0x0 0xc000>,
++		      <0x5 0x828d0000 0x0 0x4000>;
++		reg-names = "dart", "dapf";
++		#iommu-cells = <1>;
++		interrupts = <AIC_IRQ 0 531 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_isp_sys>;
++		apple,remap-streams = <1 0>, <6 0>, <7 0>, <10 0>, <11 0>;
++		status = "disabled";
++	};
++
++	isp_dart1: iommu@5828e0000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x5 0x828e0000 0x0 0xc000>;
++		#iommu-cells = <1>;
++		interrupts = <AIC_IRQ 0 531 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_isp_sys>;
++		apple,remap-streams = <1 0>, <6 0>, <7 0>, <10 0>, <11 0>;
++		status = "disabled";
++	};
++
++	isp_dart2: iommu@582900000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x5 0x82900000 0x0 0xc000>;
++		#iommu-cells = <1>;
++		interrupts = <AIC_IRQ 0 531 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_isp_sys>;
++		apple,remap-streams = <1 0>, <6 0>, <7 0>, <10 0>, <11 0>;
++		status = "disabled";
++	};
++};
++
+ /*
+  * DisplayPort out through ATC2: die 0's dcpext0 route (crossbar index 0, typec-dptx-phys 2).
+  * The board links the route to its connector.
+-- 
+2.56.0
+

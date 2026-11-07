@@ -1,0 +1,112 @@
+From a263b313a61248b7ae35f1334d993038f909b095 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:47:29 -0500
+Subject: [PATCH 1/6] media: apple: isp: Take the DAPF control word from the
+ SoC data
+
+The driver writes DAPF_CTRL2_ISP (0x1) into the third control word of
+every DART address filter window, the value the J713 ADT gives. The T6050
+ADT's dart-isp0 dapf-instance-0 windows carry 0xcc3 there instead, so a
+T6050 table programmed with 0x1 would differ from what the boot loader
+programs from the ADT.
+
+Add a per-SoC dapf_ctrl2, used for programming and readback, with 0
+keeping DAPF_CTRL2_ISP for the existing tables.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ .../media/platform/apple/isp/isp-drv-test.c   | 29 +++++++++++++++++++
+ drivers/media/platform/apple/isp/isp-drv.c    |  5 ++--
+ drivers/media/platform/apple/isp/isp-drv.h    |  2 ++
+ 3 files changed, 34 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/platform/apple/isp/isp-drv-test.c b/drivers/media/platform/apple/isp/isp-drv-test.c
+index dbddb079a0f5..b986318ae7dd 100644
+--- a/drivers/media/platform/apple/isp/isp-drv-test.c
++++ b/drivers/media/platform/apple/isp/isp-drv-test.c
+@@ -86,9 +86,38 @@ static void isp_test_dapf_program(struct kunit *test)
+ 					   ISP_TEST_DAPF_FILL, DAPF_WINDOW_STRIDE));
+ }
+ 
++/* A SoC's own third control word replaces DAPF_CTRL2_ISP, and reads back. */
++static void isp_test_dapf_ctrl2(struct kunit *test)
++{
++	static const struct isp_dapf_window windows[] = {
++		{ 0x2809003b0, 0x2809003f3 },
++	};
++	static const struct apple_isp_hw hw = {
++		.dapf = windows,
++		.num_dapf = ARRAY_SIZE(windows),
++		.dapf_ctrl2 = 0xcc3,
++	};
++	struct apple_isp *isp;
++	u8 *bank;
++
++	isp = kunit_kzalloc(test, sizeof(*isp), GFP_KERNEL);
++	KUNIT_ASSERT_NOT_NULL(test, isp);
++	isp->dev = kunit_device_register(test, "apple-isp-dapf-ctrl2-test");
++	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, isp->dev);
++	bank = kunit_kzalloc(test, DAPF_WINDOW_STRIDE, GFP_KERNEL);
++	KUNIT_ASSERT_NOT_NULL(test, bank);
++	isp->hw = &hw;
++	isp->dapf = (__force void __iomem *)bank;
++
++	KUNIT_ASSERT_EQ(test, apple_isp_program_dapf(isp), 0);
++	KUNIT_EXPECT_EQ(test, get_unaligned_le32(&bank[0x20]), 0xcc3);
++	KUNIT_EXPECT_EQ(test, get_unaligned_le32(&bank[0x00]), 0x31);
++}
++
+ static struct kunit_case isp_dapf_test_cases[] = {
+ 	KUNIT_CASE(isp_test_dapf_in_fw_mmio),
+ 	KUNIT_CASE(isp_test_dapf_program),
++	KUNIT_CASE(isp_test_dapf_ctrl2),
+ 	{}
+ };
+ 
+diff --git a/drivers/media/platform/apple/isp/isp-drv.c b/drivers/media/platform/apple/isp/isp-drv.c
+index 627a9bdb9e94..3830b75629d5 100644
+--- a/drivers/media/platform/apple/isp/isp-drv.c
++++ b/drivers/media/platform/apple/isp/isp-drv.c
+@@ -255,6 +255,7 @@ static int apple_isp_map_dapf(struct apple_isp *isp)
+ int apple_isp_program_dapf(struct apple_isp *isp)
+ {
+ 	const struct apple_isp_hw *hw = isp->hw;
++	u32 ctrl2 = hw->dapf_ctrl2 ?: DAPF_CTRL2_ISP;
+ 	void __iomem *w;
+ 	unsigned int i;
+ 
+@@ -264,7 +265,7 @@ int apple_isp_program_dapf(struct apple_isp *isp)
+ 		writeq(hw->dapf[i].start, w + DAPF_START);
+ 		writeq(hw->dapf[i].end, w + DAPF_END);
+ 		writel(DAPF_CTRL0_ISP, w + DAPF_CTRL0);
+-		writel(DAPF_CTRL2_ISP, w + DAPF_CTRL2);
++		writel(ctrl2, w + DAPF_CTRL2);
+ 	}
+ 
+ 	/* Only bits 7:0 of CTRL0 and bits 63:2 of END read back. */
+@@ -274,7 +275,7 @@ int apple_isp_program_dapf(struct apple_isp *isp)
+ 		    readq(w + DAPF_START) != hw->dapf[i].start ||
+ 		    (readq(w + DAPF_END) | 3) != (hw->dapf[i].end | 3) ||
+ 		    (readl(w + DAPF_CTRL0) & 0xff) != DAPF_CTRL0_ISP ||
+-		    readl(w + DAPF_CTRL2) != DAPF_CTRL2_ISP) {
++		    readl(w + DAPF_CTRL2) != ctrl2) {
+ 			dev_err(isp->dev, "DAPF window %u (0x%llx-0x%llx) failed readback\n",
+ 				i, hw->dapf[i].start, hw->dapf[i].end);
+ 			return -EIO;
+diff --git a/drivers/media/platform/apple/isp/isp-drv.h b/drivers/media/platform/apple/isp/isp-drv.h
+index 9056c3d7af14..87516921686a 100644
+--- a/drivers/media/platform/apple/isp/isp-drv.h
++++ b/drivers/media/platform/apple/isp/isp-drv.h
+@@ -216,6 +216,8 @@ struct apple_isp_hw {
+ 	 */
+ 	const struct isp_dapf_window *dapf;
+ 	unsigned int num_dapf;
++	/* their third control word, as the ADT gives it; 0 for DAPF_CTRL2_ISP */
++	u32 dapf_ctrl2;
+ 
+ 	/* ISP_GPIO_6 boot mode */
+ 	u32 boot_mode;
+-- 
+2.56.0
+

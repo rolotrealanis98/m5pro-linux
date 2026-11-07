@@ -1,0 +1,308 @@
+From 47387efd14451e5a8481bdfe1e271cce37cf6fd4 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:53:03 -0500
+Subject: [PATCH] isp, kboot: T6050: hand the pre-loaded ISP firmware to the
+ device tree
+
+On T6050 iBoot pre-loads the ISP firmware (isp0 pre-loaded = 1) and the
+kernel driver starts it once, without a reset, after checking that the
+coprocessor never ran and that its reset vector is the loaded text.
+isp_init() so far powered isp0 up, printed "isp: Unsupported SoC" and
+returned with ISP_SYS and ISPSENS0 left on.
+
+On T6050, power nothing and record the two segments instead (TEXT at
+iova 0, DATA right after it, both remapped to 0x100_0000_0000), after
+checking pre-loaded, the segment count, layout and alignment. The device
+tree names the regions "text" and "data" in the ISP's
+memory-region-names and describes the firmware's main memory ("heap")
+itself, so skip dt_reserve_asc_firmware() and the heap carve-out, and
+fill those two regions (reg, no-map, iommu-addresses), apple,platform-id
+from sensor-type and apple,cam-connections-scheme from the ADT. The ISP,
+its DARTs and their power domains are enabled only with
+chosen.m5pro,isp=1 while the camera is brought up; without the "isp"
+alias nothing changes.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ src/isp.c   |  62 ++++++++++++++++++++++
+ src/isp.h   |   2 +
+ src/kboot.c | 145 +++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 3 files changed, 208 insertions(+), 1 deletion(-)
+
+diff --git a/src/isp.c b/src/isp.c
+index f11b80b9..388c0b55 100644
+--- a/src/isp.c
++++ b/src/isp.c
+@@ -6,6 +6,7 @@
+ #include "isp.h"
+ #include "pmgr.h"
+ #include "soc.h"
++#include "string.h"
+ #include "utils.h"
+ 
+ #define ISP_ASC_VERSION 0x1800000
+@@ -26,6 +27,64 @@
+ static bool isp_initialized = false;
+ static u64 heap_phys, heap_iova, heap_size, heap_top;
+ 
++static bool isp_preloaded = false;
++static struct adt_segment_ranges isp_segs[2];
++
++/*
++ * T6050: iBoot pre-loads the ISP firmware (isp0 pre-loaded = 1), and the kernel driver starts
++ * it once, without a reset, after checking that the coprocessor never ran and that its reset
++ * vector is the loaded text. So nothing is powered, started or read here: only the firmware's
++ * two segments are recorded, for the device tree. The firmware's main memory around them
++ * (32 MiB from 0x100_0000_0000) is the device tree's, and the driver backs its tail: no heap
++ * is carved.
++ */
++static int isp_init_preloaded(int isp_node)
++{
++    const struct adt_segment_ranges *seg;
++    u32 preloaded = 0, len = 0;
++
++    if (ADT_GETPROP(adt, isp_node, "pre-loaded", &preloaded) < 0 || preloaded != 1) {
++        printf("isp: T6050: firmware not pre-loaded\n");
++        return -1;
++    }
++
++    seg = adt_getprop(adt, isp_node, "segment-ranges", &len);
++    if (!seg || len != sizeof(isp_segs)) {
++        printf("isp: T6050: unexpected segment-ranges (%u bytes)\n", len);
++        return -1;
++    }
++
++    /* TEXT at the base of the firmware's memory, DATA right after it */
++    if (seg[0].iova != 0 || seg[1].iova != seg[0].size || !seg[0].size || !seg[1].size ||
++        seg[0].remap != (isp_iova_base() | seg[0].iova) ||
++        seg[1].remap != (isp_iova_base() | seg[1].iova)) {
++        printf("isp: T6050: unexpected segment layout\n");
++        return -1;
++    }
++
++    if ((seg[0].phys | seg[1].phys | seg[0].size | seg[1].size) & (SZ_16K - 1)) {
++        printf("isp: T6050: segments not 16 KiB aligned\n");
++        return -1;
++    }
++
++    memcpy(isp_segs, seg, sizeof(isp_segs));
++    isp_preloaded = true;
++
++    printf("isp: T6050: pre-loaded TEXT 0x%x @ 0x%lx, DATA 0x%x @ 0x%lx\n", seg[0].size,
++           seg[0].phys, seg[1].size, seg[1].phys);
++    return 0;
++}
++
++int isp_get_preloaded(struct adt_segment_ranges *text, struct adt_segment_ranges *data)
++{
++    if (!isp_preloaded)
++        return -1;
++
++    *text = isp_segs[0];
++    *data = isp_segs[1];
++    return 0;
++}
++
+ int isp_get_heap(u64 *phys, u64 *iova, u64 *size)
+ {
+     if (!isp_initialized)
+@@ -67,6 +126,9 @@ int isp_init(void)
+     if (node < 0)
+         return 0;
+ 
++    if (chip_id == T6050)
++        return isp_init_preloaded(isp_node);
++
+     if (pmgr_adt_power_enable(isp_path) < 0)
+         return -1;
+ 
+diff --git a/src/isp.h b/src/isp.h
+index 18ab30c1..0ae5f88e 100644
+--- a/src/isp.h
++++ b/src/isp.h
+@@ -3,10 +3,12 @@
+ #ifndef ISP_H
+ #define ISP_H
+ 
++#include "adt.h"
+ #include "types.h"
+ 
+ int isp_init(void);
+ int isp_get_heap(u64 *phys, u64 *iova, u64 *size);
+ u64 isp_iova_base(void);
++int isp_get_preloaded(struct adt_segment_ranges *text, struct adt_segment_ranges *data);
+ 
+ #endif
+diff --git a/src/kboot.c b/src/kboot.c
+index 2ec46164..0afcc59e 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -2314,6 +2314,136 @@ struct isp_segment_ranges {
+     u32 unk;
+ } PACKED;
+ 
++/*
++ * Fill one of the ISP's firmware regions, named in its memory-region-names: reg from the ADT
++ * segment, and iommu-addresses where the firmware runs it.
++ */
++static int dt_isp_fill_region(const char *fdt_path, const char *name,
++                              const struct adt_segment_ranges *seg)
++{
++    int len, ret;
++    int isp = fdt_path_offset(dt, fdt_path);
++    if (isp < 0)
++        bail("FDT: '%s' not found\n", fdt_path);
++
++    uint32_t isp_phandle = fdt_get_phandle(dt, isp);
++    int idx = fdt_stringlist_search(dt, isp, "memory-region-names", name);
++    const fdt32_t *regions = fdt_getprop(dt, isp, "memory-region", &len);
++    if (!isp_phandle || idx < 0 || !regions || len < (idx + 1) * (int)sizeof(fdt32_t))
++        bail("FDT: '%s' has no '%s' memory-region\n", fdt_path, name);
++
++    int mem = fdt_node_offset_by_phandle(dt, fdt32_ld(&regions[idx]));
++    if (mem < 0)
++        bail("FDT: '%s' memory-region '%s' not found\n", fdt_path, name);
++
++    u64 reg[2] = {cpu_to_fdt64(seg->phys), cpu_to_fdt64(seg->size)};
++    ret = fdt_setprop(dt, mem, "reg", reg, sizeof(reg));
++    if (!ret)
++        ret = fdt_setprop_empty(dt, mem, "no-map");
++    if (!ret) {
++        ret = fdt_delprop(dt, mem, "iommu-addresses");
++        if (ret == -FDT_ERR_NOTFOUND)
++            ret = 0;
++    }
++    if (ret)
++        bail("FDT: couldn't fill ISP region '%s': %d\n", name, ret);
++
++    return dt_device_set_reserved_mem(mem, name, isp_phandle, seg->remap, seg->size);
++}
++
++/* Enable the nodes a property's phandles name, with their own power domains. */
++static int dt_isp_enable_refs(int node, const char *prop, const char *cells_name, int depth)
++{
++    int len;
++    uint32_t self = fdt_get_phandle(dt, node);
++    const fdt32_t *cells = fdt_getprop(dt, node, prop, &len);
++    if (!cells)
++        return 0;
++    if (!self)
++        bail("FDT: a node with '%s' has no phandle\n", prop);
++    if (depth > 4)
++        bail("FDT: '%s' references nest too deep\n", prop);
++
++    for (int i = 0; i < len / (int)sizeof(fdt32_t);) {
++        uint32_t phandle = fdt32_ld(&cells[i]);
++        int target = fdt_node_offset_by_phandle(dt, phandle);
++        if (target < 0)
++            bail("FDT: '%s' phandle 0x%x not found\n", prop, phandle);
++
++        u32 ncells = 0;
++        const fdt32_t *nc = fdt_getprop(dt, target, cells_name, NULL);
++        if (nc)
++            ncells = fdt32_ld(nc);
++
++        if (fdt_setprop_string(dt, target, "status", "okay") < 0)
++            bail("FDT: couldn't enable a '%s' target\n", prop);
++
++        /* Offsets moved: look the nodes up again by phandle. */
++        target = fdt_node_offset_by_phandle(dt, phandle);
++        if (dt_isp_enable_refs(target, "power-domains", "#power-domain-cells", depth + 1))
++            return -1;
++
++        node = fdt_node_offset_by_phandle(dt, self);
++        cells = fdt_getprop(dt, node, prop, &len);
++        if (!cells)
++            return -1;
++        i += 1 + ncells;
++    }
++
++    return 0;
++}
++
++/*
++ * T6050: the ISP firmware iBoot pre-loaded (see isp_init_preloaded()). The device tree names
++ * its regions "text" and "data" (and the firmware's main memory "heap", which it describes
++ * itself); fill them, the platform ID and the camera connection scheme from the ADT. The ISP,
++ * its DARTs and their power domains are enabled only with chosen.m5pro,isp=1 while the camera
++ * is being brought up.
++ */
++static int dt_set_isp_preloaded(const char *fdt_path, int adt_node)
++{
++    struct adt_segment_ranges text, data;
++    u32 sensor_type, scheme;
++
++    if (isp_get_preloaded(&text, &data))
++        return -1;
++
++    if (dt_isp_fill_region(fdt_path, "text", &text) || dt_isp_fill_region(fdt_path, "data", &data))
++        return -1;
++
++    int isp = fdt_path_offset(dt, fdt_path);
++    if (isp < 0)
++        bail("FDT: '%s' not found\n", fdt_path);
++
++    if (ADT_GETPROP(adt, adt_node, "sensor-type", &sensor_type) >= 0 &&
++        fdt_setprop_u32(dt, isp, "apple,platform-id", sensor_type))
++        bail("FDT: couldn't set '%s.apple,platform-id'\n", fdt_path);
++
++    isp = fdt_path_offset(dt, fdt_path);
++    if (ADT_GETPROP(adt, adt_node, "cam-connections-scheme", &scheme) >= 0 &&
++        fdt_setprop_u32(dt, isp, "apple,cam-connections-scheme", scheme))
++        bail("FDT: couldn't set '%s.apple,cam-connections-scheme'\n", fdt_path);
++
++    const char *enable = kboot_get_chosen("m5pro,isp");
++    if (!enable || strcmp(enable, "1")) {
++        printf("FDT: ISP firmware regions filled; chosen.m5pro,isp=1 enables the camera\n");
++        return 0;
++    }
++
++    isp = fdt_path_offset(dt, fdt_path);
++    if (dt_isp_enable_refs(isp, "iommus", "#iommu-cells", 0))
++        return -1;
++    isp = fdt_path_offset(dt, fdt_path);
++    if (dt_isp_enable_refs(isp, "power-domains", "#power-domain-cells", 0))
++        return -1;
++    isp = fdt_path_offset(dt, fdt_path);
++    if (fdt_setprop_string(dt, isp, "status", "okay") < 0)
++        bail("FDT: couldn't enable '%s'\n", fdt_path);
++
++    printf("FDT: ISP enabled (chosen.m5pro,isp=1)\n");
++    return 0;
++}
++
+ static int dt_set_isp_fwdata(void)
+ {
+     const char *fdt_path = "isp";
+@@ -2344,6 +2474,17 @@ static int dt_set_isp_fwdata(void)
+     if (firmware_set_fdt(dt, fdt_node, "apple,firmware-compat", compat) < 0)
+         bail("FDT: Could not set apple,firmware-compat for %s\n", fdt_path);
+ 
++    if (chip_id == T6050) {
++        int adt_isp = adt_path_offset(adt, "/arm-io/isp0");
++        if (adt_isp < 0 || dt_set_isp_preloaded(fdt_path, adt_isp)) {
++            printf("FDT: ISP hand-off not filled, leaving the ISP disabled\n");
++            fdt_node = fdt_path_offset(dt, fdt_path);
++            if (fdt_node >= 0)
++                fdt_setprop_string(dt, fdt_node, "status", "disabled");
++        }
++        return 0;
++    }
++
+     if (isp_get_heap(&phys, &iova, &size)) {
+         const char *status = fdt_getprop(dt, fdt_node, "status", NULL);
+ 
+@@ -2939,7 +3080,9 @@ int kboot_prepare_dt(void *fdt)
+         return -1;
+     if (dt_setup_sio())
+         return -1;
+-    if (dt_reserve_asc_firmware("/arm-io/isp", "/arm-io/isp0", "isp", false, isp_iova_base()))
++    /* T6050's ISP regions are named in its device tree: dt_set_isp_fwdata() fills them. */
++    if (chip_id != T6050 &&
++        dt_reserve_asc_firmware("/arm-io/isp", "/arm-io/isp0", "isp", false, isp_iova_base()))
+         return -1;
+     if (dt_set_isp_fwdata())
+         return -1;
+-- 
+2.56.0
+

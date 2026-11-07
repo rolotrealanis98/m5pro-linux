@@ -1,0 +1,36 @@
+From 39fed05687147864d65959fa9dfbfa1637adee2f Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:50:19 -0500
+Subject: [PATCH 6/6] arm64: configs: j716s: Build the ISP driver
+
+Build the media core in and the ISP driver as a module, so the camera
+can be brought up by loading it by hand after the system has booted.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/configs/j716s.config | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index caa69196ae0d..43ec3003a927 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -72,3 +72,14 @@ CONFIG_ZRAM=y
+ CONFIG_ZRAM_BACKEND_ZSTD=y
+ CONFIG_ZRAM_DEF_COMP_ZSTD=y
+ CONFIG_DEVMEM=y
++
++# Front camera: the ISP as a module, loaded by hand while it is brought up
++# (blacklist apple_isp in modprobe.d so udev does not load it at boot).
++# Its media core is built in.
++CONFIG_MEDIA_SUPPORT=y
++CONFIG_MEDIA_SUPPORT_FILTER=y
++CONFIG_MEDIA_CAMERA_SUPPORT=y
++CONFIG_MEDIA_PLATFORM_SUPPORT=y
++CONFIG_VIDEO_DEV=y
++CONFIG_V4L_PLATFORM_DRIVERS=y
++CONFIG_VIDEO_APPLE_ISP=m
+-- 
+2.56.0
+

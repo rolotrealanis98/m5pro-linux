@@ -1,0 +1,51 @@
+From a25aa9ce66c1e7889eca4318524b3e64dea06f2c Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:48:25 -0500
+Subject: [PATCH 2/6] dt-bindings: media: apple,isp: Add the T6050 ISP
+
+The T6050 (M5 Pro/Max) ISP is T6040's coprocessor at the same address,
+with the same mailbox layout, power domain order (system, CPU, FE, DPRX,
+secure, BE, CLR, sensor) and firmware hand-off (iBoot-loaded text and
+data regions below the heap), so it takes the T6041 constraints.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ Documentation/devicetree/bindings/media/apple,isp.yaml | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/media/apple,isp.yaml b/Documentation/devicetree/bindings/media/apple,isp.yaml
+index 8b3eb242358d..d981de1ad424 100644
+--- a/Documentation/devicetree/bindings/media/apple,isp.yaml
++++ b/Documentation/devicetree/bindings/media/apple,isp.yaml
+@@ -19,7 +19,7 @@ select:
+   properties:
+     compatible:
+       contains:
+-        enum: ['apple,t6020-isp', 'apple,t6041-isp', 'apple,t8112-isp']
++        enum: ['apple,t6020-isp', 'apple,t6041-isp', 'apple,t6050-isp', 'apple,t8112-isp']
+   required:
+     - compatible
+ 
+@@ -29,6 +29,7 @@ properties:
+       - enum:
+           - apple,t6020-isp
+           - apple,t6041-isp
++          - apple,t6050-isp
+           - apple,t8112-isp
+       - const: apple,isp
+ 
+@@ -145,7 +146,9 @@ allOf:
+       properties:
+         compatible:
+           contains:
+-            const: apple,t6041-isp
++            enum:
++              - apple,t6041-isp
++              - apple,t6050-isp
+     then:
+       properties:
+         power-domains:
+-- 
+2.56.0
+
