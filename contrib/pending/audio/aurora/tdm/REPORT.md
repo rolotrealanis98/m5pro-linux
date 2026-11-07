@@ -204,7 +204,122 @@ B3 = kernel `7.3.0-g030e2113e26b` (Image.gz bb553695..., kept in `kbuild-tdm/b3-
 7. **Reboot check:** the B3 boot after the clean reboot lost its network (coordinator investigating). 0003 adds nothing
    to the boot path: it acts only in the speaker back-end's prepare and stop.
 
+## 11. B4 result and patch 0004 (the speaker link format)
+
+### B4 data
+B4 = `7.3.0-g7767a8193740` (Image.gz f9129ccd..., kept in `kbuild-tdm/b4-7767a8193740/`) + the defer DTB.
+- **Idle:** 0 interrupts and 0 unhandled in 10 s with no stream. The pin reads `in hi`. The stuck-line idea in §10 is
+  withdrawn.
+- **Every tone:** `spkr: pwrd reached after 0 ms (1 reads)` (the firmware reports the requested state at once, so
+  the read-back cannot time pwrd). The first fault comes 35 ms later, which is the unmute.
+- **Fault volume:** 635-641 interrupts per 2 s tone, all handled (590-722 "callbacks suppressed"). That is all six
+  amps, every ~3 ms, for the whole stream. It is the same with speakersafetyd stopped, and there is none after the
+  stream.
+- **No firmware stop:** no "the firmware stopped it" line, so the firmware stayed in pwrd all through.
+
+**Conclusion:** a static mismatch between the clock the serializer produces and how the amps sample it. It is not a
+start or stop edge, not the daemon, and not the firmware dropping the stream.
+
+### Mechanism
+- **What the J716s firmware runs.** The J716s ADT gives the speaker serializer as
+  `/arm-io/iop-audio-controller/audio-speaker/audio-speaker`
+  `reg = 01020000 0c100100 001bb700 fa000100 30000100 3f000000 ff0f0000 060c1810 00002010`. Decoded, that is:
+  - a 12 MHz bit clock (0x00b71b00);
+  - a 250-bit frame (0xfa) at 48 kHz (0x30);
+  - six 32-bit playback slots (mask 0x3f, 6 ch, slot 0x20);
+  - twelve 16-bit sense slots (mask 0xfff, 12 ch, slot 0x10).
+
+  For comparison, the jack's `audio-codec-output` reg has a 64-bit frame (0x40), and the MCA loopback is again
+  12 MHz/250.
+- **The match.** That is the J616s/J713 speaker link. `macaudio.c` runs those with `secondary_bclk_ratio = 250` and
+  I2S, inverted frame clock, normal bit clock (`NB_IF`). The J616s commit (1ace6c6d50e8) says "One serializer carries
+  all six SN012776 amps in a 250-bit frame at 12 MHz ... the amps take I2S with an inverted frame clock and a normal
+  bit clock".
+- **What our J716 entry did instead.** 0011, like Ed's J714 entry, took macaudio's default `IB_IF` and 256.
+  `tas2764_set_fmt` with IB sets `TDM_CFG1` RX_FALLING and `TDM_CFG4` TX_RISING. The amps then sample FSYNC and SDIN
+  on the edge the serializer launches them on. The frame length they measure jitters, and they latch "bad TDM clock"
+  continuously.
+- **Why the J714c may get away with it.** The same mismatch could pass on the 14" by timing margin and fail on the
+  16". Ed's sense oddities would fit an edge problem: the words one bit early (a97d98de3360) and LW1's current one
+  sample late (83d711c3a909). That is an inference; we have no J714c ADT.
+- **The 250 vs 256 ratio** only changes the amps' idle-slot mask trim and the front end's slot count. The amps detect
+  the frame length themselves.
+
+### Answers to the coordinator's questions
+1. **TDM config against the serializer:**
+   - `TDM_CFG2`: RX slot 32-bit. RX word 24-bit for S24 playback; the boot-time sense hw_params writes 16, and the
+     playback hw_params then sets 24.
+   - `TDM_CFG3` RX slot: 0x00 LW1, 0x11 RW1, 0x22 LW2, 0x33 RW2, 0x44 LT, 0x55 RT, matching ADT `rx_slot` 0-5.
+   - Sense slots: I at 4n, V at 4n+2 (8-bit units), 24 bytes = 12 x 16 bit, matching the ADT.
+   - Slot geometry matches. The mismatch is the bit-clock edge (and the nominal 256 vs 250).
+   - `lpai channel masks`/`pdm0 config` are the microphone path, unrelated. The AOP driver sends no speaker format to
+     the firmware: `dai_accept_fmt`/`dai_accept_bclk_ratio` are no-ops, and the firmware takes its geometry from the
+     ADT.
+2. **4 vs 6 channels:** the J714c also has six amps (Ed's DT lists six codecs on dai-link@1). Neither config assumes 4.
+   The frame the amps see is fixed by the firmware's ADT config whatever the PCM carries.
+3. **A 2- or 4-channel stream is not a useful discriminator:** the bit clock, frame clock and slot layout the amps
+   see stay the same, and the front end may refuse anything but 6 channels.
+
+### Patch 0004 (`patches/0004-ASoC-apple-macaudio-run-the-J716-speakers-in-the-J61.patch`, commit e5a4712a3f0d)
+- **What:** the J716 entry gets `.speaker_dai_fmt = I2S | CBC_CFC | GATED | NB_IF` and `.secondary_bclk_ratio =
+  250`.
+- **Speaker-only:** the new `speaker_dai_fmt` field applies to the speaker back-end only. On the J716 the jack shares
+  the card, on a different 64-bit serializer whose format is unverified, so it keeps the default. Other machines are
+  unchanged.
+- **Effect on the amps:** `TDM_CFG1` bit0 goes 1 to 0 (RX on rising) and `TDM_CFG4` bit0 goes 0 to 1 (TX on
+  falling). FRAME_START and the RX offset are unchanged.
+- **Build:** exit 0, 0 warnings, `7.3.0-ge5a4712a3f0d`.
+  - Image.gz `4be565d628f9d73c448af5a35488d3568eedb1a2cb2b3fd023743a127406f70a`.
+  - DTBs unchanged: use the defer DTB `9783ccb6...`.
+  - Patch sha256: 0001 5bfb01e8..., 0002 b48b3968..., 0003 1a2e28af..., 0004 4ed00341... (renumbered 1/4..4/4).
+- **Risk:** the sense alignment (0006's one-bit re-slice, 0001's LW1 frame delay) was measured by Ed under IB. With
+  NB it may shift.
+  - If it is wrong, speakersafetyd reads negative power and panics. The volumes then lock, so the failure is silent
+    and safe.
+  - If that happens, the next step is to adjust the re-slice for the J716, not to revert 0004.
+
+### Registers to read (B4 kernel now, B5 with 0004)
+Read during a tone and at idle with
+`for a in 0-0038 0-0039 0-003a 2-003b 2-003c 2-003d; do echo $a; grep -E '^(02|03|08|09|0a|0c|0d|0e|0f|49|4a|4b|4f|50|51|5c):' /sys/kernel/debug/regmap/$a/registers; done`.
+Non-volatile registers come from the cache (what the driver wrote); 49-51 and 5c are read live.
+
+| reg | what | B4 (IB_IF) expected | B5 (0004) expected |
+|---|---|---|---|
+| 08 | TDM_CFG0 (rate, FRAME_START) | 0x08 | 0x08 |
+| 09 | TDM_CFG1 (RX offset bits 5:1, RX edge bit0) | 0x03 | **0x02** |
+| 0a | TDM_CFG2 (RX word bits 3:2, RX slot bits 1:0) | RXW 24, RXS 32 | same |
+| 0c | TDM_CFG3 (RX slot) | 0x00/0x11/0x22/0x33/0x44/0x55 | same |
+| 0d | TDM_CFG4 (TX edge bit0, TX offset) | bit0 = 0 | **bit0 = 1** |
+| 0e/0f | TDM_CFG5/6 (V/I sense slot, enable bit6) | V = 4n+2, I = 4n | same |
+| 02/03 | PWR_CTRL / CHNL_0 (amp level) | | |
+| 49-51, 5c | latches, IRQZ mode | LTCH0 bit2 during a tone | 0 during a tone |
+
+### Next test (B5: kernel 4be565d6..., defer DTB, B4 recipe)
+1. Gates as before. Take `/proc/irq/$N/spurious` and the row total before the tone.
+2. The same 2 s -40 dBFS tone through `plughw:AppleJ716,1`, with `dmesg -w`.
+3. **Pass:**
+   - the IRQ delta near 0 (at most a handful in the stop window);
+   - no `bad TDM clock`;
+   - speakersafetyd stays active with no panic;
+   - the register table shows 09 = 0x02 and 0d bit0 = 1.
+4. **V/I sanity:** a 1 kHz tone on one speaker at a time. speakersafetyd should not panic, and the group gain stays
+   nominal at -40 dB.
+5. **If faults remain:** first confirm the edge changed in the table. The next suspects are then FRAME_START and the
+   RX offset (TDM_CFG0 bit0, TDM_CFG1 bits 5:1).
+
+**Optional discriminator on the B4 kernel, no new boot.** This is a hardware register write behind the driver; skip
+it if hand-writing amp registers is not acceptable.
+1. During a tone, flip one amp's edges.
+2. First check the page: `i2cget -f -y 0 0x38 0x00` must print 0x00.
+3. Then `i2cset -f -y 0 0x38 0x09 0x02` and `i2cset -f -y 0 0x38 0x0d $(( $(i2cget -f -y 0 0x38 0x0d) | 1 ))`.
+4. 0-0038 should then be the one amp missing from the fault lines of the next tone.
+5. To undo, write back 0x03 and the old 0x0d value, or reboot.
+
 ## 9. For edimoldovan (after our run confirms 0002)
+- The J716s faults came from the speaker link format: his J714 entry has the same `IB_IF`/256 defaults. If the J714c
+  ADT shows the same `fa00` 250-bit frame, 0004's format may also explain his one-bit sense shift and the LW1 delay.
+  Ask him to read `/arm-io/iop-audio-controller/audio-speaker/audio-speaker` `reg`.
+
 His stop path has the same order, so the J714c amps should fault at every stream end (ask whether PipeWire's idle suspend
 hides it). 0002 applies to his tree with `aop_t8140.rs` renamed to `t8140_aop_audio.rs`; the deferred-shutdown half
 needs #663's tas2764 commits, which his tree lacks. Ask whether LW1's late current is SoC-wide.
