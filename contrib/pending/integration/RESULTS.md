@@ -421,7 +421,7 @@ values); only hardware-description facts are quoted.
 | + PR #939 | T6050 combo PHY and dwc3, cherry-picked; display-crossbar conflicts resolved to the integration side |
 | Not needed | PR #938 (the centauri drivers are already in integration) |
 | Config | `make defconfig asahi.config` (16K pages), `RUST` off, boot-path drivers built in (list in `../aurora/tools/README.md`) |
-| Result | 28 commits on top of `aurora/integration` for R3-N (branch `aurora-j716s`, tip `da5a44d086e6`); 31 for R3-Q (tip `4504ef7485be`, the three PHY commits added) |
+| Result | 28 commits on top of `aurora/integration` for R3-N (branch `aurora-j716s`, tip `da5a44d086e6`); 31 for R3-Q (tip `4504ef7485be`, the three PHY commits added); 35 for R3-R (tip `6d9f1ec652a6`, the four r3r patches added) |
 | Payload | m1n1-plain `7497c0b1` (the R2 stage 2) + bootargs + `Image.gz` + DTB + initramfs; bootargs are the B2 ones, with `initcall_blacklist=macsmc_power_driver_init` on the gated payloads |
 
 Two build gotchas on macOS: BSD `sed` breaks `arch/arm64/tools/gen-kernel-hwcaps.sh` (`\+`), fixed by
@@ -459,11 +459,13 @@ decompiled DTS (`../aurora/tools/reorder-cpus.py` and hand edits):
 | R3-H | `beec6567` | same plus the DIAG block on the panel | DIAG shows `nvme` failing with `-ENOENT` for its reset control, and the `dockchannel` AFE reset line unresolved |
 | R3-I | `874142cc` | ANS power domain and reset in the DT | `nvme` IOP power ack `-62` after 1 s; keyboard still absent |
 | R3-J | `4b7b9d0c` | our 0016, 10 s RTKit wait | still no ANS; **keyboard works** (AFE reset line fixed) |
-| R3-K | `bed28a83` | PR #936, no ANS reset in the DT | **ROOT MOUNTS**; 18 CPUs; `apple_idle` registered; keyboard and trackpad; no USB (dwc3 has no reset control: the combo PHY has no driver) |
+| R3-K | `bed28a83` | PR #936, no ANS reset in the DT | **ROOT MOUNTS**; 18 CPUs; `apple_idle` registered; keyboard (the trackpad's multi-touch device was not created, see R3-R); no USB (dwc3 has no reset control: the combo PHY has no driver) |
 | R3-M | `cd53220e` | PR #939, `TYPEC_SN201202X=y`, selftest initramfs | the PHY driver probes and fails: it needs the tunables |
 | R3-N | `f971f9e7` | tunables from the ADT (kernel `Image.gz` `5f8b3e78`) | PHY probes, then `dummy PIPE park failed (-1)`, dwc3 reset assert `-5`, no USB. The self-revert service restored R2-B automatically (first autonomous revert) |
 | R3-O | `454b7434` | R3-N plus m1n1 0020 (T6050 PIPE park); same kernel, DTB fixed7 | PIPE check passed, dwc3-apple and xhci probed, hub enumerated at 1.1 s as `usb 1-1`. Then the SN201202x entered COMBO_DP2 ("mode 3", the hub's DP billboard), tipd dropped the USB role, xhci was removed, the PHY firmware restarted and `bank2+260 timeout: 881 & 400 != 400` (UC_TNBL_DONE never set: the firmware restarted on stale preloaded data), `start of mode 3 failed (-110)`, `sn201202x: failed to configure Type-C connection`, mux safe-mode failures, cable revalidation failed. Self-reverted automatically. Analysis: `../aurora/pipe-park/ANALYSIS-R3O.md` |
 | R3-Q | `4083b7df` | R3-O's m1n1 (`a28b1815`) and DTB fixed7, kernel rebuilt with Aurora's three `j716c/thunderbolt` PHY commits (`b8f2be0fef93` restart the PHY firmware on its original data, `e604b7f414b4` carry on when the PIPE lock is not acknowledged, `6f93def30893` park the PIPE from a dummy producer on any clock); tree tip `4504ef7485be` | **WORKS**, see Result below. Installed as `boot.bin`, R2-B as `boot.bin.prev`; the selftest flag stays in the cmdline (inert while the network is up) |
+| R3-R | `b457425e` | R3-Q's m1n1 (`a28b1815`) and initramfs; kernel tree `aurora-j716s` tip `6d9f1ec652a6` = R3-Q tree + r3r 0001-0004 (AFE settle 50 ms with a log line; hwmon fan port of our 0003; INIT_WORK-before-notifier port of our 0004; battery identity reads at key size); config `HID_MAGICMOUSE=y`, `HID_APPLE_MTP_HAPTIC=n`, `HIDRAW=y`; DTB fixed8 = fixed7 minus the unused `apple,smc-pcio-gpio` node; blacklist still on | **WORKS, trackpad included**, see Result (R3-R). Installed as `boot.bin` (self-revert loop, nobody at the machine); R2-B stays as `boot.bin.prev` |
+| R3-S | not run | R3-R's payload without `initcall_blacklist=macsmc_power_driver_init` (battery) | Deliberately **not** put through the autonomous loop: a probe hang is not self-recoverable without the A/B stage-1 watchdog. Needs Rolando at the machine |
 
 Built but not individually reported here: R3-A (J716c DT), R3-C, R3-D, R3-F, R3-G (intermediate
 DT/diag variants) and R3-L (`9ef02cfd`, R3-K with a handoff variant). Hashes are in
@@ -471,8 +473,8 @@ DT/diag variants) and R3-L (`9ef02cfd`, R3-K with a handoff variant). Hashes are
 
 ### Findings
 
-- **Aurora's integration kernel boots the J716s to a mounted root and a working keyboard and trackpad**
-  with PR #936 and a hand-fixed device tree: 18 CPUs, NVMe, `apple_idle` registered (cpuidle needs
+- **Aurora's integration kernel boots the J716s to a mounted root and a working keyboard** (the trackpad
+  followed in R3-R) with PR #936 and a hand-fixed device tree: 18 CPUs, NVMe, `apple_idle` registered (cpuidle needs
   m1n1 to stop appending `idle=nop`).
 - **0016 alone did not bring the ANS up with Aurora's driver (R3-J); PR #936 did (R3-K).** With it the
   driver adopts the running ANS and restarts it without a PMGR reset, so the ANS reset and power
@@ -518,15 +520,60 @@ commit c909e17) is the proper path: it fills the tunables from the ADT in kboot,
 no tunables) works on any unit. R3-P (m1n1 0020 + 0021 + fixed6, `9d7865f2`) is built but was not booted;
 R3-Q uses fixed7.
 
-**Still missing on this kernel:**
+**Still missing on this kernel (as of R3-Q; superseded by the R3-R result below):**
 
-- Trackpad multi-touch: "Touch MT ready" is absent and the Apple MTP input device is not created. The AFE
+- Trackpad multi-touch (diagnosed wrongly here; the real cause is under R3-R): "Touch MT ready" is absent and the Apple MTP input device is not created. The AFE
   reset we wired to macsmc-low-gpio line 28 satisfies the keyboard interfaces but not Aurora's dockchannel-hid,
   which expects the SMC pcIO GPIO line 2 through the `apple,smc-pcio-gpio` driver from their
   j716c/t6050-platform branch.
 - Battery: still gated by `initcall_blacklist=macsmc_power_driver_init`. Aurora lacks our 0004 INIT_WORK
   fix and the 0003 fan key.
 - Wi-Fi (PR #937 and the firmware handoff), display driver (DCP), GPU.
+
+### Result (R3-R, 2026-11-07 about 01:45, autonomous loop, nobody at the machine)
+
+**The trackpad works on the Aurora kernel, and so does everything R3-Q had.** Payload `b457425e`. Boot log
+(times are kernel seconds):
+
+| Time | Line |
+|---|---|
+| 0.205 s | `input: Apple MTP multi-touch ...` and `magicmouse ... input: HOST HID v5.10 Mouse` |
+| 1.42 s / 1.47 s | `multi-touch: AFE reset asserted` / `released` (the 50 ms settle from r3r 0001) |
+| 1.64 s | `New AFE[0] cbor image received` |
+| 1.72 s / 1.73 s | `Interface multi-touch is now ready` / `Touch MT ready` |
+
+On our 7.2 kernel `Touch MT ready` came at about 19 s, so this is a faster path to a working trackpad. Also in
+the log: 9 USB devices enumerated, Type-C port0 plus its partner, and zero error lines once the PMGR noise is
+filtered out.
+
+**Root cause of the earlier miss** (analysis: `../aurora/trackpad/ANALYSIS.md`): `hid-magicmouse` was `=m`
+(`HID_APPLE_MTP_HAPTIC=m` forces it to `m` through its Kconfig dependency) and nothing loads modules for this
+kernel, so the multi-touch HID device never bound, `dchid_open()` never ran, and the AFE reset was never
+driven. The wiring through `macsmc-low-gpio` gp1c line 28 was correct all along. The R3-Q conclusion that
+Aurora needed `apple,smc-pcio-gpio` was wrong: that node was driverless in this tree and fixed8 simply drops
+it. The cost of `HID_APPLE_MTP_HAPTIC=n` is no haptic feedback on click (the click is still reported); the
+optional pcIO GPIO port (`../aurora/trackpad/patches/optional-pcio/0005`) was not needed.
+
+**What was added to R3-Q's tree** (recipe: `../aurora/trackpad/R3-R-RECIPE.md`): the four `r3r` patches (35
+commits above `aurora/integration`), `HID_MAGICMOUSE=y`, `HID_APPLE_MTP_HAPTIC=n`, `HIDRAW=y`, DTB fixed8.
+The hwmon and macsmc-power patches are inert here: hwmon is disabled in the DT and the battery driver is still
+blacklisted.
+
+**ESP state:** `boot.bin` = R3-R; `boot.bin.prev` = R2-B (our 7.2 kernel, the rollback);
+`boot.bin.r3q`, `boot.bin.b2`, `boot.bin.known-good`. Older spares were pruned because the 500 MB ESP filled
+up; every self-revert also stores a 25 MB `boot.bin.failed`, so spares need pruning after each revert.
+
+**Still missing on the Aurora kernel after R3-R:**
+
+- **Battery** (R3-S, same payload without the blacklist): needs Rolando at the machine, see the table above.
+  Whether r3r 0004 (battery identity reads at key size, Aurora's code) cures the probe hang at about 7.8 s is
+  unknown; our 0003/0004 were already in the 7.2 B2 payload and it still hung.
+- **USB replug** (hot-plug after boot) not tested on this kernel.
+- **Wi-Fi/BT:** PR #937 plus the N1 firmware handoff.
+- **Display driver (DCP):** firmware-compat gate. **GPU:** gated off in Aurora's tree.
+- **cpuidle beyond WFI:** m1n1 still appends `idle=nop`.
+- **m1n1 0021** (R3-P, built, not booted): the DTB still carries this unit's PHY tunables.
+- S1 and power-off on this kernel (not run).
 
 ### Process: what went wrong and what we changed
 
@@ -552,14 +599,14 @@ Honest account, because the evening cost more reboots than it needed to:
 
 ### Still open
 
-1. **Trackpad multi-touch** ("Touch MT ready" absent): needs the `apple,smc-pcio-gpio` driver (SMC pcIO GPIO
-   line 2) from Aurora's j716c/t6050-platform branch, or a matching change in dockchannel-hid.
-2. **Battery.** Gated by `initcall_blacklist=macsmc_power_driver_init`; needs our 0004 INIT_WORK fix and the 0003
-   fan key on the Aurora tree.
+1. ~~Trackpad multi-touch~~ **resolved by R3-R** (`HID_MAGICMOUSE=y`; see the Result above).
+2. **Battery.** R3-S (R3-R without `initcall_blacklist=macsmc_power_driver_init`), with Rolando present. r3r
+   0003 and 0004 are the Aurora-tree ports of our INIT_WORK fix and the new key-size identity reads.
 3. **Wi-Fi/BT.** Needs PR #937 (PCIe), the FTAB firmware (personalised per unit, not in this repo) and
    the bootloader handoff.
 4. **DCP** is gated on firmware 27.0.0 (this machine runs macOS 27.3 beta 1, 26C5035r); **GPU** is gated off for the M5 Pro
    in Aurora's tree.
 5. **Portability of the USB3 result:** boot m1n1 0021 with the tunable-less DTB (R3-P, built, not booted).
-6. Re-check on this kernel what Round R1/R2 established on ours: S1, power-off. Not run on the Aurora kernel.
-   (cpuidle and cpufreq are covered by R3-Q: `apple_idle` and `schedutil` work.)
+6. Re-check on this kernel what Round R1/R2 established on ours: S1, power-off, USB replug. Not run on the Aurora
+   kernel. (cpuidle and cpufreq are covered by R3-Q: `apple_idle` and `schedutil` work; deeper idle than WFI
+   needs m1n1 to stop appending `idle=nop`.)
