@@ -1552,3 +1552,17 @@ display nodes + internal `apple,bw-scratch` = PMC + 0x20000), `drm.debug=0x1e` +
   on the panel, which is the DCP rendering.
 - Next: the same payload with the 120 Hz (3) and VRR (2) patches and a fixed check script (modetest + tracefs),
   measured unattended; then DCP in the daily once the brightness path and the clock provider are sorted.
+
+## CAMERA I1: ISP DARTs and power domains (2026-11-07 21:40 UTC) — PASS
+
+Payload `isp-i1-20261107-68af92c8.bin` = the 87-patch daily kernel `7.3.0-ga0f2f30c967b` + the camera DTB (next-daily DTB
++ ISP node, 3 ISP DARTs, 8 pmgr domains; ISP firmware segments reserved: isp-firmware-text 12400 KiB, isp-firmware-data
+20288 KiB), m1n1 `n1-warm-gpu`, `apple_isp` blacklisted, self-test on; written with `esp-put.sh`, primary slot first
+pass, 76 s to SSH.
+
+- The three ISP DARTs (5828c0000, 5828e0000, 582900000) bind to `apple-dart`; 8 of 8 ISP power domains present by name
+  (isp_be and isp_fe on, the rest off); `apple_isp` not loaded; no faults (the single match is the benign printk line).
+- The pre-check that compares the ISP firmware segment ranges against the ADT could not confirm the segments on the
+  running daily (parser mismatch on the `adt` MTD dump), so I2 (firmware handshake, /dev/video0) was skipped by design.
+  I2 also needs a kernel with the ISP patches 0001 + 0003 (the daily `apple-isp.ko` has no `apple,t6050-isp` alias);
+  that build is in progress.
