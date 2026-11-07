@@ -1669,3 +1669,16 @@ all three came back on the primary slot, pmu `300000`, 75-77 s. The restore of t
 settle) was clean too. So the power kernel's own restart path is fine when the machine is idle; the counted restart
 earlier followed a reboot one second after a 40 MB ESP write. Together with rounds 1-2 of the omacom experiment this
 supports the "restart while still busy after the write burst" model and the 60 s settle rule.
+
+## POWER-T1 baseline (2026-11-07 22:51 UTC)
+
+Power kernel `7.3.0-g1d276f9e36c7`, PMC observing, primary slot (60 s settle rule in force; all boots clean).
+- Idle 60 s sampled 80-140 s after boot, battery full on the charger: SMC total system power (PSTR) mean 10.4 W (the GPU
+  daily read 9.0 W in an earlier 60 s sample taken at the same point of its boot; a later, longer idle sample is needed
+  before calling that a difference, since boot-time services were still settling). `time_in_state` deltas came back
+  empty (cpufreq stats not available in this config), so the 300 MHz floor residency is not yet measured.
+- Load (all 18 cores busy): the CLPC computes `-> dcs 7 soc 3` for all three clusters, `last_vote 0x37`, 4802 samples
+  with 4802 update errors (every vote refused: observe mode), and the floors release afterwards; rail enables stay 0;
+  `cur(hw)` reached 4308/4308/4608 MHz in the first T1 run. No memcpy baseline: `perf` is not installed on the root
+  (install `perf` or use a small memcpy benchmark before T3).
+- T3 (first PMC write) stays attended: payload `power-t3-20261107-98336aec.bin`, checklist in `contrib/pending/power/REPORT.md`.
