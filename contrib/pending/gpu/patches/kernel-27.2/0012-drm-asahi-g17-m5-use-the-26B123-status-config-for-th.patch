@@ -1,0 +1,37 @@
+From 1d40d3e726095c4ce34c4651641fed24518c02d7 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:53:22 -0500
+Subject: [PATCH 12/15] drm/asahi: g17: m5: use the 26B123 status config for
+ the 26B123 profile
+
+The 26B123 (macOS 27.2) firmware takes the 0x790-byte status config:
+two words more in each controller block and the tail, link word and
+submission history 0x10 higher. Return M5_26B123_STATUS_CONFIG for the
+26B123 root profile, and for the 26C5035 (macOS 27.3 beta 1) profile,
+whose status config is the same as 26B123's.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+index a8b1dd9c2d6b..7c30e07853b5 100644
+--- a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
++++ b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+@@ -160,9 +160,9 @@ pub(crate) const fn repeated_region_bundle_offset(self) -> usize {
+     /// Status-config layout of the M5 graph built for this profile.
+     pub(crate) const fn m5_status_config(self) -> &'static M5StatusConfigMap {
+         match self {
++            Self::J714G17S26B123 => &M5_26B123_STATUS_CONFIG,
++            Self::J714G17S26C5035 => &M5_26B123_STATUS_CONFIG,
+             Self::J714G17S26A428
+-            | Self::J714G17S26B123
+-            | Self::J714G17S26C5035
+             | Self::J700G17P
+             | Self::J813G17G25G76
+             | Self::J873G18G26A428 => &M5_26A428_STATUS_CONFIG,
+-- 
+2.56.0
+

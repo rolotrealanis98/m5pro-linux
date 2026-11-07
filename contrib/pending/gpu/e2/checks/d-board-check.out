@@ -1,0 +1,23 @@
+ok   perf-state-count 14, table count 2
+ok   main table == ADT perf-states/-1/-sram/-sram1
+ok   aux table == ADT afr-perf-states (SRAM max(775, core))
+ok   afr-perf-states == cs-perf-states, one lane
+ok   frequencies strictly increasing
+ok   voltages non-decreasing per lane
+ok   SRAM >= max(775, core)
+ok   max frequency 1620 MHz
+ok   gpu-perf-base-pstate 1 (relative_frequency floor)
+ok   active-mcc-bit-vector 0xf (mcc_mask None)
+ok   gpu-num-perf-states 13, sample period 200000 AIC clocks (the shared J714 constants)
+ok   clusters 2, cores 20, perf_tables 2
+ok   ADT aon-ptd RT0g/RT1g/RT0r == J714_AON_RECORDS
+ok   slot 0 = sgx meta-sw-interrupt page
+ok   slot 3 = mcc reg[14..17] + 0x104000
+ok   slot 9 = pmp0 reg[3]
+ok   slot 10 = mcc reg[2]
+ok   slot 12 in ane0 reg[0]
+ok   slot 15 = aon-ptd reg[0]
+ok   slots 17.. in sgx reg[0] (0x23_0000_0000)
+ok   slot 20: 2 cluster instances in sgx
+main (MHz, core0, core1, sram0, sram1): [(0, 125, 125, 775, 775), (338, 600, 600, 775, 775), (486, 630, 630, 775, 775), (636, 665, 665, 775, 775), (796, 715, 715, 775, 775), (888, 725, 725, 775, 775), (988, 755, 755, 775, 775), (1084, 780, 780, 780, 780), (1182, 810, 810, 810, 810), (1278, 865, 850, 865, 850), (1374, 905, 875, 905, 875), (1470, 950, 920, 950, 920), (1578, 1025, 995, 1025, 995), (1620, 1050, 1035, 1050, 1035)]
+aux (MHz, core, sram): [(24, 125, 775), (338, 585, 775), (486, 630, 775), (636, 655, 775), (796, 680, 775), (888, 695, 775), (988, 740, 775), (1084, 760, 775), (1182, 790, 790), (1278, 840, 840), (1374, 870, 870), (1470, 905, 905), (1578, 980, 980), (1620, 1000, 1000)]

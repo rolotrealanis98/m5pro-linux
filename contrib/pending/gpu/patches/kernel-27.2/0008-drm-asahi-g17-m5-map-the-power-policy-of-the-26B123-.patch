@@ -1,0 +1,304 @@
+From 93690a9ca36523864fb6378cc25f1c8d3e9e166f Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:48:23 -0500
+Subject: [PATCH 08/15] drm/asahi: g17: m5: map the power policy of the 26B123
+ (macOS 27.2) firmware
+
+The 26B123 AGXG17X kext allocates 0x12728 bytes for the power policy
+instead of 0x126b0 (allocation size table entry 4) and keeps the policy
+pointer at its firmware object +0x2e8 instead of +0x2e0. 27.3 beta 1
+(26C5035r) has the same layout. Comparing the kext's policy stores (363
+in 26A428, 364 in 26B123 and 26C5035r) and the GFX1 (armfw1) firmware's
+policy accesses (209 and 219) places five inserts, as bands in 26A428
+offsets:
+
+  [0x0000, 0x4910)   +0
+  [0x4910, 0x491c)   +0x10  two u64 time accumulators, firmware only
+                            (armfw1 0xf598..0xf5b0, 0x302ec..0x30304);
+                            the 3500/1000/3000 thresholds move to 0x4920
+  [0x491c, 0x49b8)   +0x14  a fourth threshold at 0x492c
+  [0x49b8, 0x4a98)   +0x18  4 untouched bytes between 0x494c and 0x49b8
+  [0x4a98, 0x12668)  +0x30  0x18 untouched bytes between 0x4a00 and 0x4a98
+  [0x12668, 0x126b0) +0x78  the residency table at +0x122f0 grows from 37
+                            to 40 24-byte entries (armfw1 0x140d4 ->
+                            0x14174: trailing fields +0x378.. -> +0x3c0..;
+                            kext 0x12670 -> 0x126e8)
+
+Every 26A428 kext store and firmware access relocates onto a 26B123 one;
+the only kext store left over is 0x492c. The state and AON PTD pointers
+move to 0x8284 and 0x11a4c. The firmware's other new accesses are fields
+of its own at 0x94e4..0x954c (armfw1 0x2e1f8..0x2e260) in space nothing
+touches in 26A428, and two reads at 0x122e4/0x122ec through x26 that
+26A428 makes at 0x122b4/0x122bc.
+
+The kext copies the controller thresholds from its configuration words,
+whose defaults (0xfffffe0008b44154) only gain the new word, 5000
+(0xfffffe0008b444f8), and whose G17 override (26A428
+0xfffffe0008bc5894, 26B123 0xfffffe0008bd7234) changes two things:
+
+- The word stored twice at 0x4a14 (26A428 0x49fc; the second store,
+  from +0x12db0, wins: 0xfffffe0008bb7290/7298) goes from 500 to 1600
+  for every M5: the override's pair moves from 200/500
+  (0xfffffe0008bc5ad0) to 900/1600 (0xfffffe0008bd74a8). The 26A428
+  J714 defaults carry 0x49fc = 500.
+- Configuration variant 0x1a, the G17D core type, gets its own
+  thresholds (0xfffffe0008bd7464..7488): 2500 (0x4920), 800 (0x4928),
+  1100 (0x492c) and 0 for word +0x12d8c (0x49e4).
+
+Add M5PolicyMap with the 26A428 identity map and the 26B123 map, chosen
+from the build's M5Layouts (every layout but 26A428 takes the 26B123
+map), and relayout_m5_policy(), which moves the bands of the policy the
+26A428 encoders wrote in place, highest first, zeroes the inserts and,
+where the board's controller defaults were applied, writes the 26B123
+controller words for its core type. For 26A428 it changes nothing.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs | 223 ++++++++++++++++++++
+ 1 file changed, 223 insertions(+)
+
+diff --git a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+index c4bbb24ec091..f9da81c35efd 100644
+--- a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
++++ b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+@@ -9,6 +9,8 @@
+ use core::ops::Range;
+ use core::result::Result;
+ 
++use crate::g17::fw::variant::M5Layouts;
++
+ pub(crate) const ROOT_SIZE_PRIMARY: usize = 0x0b8;
+ 
+ pub(crate) const ROOT_SIZE_SECONDARY: usize = 0x0c8;
+@@ -2200,6 +2202,227 @@ pub(crate) fn set_m5_enabled_cores(
+ 
+ pub(crate) const M5_POLICY_AON_PTD_PTR: usize = 0x11a1c;
+ 
++/// Power policy 26A428 -> 26B123 (macOS 27.2; 27.3 beta 1 has the same layout), in 26A428
++/// offsets. The 26B123 kext allocates 0x12728 bytes instead of 0x126b0 (allocation size table
++/// entry 4) and keeps the policy pointer at its firmware object +0x2e8 (26A428: +0x2e0); its 364
++/// policy stores (26A428: 363) and the GFX1 firmware's policy accesses place the inserts:
++///
++/// - +0x4910, 0x10 bytes: two u64 time accumulators the firmware alone keeps (26B123 armfw1
++///   0xf598..0xf5b0 and 0x302ec..0x30304). The three thresholds 3500/1000/3000 at 0x4910 move
++///   to 0x4920.
++/// - +0x491c, 4 bytes: a fourth threshold, 5000 by default (`M5_26B123_POLICY_CONTROLLER_WORDS`).
++/// - 4 bytes between 0x494c and 0x49b8, and 0x18 bytes between 0x4a00 and 0x4a98, that neither
++///   the kext nor the firmware touches: the bands start at the next measured offset (firmware
++///   0x4948 -> 0x495c, kext 0x49b8 -> 0x49d0, kext 0x49fc -> 0x4a14, kext 0x4a98 -> 0x4ac8), and
++///   no word the M5 encoders write falls in either range.
++/// - +0x12668, 0x48 bytes: the per-state residency table at +0x122f0 (24-byte entries) grows
++///   from 37 to 40 entries (armfw1 0x140d4 (26A428) and 0x14174 (26B123): its trailing fields
++///   +0x378/+0x37c/+0x37d/+0x380 move to +0x3c0/+0x3c4/+0x3c5/+0x3c8; the kext's trailing store
++///   0x12670 moves to 0x126e8). That the new entries sit at the end is inferred.
++///
++/// The state and AON PTD pointers move with their band, 0x8254 -> 0x8284 and 0x11a1c -> 0x11a4c.
++/// The 26B123 firmware also keeps fields of its own at 0x94e4..0x954c (armfw1 0x2e1f8..0x2e260),
++/// in space nothing touches in 26A428 (0x94b4..0x951c), which stays zero here.
++pub(crate) const M5_26B123_POLICY_BANDS: &[LayoutBand] = &[
++    band(0x0000, 0x4910, 0, Evidence::FirmwareProven),
++    band(0x4910, 0x491c, 0x10, Evidence::FirmwareProven),
++    band(0x491c, 0x49b8, 0x14, Evidence::FirmwareProven),
++    band(0x49b8, 0x4a98, 0x18, Evidence::ProducerChecked),
++    band(0x4a98, 0x12668, 0x30, Evidence::FirmwareProven),
++    band(0x12668, M5_POLICY_SIZE, 0x78, Evidence::FirmwareProven),
++];
++
++/// Power-policy size of 26B123 (entry 4 of its allocation size table).
++pub(crate) const M5_26B123_POLICY_SIZE: usize = 0x12728;
++
++/// The 26B123 controller-configuration words the 26A428 controller defaults do not write, at
++/// 26B123 offsets. The kext copies them from its configuration words, which only the G17
++/// override changes (26B123 0xfffffe0008bd7234, 26A428 0xfffffe0008bc5894):
++///
++/// - 0x492c is configuration word +0x12d74 (`ldr w8, [x8, #0xd74]; str w8, [x10, #0x92c]` at
++///   0xfffffe0008bb71e8), 5000 by default (`mov w8, #0x1388; str w8, [x20, #0x380]` at
++///   0xfffffe0008b444f8).
++/// - 0x4a14 (26A428: 0x49fc) is stored twice, from words +0x12dac and then +0x12db0
++///   (0xfffffe0008bb7290 and 0xfffffe0008bb7298), so it holds +0x12db0. The 26A428 override sets
++///   the pair to 200/500 (0xfffffe0008bc5ad0), which the 26A428 J714 defaults carry as
++///   0x49fc = 500; the 26B123 override sets it to 900/1600 for every M5 (0xfffffe0008bd74a8).
++///
++/// Apart from these and the per-core-type words below, the override and the defaults
++/// (0xfffffe0008b44154) only move with the configuration layout from 26A428 to 26B123.
++pub(crate) const M5_26B123_POLICY_CONTROLLER_WORDS: &[(usize, u32)] =
++    &[(0x492c, 5000), (0x4a14, 1600)];
++
++/// The 26B123 G17 override for configuration variant 0x1a, the G17D core type
++/// (0xfffffe0008bd745c..0xfffffe0008bd7488), which 26A428 does not have: 2500 for the 3500
++/// threshold (0x4920), 800 for the 3000 one (0x4928), 1100 for the new one (0x492c) and 0 for
++/// word +0x12d8c (0x49e4, 26A428: 0x49cc = 1), at 26B123 offsets.
++pub(crate) const M5_26B123_POLICY_CONTROLLER_WORDS_G17D: &[(usize, u32)] = &[
++    (0x4920, 2500),
++    (0x4928, 800),
++    (0x492c, 1100),
++    (0x49e4, 0),
++    (0x4a14, 1600),
++];
++
++/// The HW-data core type of the G17D (M5 Ultra) parts, which the G17 override knows as
++/// configuration variant 0x1a.
++const M5_CORE_TYPE_G17D: u32 = 0x1a;
++
++/// Where one firmware build keeps the power-policy words the M5 encoders write at their 26A428
++/// offsets.
++#[derive(Debug, Copy, Clone, PartialEq, Eq)]
++pub(crate) struct M5PolicyMap {
++    /// Allocation size (entry 4 of the build's allocation size table).
++    pub(crate) size: usize,
++    /// 26A428 offset -> this build's offset; empty for 26A428 itself.
++    pub(crate) bands: &'static [LayoutBand],
++    /// Words of this build's controller configuration the 26A428 controller defaults do not
++    /// write, at this build's offsets: for core types with words of their own, then for every
++    /// other core type.
++    pub(crate) controller_words_by_core: &'static [(u32, &'static [(usize, u32)])],
++    pub(crate) controller_words: &'static [(usize, u32)],
++}
++
++impl M5PolicyMap {
++    /// This build's offset of the 26A428 policy offset `offset`.
++    pub(crate) const fn relocate(&self, offset: usize) -> Option<usize> {
++        if !self.bands.is_empty() {
++            return relocate_by_bands(self.bands, offset);
++        }
++        if offset < self.size {
++            Some(offset)
++        } else {
++            None
++        }
++    }
++
++    /// This build's controller-configuration words for `board`.
++    fn controller_words_for(&self, board: &Board) -> &'static [(usize, u32)] {
++        for &(core, words) in self.controller_words_by_core {
++            if core == board.core_revision.0 {
++                return words;
++            }
++        }
++        self.controller_words
++    }
++}
++
++pub(crate) const M5_26A428_POLICY: M5PolicyMap = M5PolicyMap {
++    size: M5_POLICY_SIZE,
++    bands: &[],
++    controller_words_by_core: &[],
++    controller_words: &[],
++};
++
++pub(crate) const M5_26B123_POLICY: M5PolicyMap = M5PolicyMap {
++    size: M5_26B123_POLICY_SIZE,
++    bands: M5_26B123_POLICY_BANDS,
++    controller_words_by_core: &[(M5_CORE_TYPE_G17D, M5_26B123_POLICY_CONTROLLER_WORDS_G17D)],
++    controller_words: M5_26B123_POLICY_CONTROLLER_WORDS,
++};
++
++/// The power-policy map of an M5 firmware build. 27.2 (26B123) and 27.3 (26C5035r) share one.
++pub(crate) const fn m5_policy(layouts: M5Layouts) -> &'static M5PolicyMap {
++    match layouts {
++        M5Layouts::V26A428 => &M5_26A428_POLICY,
++        _ => &M5_26B123_POLICY,
++    }
++}
++
++/// The power-policy allocation size of an M5 firmware build.
++pub(crate) const fn m5_policy_size(layouts: M5Layouts) -> usize {
++    m5_policy(layouts).size
++}
++
++/// Whether `bands` lay `source` bytes out over `target` bytes in place: contiguous from 0 to
++/// `source`, with shifts that never shrink, ending at `target`.
++const fn expands_in_place(bands: &[LayoutBand], source: usize, target: usize) -> bool {
++    let mut index = 0;
++    let mut end = 0;
++    let mut delta: isize = 0;
++    while index < bands.len() {
++        let band = bands[index];
++        if band.start != end || band.end <= band.start || band.delta < delta {
++            return false;
++        }
++        end = band.end;
++        delta = band.delta;
++        index += 1;
++    }
++    end == source && (end as isize + delta) as usize == target
++}
++
++const _: () = {
++    assert!(expands_in_place(
++        M5_26B123_POLICY_BANDS,
++        M5_POLICY_SIZE,
++        M5_26B123_POLICY_SIZE
++    ));
++    assert!(matches!(
++        M5_26B123_POLICY.relocate(M5_POLICY_STATE_PTR),
++        Some(0x8284)
++    ));
++    assert!(matches!(
++        M5_26B123_POLICY.relocate(M5_POLICY_AON_PTD_PTR),
++        Some(0x11a4c)
++    ));
++    assert!(matches!(
++        M5_26B123_POLICY.relocate(M5_POLICY_MAXIMUM_POWER),
++        Some(0xa18)
++    ));
++};
++
++/// Lays out the power policy the M5 encoders wrote at 26A428 offsets into `policy[..0x126b0]`
++/// as `map` says, in place: every band moves, highest first, and the bytes no band covers are
++/// zeroed. With `controller_defaults`, the build's controller-configuration words for `board`
++/// follow. For 26A428 nothing changes.
++pub(crate) fn relayout_m5_policy(
++    map: &M5PolicyMap,
++    board: &Board,
++    controller_defaults: bool,
++    policy: &mut [u8],
++) -> Result<(), InitdataError> {
++    if policy.len() != map.size {
++        return Err(InitdataError::BufferSize);
++    }
++    if map.bands.is_empty() {
++        return Ok(());
++    }
++    if !expands_in_place(map.bands, M5_POLICY_SIZE, map.size) {
++        return Err(InitdataError::BufferSize);
++    }
++    // A band's target lies over its own source and the higher bands, which have moved already.
++    for band in map.bands.iter().rev() {
++        let target = band
++            .start
++            .checked_add_signed(band.delta)
++            .ok_or(InitdataError::BufferSize)?;
++        policy.copy_within(band.start..band.end, target);
++    }
++    let mut end = 0;
++    for band in map.bands {
++        let target = band
++            .start
++            .checked_add_signed(band.delta)
++            .ok_or(InitdataError::BufferSize)?;
++        policy[end..target].fill(0);
++        end = target + (band.end - band.start);
++    }
++    policy[end..].fill(0);
++    if controller_defaults {
++        for &(offset, value) in map.controller_words_for(board) {
++            if offset
++                .checked_add(4)
++                .is_none_or(|word_end| word_end > policy.len())
++            {
++                return Err(InitdataError::BufferSize);
++            }
++            put_u32(policy, offset, value);
++        }
++    }
++    Ok(())
++}
++
+ pub(crate) const J714_GPU_POWER_SAMPLE_PERIOD_AIC_CLOCKS: u32 = 200_000;
+ 
+ pub(crate) const J714_GPU_PERF_BASE_PSTATE: u32 = 1;
+-- 
+2.56.0
+

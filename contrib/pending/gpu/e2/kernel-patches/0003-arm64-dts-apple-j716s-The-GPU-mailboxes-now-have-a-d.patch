@@ -1,0 +1,54 @@
+From 3671d907d5706f4645e592ca73ea0a2fc607e2a6 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:01:06 -0500
+Subject: [PATCH] arm64: dts: apple: j716s: The GPU mailboxes now have a driver
+
+The mailbox driver has a profile for the T6050 GPU coprocessor windows at
+their native addresses now (apple,t6050-native-ascwrap-v6), so the
+compatible the GPU mailboxes carry is no longer a placeholder. Say so in
+the comments; the nodes and the DTB are unchanged.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 11 +++++------
+ 1 file changed, 5 insertions(+), 6 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 9e4cb9e8b30f..c2c6041c32f7 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -832,10 +832,9 @@ tp-accel {
+  * The send-empty / recv-not-empty choice (2797/2800, 2801/2804) is edimoldovan's J714c
+  * mapping, which booted RTKit there.
+  *
+- * The mailboxes use a placeholder compatible that no driver binds yet: the T6050 profile
+- * of drivers/soc/apple/mailbox.c expects the GPU windows at Aura's addresses
+- * (0x8_0260_0000 / 0x8_0205_0000), not at these. A native-address role table comes with
+- * the step that starts the coprocessors; until then the driver stops at the ID registers.
++ * The mailboxes use the native-address ASCWrap v6 profile of drivers/soc/apple/mailbox.c
++ * (apple,t6050-native-ascwrap-v6), whose role table holds these windows; with the hand-off
++ * the GPU driver can start both coprocessors through them.
+  */
+ / {
+ 	reserved-memory {
+@@ -932,7 +931,7 @@ ps_gfx: power-controller@110 {
+ 		};
+ 
+ 		gfx_mbox: mailbox@2302600000 {
+-			compatible = "apple,t6050-native-ascwrap-v6";	/* placeholder, see above */
++			compatible = "apple,t6050-native-ascwrap-v6";
+ 			reg = <0x23 0x02600000 0x0 0x88000>,	/* filled in by the loader */
+ 			      <0x23 0x02050000 0x0 0x8>;
+ 			reg-names = "wrapper", "iop-vbar";
+@@ -947,7 +946,7 @@ gfx_mbox: mailbox@2302600000 {
+ 		};
+ 
+ 		gfx1_mbox: mailbox@2302e00000 {
+-			compatible = "apple,t6050-native-ascwrap-v6";	/* placeholder, see above */
++			compatible = "apple,t6050-native-ascwrap-v6";
+ 			reg = <0x23 0x02e00000 0x0 0x88000>,	/* filled in by the loader */
+ 			      <0x23 0x02850000 0x0 0x8>;
+ 			reg-names = "wrapper", "iop-vbar";
+-- 
+2.56.0
+

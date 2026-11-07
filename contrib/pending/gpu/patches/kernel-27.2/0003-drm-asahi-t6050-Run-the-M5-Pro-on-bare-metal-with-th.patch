@@ -1,0 +1,279 @@
+From 06e027a730ed855e256802f0f22ba7331918a803 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:23:12 -0500
+Subject: [PATCH 03/15] drm/asahi: t6050: Run the M5 Pro on bare metal with the
+ J716s tables
+
+Probe refuses the M5 Pro as having no bare-metal GPU tables: its
+configuration still carries the profile, crash buffers and UAT policy of
+a board that was never booted that way.
+
+Add the 16-inch M5 Pro's (J716s) board table from its ADT:
+
+- sgx perf-states/perf-states1 and perf-states-sram/-sram1: two
+  voltage tables (perf-state-table-count 2), 14 states from 0 to
+  1620 MHz. The voltages are this part's bins and differ from J714's in
+  every active state (1278 MHz: 865/850 mV against 840/840).
+- afr-perf-states, identical to cs-perf-states: one lane, 24 to
+  1620 MHz, with SRAM at max(775 mV, core) as on J714 and J716c.
+- the relative-frequency curve from gpu-perf-base-pstate 1.
+- aon-ptd ptd_data_table rows RT0g/RT1g/RT0r (0x79, 0xbc, 0xce):
+  J714's.
+- register windows: J714's. The ADT places sgx, the four enabled AMCCs
+  (amcc-enable-mask 0xf, mcc reg[14..17] + 0x104000), pmp0 reg[3], mcc
+  reg[2], aon-ptd reg[0] and ane0 reg[0] where J714's slots expect them.
+- active-mcc-bit-vector 0xf: the inherited MCC mask.
+
+The rest follows the two-cluster M5 Pro (J714): core type 0x18 with
+revision 4, the 2 MiB minimum parameter buffer, 4 MiB render blocks in a
+4 GiB inventory, no topology words, the image's idle standby. No
+controller configuration has been measured on a J716s part, so it has
+none and the firmware keeps its own power budget, as J714 does on a part
+whose calibration words differ. The fan curve start is J714's; the
+governor is off by default.
+
+Give the M5 Pro the M5 Max's and M5 Ultra's bare-metal profile: both
+roles publish their kernel roots, the secondary's 0x40000 into
+`pagetables` (as on every two-role G17, A18 Pro included; the ADT
+gfx-shared-region is 0x80000), each asks for its crash log inside
+`fw-data`, and the UAT policy is the Ultra's. In the 27.0, 27.2 and 27.3
+G17S images, the privileged (GXF) code that builds and publishes those
+roots is the G17C image's byte for byte except one call's displacement,
+and in the J716s ADT each role's DATA_SHARED_RO follows its DATA, so the
+fw-data span is contiguous (0x184000 bytes).
+
+Both M5 Pro boards report ID variant 3, so the 14-inch one takes the
+16-inch tables, as the 14-inch M5 Max takes J716c's. No board refuses
+at probe for want of tables now, so the M5NoBareMetalTables profile
+goes.
+
+Not tested on hardware: the 27.3 stub's firmware is identified and then
+refused until the M5 graph builds the 26B123 layouts.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/gpu/drm/asahi/driver.rs             |  4 --
+ drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs | 70 +++++++++++++++++++++
+ drivers/gpu/drm/asahi/g17/mod.rs            |  4 +-
+ drivers/gpu/drm/asahi/hw/t6050.rs           | 34 +++++-----
+ 4 files changed, 88 insertions(+), 24 deletions(-)
+
+diff --git a/drivers/gpu/drm/asahi/driver.rs b/drivers/gpu/drm/asahi/driver.rs
+index a5f8802ce0c5..ef1534619ff9 100644
+--- a/drivers/gpu/drm/asahi/driver.rs
++++ b/drivers/gpu/drm/asahi/driver.rs
+@@ -414,10 +414,6 @@ fn probe_g17_m5<'bound>(
+                 id.variant, id.num_dies);
+             ENODEV
+         })?;
+-        if let g17::FirmwareProfile::M5NoBareMetalTables = cfg.profile {
+-            dev_err!(pdev.as_ref(), "M5 Pro bare-metal GPU tables not yet available\n");
+-            return Err(ENODEV);
+-        }
+         Self::probe_g17(pdev, res, cfg)
+     }
+ 
+diff --git a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+index a7b56f5bab72..2e073e91fdd6 100644
+--- a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
++++ b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+@@ -1489,6 +1489,25 @@ fn write_relocated_words(
+     (1470, 910, 910), (1578, 975, 975), (1620, 1020, 1020),
+ ]);
+ 
++// J716s ADT afr-perf-states (identical to cs-perf-states). SRAM is
++// max(775, core), the rule the J714 column follows.
++const J716S_AUX_PERF_STATES: [M5AuxPerfState; 14] = one_lane([
++    (24, 125, 775),
++    (338, 585, 775),
++    (486, 630, 775),
++    (636, 655, 775),
++    (796, 680, 775),
++    (888, 695, 775),
++    (988, 740, 775),
++    (1084, 760, 775),
++    (1182, 790, 790),
++    (1278, 840, 840),
++    (1374, 870, 870),
++    (1470, 905, 905),
++    (1578, 980, 980),
++    (1620, 1000, 1000),
++]);
++
+ /// An auxiliary-domain performance state: MHz, then core and SRAM mV of each of its two voltage
+ /// lanes. A one-lane board leaves the second lane 0.
+ pub(crate) type M5AuxPerfState = (u32, [u32; 2], [u32; 2]);
+@@ -1844,6 +1863,37 @@ pub(crate) struct Board {
+     g17d_forms: false,
+ };
+ 
++/// M5 Pro, 16-inch: two clusters of ten cores. Values from the J716s ADT where it has them;
++/// the rest are the M5 Pro's (J714), as the part is the same G17S.
++pub(crate) const J716S: Board = Board {
++    clusters: 2,
++    gpu_cores: 20,
++    // The M5 Pro's core type for ID variant 3; revision 4 as on J714.
++    core_revision: (0x18, 4),
++    perf_states: &J716S_GPU_PERF_STATES,
++    perf_tables: 2,
++    aux_perf_states: &J716S_AUX_PERF_STATES,
++    // The ADT's gpu-perf-base-pstate 1.
++    relative_frequency: relative_frequency(&J716S_GPU_PERF_STATES, 1),
++    // The ADT aon-ptd rows RT0g, RT1g and RT0r are J714's.
++    aon_records: &J714_AON_RECORDS,
++    // J714's windows: the ADT sgx, mcc (amcc-enable-mask 0xf), pmp0, aon-ptd and ane0 nodes
++    // place them at the same addresses.
++    register_windows: &J714_REGISTER_WINDOWS,
++    min_parameter_buffer: 0x0020_0000,
++    render_pool: (0x40_0000, 1 << 32),
++    // No controller configuration has been measured for a J716s part: the firmware keeps its
++    // own power budget, as on a J714 part whose calibration words differ.
++    calibration: None,
++    controller_defaults: None,
++    idle_standby_us: None,
++    // The ADT GPU node's active-mcc-bit-vector 0xf is the inherited mask.
++    mcc_mask: None,
++    topology_words: None,
++    fan_curve_start_mc: 84_000,
++    g17d_forms: false,
++};
++
+ /// J775D's performance controllers run from P3.
+ const J775D_PERF_FLOOR: usize = 3;
+ 
+@@ -1882,6 +1932,7 @@ pub(crate) struct Board {
+     use super::target::min_parameter_buffer_pages;
+     assert!(J714.min_parameter_buffer as u64 == min_parameter_buffer_pages(J714.clusters) << 15);
+     assert!(J716C.min_parameter_buffer as u64 == min_parameter_buffer_pages(J716C.clusters) << 15);
++    assert!(J716S.min_parameter_buffer as u64 == min_parameter_buffer_pages(J716S.clusters) << 15);
+     assert!(J775D.min_parameter_buffer as u64 == min_parameter_buffer_pages(J775D.clusters) << 15);
+ };
+ 
+@@ -1947,6 +1998,25 @@ pub(crate) fn set_m5_enabled_cores(out: &mut [u8], enabled: u32) -> Result<(), I
+     (1578, 1000, 1000, 1000, 1000), (1620, 1025, 1040, 1025, 1040),
+ ]);
+ 
++// J716s ADT sgx perf-states (table 0, then table 1 = perf-states1) and perf-states-sram /
++// perf-states-sram1, mV. The bins are this part's: the J714 table differs in every active state.
++pub(crate) const J716S_GPU_PERF_STATES: [M5PerfState; 14] = two_tables([
++    (0, 125, 125, 775, 775),
++    (338, 600, 600, 775, 775),
++    (486, 630, 630, 775, 775),
++    (636, 665, 665, 775, 775),
++    (796, 715, 715, 775, 775),
++    (888, 725, 725, 775, 775),
++    (988, 755, 755, 775, 775),
++    (1084, 780, 780, 780, 780),
++    (1182, 810, 810, 810, 810),
++    (1278, 865, 850, 865, 850),
++    (1374, 905, 875, 905, 875),
++    (1470, 950, 920, 950, 920),
++    (1578, 1025, 995, 1025, 995),
++    (1620, 1050, 1035, 1050, 1035),
++]);
++
+ /// Four-table states (MHz, four core-voltage tables, four SRAM-voltage tables), the rest 0.
+ const fn four_tables(states: [(u32, [u32; 4], [u32; 4]); 14]) -> [M5PerfState; 14] {
+     let mut out = [(0, [0; M5_PERF_LANES], [0; M5_PERF_LANES]); 14];
+diff --git a/drivers/gpu/drm/asahi/g17/mod.rs b/drivers/gpu/drm/asahi/g17/mod.rs
+index e3e737741e62..5df0641b59ab 100644
+--- a/drivers/gpu/drm/asahi/g17/mod.rs
++++ b/drivers/gpu/drm/asahi/g17/mod.rs
+@@ -168,8 +168,6 @@ pub(crate) enum FirmwareProfile {
+     /// The firmware publishes its kernel roots and the driver owns the page tables (A18 Pro,
+     /// M4 Pro).
+     PublishedRoots,
+-    /// An M5 board without bare-metal GPU tables yet: probe refuses it.
+-    M5NoBareMetalTables,
+     /// The M5 firmware on bare metal: both roles publish their kernel roots
+     /// ([`mmu::UatFirmware::PublishedRoots`]) and the driver owns the page tables.
+     M5PublishedRoots,
+@@ -195,7 +193,7 @@ pub(crate) fn region_c(&self) -> Result<&'static fw::initdata::RegionCConfig> {
+ impl FirmwareProfile {
+     /// The M5 firmware's protocol (26A428 InitData graph, queues and submission).
+     pub(crate) const fn is_m5(self) -> bool {
+-        matches!(self, Self::M5NoBareMetalTables | Self::M5PublishedRoots)
++        matches!(self, Self::M5PublishedRoots)
+     }
+ }
+ 
+diff --git a/drivers/gpu/drm/asahi/hw/t6050.rs b/drivers/gpu/drm/asahi/hw/t6050.rs
+index cd0250e16635..ef023e4ed237 100644
+--- a/drivers/gpu/drm/asahi/hw/t6050.rs
++++ b/drivers/gpu/drm/asahi/hw/t6050.rs
+@@ -3,18 +3,10 @@
+ //!
+ //! The M5 firmware builds its HW data, performance tables and region C in its own graph
+ //! ([`crate::g17::fw::m5::initdata`]), so the 26A428/25G83 graph tables of [`Config`] are empty.
+-use crate::g17::{Config, CoreLayout, CrashBuffers, FirmwareProfile, FixedBuffer, Identity};
++use crate::g17::{Config, CoreLayout, CrashBuffers, FirmwareProfile, Identity};
+ use crate::hw::{GpuGen, GpuVariant};
+ use crate::regs::G17Id;
+ 
+-// The coprocessors request a crash log buffer at these addresses (primary first) when they start and hand
+-// its contents back when they crash; outside the canonical range of dynamic objects. They are the
+-// ADT sgx gfx-data-shared-ro-base and gfx1-data-shared-ro-base (each 0x8000), so they differ per board.
+-const J714_CRASH_BUFFERS: [FixedBuffer; 2] = [
+-    FixedBuffer { va: 0x100_025b_4000, size: 0x8000 },
+-    FixedBuffer { va: 0x100_0267_0000, size: 0x8000 },
+-];
+-
+ /// The G17S builds the M5 Pro admits, newest first. The boot loader loads both roles' TEXT back
+ /// to back into `fw-text`: the primary's 0x50000, then the secondary's 0x54000, each with its own
+ /// GKTS/ECAP entropy records. Per role, two load fields of the image header and the boot loader's
+@@ -101,6 +93,7 @@
+     },
+ ];
+ 
++/// M5 Pro: ID variant 3, GPU variant S, on bare metal.
+ pub(crate) const CONFIG: Config = Config {
+     chip_id: 0x6050,
+     identity: Identity {
+@@ -113,19 +106,26 @@
+     },
+     uat_ias: 42,
+     uat_oas: 42,
+-    // Unknown until the board has bare-metal page tables.
+-    secondary_root_offset: None,
+-    crash_buffers: CrashBuffers::Fixed(J714_CRASH_BUFFERS),
+-    profile: FirmwareProfile::M5NoBareMetalTables,
++    // The M5 Max's and M5 Ultra's bare-metal profile: both roles publish their kernel roots,
++    // the secondary's 0x40000 into `pagetables` (the ADT gfx-shared-region holds 0x80000), and
++    // each asks for its crash log inside `fw-data`, where each role's DATA_SHARED_RO follows its
++    // DATA. The G17S firmware's privileged code, which builds and publishes those roots, is the
++    // G17C build's but for one call's displacement, in 27.0, 27.2 and 27.3 alike.
++    secondary_root_offset: Some(0x40000),
++    crash_buffers: CrashBuffers::FirmwareData,
++    profile: FirmwareProfile::M5PublishedRoots,
+     pm_metrics: None,
+     windows: &[],
+     reserved_slots: &[],
+     perf: None,
+     opps: 0,
+-    uat_quirks: crate::mmu::UatQuirks::DEFAULT,
++    // The M5 Ultra's UAT policy, as on the M5 Max.
++    uat_quirks: CONFIG_ULTRA.uat_quirks,
+     region_c: None,
+     chip: None,
+-    m5: Some(&crate::g17::fw::m5::initdata::J714),
++    // The 16-inch board's tables. Both M5 Pro boards report ID variant 3, so a 14-inch one takes
++    // them too, as the 14-inch M5 Max takes J716c's.
++    m5: Some(&crate::g17::fw::m5::initdata::J716S),
+     adopt_root_entries: true,
+     fabric_bridge: false,
+     recovery_slot_keys: None,
+@@ -297,8 +297,8 @@
+ 
+ // Each compute operand bank holds 6 KiB per core slot of the board.
+ const _: () = {
+-    use crate::g17::fw::m5::initdata::{J714, J716C, J775D};
+-    assert!(CONFIG.core_layout.operand_state.bank_bytes() == J714.gpu_cores * 0x1800);
++    use crate::g17::fw::m5::initdata::{J716C, J716S, J775D};
++    assert!(CONFIG.core_layout.operand_state.bank_bytes() == J716S.gpu_cores * 0x1800);
+     assert!(CONFIG_MAX.core_layout.operand_state.bank_bytes() == J716C.gpu_cores * 0x1800);
+     assert!(CONFIG_ULTRA.core_layout.operand_state.bank_bytes() == J775D.gpu_cores * 0x1800);
+ };
+-- 
+2.56.0
+
