@@ -128,3 +128,12 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
   Boot-test payload `m1n1-t6050-gpu-20261107-30a40882` (E2 kernel, E2 DTB + `&gpu`/`&pmgr_gfx` okay, Wi-Fi daily
   initramfs, selftest, battery): ATTENDED boot (no stage-1 watchdog). PR text and copies under prs/m1n1-gpu/. Not
   pushed, PR not opened.
+
+## 2026-11-07 22:30 UTC
+- aurora-silicon/linux #1174 "drm/apple: firmware 27.3 IOMFB method table and swap layout" opened: `pr/t6050-dcp-27.3`
+  716bce007fd3 (Jeff Queisser's #894 table-selection commit with authorship kept + ours) on #1012's branch
+  `funkzy/t6050-gpu-on-integration` (aurora-silicon/linux-aurora is not reachable, so option (b)). Hardware lines filled
+  with stages A/B0/B; stage C pending (attended; bw-scratch measured, payload `dcpc-20261107-9ec63d9a` built).
+- m1n1 display series `pr/t6050-display` (e0640ca: V27_2/V27_3B1 strings, T6050 __OS_LOG reservations, opt-in display
+  hand-off behind chosen.m5,t6050-display=1, compat 27.3.0) stacked on bring-up + #65, builds with 0 new warnings;
+  opens after the attended Aurora-loader sitting.
