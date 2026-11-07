@@ -904,3 +904,23 @@ with labels `m1n1_stage2.log` and `adt`, so `modprobe phram` with no parameters 
 - Next: an m1n1 change (`n1-wifi/w2/`): start the ANS in stage-2 for the training window, or train without the snapshot
   when the ANS is down, or train in stage-1; agent analysis in progress.
 
+### Result (R3-AUDIO-B4, 2026-11-07 12:00 UTC, self-revert loop + A/B stage-1, nobody at the machine)
+
+Payload `audio-b4-20261107-d2f29654.bin`: kernel `7.3.0-g7767a8193740` (`audio/tdm` 0001-0003: 0003 waits for the speaker
+service to report `pwrd` before the unmute and logs the state at stream end), the deferred-shutdown spk DTB, battery on,
+`speaker_max_db=-40`, `m5.selftest=1`, prev = the WFI daily `dcec81ed`. Script `b4-run.sh` (interrupt and unhandled counts
+per tone, pin state, three tones, one with the daemon stopped, switch-off, amp registers).
+
+**Boots and is safe; the fault is continuous during playback, not an edge.** Gates pass as on B3. Idle 10 s without a
+stream: amp IRQ (GPIO 106, level, idle high) count +0, unhandled +0, so the line is not stuck and there is no storm at
+rest. Each 2 s tone: `spkr: pwrd reached after 0 ms (1 reads)` (the service is already running because speakersafetyd
+holds the sense stream), the first `bad TDM clock` 35 ms later, then 590-722 "callbacks suppressed" and +635..+641
+interrupts per tone with unhandled +0: about 320 real latches per second on all six amps for the whole stream, the same
+with speakersafetyd stopped (volumes locked, silent), none after `Speaker Switch` off. No `firmware stopped it` line.
+- Reading: the TDM clock/frame the AOP serializer drives for the J716s six-channel stream does not match what the amps are
+  programmed to expect (bit-clock ratio, FSYNC rate, slot width or count), so 0002/0003's ordering fixes were aimed at the
+  wrong thing; they stay (they cost nothing and removed the switch-off burst). The J716s has six amps (three per I2C bus)
+  against the J714c's four; the J716 macaudio entry reuses the J714 front-end names and serializer configuration.
+- Logs: `/boot/r1-logs/audio-b4-20261107/` (private). Next: 0004 after the geometry comparison (agent); a 2- or 4-channel
+  stream as a discriminator.
+
