@@ -35,3 +35,20 @@ session with scripts/session-gl.env (rollback: the saved zink env). Triage: EINV
 on the shim); accepted but wrong pixels or GPU timeout = encoder misbehaviour on the G17 runtime (AGX_MESA_DEBUG=faulttrace).
 Risks: the Gallium M5 encoders have only run on G17G's runtime; internal dispatches record no compute profile; tile budget
 stays 32 KiB; Hyprland needs native GBM LINEAR scanout.
+
+## Update 2026-11-07 22:50 UTC: all three hardware failures fixed, verified on the machine
+
+- Stencil-blend alpha: the test expectation was wrong (GL blends alpha too: bf808080 is right; zink was right), but a
+  real bug sat underneath: on G17S, as on G17P, a covered fragment that stores nothing still dirties the tile, and the
+  epilog's tile load/store fix was enabled for G17P only -> patch 0004 enables it for G17S/G17C.
+- gbm-scanout black: a read-before-write race, not rendering: `gbm_bo_map` maps through GBM's own context and read
+  before the GPU finished -> patch 0005 waits for the writer on any other context plus the implicit fences before a CPU
+  map (applies to G17G too; Hyprland's scanout copy already waits on the implicit fences).
+- GL 3.2 instead of 3.3: timer queries had been disabled on all M5 parts in patch 0002; re-enabled for G17S/G17C (the
+  kernel supports timestamps); GL 4.6 core now.
+Re-run on the machine with the new libgallium: gl-native-probe PASS (8 blend/mask cases + window surfaces),
+gl-native-smoke 12/12, gbm-scanout-test PASS, eglinfo GL 4.6 core, gpubench-gl render.light runs (timer_queries true),
+no GPU errors. Offline: shim gate clean, 108/110 asahi tests (same two G17P blit failures as the base).
+Rebuilt: MESA_COMMIT 043a4c58080c4951fea3797fe45fc6898ce77632, out/mesa-aurora-gl.tar.gz 78014d19…1904d34b; patches
+0001-0005 (timer-query and compute-timestamp changes folded into 0002/0003). Debug env is `ASAHI_MESA_DEBUG=batch,resource`
+(no faulttrace switch). Next: install as /opt/mesa-aurora-gl, re-run the A/B, then the session phase (session-gl.env).
