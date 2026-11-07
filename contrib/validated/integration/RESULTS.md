@@ -1296,3 +1296,18 @@ adopted-link s2idle fix 0087), N1-aware m1n1, W4 chosen lines, stitched-FTAB ini
 - The separate ASPM PR branch (`pr/pcie-apple-adopted-port-aspm`) is redundant with edimoldovan's ab24d156868e (our
   0085), now validated here; hold it and point to his.
 
+### Result (BOARDV2-T2, 2026-11-07 17:22-17:26 UTC, loop)
+
+Retry of the board-v2 DTB payload: **boots on the primary slot**, self-test "network OK": NVMe root, DockChannel
+keyboard/trackpad/actuator, 10 input devices, N1 adopted, wlan0 associated, hci0, battery, 6 hwmon (the SMC set; the
+daily's extra 6 are the amps), no audio (expected, the PR DT has no audio nodes), the panel connector reports
+`Unknown-1` connected (no `apple,internal-panel` in the PR DT). **The v2 board DT is validated**; PR opened.
+
+### Observation: first boot of a new payload file fails once (4 of ~16 today)
+
+DAILY-NEXT "full", crash-log T1, the lid+Wi-Fi test twin and the board-v2 payload each fell back on the FIRST boot after
+the file was written, and every retry of the same bytes booted; no second-or-later boot of any file failed today. Not
+yet explained (not a data problem: the hash was verified before and after). Mitigation to try on the next deploys:
+after `mv` and `sync`, unmount and remount the ESP before rebooting, and keep counting. Crash-log T1 was never retried,
+so its "does not boot" verdict is weaker than recorded.
+
