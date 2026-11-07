@@ -1,0 +1,34 @@
+From 0c048c6676819d6ab36ddfadd1391f6bb43094a1 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:19:36 -0500
+Subject: [PATCH 1/4] kboot: allow up to 16 /arm-io/i2c devices
+
+The J716s ADT has nine I2C controllers, i2c0 to i2c8.
+dt_disable_missing_devs() takes at most eight, so kboot_prepare_dt()
+failed with "ADT: too many /arm-io/i2c devices" and m1n1 fell back to
+the proxy instead of booting the kernel. Raise the limit to 16. Only
+the size of two temporary arrays changes; the lookup is the same.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ src/kboot.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index a75b5e9..f7affff 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -6979,7 +6979,8 @@ int kboot_prepare_dt(void *fdt)
+         return -1;
+     if (dt_disable_missing_devs("acio", "cio@", 8, 2))
+         return -1;
+-    if (dt_disable_missing_devs("i2c", "i2c@", 8, 0))
++    /* T6050 has nine I2C controllers (i2c0..i2c8) */
++    if (dt_disable_missing_devs("i2c", "i2c@", 16, 0))
+         return -1;
+     if (dt_disable_missing_j700_touch_id())
+         return -1;
+-- 
+2.56.0
+

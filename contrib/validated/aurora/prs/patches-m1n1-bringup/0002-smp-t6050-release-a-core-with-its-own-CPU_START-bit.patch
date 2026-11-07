@@ -1,0 +1,47 @@
+From 9e3b818bf934628da0c8468834475e2d5e8c26d5 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:17:15 -0500
+Subject: [PATCH 2/4] smp: t6050: release a core with its own CPU_START bit
+
+smp_start_cpu() and smp_stop_cpu() write BIT(4 * cluster + core) to
+CPU_START +0x4 and +0x0, which assumes clusters of at most four cores.
+T6050 has three clusters of six, so from cluster 1 on the bit belongs to
+another core: cpu6 (1:0) sets bit 4, cpu4's, and cpu12 (2:0) bit 8,
+cpu8's.
+
+On a J716s both registers read 0x3fffe at rest, one bit per secondary
+indexed by the ADT cpu-id, and XNU's release sequence sets
+BIT(cpu-id) in +0x4 before the cluster's core bit in +0x8 + 4 * cluster.
+Use the cpu-id on T6050, as T8142 already does. The +0x8 core bit, the
+part that starts the core, is unchanged.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ src/smp.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/smp.c b/src/smp.c
+index ed63e68..48ae0e4 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -274,8 +274,14 @@ void smp_secondary_prep_el3(void)
+ 
+ static u32 cpu_start_bit(int index, const struct cpu_info *cpu)
+ {
+-    /* T8142 has six E cores followed by four P cores, not four-core banks. */
+-    if (chip_id == T8142)
++    /*
++     * T8142 has six E cores followed by four P cores, not four-core banks. T6050
++     * has three six-core clusters, so 4 * cluster + core names another core from
++     * cluster 1 on (cpu6 = 1:0 would be bit 4, cpu4's). As XNU does, use the ADT
++     * cpu-id: CPU_START +0x0/+0x4 read 0x3fffe at rest on a J716s, one bit per
++     * secondary.
++     */
++    if (chip_id == T8142 || chip_id == T6050)
+         return BIT(index);
+ 
+     return BIT(4 * cpu->cluster + cpu->core);
+-- 
+2.56.0
+

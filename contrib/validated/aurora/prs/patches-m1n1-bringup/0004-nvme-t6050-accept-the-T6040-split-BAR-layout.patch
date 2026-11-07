@@ -1,0 +1,57 @@
+From d8a045851a1f0ce8478fd781309d3c78b75bd451 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:19:07 -0500
+Subject: [PATCH 4/4] nvme: t6050: accept the T6040 split BAR layout
+
+The J716s ADT gives /arm-io/ans a 0x10000 "nvme" region (reg[9]) and a
+0x60010 NVMMU (reg[3]), as T6040 does. nvme_init() checked the "nvme"
+region for the linear submission queue registers at +0x24908..+0x24910,
+which only T6040/T6041 look for in the NVMMU block, and failed with
+"invalid split BAR geometry" before starting ANS.
+
+Treat T6050 as T6040: linear queue registers in the NVMMU block, the
+layout of Linux's apple,t6050-nvme-ans2 profile (lsq_in_nvmmu). Unlike
+T6040, still set LINEAR_SQ_CTRL.EN: it is not shown on T6050 that the
+firmware sets it after m1n1 boots ANS cold, our stage 2 lineage writes
+it (at +0x24908 of the "nvme" region) on every J716s boot, and setting
+it again is harmless.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ src/nvme.c | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/src/nvme.c b/src/nvme.c
+index feb6bfc..104e3b6 100644
+--- a/src/nvme.c
++++ b/src/nvme.c
+@@ -424,9 +424,10 @@ bool nvme_init(void)
+          * On T6040/T6041 the "nvme" block really ends at 0x10000: LINEAR_SQ_CTRL and the
+          * linear submission queue doorbells sit at the same offsets in the NVMMU block,
+          * and the firmware enables the linear queues itself (as the Linux driver's
+-         * apple,t6041-nvme-ans2 entry does).
++         * apple,t6041-nvme-ans2 entry does). T6050 has the same layout (a 0x10000 "nvme"
++         * block, a 0x60010 NVMMU on J716s; Linux's apple,t6050-nvme-ans2 profile).
+          */
+-        nvme_lsq_in_nvmmu = chip_id == T6040 || chip_id == T6041;
++        nvme_lsq_in_nvmmu = chip_id == T6040 || chip_id == T6041 || chip_id == T6050;
+         u64 lsq_size = nvme_lsq_in_nvmmu ? nvmmu_size : nvme_size;
+         u64 nvme_need = nvme_lsq_in_nvmmu ? NVME_BOOT_STATUS + sizeof(u32)
+                                           : NVME_DB_LINEAR_IOSQ + sizeof(u32);
+@@ -512,7 +513,11 @@ bool nvme_init(void)
+ 
+ setup_controller:
+     /* setup controller and NVMMU for linear submission queue */
+-    if (!nvme_lsq_in_nvmmu)
++    /*
++     * Not shown on T6050 that the firmware enables the linear queues after a
++     * cold ANS boot; setting the enable bit again is harmless.
++     */
++    if (!nvme_lsq_in_nvmmu || chip_id == T6050)
+         set32(nvme_lsq_base + NVME_LINEAR_SQ_CTRL, NVME_LINEAR_SQ_CTRL_EN);
+     write32(nvme_base + NVME_MAX_PEND_CMDS_CTRL,
+             ((NVME_QUEUE_SIZE - 1) << 16) | (NVME_QUEUE_SIZE - 1));
+-- 
+2.56.0
+
