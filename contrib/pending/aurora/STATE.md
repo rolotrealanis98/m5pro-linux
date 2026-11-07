@@ -1,11 +1,40 @@
 # Aurora kernel on the J716s: current state and exact ingredients
 
 **This file is the single source of truth for the Aurora payload ingredients** (it replaces
-`pipe-park/STATE.md`, moved here with `git mv`). The newest working payload is R3-R; R3-Q's ingredients follow
-unchanged below it, because R3-R is R3-Q plus the items in the next section. Results and the boot tables:
-`../integration/RESULTS.md` ("Round R3"). Per-unit values (PHY tunables) are not in this repository.
+`pipe-park/STATE.md`, moved here with `git mv`). The newest boot is R3-V (next section); R3-T is its m1n1/DT twin
+on the older kernel, R3-R's and R3-Q's ingredients follow unchanged below, each as a delta on the one before.
+Results and the boot tables: `../integration/RESULTS.md` ("Round R3"). Per-unit values (PHY tunables) are no longer
+in the DT at all: m1n1 0021 fills them at boot.
 
-# R3-R: trackpad (the newest working boot, 2026-11-07 about 01:45)
+# Current (R3-V, 2026-11-07)
+
+Payload sha256 prefix `8864d45e`, booted by the self-revert loop (nobody at the machine). R3-T (`08902f08`) is the same
+payload on kernel `6d9f1ec652a6`; R3-X (R3-V + simpledrm eDP patch 0029 + `apple,internal-panel` on the framebuffer
+node) is in flight.
+
+| Part | R3-V | Change from R3-R |
+|---|---|---|
+| m1n1 | `m1n1-plain-r2-pipepark-atc.bin`, sha256 prefix `28b26ebc` (full: `28b26ebcf91e11e512ef100aae0b3e66d174ebf8a380c243dea4763ae2459a33`), banner `v2.0.0-72-gf7555558` = `pipepark-atc` = stage 2 of R3-N + 0020 (PIPE park) + 0021 (ATC tunables from the ADT) | 0021 added (R3-R's `a28b1815` had 0020 only) |
+| Kernel tree | branch `aurora-j716s`, tip `302945c1ecb3` = `6d9f1ec652a6` (R3-R) + PR #937 (PCIe) + PR #938 (T6050 centauri, 16 patches) | +PR #937, +PR #938 |
+| Config | R3-R's, plus `SECURITY_LANDLOCK` (pacman's download sandbox), `ZRAM`, `PINCTRL_APPLE_GPIO`, `RFKILL`, `CFG80211`, `APPLE_CENTAURI`, `BT_HCICENTAURI`, `BACKLIGHT_CLASS_DEVICE` | the eight listed |
+| DT | `contrib/pending/aurora/dt/t6050-j716s-aurora-decompiled.dts` (compiled `t6050-j716s-typec-fixed8-notun.dtb` next to it): fixed8 **without** the 14 `apple,tunable-*` lists; m1n1 0021 fills them (14 properties seen in the live DT on R3-T). Publishable, no per-unit values | fixed8 (per-unit) for the committed DT |
+| Initramfs | `initramfs-selftest.cpio.gz` (DIAG block + self-revert service), the same file as R3-Q/R3-R: sha256 `ce0b462c0ce465d7cde5fa73bac413f0bc4bf9c833efdf70c782dde06eba217a` | none |
+| Bootargs | R3-Q's (below) incl. `initcall_blacklist=macsmc_power_driver_init` and `m5.selftest=1` | none |
+| Seen on the console | `pcie-apple 1cb0000000.pcie: probe failed -22`: expected, the apcie0 port is untrained (m1n1 0023 is opt-in); harmless | new with PR #937 |
+
+ESP layout (500 MB, prune `boot.bin.failed` after each self-revert):
+
+| File | Now | After R3-X is installed |
+|---|---|---|
+| `boot.bin` | R3-V | R3-X |
+| `boot.bin.prev` (the revert target) | R3-T | R3-V |
+| `boot.bin.b2` | B2 (our 7.2 stack) | same |
+| `boot.bin.known-good` | known-good | same |
+
+**Attended queue** (details: `../integration/RESULTS.md`): R3-U (m1n1 0024 + opt-in DCP handoff), W0/W1/W2 Wi-Fi
+(`n1-wifi/R3-W-RECIPE.md`), R3-S battery, audio mic boot (`audio/R3-AUDIO-RECIPE.md`, `CONFIG_RUST` build).
+
+# R3-R: trackpad (2026-11-07 about 01:45)
 
 Payload sha256 prefix `b457425e`, booted by the self-revert loop. Recipe: `trackpad/R3-R-RECIPE.md`; analysis:
 `trackpad/ANALYSIS.md`.
