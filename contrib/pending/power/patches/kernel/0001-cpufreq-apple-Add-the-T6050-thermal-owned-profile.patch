@@ -1,0 +1,126 @@
+From 809d23c81386c08e58a05c3348da3290118eb6e3 Mon Sep 17 00:00:00 2001
+From: Dj <43033058+DjDeveloperr@users.noreply.github.com>
+Date: Mon, 26 Oct 2026 02:34:18 -0400
+Subject: [PATCH 01/13] cpufreq: apple: Add the T6050 thermal-owned profile
+
+Add the T6050 command-state CPU-frequency profile with explicit firmware thermal ownership. Preserve the 7.3 thermal-policy paths for existing platforms.
+
+Source snapshot: t6050-gpu ee68abb105200e99636a5edfc647a5cfc1d89954
+Integration base: 9cbdd0734d9e186c5f5f5949a21b909d10c2571b
+
+Signed-off-by: Dj <43033058+DjDeveloperr@users.noreply.github.com>
+---
+ .../cpufreq/apple,cluster-cpufreq.yaml        | 23 ++++++++++++++++++-
+ drivers/cpufreq/apple-soc-cpufreq.c           | 23 +++++++++++++++++++
+ 2 files changed, 45 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml b/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
+index f43bfc4fb9f3..e45df27d8420 100644
+--- a/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
++++ b/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
+@@ -1,4 +1,4 @@
+-# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) AND GPL-2.0-only
+ %YAML 1.2
+ ---
+ $id: http://devicetree.org/schemas/cpufreq/apple,cluster-cpufreq.yaml#
+@@ -38,6 +38,7 @@ properties:
+       - const: apple,s5l8960x-cluster-cpufreq
+       - const: apple,t8140-cluster-cpufreq
+       - const: apple,t8142-cluster-cpufreq
++      - const: apple,t6050-cluster-cpufreq
+       - const: apple,t8152-cluster-cpufreq
+       - items:
+           - enum:
+@@ -67,6 +68,16 @@ properties:
+               E, 1 for P0, 2 for P1 on T6041)
+             enum: [0, 1, 2]
+ 
++  apple,firmware-managed-thermal:
++    type: boolean
++    description: |
++      The boot producer has retained active firmware thermal control and
++      qualified it for every OPP published for this cluster. Firmware
++      throttling, voltage and PLL ownership must remain intact throughout
++      the guest lifetime, including after PMP reinitialization. This is
++      an ownership assertion, not a request to enable thermal control.
++      Without it the T6050 driver refuses DVFS registration.
++
+   '#performance-domain-cells':
+     const: 0
+ 
+@@ -75,6 +86,16 @@ required:
+   - reg
+   - '#performance-domain-cells'
+ 
++allOf:
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: apple,t6050-cluster-cpufreq
++    then:
++      required:
++        - apple,firmware-managed-thermal
++
+ additionalProperties: false
+ 
+ examples:
+diff --git a/drivers/cpufreq/apple-soc-cpufreq.c b/drivers/cpufreq/apple-soc-cpufreq.c
+index 85e592faa053..fb87ae6ae137 100644
+--- a/drivers/cpufreq/apple-soc-cpufreq.c
++++ b/drivers/cpufreq/apple-soc-cpufreq.c
+@@ -206,6 +206,7 @@ struct apple_soc_cpufreq_info {
+ 	/* Fail closed when the DT describes no fast die-temperature limit. */
+ 	bool needs_thermal_policy;
+ 	bool needs_thermal_owner;
++	bool needs_firmware_thermal_control;
+ 	u32 transition_timeout_us;
+ 	/* Highest P-state allowed without a thermal policy; 0 if not capped. */
+ 	u32 max_unmanaged_pstate;
+@@ -340,6 +341,16 @@ static const struct apple_soc_cpufreq_info soc_t8132_info = {
+ 	.ps1_shift = APPLE_DVFS_CMD_PS1_SHIFT,
+ };
+ 
++/* Command-state readback, not a measurement of the clock frequency. */
++static const struct apple_soc_cpufreq_info soc_t6050_info = {
++	.verify_transition = true,
++	.needs_firmware_thermal_control = true,
++	.transition_timeout_us = 2000,
++	.max_pstate = 31,
++	.ps1_mask = APPLE_DVFS_CMD_PS1,
++	.ps1_shift = APPLE_DVFS_CMD_PS1_SHIFT,
++};
++
+ static const struct apple_soc_cpufreq_info soc_default_info = {
+ 	.has_ps2 = false,
+ 	.max_pstate = 15,
+@@ -373,6 +384,10 @@ static const struct of_device_id apple_soc_cpufreq_of_match[] __maybe_unused = {
+ 		.compatible = "apple,t8140-cluster-cpufreq",
+ 		.data = &soc_t8140_info,
+ 	},
++	{
++		.compatible = "apple,t6050-cluster-cpufreq",
++		.data = &soc_t6050_info,
++	},
+ 	{
+ 		.compatible = "apple,t8142-cluster-cpufreq",
+ 		.data = &soc_t8142_info,
+@@ -1355,6 +1370,14 @@ static int apple_soc_cpufreq_init(struct cpufreq_policy *policy)
+ 		goto out_free_priv;
+ 	}
+ 
++	/* The boot producer must retain and qualify firmware thermal control. */
++	if (info->needs_firmware_thermal_control &&
++	    !of_property_read_bool(cluster, "apple,firmware-managed-thermal")) {
++		dev_err(cpu_dev, "firmware thermal ownership is not declared\n");
++		ret = -ENODEV;
++		goto out_iounmap;
++	}
++
+ 	ret = dev_pm_opp_of_cpumask_add_table(policy->cpus);
+ 	if (ret < 0) {
+ 		dev_err(cpu_dev, "%s: failed to add OPP table: %d\n", __func__, ret);
+-- 
+2.56.0
+
