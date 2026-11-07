@@ -1,0 +1,72 @@
+From afbc2bddc58c8737b389790279e5aa3db467c204 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:52:07 -0500
+Subject: [PATCH 06/11] media: apple: ave: Add the T6050 encoder, probe only
+
+The J716s ADT describes an "ave2" encoder (/arm-io/ave0, soc-id t6050)
+whose firmware iBoot preloads: __TEXT 0x158000 and __DATA 0x134000 bytes
+(segment-ranges), larger than T6041's and T8140's. The J716s macOS 27
+firmware bundle carries AppleAVE2FW 9013.55.1, a build no command layout
+here covers.
+
+Its boot device ID and device type are not known, so the variant is not
+boot-qualified: probe checks the hand-off and the CRCs and keeps a copy
+of DATA, but never starts the coprocessor, and encoding is refused. The
+coprocessor registers are taken from T6041 and T8140 for when it is.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/media/platform/apple/ave/Kconfig   |  2 +-
+ drivers/media/platform/apple/ave/ave-drv.c | 18 ++++++++++++++++++
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/apple/ave/Kconfig b/drivers/media/platform/apple/ave/Kconfig
+index de05c7aeb7b2..652e539398fd 100644
+--- a/drivers/media/platform/apple/ave/Kconfig
++++ b/drivers/media/platform/apple/ave/Kconfig
+@@ -12,7 +12,7 @@ config VIDEO_APPLE_AVE
+ 	  Apple T8140 (A18 Pro) SoCs, as in the MacBook Neo.
+ 	  T6000 (M1 Pro) and T8112 (M2) support lifecycle-only validation
+ 	  of firmware 6070.11.1 through debugfs; encoding stays disabled.
+-	  T6041 (M4 Pro) has probe-only support.
++	  T6041 (M4 Pro) and T6050 (M5 Pro/Max) have probe-only support.
+ 
+ 	  The encoder firmware is loaded by the bootloader; the driver builds
+ 	  every command itself. See Documentation/admin-guide/media/apple-ave.rst.
+diff --git a/drivers/media/platform/apple/ave/ave-drv.c b/drivers/media/platform/apple/ave/ave-drv.c
+index c145e29538c7..756498525ace 100644
+--- a/drivers/media/platform/apple/ave/ave-drv.c
++++ b/drivers/media/platform/apple/ave/ave-drv.c
+@@ -100,6 +100,23 @@ static const struct ave_variant ave_t6041 = {
+ 	.boot_qualified = true,
+ };
+ 
++/*
++ * The M5 Pro/Max (T6050) encoder: an "ave2" with preloaded TEXT and DATA of
++ * 0x158000 and 0x134000 bytes (ADT segment-ranges). Its boot device ID and
++ * type are not known, so it is probe-only: the firmware is found and checked
++ * but never started, and encoding is refused.
++ */
++static const struct ave_variant ave_t6050 = {
++	.regs = &ave_coproc_v40,
++	.fw_text_size = 0x158000,
++	.fw_data_size = 0x134000,
++	.boot_arg_value = AVE_COPROC_BOOT_ARG_VALUE,
++	.timebase_multiplier = 1,
++	.vcbar_mask = U64_MAX,
++	.vcbar_flags = AVE_COPROC_VCBAR_VALID,
++	.lfs_ref_scale = 2,
++};
++
+ static const struct ave_variant ave_t8140 = {
+ 	.regs = &ave_coproc_v40,
+ 	.fw_text_size = 0x14c000,
+@@ -390,6 +407,7 @@ static const struct dev_pm_ops ave_pm_ops = {
+ static const struct of_device_id ave_of_match[] = {
+ 	{ .compatible = "apple,t6000-ave", .data = &ave_t6000 },
+ 	{ .compatible = "apple,t6041-ave", .data = &ave_t6041 },
++	{ .compatible = "apple,t6050-ave", .data = &ave_t6050 },
+ 	{ .compatible = "apple,t8112-ave", .data = &ave_t8112 },
+ 	{ .compatible = "apple,t8140-ave", .data = &ave_t8140 },
+ 	{}

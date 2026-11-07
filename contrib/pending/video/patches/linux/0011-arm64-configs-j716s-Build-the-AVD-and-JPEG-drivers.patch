@@ -1,0 +1,28 @@
+From 8a5730b23f9b5ef147754fa306e7986c891f3d7b Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:53:05 -0500
+Subject: [PATCH 11/11] arm64: configs: j716s: Build the AVD and JPEG drivers
+
+Build the decoder and JPEG drivers as modules, as asahi.config does, so
+the J716s fragment lists what its device tree enables.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/configs/j716s.config | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index caa69196ae0d..739f5c9d2aaa 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -72,3 +72,9 @@ CONFIG_ZRAM=y
+ CONFIG_ZRAM_BACKEND_ZSTD=y
+ CONFIG_ZRAM_DEF_COMP_ZSTD=y
+ CONFIG_DEVMEM=y
++
++# Media engines, as modules: the AVD video decoder (open firmware
++# apple/avd-fw-v5-t2.bin under /lib/firmware) and the JPEG engines.
++# MEDIA_SUPPORT is =m in defconfig.
++CONFIG_VIDEO_APPLE_AVD=m
++CONFIG_VIDEO_APPLE_JPEG=m

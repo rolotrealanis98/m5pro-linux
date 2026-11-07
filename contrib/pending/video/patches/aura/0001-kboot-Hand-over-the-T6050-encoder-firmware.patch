@@ -1,0 +1,38 @@
+From ba78b5e97d128904ef40f95a1cfde3c0635014fd Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:56:57 -0500
+Subject: [PATCH] kboot: Hand over the T6050 encoder firmware
+
+The M5 Pro/Max encoder (ADT /arm-io/ave0, pre-loaded, __TEXT;__DATA) is
+described in Linux as apple,t6050-ave. List it, so its two preloaded
+segments are reserved and mapped for it and their CRCs exported, as for
+the T6041.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ src/kboot.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index 36a261c..07f2104 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -3712,7 +3712,8 @@ static int dt_reserve_asc_firmware(const char *adt_path, const char *adt_path_al
+ 
+ /*
+  * The AVE video encoder runs firmware that iBoot preloads. The ADT calls the
+- * encoder "ave" on the M2 and A18 Pro and "ave0" on the M1 Pro/Max and M4 Pro.
++ * encoder "ave" on the M2 and A18 Pro and "ave0" on the M1 Pro/Max, M4 Pro and
++ * M5 Pro/Max.
+  * The DT node is found by its compatible, so describing a SoC's encoder is all
+  * it takes.
+  */
+@@ -3721,6 +3722,7 @@ static const char *const ave_compatibles[] = {
+     "apple,t8112-ave",
+     "apple,t8140-ave",
+     "apple,t6041-ave",
++    "apple,t6050-ave",
+ };
+ 
+ static int dt_set_ave_node(int node)

@@ -1,0 +1,29 @@
+From 107aaad947bb9ccb84e40648cbad415bd45da779 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:51:56 -0500
+Subject: [PATCH 01/11] dt-bindings: media: apple,avd: Add T6050
+
+The M5 Pro/Max decoder is the T8142 generation (ADT avd-version 4) and
+falls back to apple,t8142-avd. The J775D (M5 Ultra) device tree already
+uses this pair.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ Documentation/devicetree/bindings/media/apple,avd.yaml | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/media/apple,avd.yaml b/Documentation/devicetree/bindings/media/apple,avd.yaml
+index 1187255b0f47..0dd798f1be15 100644
+--- a/Documentation/devicetree/bindings/media/apple,avd.yaml
++++ b/Documentation/devicetree/bindings/media/apple,avd.yaml
+@@ -27,6 +27,9 @@ properties:
+       - items:
+           - const: apple,t6041-avd
+           - const: apple,t8132-avd
++      - items:
++          - const: apple,t6050-avd
++          - const: apple,t8142-avd
+       - enum:
+           - apple,t8103-avd
+           - apple,t6000-avd

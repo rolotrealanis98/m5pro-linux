@@ -1,0 +1,141 @@
+diff -ru --exclude=*.o --exclude=*.ko --exclude=*.cmd --exclude=*.mod* --exclude=Module.symvers --exclude=modules.order --exclude=.* orig/drivers/media/platform/apple/avd/avd-drv.c mods/drivers/media/platform/apple/avd/avd-drv.c
+--- orig/drivers/media/platform/apple/avd/avd-drv.c	2026-11-07 11:46:50
++++ mods/drivers/media/platform/apple/avd/avd-drv.c	2026-11-07 13:54:42
+@@ -583,6 +583,43 @@
+ 	.quirks = AVD_QUIRK_HEVC_V5_HEADER | AVD_QUIRK_H264_MV_128,
+ };
+ 
++/*
++ * M5 Pro/Max: the T8142 generation (ADT avd-version 4) with the SRAM window
++ * at +0x1094000 that avd-fw's v5 tier 2 image expects. The VP layout and
++ * the H.264 motion vector size are T8142's; a larger T6050 VP pool would
++ * be a superset, so these slots stay within the hardware either way.
++ * Recovery does not reset the block: the M4 Max hangs on that reset, and
++ * this decoder has not been through one yet.
++ */
++static const struct avd_variant avd_t6050_variant = {
++	.vp_slots = {
++		[AVD_CODEC_HEVC] = 2,
++		[AVD_CODEC_H264] = 1,
++		[AVD_CODEC_VP9] = 1,
++		[AVD_CODEC_AV1] = 1,
++	},
++	.vp_slot_base = {
++		[AVD_CODEC_HEVC] = 0,
++		[AVD_CODEC_H264] = 4,
++		[AVD_CODEC_VP9] = 8,
++		[AVD_CODEC_AV1] = 9,
++	},
++	.fifo_slots = 7,
++	.configure_stream = t8122_configure_stream,
++	.capabilities = AVD_CAPABILITY_HEVC |
++			AVD_CAPABILITY_H264 |
++			AVD_CAPABILITY_VP9 |
++			AVD_CAPABILITY_AV1,
++	.fw_name = "apple/avd-fw-v5-t2.bin",
++	.revision = 4,
++	.vp_slot_offset = 0xc,
++	.submit_offset = 0x40,
++	.submit_queue_max_offset = 0x44,
++	.submit_queue_status_offset = 0x7c,
++	.quirks = AVD_QUIRK_HEVC_V5_HEADER | AVD_QUIRK_H264_MV_128 |
++		  AVD_QUIRK_NO_RECOVERY_RESET,
++};
++
+ /* can also be derived from a version register */
+ static const struct of_device_id avd_of_match[] = {
+ 	{
+@@ -612,6 +649,10 @@
+ 	{
+ 		.compatible = "apple,t6041-avd",
+ 		.data = &avd_t6040_variant
++	},
++	{
++		.compatible = "apple,t6050-avd",
++		.data = &avd_t6050_variant
+ 	},
+ 	{
+ 		.compatible = "apple,t8132-avd",
+diff -ru --exclude=*.o --exclude=*.ko --exclude=*.cmd --exclude=*.mod* --exclude=Module.symvers --exclude=modules.order --exclude=.* orig/drivers/media/platform/apple/avd/avd-pm.c mods/drivers/media/platform/apple/avd/avd-pm.c
+--- orig/drivers/media/platform/apple/avd/avd-pm.c	2026-11-07 11:46:50
++++ mods/drivers/media/platform/apple/avd/avd-pm.c	2026-11-07 13:54:42
+@@ -336,6 +336,15 @@
+ 	ret = avd_pm_park(avd);
+ 	if (ret)
+ 		return ret;
++	/*
++	 * On the J616C the machine hangs right after this reset, while the
++	 * decoder's DART domain is restored. The cause is not known yet, so
++	 * stay parked: players fall back to software.
++	 */
++	if (avd->variant && avd->variant->quirks & AVD_QUIRK_NO_RECOVERY_RESET) {
++		dev_err(avd->dev, "recover: staying parked, no reset on this SoC\n");
++		return -EIO;
++	}
+ 	dev_warn(avd->dev, "recover: reset\n");
+ 	ret = reset_control_reset(avd->rstc);
+ 	if (ret) {
+diff -ru --exclude=*.o --exclude=*.ko --exclude=*.cmd --exclude=*.mod* --exclude=Module.symvers --exclude=modules.order --exclude=.* orig/drivers/media/platform/apple/avd/avd.h mods/drivers/media/platform/apple/avd/avd.h
+--- orig/drivers/media/platform/apple/avd/avd.h	2026-11-07 11:46:50
++++ mods/drivers/media/platform/apple/avd/avd.h	2026-11-07 13:54:42
+@@ -43,6 +43,8 @@
+ #define AVD_QUIRK_V5_QUEUE_PACING	BIT(3)
+ /* H.264 co-located motion vectors take 128 bytes per macroblock, not 64. */
+ #define AVD_QUIRK_H264_MV_128	BIT(4)
++/* A reset after a timeout hangs the machine: stay parked and retire the decoder */
++#define AVD_QUIRK_NO_RECOVERY_RESET BIT(5)
+ 
+ #define VP_SLOT_NONE		255
+ #define INST_FIFO_SLOT_NONE	255
+diff -ru --exclude=*.o --exclude=*.ko --exclude=*.cmd --exclude=*.mod* --exclude=Module.symvers --exclude=modules.order --exclude=.* orig/drivers/media/platform/apple/jpeg/apple-jpeg-drv.c mods/drivers/media/platform/apple/jpeg/apple-jpeg-drv.c
+--- orig/drivers/media/platform/apple/jpeg/apple-jpeg-drv.c	2026-11-07 11:46:50
++++ mods/drivers/media/platform/apple/jpeg/apple-jpeg-drv.c	2026-11-07 13:54:42
+@@ -799,6 +799,7 @@
+ 
+ static const struct of_device_id aj_of_match[] = {
+ 	{ .compatible = "apple,t6041-jpeg", .data = &apple_jpeg_t6041 },
++	{ .compatible = "apple,t6050-jpeg", .data = &apple_jpeg_t6050 },
+ 	{ .compatible = "apple,t8140-jpeg", .data = &apple_jpeg_t8140 },
+ 	{ }
+ };
+diff -ru --exclude=*.o --exclude=*.ko --exclude=*.cmd --exclude=*.mod* --exclude=Module.symvers --exclude=modules.order --exclude=.* orig/drivers/media/platform/apple/jpeg/apple-jpeg-hw.h mods/drivers/media/platform/apple/jpeg/apple-jpeg-hw.h
+--- orig/drivers/media/platform/apple/jpeg/apple-jpeg-hw.h	2026-11-07 11:46:50
++++ mods/drivers/media/platform/apple/jpeg/apple-jpeg-hw.h	2026-11-07 13:54:42
+@@ -87,6 +87,8 @@
+ #define AJ_HWREV_MASK			0xffff0fff
+ /* ADT hw-type 0x101008; its stepping nibble is masked off like T8140's. */
+ #define AJ_HWREV_T6041			0x100008
++/* ADT hw-type 0x111010, under the same mask. */
++#define AJ_HWREV_T6050			0x110010
+ #define AJ_HWREV_T8140			0x110000
+ 
+ struct apple_jpeg_variant {
+@@ -101,6 +103,15 @@
+ static const struct apple_jpeg_variant apple_jpeg_t6041 = {
+ 	.hwrev_mask = AJ_HWREV_MASK,
+ 	.hwrev = AJ_HWREV_T6041,
++};
++
++/*
++ * T6050 is T8140's engine generation (0x11xxxx) and is driven like it; its
++ * revision is taken from the ADT's hw-type.
++ */
++static const struct apple_jpeg_variant apple_jpeg_t6050 = {
++	.hwrev_mask = AJ_HWREV_MASK,
++	.hwrev = AJ_HWREV_T6050,
+ };
+ 
+ static const struct apple_jpeg_variant apple_jpeg_t8140 = {
+diff -ru --exclude=*.o --exclude=*.ko --exclude=*.cmd --exclude=*.mod* --exclude=Module.symvers --exclude=modules.order --exclude=.* orig/drivers/media/platform/apple/jpeg/apple-jpeg-test.c mods/drivers/media/platform/apple/jpeg/apple-jpeg-test.c
+--- orig/drivers/media/platform/apple/jpeg/apple-jpeg-test.c	2026-11-07 11:46:50
++++ mods/drivers/media/platform/apple/jpeg/apple-jpeg-test.c	2026-11-07 13:54:42
+@@ -19,6 +19,9 @@
+ 	KUNIT_EXPECT_TRUE(test, apple_jpeg_hwrev_supported(&apple_jpeg_t6041, 0x10f008));
+ 	KUNIT_EXPECT_FALSE(test, apple_jpeg_hwrev_supported(&apple_jpeg_t6041, 0x101009));
+ 	KUNIT_EXPECT_FALSE(test, apple_jpeg_hwrev_supported(&apple_jpeg_t8140, 0x101008));
++	KUNIT_EXPECT_TRUE(test, apple_jpeg_hwrev_supported(&apple_jpeg_t6050, 0x111010));
++	KUNIT_EXPECT_FALSE(test, apple_jpeg_hwrev_supported(&apple_jpeg_t6050, 0x110000));
++	KUNIT_EXPECT_FALSE(test, apple_jpeg_hwrev_supported(&apple_jpeg_t8140, 0x111010));
+ 	KUNIT_EXPECT_FALSE(test, apple_jpeg_hwrev_supported(NULL, 0x110000));
+ }
+ 

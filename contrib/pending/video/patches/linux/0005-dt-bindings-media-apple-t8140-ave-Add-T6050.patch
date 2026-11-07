@@ -1,0 +1,34 @@
+From 89f268e3975d4de71a9c609c4cb38505ab799a1d Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:52:07 -0500
+Subject: [PATCH 05/11] dt-bindings: media: apple,t8140-ave: Add T6050
+
+The M5 Pro/Max encoder has the codec, mailbox and coprocessor banks of
+the T6041 and T8140 encoders, with the same five power domains.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ Documentation/devicetree/bindings/media/apple,t8140-ave.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/media/apple,t8140-ave.yaml b/Documentation/devicetree/bindings/media/apple,t8140-ave.yaml
+index 5f737feb625c..d304f598d7ac 100644
+--- a/Documentation/devicetree/bindings/media/apple,t8140-ave.yaml
++++ b/Documentation/devicetree/bindings/media/apple,t8140-ave.yaml
+@@ -20,6 +20,7 @@ properties:
+       - enum:
+           - apple,t6000-ave
+           - apple,t6041-ave
++          - apple,t6050-ave
+           - apple,t8112-ave
+           - apple,t8140-ave
+       - items:
+@@ -121,6 +122,7 @@ allOf:
+           contains:
+             enum:
+               - apple,t6041-ave
++              - apple,t6050-ave
+               - apple,t8112-ave
+               - apple,t8140-ave
+     then:

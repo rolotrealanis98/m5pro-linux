@@ -1,0 +1,52 @@
+From 7f94055a2d66b6ab49a1d246a7a7397f9543e4d9 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:52:08 -0500
+Subject: [PATCH 07/11] dt-bindings: media: apple,prores: Add T6050
+
+The M5 Pro/Max ProRes engine (ADT apr,n0) has T6041's engine, wrapper
+and auxiliary windows, a reset, one DART stream and two interrupts.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ .../bindings/media/apple,prores.yaml          | 20 +++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/media/apple,prores.yaml b/Documentation/devicetree/bindings/media/apple,prores.yaml
+index 1b24523e3d00..54530a549020 100644
+--- a/Documentation/devicetree/bindings/media/apple,prores.yaml
++++ b/Documentation/devicetree/bindings/media/apple,prores.yaml
+@@ -27,6 +27,7 @@ properties:
+               - apple,t6030-prores
+               - apple,t6031-prores
+               - apple,t6041-prores
++              - apple,t6050-prores
+               - apple,t8112-prores
+               - apple,t8122-prores
+           - const: apple,prores
+@@ -125,6 +126,25 @@ allOf:
+       required:
+         - resets
+         - reg-names
++  - if:
++      properties:
++        compatible:
++          contains:
++            enum:
++              - apple,t6050-prores
++    then:
++      properties:
++        reg:
++          minItems: 3
++          maxItems: 3
++        reg-names:
++          minItems: 3
++          maxItems: 3
++        iommus:
++          maxItems: 1
++      required:
++        - resets
++        - reg-names
+   - if:
+       properties:
+         compatible:

@@ -1,0 +1,332 @@
+From ed21d41c59449f6c95cdc361b3e2f51befb34c62 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:53:04 -0500
+Subject: [PATCH 08/11] arm64: dts: apple: t6050: Add the media engines
+
+Describe the M5 Pro/Max video decoder, video encoder, JPEG engines and
+ProRes engine with their DARTs and power states, from the J716s ADT
+(/arm-io/avd0, ave0, jpeg0, jpeg1, apr0, their DARTs and /arm-io/pmgr).
+The decoder sits where it is on each M5 Ultra die. All stay disabled;
+boards enable what has been tested.
+
+Inferred, not read from hardware: the encoder DARTs' DMA window and the
+order of their two instances (T6041's), and the encoder's SID 0 on its
+second DART (the ADT lists SIDs 0 and 12). The encoder needs the boot
+loader to hand over its preloaded firmware, and no driver binds the ProRes
+engine yet.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/boot/dts/apple/t6050-max.dtsi   |   2 +
+ arch/arm64/boot/dts/apple/t6050-media.dtsi | 291 +++++++++++++++++++++
+ 2 files changed, 293 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/apple/t6050-media.dtsi
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-max.dtsi b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+index d3b0a1f7b80a..75dafbc5def4 100644
+--- a/arch/arm64/boot/dts/apple/t6050-max.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+@@ -115,3 +115,5 @@ mtp_dockchannel: fifo@294b14000 {
+ 		#interrupt-cells = <2>;
+ 	};
+ };
++
++#include "t6050-media.dtsi"
+diff --git a/arch/arm64/boot/dts/apple/t6050-media.dtsi b/arch/arm64/boot/dts/apple/t6050-media.dtsi
+new file mode 100644
+index 000000000000..bfa3c45f9f79
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6050-media.dtsi
+@@ -0,0 +1,291 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * T6050 (M5 Pro/Max) media engines, single die: the video decoder (AVD), the
++ * video encoder (AVE), the two JPEG engines and the ProRes engine (APR).
++ *
++ * From the J716s ADT: /arm-io/avd0, ave0, jpeg0, jpeg1, apr0 and their DARTs,
++ * through arm-io's ranges. Power states from /arm-io/pmgr (device, block +
++ * offset, parent):
++ *   AVD_SYS      390  0x2380600000 + 0x1d8  FAB1_SOC (385, +0x1b0, critical)
++ *   VENC0_SYS    387  0x2380600000 + 0x1c0  FAB0_SOC (384, +0x1a8, critical)
++ *   VENC0_DMA    526  0x2380600000 + 0x8000 VENC0_SYS
++ *   VENC0_PIPE4  527  +0x8008, VENC0_PIPE5 528 +0x8010, VENC0_ME0 529 +0x8018
++ *                     (all VENC0_DMA), VENC0_ME1 530 +0x8020 (VENC0_ME0)
++ *   JPG          389  0x2380600000 + 0x1d0  FAB0_SOC
++ *   SCODEC       152  0x280900000 + 0x190   FAB7_SOC (149, +0x178, critical)
++ * The decoder's AVD_SYS_V and AVD_SOC_DART, the encoder's VENC0_SYS_V and
++ * VENC0_SYS_DART, JPG0_V, JPG1_V, JPG0_DART, SCODEC_V and SCODEC_DART are
++ * clock gates without a PS register under those states. AVD_SYS is also the
++ * decoder's ARST reset, SCODEC the ProRes engine's.
++ *
++ * The AVD and its DART sit where they are on each die of the M5 Ultra
++ * (t6050-ultra.dtsi): die 0's windows, interrupts and power state.
++ */
++
++/ {
++	soc@2280000000 {
++		compatible = "simple-bus";
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges = <0x22 0x80000000 0x22 0x80000000 0x0 0x4000000>,
++			 <0x23 0x08000000 0x23 0x08000000 0x0 0x1404000>,
++			 <0x23 0x80600000 0x23 0x80600000 0x0 0xc000>;
++		nonposted-mmio;
++
++		pmgr4: power-management@2380600000 {
++			compatible = "apple,t6050-pmgr", "apple,t8103-pmgr", "syscon", "simple-mfd";
++			reg = <0x23 0x80600000 0x0 0xc000>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			ps_fab0_soc: power-controller@1a8 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x1a8 4>;
++				label = "fab0_soc";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				apple,always-on;
++			};
++
++			ps_fab1_soc: power-controller@1b0 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x1b0 4>;
++				label = "fab1_soc";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				apple,always-on;
++			};
++
++			ps_venc0_sys: power-controller@1c0 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x1c0 4>;
++				label = "venc0_sys";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				power-domains = <&ps_fab0_soc>;
++			};
++
++			ps_jpg: power-controller@1d0 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x1d0 4>;
++				label = "jpg";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				power-domains = <&ps_fab0_soc>;
++			};
++
++			ps_avd_sys: power-controller@1d8 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x1d8 4>;
++				label = "avd_sys";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				power-domains = <&ps_fab1_soc>;
++			};
++
++			ps_venc0_dma: power-controller@8000 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x8000 4>;
++				label = "venc0_dma";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				power-domains = <&ps_venc0_sys>;
++			};
++
++			ps_venc0_pipe4: power-controller@8008 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x8008 4>;
++				label = "venc0_pipe4";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				power-domains = <&ps_venc0_dma>;
++			};
++
++			ps_venc0_pipe5: power-controller@8010 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x8010 4>;
++				label = "venc0_pipe5";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				power-domains = <&ps_venc0_dma>;
++			};
++
++			ps_venc0_me0: power-controller@8018 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x8018 4>;
++				label = "venc0_me0";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				power-domains = <&ps_venc0_dma>;
++			};
++
++			ps_venc0_me1: power-controller@8020 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x8020 4>;
++				label = "venc0_me1";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				power-domains = <&ps_venc0_me0>;
++			};
++		};
++
++		/*
++		 * Two engines behind one DART (dart-jpeg0, SIDs 0 and 1 for
++		 * mapper-jpeg0 and mapper-jpeg1), ADT hw-type 0x111010. The ADT
++		 * windows are larger (0x20000, 0x44000); the driver maps the
++		 * engine's 16 KiB register block.
++		 */
++		jpeg0: jpeg@2281000000 {
++			compatible = "apple,t6050-jpeg";
++			reg = <0x22 0x81000000 0x0 0x4000>;
++			interrupts = <AIC_IRQ 0 1355 IRQ_TYPE_LEVEL_HIGH>;
++			iommus = <&jpeg_dart 0>;
++			power-domains = <&ps_jpg>;
++			status = "disabled";
++		};
++
++		jpeg_dart: iommu@2281020000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0x22 0x81020000 0x0 0xc000>;
++			#iommu-cells = <1>;
++			interrupts = <AIC_IRQ 0 1356 IRQ_TYPE_LEVEL_HIGH>;
++			apple,dma-range = /bits/ 64 <0x10000000000 0x30000000000>;
++			power-domains = <&ps_jpg>;
++			status = "disabled";
++		};
++
++		jpeg1: jpeg@2281060000 {
++			compatible = "apple,t6050-jpeg";
++			reg = <0x22 0x81060000 0x0 0x4000>;
++			interrupts = <AIC_IRQ 0 1358 IRQ_TYPE_LEVEL_HIGH>;
++			iommus = <&jpeg_dart 1>;
++			power-domains = <&ps_jpg>;
++			status = "disabled";
++		};
++
++		/*
++		 * The encoder runs firmware that iBoot preloads (ADT pre-loaded,
++		 * segment-names __TEXT;__DATA). The boot loader hands it over by
++		 * adding the two memory regions; without them the driver does
++		 * not bind. dart-ave0 has two instances: instance 0 (CPUDART) at
++		 * +0xa0000 and instance 1 at +0x80000, both on interrupt 2432.
++		 */
++		ave_dart1: iommu@2283080000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0x22 0x83080000 0x0 0xc000>;
++			#iommu-cells = <1>;
++			apple,dma-range = <0x100 0x00004000 0x0 0xffffc000>;
++			interrupts = <AIC_IRQ 0 2432 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_venc0_sys>;
++			status = "disabled";
++		};
++
++		ave_dart0: iommu@22830a0000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0x22 0x830a0000 0x0 0xc000>;
++			#iommu-cells = <1>;
++			apple,dma-range = <0x100 0x00004000 0x0 0xffffc000>;
++			interrupts = <AIC_IRQ 0 2432 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_venc0_sys>;
++			status = "disabled";
++		};
++
++		ave: video-codec@2283100000 {
++			compatible = "apple,t6050-ave";
++			reg = <0x22 0x83100000 0x0 0x45c000>,
++			      <0x22 0x83050000 0x0 0x4000>,
++			      <0x22 0x83800000 0x0 0x800000>;
++			reg-names = "codec", "mailbox", "coproc";
++			interrupts = <AIC_IRQ 0 2435 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 2790 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 2789 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 2792 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 2791 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_venc0_dma>, <&ps_venc0_pipe4>,
++					<&ps_venc0_pipe5>, <&ps_venc0_me0>, <&ps_venc0_me1>;
++			power-domain-names = "dma", "pipe4", "pipe5", "me0", "me1";
++			iommus = <&ave_dart0 0>, <&ave_dart1 0>;
++			status = "disabled";
++		};
++
++		/*
++		 * dart-avd0 SIDs 0-2: mapper-avd0, mapper-avd0-piodma,
++		 * mapper-avd0-adsbuf. CM3 code and SRAM 0x14000 each at
++		 * +0x1080000, mailbox +0x10a8000, decode control +0x1100000.
++		 */
++		avd: avd@2309080000 {
++			compatible = "apple,t6050-avd", "apple,t8142-avd";
++			reg = <0x23 0x09080000 0x0 0x14000>,
++			      <0x23 0x09094000 0x0 0x14000>,
++			      <0x23 0x090a8000 0x0 0x4000>,
++			      <0x23 0x09100000 0x0 0x10000>;
++			reg-names = "code", "sram", "mbox", "ctrl";
++			interrupts = <AIC_IRQ 0 2417 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 2418 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_avd_sys>;
++			resets = <&ps_avd_sys>;
++			iommus = <&avd_dart 0>, <&avd_dart 1>, <&avd_dart 2>;
++			status = "disabled";
++		};
++
++		avd_dart: iommu@2309020000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0x23 0x09020000 0x0 0x20000>;
++			#iommu-cells = <1>;
++			interrupts = <AIC_IRQ 0 2424 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_avd_sys>;
++			status = "disabled";
++		};
++	};
++};
++
++&pmgr1 {
++	ps_fab7_soc: power-controller@178 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x178 4>;
++		label = "fab7_soc";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		apple,always-on;
++	};
++
++	ps_scodec: power-controller@190 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x190 4>;
++		label = "scodec";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_fab7_soc>;
++	};
++};
++
++/*
++ * The ProRes engine (macOS AppleProResHW, ADT apr,n0, decode and encode) in
++ * the SCODEC state, laid out like T6041's apr0: engine, wrapper and the
++ * auxiliary window; dart-apr0 is a real-time DART, mapper-apr0 SID 1. The
++ * ProRes driver programs only T8140's engine, so nothing binds here yet.
++ */
++&die0 {
++	apr0_dart: iommu@48d020000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x4 0x8d020000 0x0 0xc000>;
++		#iommu-cells = <1>;
++		interrupts = <AIC_IRQ 0 1712 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_scodec>;
++		status = "disabled";
++	};
++
++	apr0: video-codec@48d000000 {
++		compatible = "apple,t6050-prores", "apple,prores";
++		reg = <0x4 0x8d000000 0x0 0x4000>,
++		      <0x4 0x8c000000 0x0 0x1000000>,
++		      <0x4 0x8d0c0000 0x0 0x4000>;
++		reg-names = "core", "wrapper", "aux";
++		interrupts = <AIC_IRQ 0 1713 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 1750 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_scodec>;
++		resets = <&ps_scodec>;
++		iommus = <&apr0_dart 1>;
++		status = "disabled";
++	};
++};
