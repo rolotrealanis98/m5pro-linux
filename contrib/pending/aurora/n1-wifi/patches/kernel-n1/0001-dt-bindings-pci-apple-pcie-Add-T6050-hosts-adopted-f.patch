@@ -1,0 +1,198 @@
+From 681a4124c11a54782197e9dd4363da174cc53e0d Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 02:24:07 -0800
+Subject: [PATCH 01/16] dt-bindings: pci: apple,pcie: Add T6050 hosts adopted
+ from the boot loader
+
+Add apple,t6050-pcie, a T6050 (M5 Ultra) PCIe host whose root ports the
+boot loader powered, trained and left running. Each such port is marked
+apple,link-trained-by-bootloader and named by its port<n>, phy<n> and
+intr2axi<n> register ranges and its port<n> interrupt; the host's local
+MSI map starts at apple,msi-vector-base. The OS adopts the trained state
+and never resets, retrains or changes the port's power: reset-gpios,
+pwren-gpios and power-domains are not allowed on it.
+
+Also name nonposted-mmio, which these hosts take.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+(cherry picked from commit b42e9ca0bfc8247edb4b36cb1d400bd229191df1)
+---
+ .../devicetree/bindings/pci/apple,pcie.yaml   | 121 +++++++++++++++---
+ 1 file changed, 103 insertions(+), 18 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/pci/apple,pcie.yaml b/Documentation/devicetree/bindings/pci/apple,pcie.yaml
+index fcd5d9f7d08a..d06713e1cb9d 100644
+--- a/Documentation/devicetree/bindings/pci/apple,pcie.yaml
++++ b/Documentation/devicetree/bindings/pci/apple,pcie.yaml
+@@ -68,6 +68,7 @@ properties:
+           - const: apple,t6020-pcie
+       - const: apple,t8140-pcie
+       - const: apple,t8152-pcie
++      - const: apple,t6050-pcie
+       - const: apple,t8132-pcie
+       - const: apple,t8103-pciec
+       - items:
+@@ -96,11 +97,11 @@ properties:
+ 
+   reg:
+     minItems: 3
+-    maxItems: 10
++    maxItems: 14
+ 
+   reg-names:
+     minItems: 3
+-    maxItems: 10
++    maxItems: 14
+ 
+   ranges:
+     minItems: 2
+@@ -112,6 +113,19 @@ properties:
+     minItems: 1
+     maxItems: 4
+ 
++  interrupt-names:
++    minItems: 1
++    maxItems: 4
++    items:
++      pattern: "^port[0-3]$"
++
++  nonposted-mmio: true
++
++  apple,msi-vector-base:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    maximum: 255
++    description: First global vector targeted by this host's local MSI map.
++
+   msi-parent: true
+ 
+   msi-ranges:
+@@ -180,6 +194,19 @@ patternProperties:
+         description: Optional GPIO to power on the device
+         maxItems: 1
+ 
++      apple,link-trained-by-bootloader:
++        type: boolean
++        description: |
++          Firmware has initialized power, shared registers, PHY and clocks,
++          deasserted PERST and trained the link. The OS must validate and adopt
++          this state, with no reset, tunable replay, clock policy changes or
++          retraining fallback. Firmware must leave endpoint DMA and MSI/MSI-X
++          disabled and the port RID table without valid entries. Firmware
++          retains responsibility for power and external reset throughout use.
++          On T6050, each such root port 00:<n>.0 is admitted with one
++          endpoint, device 0 function 0, on the secondary bus the firmware
++          numbered, at Gen3 x1.
++
+       interrupt-controller: true
+ 
+       apple,tunable:
+@@ -217,6 +244,48 @@ allOf:
+         - apple,msi-vector-base
+   - $ref: /schemas/pci/pci-host-bridge.yaml#
+   - $ref: /schemas/interrupt-controller/msi-controller.yaml#
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: apple,t6050-pcie
++    then:
++      properties:
++        reg:
++          minItems: 5
++          maxItems: 14
++        reg-names:
++          description:
++            config and rc, then port<n>, phy<n> and intr2axi<n> for each
++            bootloader-trained root port 00:<n>.0.
++          minItems: 5
++          maxItems: 14
++          items:
++            pattern: "^(config|rc|(port|phy|intr2axi)[0-3])$"
++        interrupts:
++          maxItems: 4
++        interrupt-names:
++          items:
++            pattern: "^port[0-3]$"
++        apple,msi-vector-base:
++          const: 64
++        power-domains: false
++      required:
++        - interrupt-names
++        - apple,msi-vector-base
++        - iommu-map
++      patternProperties:
++        "^pci@":
++          properties:
++            reset-gpios: false
++            pwren-gpios: false
++          required:
++            - apple,link-trained-by-bootloader
++    else:
++      patternProperties:
++        "^pci@":
++          properties:
++            apple,link-trained-by-bootloader: false
+   - if:
+       properties:
+         compatible:
+@@ -343,26 +412,42 @@ allOf:
+                 interrupts:
+                   maxItems: 3
+             else:
+-              properties:
+-                reg-names:
+-                  minItems: 3
+-                  items:
+-                    - const: config
+-                    - const: rc
+-                    - const: port0
+-                    - const: port1
+-                    - const: port2
+-                    - const: port3
+-                    - const: phy0
+-                    - const: phy1
+-                    - const: phy2
+-                    - const: phy3
++              if:
++                properties:
++                  compatible:
++                    contains:
++                      const: apple,t6050-pcie
++              else:
++                properties:
++                  reg:
++                    maxItems: 10
++                  reg-names:
++                    minItems: 3
++                    items:
++                      - const: config
++                      - const: rc
++                      - const: port0
++                      - const: port1
++                      - const: port2
++                      - const: port3
++                      - const: phy0
++                      - const: phy1
++                      - const: phy2
++                      - const: phy3
++        - if:
++            properties:
++              compatible:
++                contains:
++                  const: apple,t6050-pcie
++          else:
++            patternProperties:
++              "^pci@":
++                required:
++                  - reset-gpios
+       patternProperties:
+         "^pci@":
+           properties:
+             apple,tunable: false
+-          required:
+-            - reset-gpios
+ 
+ examples:
+   - |
