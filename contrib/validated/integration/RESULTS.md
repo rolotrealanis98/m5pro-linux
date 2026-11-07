@@ -1222,3 +1222,13 @@ kernel + daily DTB: payload `crashlog-pram-20261107-de06f732`, daily twin `daily
   N1-aware m1n1, which every rollback now needs). Modules for `b61f760243c4` (phram included) on the root.
 - The lid daily `534ca146` is retired from the ESP rotation (copies on the Studio).
 
+### Result (LID sleep on the Wi-Fi daily, 2026-11-07 16:09-16:11 UTC, Rolando at the machine)
+
+Three lid closes of 30 s on `daily-wifi-lid bd9ebd5e` (kernel b61f760243c4, N1 adopted, wlan0 associated): logind
+starts the suspend each time and it **aborts in 0.8 s**: `apple_pcie_suspend_noirq returns -16`, `PM: noirq suspend of
+devices failed` (suspend_stats fail 5, success 0; last_failed_dev 1cb0000000.pcie, step suspend_noirq). The lid patch
+never came into play; the SMC HID event `03 01 00` (close) arrives, logind suspends, pcie-apple refuses with -EBUSY
+because the adopted N1 port is up. The previous daily (no PCIe at all) slept fine. New blocker: **s2idle with the
+adopted N1 port**: a pcie-apple suspend/resume path for adopted ports (agent). Until then the Wi-Fi daily does not
+sleep on lid close (it stays awake); the lid daily 534ca146 sleeps but has no Wi-Fi.
+
