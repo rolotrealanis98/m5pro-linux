@@ -1,30 +1,35 @@
 #!/bin/bash
-# Hyprland rendering on the Apple GPU (aurora render node) while scanout stays
-# on simpledrm. Used instead of hypr-session when /run/hypr-gpu exists (one
-# boot only: /run is tmpfs). Path:
-#   Hyprland -> GBM/EGL -> zink on the Vulkan driver (Borealis) on the aurora
-#   render node; scanout buffers are LINEAR buffers imported into simpledrm,
-#   which copies them to the boot framebuffer with the CPU. The Asahi Gallium
-#   driver declines the M5 Pro (the G17 kernel runtime refuses its renders),
-#   so GL is zink. Zink renders only through a render node: a GBM device that
-#   aquamarine opens on the simpledrm card itself gets Mesa's software
-#   fallback. The renderer Hyprland picked is in the log below.
+# Hyprland rendering on the Apple GPU while scanout stays on simpledrm.
+# hypr-session starts this automatically when an aurora DRM device exists
+# (opt out: /etc/hypr-gpu-disable; force for one boot: /run/hypr-gpu).
+# Path: Hyprland -> GBM/EGL -> zink on the Vulkan driver (Borealis) on the
+# aurora render node; scanout buffers are LINEAR buffers imported into
+# simpledrm, which copies them to the boot framebuffer with the CPU. The Asahi
+# Gallium driver declines the M5 Pro (the G17 kernel runtime refuses its
+# renders), so GL is zink. Zink renders only through a render node: a GBM
+# device that aquamarine opens on the simpledrm card itself gets Mesa's
+# software fallback. The renderer Hyprland picked is in the log below.
+ENV_FILE=/etc/mesa-aurora/session.env
 P=/opt/mesa-aurora
 card=
-for c in /sys/class/drm/card[0-9]; do
+for c in /sys/class/drm/card[0-9]*; do
   [ "$(basename "$(readlink -f "$c/device/driver")")" = simple-framebuffer ] && card=/dev/dri/${c##*/}
 done
 card=${card:-/dev/dri/card0}
 
-export LD_LIBRARY_PATH=$P/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-export __EGL_VENDOR_LIBRARY_FILENAMES=$P/share/glvnd/egl_vendor.d/50_aurora.json
-export __GLX_VENDOR_LIBRARY_NAME=aurora
-export LIBGL_DRIVERS_PATH=$P/lib/dri
-export GBM_BACKENDS_PATH=$P/lib/gbm
-export VK_DRIVER_FILES=$P/share/vulkan/icd.d/asahi_icd.aarch64.json
-export ASAHI_M5_BRINGUP=1
-unset LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER
-export MESA_LOADER_DRIVER_OVERRIDE=zink
+# The Mesa environment, shared with every GL/Vulkan client of the session.
+unset LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER LP_NUM_THREADS WLR_RENDERER_ALLOW_SOFTWARE
+set -a
+. "$ENV_FILE"
+set +a
+mesa_vars=$(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$ENV_FILE" | tr '\n' ' ')
+# User services (xdg-desktop-portal-hyprland, D-Bus activated apps) get it too.
+# A portal still running from an earlier session keeps its old environment, so
+# stop it; D-Bus starts it again on first use.
+systemctl --user import-environment $mesa_vars 2>/dev/null
+dbus-update-activation-environment --systemd $mesa_vars 2>/dev/null
+systemctl --user stop xdg-desktop-portal-hyprland.service 2>/dev/null
+
 # The aurora card has no KMS, so only the display card is listed; aquamarine
 # would skip the render-only card anyway.
 export AQ_DRM_DEVICES=$card
@@ -43,5 +48,5 @@ export QT_QPA_PLATFORM="wayland;xcb" ELECTRON_OZONE_PLATFORM_HINT=wayland MOZ_EN
 export TERMINAL=alacritty EDITOR=nvim BROWSER=chromium
 log=$HOME/.cache/hyprland-gpu.log
 [ -f "$log" ] && mv -f "$log" "$log.old"
-echo "hypr-gpu-session: display card $card, Mesa $(cat $P/MESA_COMMIT 2>/dev/null)" > "$log"
+echo "hypr-gpu-session $(date -Is): display card $card, Mesa $(cat $P/MESA_COMMIT 2>/dev/null)" > "$log"
 exec start-hyprland >> "$log" 2>&1

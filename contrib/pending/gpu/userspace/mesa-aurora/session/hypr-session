@@ -1,0 +1,69 @@
+#!/bin/bash
+# Desktop session launcher for tty2 (started by ~/.bash_profile).
+# GPU session (hypr-gpu-session: zink on the Apple GPU, Aurora Mesa) when the
+# aurora GPU driver is present, otherwise the software session below.
+#   /etc/hypr-gpu-disable  opt out: always the software session
+#   /run/hypr-gpu          force the GPU session for this boot (wins over the opt-out)
+# If the GPU session fails within 30 s of starting, the software session starts
+# instead (reason in ~/.cache/hyprland-gpu.log).
+GPU_SESSION=/usr/local/bin/hypr-gpu-session
+MESA_ENV=/etc/mesa-aurora/session.env
+
+aurora_present() {
+  local c
+  for c in /sys/class/drm/card[0-9]*; do
+    [ "$(basename "$(readlink -f "$c/device/driver")" 2>/dev/null)" = aurora ] && return 0
+  done
+  return 1
+}
+
+want_gpu=0
+if [ -x "$GPU_SESSION" ] && [ -r "$MESA_ENV" ] && [ -d /opt/mesa-aurora ]; then
+  if [ -e /run/hypr-gpu ]; then
+    want_gpu=1
+  elif [ ! -e /etc/hypr-gpu-disable ] && aurora_present; then
+    want_gpu=1
+  fi
+fi
+
+if [ $want_gpu = 1 ]; then
+  started=$SECONDS
+  "$GPU_SESSION"
+  rc=$?
+  if [ $rc -eq 0 ] || [ $((SECONDS - started)) -ge 30 ]; then
+    exit $rc
+  fi
+  echo "hypr-session $(date -Is): GPU session exited with $rc after $((SECONDS - started)) s; starting the software session" \
+    >> "$HOME/.cache/hyprland-gpu.log"
+fi
+
+# Software session: take the GPU session's Mesa variables back out of the
+# user services' environment so portals do not keep them.
+if [ -r "$MESA_ENV" ]; then
+  mesa_vars=$(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$MESA_ENV" | tr '\n' ' ')
+  unset $mesa_vars
+  systemctl --user unset-environment $mesa_vars 2>/dev/null
+  systemctl --user stop xdg-desktop-portal-hyprland.service 2>/dev/null
+fi
+
+# Software-rendered Hyprland on simpledrm (no GPU driver, no render node)
+export LIBGL_ALWAYS_SOFTWARE=1
+export GALLIUM_DRIVER=llvmpipe
+export LP_NUM_THREADS=${LP_NUM_THREADS:-16}
+export WLR_RENDERER_ALLOW_SOFTWARE=1
+export WLR_NO_HARDWARE_CURSORS=1
+export AQ_DRM_DEVICES=/dev/dri/card0
+export AQ_NO_MODIFIERS=1
+export HYPRLAND_NO_RT=1
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=Hyprland
+export XDG_SESSION_DESKTOP=Hyprland
+export LANG=C.UTF-8
+# Omarchy-style toolkit environment
+export PATH=$HOME/.local/bin:$PATH
+export XCURSOR_THEME=Adwaita XCURSOR_SIZE=24
+export QT_QPA_PLATFORM="wayland;xcb" ELECTRON_OZONE_PLATFORM_HINT=wayland MOZ_ENABLE_WAYLAND=1
+export TERMINAL=alacritty EDITOR=nvim BROWSER=chromium
+log=$HOME/.cache/hyprland-tty2.log
+[ -f "$log" ] && mv -f "$log" "$log.old"
+exec start-hyprland > "$log" 2>&1
