@@ -137,3 +137,15 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
 - m1n1 display series `pr/t6050-display` (e0640ca: V27_2/V27_3B1 strings, T6050 __OS_LOG reservations, opt-in display
   hand-off behind chosen.m5,t6050-display=1, compat 27.3.0) stacked on bring-up + #65, builds with 0 new warnings;
   opens after the attended Aurora-loader sitting.
+
+## 2026-11-07 22:00-23:00 UTC: Omarchy (omacom) PRs
+
+- Forks created under rolotrealanis98 with Rolando's permission: linux-aurora, omarchy-mac-pkgs (m1n1 fork pre-existed).
+- omacom/omarchy-mac-pkgs #103 "Cover the 16-inch M5 Pro (J716s) in the audio tests and the manual": opened.
+- omacom/linux-aurora: branch `j716s` (12 commits on #404) pushed to the fork; PR creation refused with "branch not
+  found" while GitHub populates the new fork; a poller opens it once the branch is visible.
+- omacom/m1n1, stacked on edimoldovan's #30 (which superseded #26): #33 T6050 bring-up (RVBAR relay + CI test fixes),
+  #34 optional N1 training and hand-off (on #33), #37 GPU hand-off for apple,agx-g17s (on #34), #35 internal display
+  hand-off for the firmware-27 DCP driver (on #37), #36 `m1n1.wdt=keep`. The #26-based form of this stack booted the
+  J716s first pass (OMACOM-WDT-KEEP); the #30 rebase itself has not booted yet (payload
+  `omacom-wdt-keep-20261107-3713d26f` queued, unattended OK).
