@@ -1,0 +1,37 @@
+From c2e1be601fb4d49dc3338353a6aa1f1aecebf51e Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 04:24:34 -0500
+Subject: [PATCH] arm64: configs: j716s: Enable PM_DEBUG for s2idle testing
+
+s2idle is the J716s's only sleep state. PM_DEBUG (and with it
+PM_SLEEP_DEBUG) adds /sys/power/pm_test: "devices" or "platform" runs
+the suspend and resume callbacks and comes back on its own after 5 s,
+so the path can be exercised without a lid or a wake source. It is how
+the 14-inch M5 Pro (J714s) found an SError in a resume callback. Against
+defconfig + asahi.config + j716s.config it changes exactly these two
+symbols.
+
+Link: https://github.com/betizzel/omarchy-m5/commit/63047c4a96ef545044ac8a034f2166806b60f2f3
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/configs/j716s.config | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index caa69196ae0d..83f1eca906e5 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -64,6 +64,10 @@ CONFIG_APPLE_CENTAURI_WIFI=y
+ CONFIG_BT=y
+ CONFIG_BT_HCICENTAURI=y
+ 
++# Sleep: s2idle is the only state. PM_DEBUG adds /sys/power/pm_test, which
++# runs the suspend path and resumes on its own after 5 s
++CONFIG_PM_DEBUG=y
++
+ # Userspace: pacman's download sandbox, nftables, compressed swap, /dev/mem
+ CONFIG_SECURITY_LANDLOCK=y
+ CONFIG_NF_TABLES=y
+-- 
+2.56.0
+

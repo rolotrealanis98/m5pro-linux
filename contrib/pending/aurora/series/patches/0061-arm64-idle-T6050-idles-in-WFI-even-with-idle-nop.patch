@@ -1,0 +1,98 @@
+From 45a747badc5f80d5200fa2736b2100d15a0b6749 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 04:21:48 -0500
+Subject: [PATCH] arm64: idle: T6050 idles in WFI even with idle=nop
+
+m1n1 appends "idle=nop arm64.nowfxt" to the command line on every chip
+whose Apple system registers are locked (M4 and later), for kernels that
+do not preserve the state WFI loses there. It appends them after the
+user's arguments, so an idle= on the command line cannot override it.
+This kernel preserves that state (apple_wfi_quirk_init(), and WFxT is
+forced off for M4 and later in idreg-override), so on T6050 idle=nop only
+makes every idle CPU spin: cpuidle's two WFI states call cpu_do_idle(),
+which does nothing with idle=nop.
+
+Treat T6050 (MIDR parts 0x064 and 0x065) like T8142 and keep WFI as the
+idle method. On the 14-inch M5 Pro (J714s) with the same register-saving
+WFI, betizzel measured 5.6 W total / 1.6 W SoC at idle against 15.3 W /
+9.7 W with idle=nop, and a per-CPU register check passed 250,000 1 ms
+sleeps on each of its 15 CPUs.
+
+Add apple_keep_idle_nop to keep idle=nop for comparisons and as a
+fallback that needs no new kernel.
+
+Link: https://github.com/betizzel/omarchy-m5/commit/a5df9e4df61b60dd6195e13a2a3a043d76b92c0f
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ .../admin-guide/kernel-parameters.txt         |  7 +++++
+ arch/arm64/kernel/idle.c                      | 27 ++++++++++++++-----
+ 2 files changed, 28 insertions(+), 6 deletions(-)
+
+diff --git a/Documentation/admin-guide/kernel-parameters.txt b/Documentation/admin-guide/kernel-parameters.txt
+index 18f2e943bfb2..2d75f696d8df 100644
+--- a/Documentation/admin-guide/kernel-parameters.txt
++++ b/Documentation/admin-guide/kernel-parameters.txt
+@@ -552,6 +552,13 @@ Kernel parameters
+ 	apm=		[APM] Advanced Power Management
+ 			See header of arch/x86/kernel/apm_32.c.
+ 
++	apple_keep_idle_nop
++			[ARM64,EARLY] On T6050 and T8142, keep idle=nop.
++			These cores idle in WFI by default, and an idle=nop
++			that the boot loader appends is ignored, because the
++			kernel preserves the registers WFI loses there. With
++			this flag idle=nop spins the idle loop as elsewhere.
++
+ 	apparmor=	[APPARMOR] Disable or enable AppArmor at boot time
+ 			Format: { "0" | "1" }
+ 			See security/apparmor/Kconfig help text
+diff --git a/arch/arm64/kernel/idle.c b/arch/arm64/kernel/idle.c
+index 267677adc220..0d76030f7820 100644
+--- a/arch/arm64/kernel/idle.c
++++ b/arch/arm64/kernel/idle.c
+@@ -50,6 +50,18 @@ early_param("idle", setup_idle);
+  * yet, so it is a plain flag.
+  */
+ static bool apple_wfi_loses_regs __ro_after_init;
++static bool apple_keep_idle_nop __initdata;
++
++/*
++ * The boot loader appends idle=nop after the user's arguments, so it cannot
++ * be overridden on the command line. This flag keeps it anyway.
++ */
++static int __init setup_apple_keep_idle_nop(char *arg)
++{
++	apple_keep_idle_nop = true;
++	return 0;
++}
++early_param("apple_keep_idle_nop", setup_apple_keep_idle_nop);
+ 
+ void __init apple_wfi_quirk_init(void)
+ {
+@@ -60,14 +72,17 @@ void __init apple_wfi_quirk_init(void)
+ 		pr_info("Apple: preserving registers across WFI\n");
+ 	}
+ 	/*
+-	 * aura passes idle=nop on M5 for kernels without this quirk. Spinning
+-	 * idle keeps all ten cores busy (cpuidle's WFI state spins too), and
+-	 * the SoC sits near 90 C and throttles; WFI is safe here.
++	 * aura (J813) and m1n1 (T6050) pass idle=nop on M4 and later for
++	 * kernels without this quirk. Spinning idle keeps every core busy
++	 * (cpuidle's WFI states spin too): on T8142 the SoC sits near 90 C
++	 * and throttles, on T6050 the system draws about 10 W more at idle.
++	 * WFI is safe here.
+ 	 */
+-	if (idle == ARM64_IDLE_NOP &&
+-	    (model == MIDR_APPLE_T8142_E || model == MIDR_APPLE_T8142_P)) {
++	if (idle == ARM64_IDLE_NOP && !apple_keep_idle_nop &&
++	    (model == MIDR_APPLE_T8142_E || model == MIDR_APPLE_T8142_P ||
++	     model == MIDR_APPLE_T6050_064 || model == MIDR_APPLE_T6050_065)) {
+ 		idle = ARM64_IDLE_WFI;
+-		pr_info("Apple: T8142 idles in WFI, ignoring idle=nop\n");
++		pr_info("Apple: idling in WFI, ignoring idle=nop\n");
+ 	}
+ }
+ 
+-- 
+2.56.0
+

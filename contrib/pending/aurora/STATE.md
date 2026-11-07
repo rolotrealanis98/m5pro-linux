@@ -7,10 +7,12 @@ the canonical recipe for it is `series/SERIES.md`. R3-V, R3-R and R3-Q follow be
 Results and the boot tables: `../integration/RESULTS.md` ("Round R3"). Per-unit values (PHY tunables) are no longer
 in the DT at all: m1n1 0021 fills them at boot.
 
-# Current (daily with battery, SMC sensors and the right Type-C port, 2026-11-07 10:05 UTC)
+# Current (daily with WFI idle, battery, SMC sensors and the right Type-C port, 2026-11-07 12:00 UTC)
 
-`boot.bin` = `daily-20261107-275d84ec.bin`: the series kernel `7.3.0-g4f630b11270d` with the DTB of series 0059+0060
-(SMC sensors, right port; loop-tested as HWMON-T1, RIGHTPORT-T1, STACK-T1), battery driver on, self-test flag off.
+`boot.bin` = `daily-20261107-dcec81ed.bin`: kernel `7.3.0-gf080637018df` (series + 0061 WFI override + 0062 PM_DEBUG,
+soak and S1-S4 sleep tested) with the DTB of series 0059+0060, battery on, `kvm-arm.wfi_trap_policy=trap`, self-test
+flag off. Idle on the charger 9.3 W (was 16.4 W). `boot.bin.prev` = the previous daily `275d84ec`.
+Previous: `daily-20261107-275d84ec.bin` (series kernel `4f630b11270d`, same DTB).
 Previous daily `ce3f10af` (battery only) was R3-S's promotion.
 `boot.bin.prev` = R2-B `5091e1fe` (our 7.2 kernel). ESP: `boot.bin`, `boot.bin.prev`, `boot.bin.known-good` (audio
 test payloads live on the Studio and are copied in for a run). Audio: mic works (A2), speakers boot safely but the first
@@ -27,7 +29,7 @@ PMGR noise and the expected `pcie-apple` `-22`. **The exact recipe (patch list, 
 | Part | R3-SERIES | Change from R3-X (= R3-V + simpledrm eDP) |
 |---|---|---|
 | m1n1 | `m1n1-plain-r2-pipepark-atc.bin`, sha256 prefix `28b26ebc` (`pipepark-atc`: 0020 + 0021) | none |
-| Kernel | `7.3.0-g4f630b11270d`: the 58 patches of `series/patches/series/` on `aurora-silicon` `integration/aurora` `33bec4016c46` (worktree `wt-series`, branch `j716s-series`, tip `dd6b39464ca9`, re-authored 2026-11-07 to `Rolando Trevino <rolotrealanis@gmail.com>` with `Signed-off-by` and without assistant trailers; the content is byte-identical to `4f630b11270d`, which is the hash in the booted kernel version string). 0001-0044 are Aurora's commits carried as-is, 0045-0058 are ours | hand-assembled `aurora-j716s` branch replaced by the series |
+| Kernel | `7.3.0-g4f630b11270d`: the 58 patches of `series/patches/series/` on `aurora-silicon` `integration/aurora` `33bec4016c46` (worktree `wt-series`, branch `j716s-series`, tip `c2e1be601fb4`, re-authored 2026-11-07 to `Rolando Trevino <rolotrealanis@gmail.com>` with `Signed-off-by` and without assistant trailers; the content is byte-identical to `4f630b11270d`, which is the hash in the booted kernel version string). 0001-0044 are Aurora's commits carried as-is, 0045-0058 are ours | hand-assembled `aurora-j716s` branch replaced by the series |
 | Config | `make defconfig asahi.config j716s.config` (16K pages), `RUST` off. `j716s.config` is `series/j716s.config` (patch 0058) | the config additions of R3-V/R3-X are now in the fragment |
 | DT | the series' own source-form `arch/arm64/boot/dts/apple/t6050-j716s.dts` (patch 0057), compiled by the kernel build; `series/dt/t6050-j716s.dtb`, sha256 `8c4df67ac743a08b633f7e5233004180e5b18d9f82c56b9261ec76eb77458e6e`. Publishable, no per-unit values, no hand edits | source-form DT instead of the post-processed decompiled DTS. Differences from the old booted DTB: `series/dt/dt-diff.txt` |
 | Driver fixes in the series | `apple,t6050-smc` match (0052), `apple,t6050-cio-reset` entry (0051: register `0x60`, the old `t8142` fallback used `0x30`), CPU order in `t6050-max.dtsi` (0054) | native matches instead of DT fallbacks |
