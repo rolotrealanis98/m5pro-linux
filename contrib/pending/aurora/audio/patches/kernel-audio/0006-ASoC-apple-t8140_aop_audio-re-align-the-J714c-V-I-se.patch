@@ -1,0 +1,149 @@
+From 13456ffdf851547af714cbc956b7a0b3f277d7ec Mon Sep 17 00:00:00 2001
+From: ed <edimoldovan@gmail.com>
+Date: Fri, 6 Nov 2026 01:54:34 +0100
+Subject: [PATCH 06/11] ASoC: apple: t8140_aop_audio: re-align the J714c V/I
+ sense words
+
+On J714c the amplifiers' sense words reach the AOP serializer one bit
+early: the TAS2764 puts SDOUT one BCLK after the frame edge (its reset
+TX offset), while the firmware's serializer samples SDOUT with no
+offset. Every captured word was its own bits 14..0 followed by the next
+word's bit 15, and speakersafetyd computed negative powers from the
+stray top bit and exited, taking the stream with it (the firmware stops
+the speaker stream once nobody drains its return side). The reset
+offset is also the only one where the right-side amplifiers play:
+programmed to 0 they mute with a TDM clock fault, zero-drive masks or
+not.
+
+So the Speaker Sense capture re-aligns the stream as it is read: the
+copy operation is installed on T6050 too (it was LEAP-only), the sense
+front-end re-slices each 16-bit word one bit later with its successor
+taken from the ring, speaker playback stays verbatim (the LEAP float
+conversion keeps to T8140), and the sense PCM advertises no mmap so no
+reader bypasses the copy. The last word of a read takes its LSB from
+the slot after the read, which the DMA may not have written yet: one
+LSB per read, below the sense noise.
+
+Measured through this path, all six amplifiers give positively
+correlated V/I at 4.4-4.6 ohm (woofers) and 3.1-3.6 ohm (tweeters),
+speakersafetyd runs without a panic, and a tone plays on every speaker
+with the daemon holding the volume at the -30 dB ceiling.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+[port to integration/aurora (aurora-j716s 6d9f1ec652a6): applied
+ unchanged to sound/soc/apple/aop_t8140.rs, t8140_aop_audio.rs's name in
+ this tree; DT and j714c.config hunks are board-specific and dropped]
+---
+ sound/soc/apple/aop_t8140.rs | 60 ++++++++++++++++++++++++++++++++++--
+ 1 file changed, 57 insertions(+), 3 deletions(-)
+
+diff --git a/sound/soc/apple/aop_t8140.rs b/sound/soc/apple/aop_t8140.rs
+index 773ccccde303..7b9071bdfcfc 100644
+--- a/sound/soc/apple/aop_t8140.rs
++++ b/sound/soc/apple/aop_t8140.rs
+@@ -1624,6 +1624,9 @@ fn copy_str(target: &mut [u8], source: &[u8]) -> Result {
+ /// The front-end that plays the internal speaker (j700-pcm-1, the card's
+ /// "Secondary" PCM): its data goes through `spkr_copy` below.
+ const FE_SPKR: usize = 1;
++/// The front-end that captures the speaker tap or, on T6050, the amplifiers'
++/// V/I sense return (j7xx-pcm-2, the card's "Speaker Sense" PCM).
++const FE_SENSE: usize = 2;
+ 
+ /// Digital ceiling of the speaker path, as a Q31 gain applied to every
+ /// sample userspace writes: 0.5, the amplifier's full scale.
+@@ -1799,6 +1802,9 @@ unsafe fn substream_is_playback(substream: *mut bindings::snd_pcm_substream) ->
+         return ENODEV.to_errno();
+     };
+     let leap = fe == FE_SPKR && data.hw.spkr_leap;
++    // The sense return goes through `asoc_pcm_copy`, which re-aligns its
++    // words: readers must not map the ring (T6050).
++    let sense_copy = !playback && fe == FE_SENSE && data.hw.sense_channels > 0;
+     if leap {
+         if let Err(e) = data.power_up_raising(data.spkr.name, &data.spkr_domains()) {
+             return e.to_errno();
+@@ -1847,6 +1853,9 @@ unsafe fn substream_is_playback(substream: *mut bindings::snd_pcm_substream) ->
+         hw.periods_max = (SPKR_BUFFER_MAX / PCM_PERIOD_BYTES_MIN) as u32;
+         formats = bindings::BINDINGS_SNDRV_PCM_FMTBIT_S32_LE;
+     }
++    if sense_copy {
++        hw.info = bindings::SNDRV_PCM_INFO_INTERLEAVED;
++    }
+     let ret = pcm_open_dmaengine(substream, chan, hw, formats);
+     if ret < 0 {
+         // SAFETY: `chan` was requested above and is not attached to the
+@@ -2033,6 +2042,45 @@ fn spkr_f32_bits(sample: i32, gain_q31: u32) -> u32 {
+     if !playback {
+         // SAFETY: ALSA hands us a live iov_iter for the whole call.
+         let iov = unsafe { kernel::iov::IovIterDest::from_raw(iter) };
++        // SAFETY: the component is ours and live for the call.
++        let data = unsafe { component_data(component) };
++        // SAFETY: rtd is live for the call.
++        if data.hw.sense_channels > 0 && unsafe { fe_index(rtd) } == Some(FE_SENSE) {
++            // J714c: the serializer samples the amplifiers' sense words one
++            // BCLK early (the TAS2764 puts SDOUT one clock after the frame
++            // edge, and offset 0 mutes the right-side amplifiers on this
++            // board), so each 16-bit word arrives as its own bits 14..0
++            // followed by the next word's bit 15. Re-slice the stream one bit
++            // later: word k = (w[k] << 1) | (w[k+1] >> 15), the successor
++            // taken from the ring, which wraps. The last word of a read takes
++            // its bit 0 from the slot after the read, which the DMA may not
++            // have written yet: one LSB per read, below the sense noise.
++            if bytes & 1 != 0 || dma_bytes & 1 != 0 || dma_bytes == 0 {
++                return EINVAL.to_errno();
++            }
++            // SAFETY: the DMA area holds dma_bytes bytes for the stream's life.
++            let ring = unsafe { slice::from_raw_parts(area, dma_bytes) };
++            let word_at = |p: usize| -> u16 {
++                let p = p % dma_bytes;
++                u16::from_le_bytes([ring[p], ring[p + 1]])
++            };
++            let mut chunk = [0u8; 512];
++            let mut off = 0;
++            while off < bytes {
++                let n = core::cmp::min(chunk.len(), bytes - off) & !1;
++                for i in (0..n).step_by(2) {
++                    let w = word_at(pos + off + i);
++                    let next = word_at(pos + off + i + 2);
++                    let v = (w << 1) | (next >> 15);
++                    chunk[i..i + 2].copy_from_slice(&v.to_le_bytes());
++                }
++                if iov.copy_to_iter(&chunk[..n]) != n {
++                    return EFAULT.to_errno();
++                }
++                off += n;
++            }
++            return 0;
++        }
+         return if iov.copy_to_iter(dst) == bytes {
+             0
+         } else {
+@@ -2041,8 +2089,10 @@ fn spkr_f32_bits(sample: i32, gain_q31: u32) -> u32 {
+     }
+     // SAFETY: as above.
+     let iov = unsafe { kernel::iov::IovIterSource::from_raw(iter) };
+-    // SAFETY: as for `rtd_is_be`.
+-    if unsafe { fe_index(rtd) } != Some(FE_SPKR) {
++    // SAFETY: the component is ours and live for the call.
++    let leap_spkr = unsafe { fe_index(rtd) } == Some(FE_SPKR)
++        && unsafe { component_data(component) }.hw.spkr_leap;
++    if !leap_spkr {
+         return if iov.copy_from_iter(dst) == bytes {
+             0
+         } else {
+@@ -2579,7 +2629,11 @@ fn new(data: Arc<SndSocT8140AopData>) -> Result<KBox<Self>> {
+             trigger: Some(asoc_pcm_trigger),
+             sync_stop: Some(asoc_pcm_sync_stop),
+             pointer: Some(asoc_pcm_pointer),
+-            copy: if data.hw.spkr_leap { Some(asoc_pcm_copy) } else { None },
++            copy: if data.hw.spkr_leap || data.hw.sense_channels > 0 {
++                Some(asoc_pcm_copy)
++            } else {
++                None
++            },
+             ..Default::default()
+         };
+         Ok(KBox::new(
+-- 
+2.56.0
+

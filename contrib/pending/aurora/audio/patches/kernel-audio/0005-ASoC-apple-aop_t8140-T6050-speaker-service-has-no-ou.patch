@@ -1,0 +1,67 @@
+From 4627367aae52add8669746e0382816781dc3d5a6 Mon Sep 17 00:00:00 2001
+From: ed <edimoldovan@gmail.com>
+Date: Fri, 6 Nov 2026 00:10:57 +0100
+Subject: [PATCH 05/11] ASoC: apple: aop_t8140: T6050 speaker service has no
+ output mute
+
+T6050's speaker service has no output mute (property 700 is rejected as
+not found, 0xe00002f0), and the failed unmute after pwrd put the service
+back to pw0, so the amplifiers saw a TDM clock that stopped at once
+("fault: bad TDM clock") and the stream never advanced.
+HwConfig.spkr_output_mute, false on T6050: the stream runs unmuted from
+pwrd and the amplifiers' own shutdown mutes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+[port to integration/aurora (aurora-j716s 6d9f1ec652a6): the
+ t8140_aop_audio part of 7818011b2ba8 ("ASoC: apple: macaudio,
+ t8140_aop_audio: J714 speakers on, -30 dB in every state"); its J714
+ macaudio entry and J714c DT comment are board-specific and dropped]
+---
+ sound/soc/apple/aop_t8140.rs | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/sound/soc/apple/aop_t8140.rs b/sound/soc/apple/aop_t8140.rs
+index 8cc730102230..773ccccde303 100644
+--- a/sound/soc/apple/aop_t8140.rs
++++ b/sound/soc/apple/aop_t8140.rs
+@@ -987,6 +987,9 @@ fn hpai_shutdown(&self) {
+     /// Output mute (property 700) is independent of the amplifier's SD_MODE;
+     /// the amplifier stays off across a failure here.
+     fn spkr_set_mute(&self, muted: bool) -> Result<()> {
++        if !self.hw.spkr_output_mute {
++            return Ok(());
++        }
+         let ret = self.epic_wrapped_call(&AudioSetDeviceProp::new(
+             AUDIO_DEV_SPKR,
+             PROP_OUTPUT_MUTE,
+@@ -2879,6 +2882,11 @@ pub(crate) struct HwConfig {
+     spkr_leap: bool,
+     /// Speaker playback channels.
+     spkr_channels: u32,
++    /// The speaker service has an output mute (property 700) the host
++    /// toggles around pwrd (T8140). T6050's rejects it as not found
++    /// (0xe00002f0): the stream runs unmuted from pwrd and the amplifiers'
++    /// own shutdown does the muting.
++    spkr_output_mute: bool,
+     /// The speaker back-end's capture: the tap service on its own channel
+     /// (0, T8140) or the speaker service's own V/I sense return with this
+     /// many 16-bit channels (T6050).
+@@ -2894,6 +2902,7 @@ pub(crate) struct HwConfig {
+     ap_power_domains: true,
+     spkr_leap: true,
+     spkr_channels: 2,
++    spkr_output_mute: true,
+     sense_channels: 0,
+     fe_dai_names: [c"j700-pcm-0", c"j700-pcm-1", c"j700-pcm-2"],
+     fe_dma_names: FE_DMA_NAMES,
+@@ -2908,6 +2917,7 @@ pub(crate) struct HwConfig {
+     ap_power_domains: false,
+     spkr_leap: false,
+     spkr_channels: 6,
++    spkr_output_mute: false,
+     sense_channels: 12,
+     fe_dai_names: [c"j714-pcm-0", c"j714-pcm-1", c"j714-pcm-2"],
+     fe_dma_names: [
+-- 
+2.56.0
+

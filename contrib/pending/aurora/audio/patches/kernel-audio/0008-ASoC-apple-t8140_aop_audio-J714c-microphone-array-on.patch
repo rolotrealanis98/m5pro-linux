@@ -1,0 +1,168 @@
+From d6fab572cfb292587e2455733c52c7371486e791 Mon Sep 17 00:00:00 2001
+From: ed <edimoldovan@gmail.com>
+Date: Fri, 6 Nov 2026 10:20:13 +0100
+Subject: [PATCH 08/11] ASoC: apple: t8140_aop_audio: J714c microphone array on
+ the LEAP-S ADMAC
+
+The AOP's microphone card no longer depends on the low-power microphone:
+it is created for the array (hpai) alone, as device 0 when there is no
+lpai PCM. The array's channel count comes from the hardware config: two
+on T8140, three on J714c (the ADT's audio-hp-mic stream description is
+lpcm float32, 12 bytes per frame at 48 kHz). A three-word frame has no
+ADMAC frame-size encoding (1, 2 or 4 words), so those words go unframed.
+The low-power microphone's vmalloc buffer is keyed on its ops, not on PCM
+device 0: the array's buffer is set up on its DMA device at open, and a
+vmalloc buffer gave the ADMAC address 0.
+
+t6050-die0: the LEAP-S ADMAC through its non-secure proxy aperture
+(0x2d3200000 = admac-leap-s 0x293200000 + 1 GiB, the T8140 pattern),
+dart-aop stream 11, no resets and no AP power domains; "hpai" is its
+channel 1 (rx-0) on the audio node. t6050-j714c enables it.
+
+On J714c the capture runs (card AppleJ714AOP, 3 x float32 at 48 kHz) but
+delivers the idle noise floor only: the microphone input is not enabled
+by the hpai service alone on this machine, whose ADT routes the
+microphones through exclave services.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+
+[port to integration/aurora (aurora-j716s 6d9f1ec652a6): applied
+ unchanged to sound/soc/apple/aop_t8140.rs, t8140_aop_audio.rs's name in
+ this tree; DT and j714c.config hunks are board-specific and dropped]
+---
+ sound/soc/apple/aop_t8140.rs | 55 ++++++++++++++++++++++++------------
+ 1 file changed, 37 insertions(+), 18 deletions(-)
+
+diff --git a/sound/soc/apple/aop_t8140.rs b/sound/soc/apple/aop_t8140.rs
+index 9ce6f8fadfb5..e90bb5a6363a 100644
+--- a/sound/soc/apple/aop_t8140.rs
++++ b/sound/soc/apple/aop_t8140.rs
+@@ -151,7 +151,6 @@
+ /// The high-quality microphone array: 48 kHz stereo float32 over the LEAP
+ /// ADMAC.
+ const HPAI_RATE: u32 = 48000;
+-const HPAI_CHANNELS: u32 = 2;
+ 
+ /// Firmware power requests carry a timestamp in the 24 MHz always-on
+ /// timebase; the architected counter runs at a different rate (1 GHz on
+@@ -1445,8 +1444,8 @@ unsafe fn pcm_data<'a>(
+     hw.rates = bindings::SNDRV_PCM_RATE_48000;
+     hw.rate_min = HPAI_RATE;
+     hw.rate_max = HPAI_RATE;
+-    hw.channels_min = HPAI_CHANNELS;
+-    hw.channels_max = HPAI_CHANNELS;
++    hw.channels_min = data.hw.hpai_channels;
++    hw.channels_max = data.hw.hpai_channels;
+     let ret = pcm_open_dmaengine(
+         substream,
+         chan,
+@@ -1665,6 +1664,8 @@ fn copy_str(target: &mut [u8], source: &[u8]) -> Result {
+ /// V/I sense return (j7xx-pcm-2, the card's "Speaker Sense" PCM).
+ const FE_SENSE: usize = 2;
+ 
++static SENSE_WORDS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
++
+ /// Digital ceiling of the speaker path, as a Q31 gain applied to every
+ /// sample userspace writes: 0.5, the amplifier's full scale.
+ ///
+@@ -2762,17 +2763,19 @@ fn new(data: Arc<SndSocT8140AopData>, fwnode: &FwNode) -> Result<Self> {
+             closed: AtomicFlag::new(false),
+         };
+ 
+-        // Without the low-power microphone there is no card of our own:
+-        // the back-ends and front-ends below belong to the machine card.
++        // Without a microphone of the AOP's own there is no card of our
++        // own: the back-ends and front-ends below belong to the machine card.
++        if data.hw.lpai || data.hw.hpai_channels > 0 {
+         if data.hw.lpai {
+-        // The low-power microphone: its ring is reported to us by the
+-        // firmware for the AOP's lifetime.
+-        data.attach_device(AUDIO_DEV_LPAI, "lpai")?;
+-        data.set_channel_control()?;
+-        data.read_geometry()?;
+-        let listener: Arc<dyn ReportListener> = data.clone();
+-        data.adata
+-            .add_report_listener(data.service, EPIC_SUBTYPE_PRODUCER_REPORT, listener)?;
++            // The low-power microphone: its ring is reported to us by the
++            // firmware for the AOP's lifetime.
++            data.attach_device(AUDIO_DEV_LPAI, "lpai")?;
++            data.set_channel_control()?;
++            data.read_geometry()?;
++            let listener: Arc<dyn ReportListener> = data.clone();
++            data.adata
++                .add_report_listener(data.service, EPIC_SUBTYPE_PRODUCER_REPORT, listener)?;
++        }
+ 
+         // SAFETY: FFI call with the live device and the module; `this.card` receives the new card.
+         let ret = unsafe {
+@@ -2814,8 +2817,13 @@ fn new(data: Arc<SndSocT8140AopData>, fwnode: &FwNode) -> Result<Self> {
+             return Err(e);
+         }
+ 
+-        this.new_pcm(0, c"lpai", c"Low-Power Microphone", &Self::LPAI_OPS)?;
+-        this.new_pcm(1, c"hpai", c"High-Quality Microphone", &Self::HPAI_OPS)?;
++        if data.hw.lpai {
++            this.new_pcm(0, c"lpai", c"Low-Power Microphone", &Self::LPAI_OPS)?;
++        }
++        if data.hw.hpai_channels > 0 {
++            let dev = if data.hw.lpai { 1 } else { 0 };
++            this.new_pcm(dev, c"hpai", c"High-Quality Microphone", &Self::HPAI_OPS)?;
++        }
+ 
+         // Both microphones' jack: unplugged while a lid is closed.
+         data.mic.attach(&data.dev, this.card)?;
+@@ -2876,7 +2884,7 @@ fn new_pcm(
+         }
+         // SAFETY: as above.
+         copy_str(unsafe { &mut (*pcm).name }, name.to_bytes_with_nul())?;
+-        if device == 0 {
++        if ptr::eq(ops, &Self::LPAI_OPS) {
+             // The low-power microphone's buffer is filled by the driver from
+             // the source ring; the array's is set up on its DMA device at
+             // open.
+@@ -2958,8 +2966,12 @@ fn drop(&mut self) {
+     if rc < 0 {
+         return rc;
+     }
+-    // One stereo frame per burst.
+-    cfg.src_port_window_size = HPAI_CHANNELS;
++    // One frame per burst where the ADMAC can signal it: its frame-size
++    // field encodes 1, 2 or 4 words. A three-microphone frame (J714c) has
++    // no encoding; its words go unframed.
++    // SAFETY: ALSA calls this op with a live substream of the HPAI PCM.
++    let channels = unsafe { pcm_data(substream) }.hw.hpai_channels;
++    cfg.src_port_window_size = if matches!(channels, 1 | 2 | 4) { channels } else { 1 };
+     // SAFETY: `chan` is the live channel behind this substream's dmaengine runtime.
+     unsafe {
+         match (*(*chan).device).device_config {
+@@ -2994,6 +3006,9 @@ pub(crate) struct HwConfig {
+     /// (0, T8140) or the speaker service's own V/I sense return with this
+     /// many 16-bit channels (T6050).
+     sense_channels: u32,
++    /// The microphone array (hpai, LEAP-S ADMAC RX0): its channel count,
++    /// float32 at 48 kHz; 0 without one.
++    hpai_channels: u32,
+     /// Front-end DAI names, the machine driver's `fe_dai_names`.
+     fe_dai_names: [&'static core::ffi::CStr; FE_COUNT],
+     /// DMA names per front-end and stream, [playback, capture].
+@@ -3007,6 +3022,7 @@ pub(crate) struct HwConfig {
+     spkr_channels: 2,
+     spkr_output_mute: true,
+     sense_channels: 0,
++    hpai_channels: 2,
+     fe_dai_names: [c"j700-pcm-0", c"j700-pcm-1", c"j700-pcm-2"],
+     fe_dma_names: FE_DMA_NAMES,
+ };
+@@ -3022,6 +3038,9 @@ pub(crate) struct HwConfig {
+     spkr_channels: 6,
+     spkr_output_mute: false,
+     sense_channels: 12,
++    // ADT audio-hp-mic-proxy physical-descriptions: lpcm, float, 12 bytes
++    // per frame at 48 kHz, three microphones.
++    hpai_channels: 3,
+     fe_dai_names: [c"j714-pcm-0", c"j714-pcm-1", c"j714-pcm-2"],
+     fe_dma_names: [
+         [Some(c"cout"), Some(c"cin")],
+-- 
+2.56.0
+

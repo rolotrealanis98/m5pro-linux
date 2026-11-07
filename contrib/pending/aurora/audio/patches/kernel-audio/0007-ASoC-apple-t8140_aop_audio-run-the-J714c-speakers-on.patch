@@ -1,0 +1,211 @@
+From 03a3ec16edc1f454f4952678e4e174d25e22fcdb Mon Sep 17 00:00:00 2001
+From: ed <edimoldovan@gmail.com>
+Date: Fri, 6 Nov 2026 08:26:03 +0100
+Subject: [PATCH 07/11] ASoC: apple: t8140_aop_audio: run the J714c speakers
+ only while the sense drains
+
+On T6050 the speaker service's V/I sense comes back on its own RX DMA,
+read by the Speaker Sense capture (speakersafetyd). Once that RX goes
+undrained while the service is in pwrd, the firmware stops the speaker
+stream. A system suspend during playback did exactly that: the sense
+capture's SUSPEND stopped the RX DMA with the service still in pwrd, and
+after resume the sense stayed at hw_ptr 0, every playback stalled after
+about 1.2 s, the daemon's lease timed out and it exited on the lost lock.
+
+The speaker service now follows the sense capture as well as playback.
+The capture direction of the speaker back-end's trigger sets a sense_run
+flag and queues the start work on both edges; the work sends pw0 as soon
+as the capture stops, whatever playback does, and sends pwrd and the
+unmute once playback is triggered and the capture runs. A failed pw0
+still ends the run. The service's pwrd and pw0 are ordered by a mutex
+across the start work, the back-end startup, prepare and shutdown, and
+the front-end open's pw0. Machines without a sense return are unchanged.
+
+Measured on J714c with speakersafetyd live: a 5 s pm_test suspend during
+playback, playback and sense keep running after resume, no lock timeout,
+no daemon restart; the same with nothing playing; a lid close while
+YouTube plays sleeps 9 s and the sound continues on lid open.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+[port to integration/aurora (aurora-j716s 6d9f1ec652a6): applied
+ unchanged to sound/soc/apple/aop_t8140.rs, t8140_aop_audio.rs's name in
+ this tree; DT and j714c.config hunks are board-specific and dropped]
+---
+ sound/soc/apple/aop_t8140.rs | 73 ++++++++++++++++++++++++++++++------
+ 1 file changed, 62 insertions(+), 11 deletions(-)
+
+diff --git a/sound/soc/apple/aop_t8140.rs b/sound/soc/apple/aop_t8140.rs
+index 7b9071bdfcfc..9ce6f8fadfb5 100644
+--- a/sound/soc/apple/aop_t8140.rs
++++ b/sound/soc/apple/aop_t8140.rs
+@@ -492,6 +492,13 @@ struct SndSocT8140AopData {
+     spkr_want_run: AtomicFlag,
+     /// A microphone-array stream has been triggered and not yet stopped.
+     hpai_want_run: AtomicFlag,
++    /// The speaker sense capture has been triggered and not yet stopped
++    /// (T6050): its RX DMA drains the speaker service's V/I sense.
++    sense_run: AtomicFlag,
++    /// Orders the speaker service's `pwrd` and `pw0` between the start work
++    /// and the prepare and shutdown paths.
++    #[pin]
++    spkr_lock: Mutex<()>,
+     /// "Speaker Playback Volume" (REG_SPKR_VOLUME), 0..=SPKR_VOLUME_MAX.
+     spkr_volume: Atomic<u32>,
+     /// The sleeping firmware starts queued from the atomic triggers.
+@@ -519,13 +526,14 @@ impl HasWork<Self, HPAI_START_WORK> for SndSocT8140AopData { self.hpai_start_wor
+ 
+ /// The speaker stream start (pwrd + unmute), queued by the back-end DAI's
+ /// trigger START: those are sleeping firmware calls, and the DMA must already
+-/// be running when the LEAP starts consuming.
++/// be running when the LEAP starts consuming.  Also queued by the sense
++/// capture's triggers, to stop or restart the service with it.
+ impl WorkItem<SPKR_START_WORK> for SndSocT8140AopData {
+     type Pointer = Arc<Self>;
+ 
+     fn run(this: Arc<Self>) {
+         if let Err(e) = this.spkr_go() {
+-            dev_err!(this.dev, "spkr: start failed: {:?}\n", e);
++            dev_err!(this.dev, "spkr: start or stop failed: {:?}\n", e);
+         }
+     }
+ }
+@@ -1007,6 +1015,7 @@ fn spkr_set_mute(&self, muted: bool) -> Result<()> {
+     }
+ 
+     fn spkr_startup(&self) -> Result<()> {
++        let _guard = self.spkr_lock.lock();
+         self.service_startup(&self.spkr, &self.spkr_domains())
+     }
+ 
+@@ -1016,6 +1025,7 @@ fn spkr_startup(&self) -> Result<()> {
+     /// unmute once the DMA has restarted.
+     fn spkr_prepare(&self) -> Result<()> {
+         self.flush_spkr_start();
++        let _guard = self.spkr_lock.lock();
+         if !self.spkr.running.load(Relaxed) {
+             return Ok(());
+         }
+@@ -1025,13 +1035,39 @@ fn spkr_prepare(&self) -> Result<()> {
+         Ok(())
+     }
+ 
++    /// Whether the speaker service's V/I sense RX is drained, or it has none.
++    fn sense_drained(&self) -> bool {
++        self.hw.sense_channels == 0 || self.sense_run.load(Relaxed)
++    }
++
+     /// Speaker stream start, from the system workqueue right after trigger
+     /// START: the DMA must be running before pwrd starts the LEAP consuming
+     /// (issued from prepare, before the DMA, the wire stays silent), then the
+     /// firmware unmute, the value observed on the bus once the amplifier
+     /// output is enabled.
++    ///
++    /// With a V/I sense RX, the service runs only while the sense capture
++    /// drains it: the firmware stops the stream once that RX goes undrained,
++    /// and a later pw0 and pwrd do not bring the sense back.  So it stops as
++    /// soon as the capture does (a suspend, an overrun, speakersafetyd
++    /// exiting), and starts again when the capture does and playback is
++    /// still triggered.
+     fn spkr_go(&self) -> Result<()> {
+-        if !self.spkr_want_run.load(Relaxed) || self.spkr.running.load(Relaxed) {
++        let _guard = self.spkr_lock.lock();
++        if self.spkr.running.load(Relaxed) {
++            if !self.sense_drained() {
++                if let Err(e) = self.spkr_set_mute(true) {
++                    dev_err!(self.dev, "spkr: mute failed: {:?}\n", e);
++                }
++                // As in `service_shutdown`: a failed pw0 still ends this run,
++                // so the sense capture's next start sends a fresh pwrd.
++                let ret = self.service_set_power(&self.spkr, SPKR_POWER_STATE_PW0);
++                self.spkr.running.store(false, Relaxed);
++                return ret;
++            }
++            return Ok(());
++        }
++        if !self.spkr_want_run.load(Relaxed) || !self.sense_drained() {
+             return Ok(());
+         }
+         self.service_run(&self.spkr)?;
+@@ -1056,6 +1092,7 @@ fn flush_spkr_start(&self) {
+     /// already off (codec trigger STOP) and a queued start was flushed.
+     fn spkr_shutdown(&self) {
+         self.flush_spkr_start();
++        let _guard = self.spkr_lock.lock();
+         if self.spkr.running.load(Relaxed) {
+             if let Err(e) = self.spkr_set_mute(true) {
+                 dev_err!(self.dev, "spkr: mute failed: {:?}\n", e);
+@@ -1819,6 +1856,7 @@ unsafe fn substream_is_playback(substream: *mut bindings::snd_pcm_substream) ->
+         } else {
+             &data.spkr
+         };
++        let _guard = (fe != 0).then(|| data.spkr_lock.lock());
+         if let Err(e) = data.service_startup(svc, &[]) {
+             return e.to_errno();
+         }
+@@ -2378,8 +2416,10 @@ unsafe fn dai_context<'a>(dai: *mut bindings::snd_soc_dai) -> &'a AsocContext {
+     }
+ }
+ 
+-/// Atomic context: queue the sleeping start, or note the stop (playback
+-/// only; the tap side needs nothing here).
++/// Atomic context: queue the sleeping start, or note the stop.  The V/I
++/// sense capture (T6050) queues the same work on both, so the speaker
++/// service stops with it and starts again with it; a tap without sense
++/// needs nothing here.
+ ///
+ /// # Safety
+ ///
+@@ -2390,25 +2430,34 @@ unsafe fn dai_context<'a>(dai: *mut bindings::snd_soc_dai) -> &'a AsocContext {
+     cmd: i32,
+     dai: *mut bindings::snd_soc_dai,
+ ) -> i32 {
++    // SAFETY: ASoC calls DAI ops with a DAI of our registered component.
++    let context = unsafe { dai_context(dai) };
+     // SAFETY: the substream is live for the duration of the op.
+-    if !unsafe { substream_is_playback(substream) } {
++    let playback = unsafe { substream_is_playback(substream) };
++    if !playback && context.data.hw.sense_channels == 0 {
+         return 0;
+     }
+-    // SAFETY: ASoC calls DAI ops with a DAI of our registered component.
+-    let context = unsafe { dai_context(dai) };
++    let flag = if playback {
++        &context.data.spkr_want_run
++    } else {
++        &context.data.sense_run
++    };
+     match cmd as u32 {
+         bindings::SNDRV_PCM_TRIGGER_START
+         | bindings::SNDRV_PCM_TRIGGER_RESUME
+         | bindings::SNDRV_PCM_TRIGGER_PAUSE_RELEASE => {
+-            context.data.spkr_want_run.store(true, Relaxed);
+-            // Err = already queued: the pending run will see want_run.
++            flag.store(true, Relaxed);
++            // Err = already queued: the pending run will see the flags.
+             let _ = workqueue::system_dfl().enqueue::<_, SPKR_START_WORK>(context.data.clone());
+             0
+         }
+         bindings::SNDRV_PCM_TRIGGER_STOP
+         | bindings::SNDRV_PCM_TRIGGER_SUSPEND
+         | bindings::SNDRV_PCM_TRIGGER_PAUSE_PUSH => {
+-            context.data.spkr_want_run.store(false, Relaxed);
++            flag.store(false, Relaxed);
++            if !playback {
++                let _ = workqueue::system_dfl().enqueue::<_, SPKR_START_WORK>(context.data.clone());
++            }
+             0
+         }
+         _ => EINVAL.to_errno(),
+@@ -3057,6 +3106,8 @@ pub(crate) fn probe(pdev: &platform::Device<Core<'_>>, hw: &'static HwConfig) ->
+                 pd_rx0,
+                 spkr_want_run: AtomicFlag::new(false),
+                 hpai_want_run: AtomicFlag::new(false),
++                sense_run: AtomicFlag::new(false),
++                spkr_lock <- new_mutex!(()),
+                 spkr_volume: Atomic::new(SPKR_VOLUME_MAX),
+                 spkr_start_work <- new_work!("SndSocT8140AopData::spkr_start_work"),
+                 hpai_start_work <- new_work!("SndSocT8140AopData::hpai_start_work"),
+-- 
+2.56.0
+

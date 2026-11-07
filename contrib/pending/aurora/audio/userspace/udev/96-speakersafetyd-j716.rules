@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Start speakersafetyd when the J716 speaker sense PCM appears.
+# Install: /usr/lib/udev/rules.d/96-speakersafetyd-j716.rules
+# (upstream 95-speakersafetyd.rules already sets ACP_IGNORE for AppleJ*,
+# but has no AppleJ716 line).
+SUBSYSTEM=="sound", KERNEL=="pcmC*D2c", ATTRS{id}=="AppleJ716", DRIVERS=="snd-soc-macaudio", TAG+="systemd", ENV{SYSTEMD_WANTS}="speakersafetyd.service"
