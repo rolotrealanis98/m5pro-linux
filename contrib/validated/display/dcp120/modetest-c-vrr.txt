@@ -1,0 +1,41 @@
+opened device `Apple display controller DRM driver` on driver `apple` (version 1.0.0 at 0)
+Connectors:
+id	encoder	status		name		size (mm)	modes	encoders
+49	48	connected	eDP-2          	345x223		7	48
+  modes:
+	index name refresh (Hz) hdisp hss hse htot vdisp vss vse vtot
+  #0 3456x2234 120.00 3456 3464 3496 3536 2234 2352 2360 2456 1042130 flags: phsync, pvsync; type: preferred, driver
+  #1 3456x2234 100.01 3456 3464 3496 3536 2234 2843 2851 2947 1042130 flags: phsync, pvsync; type: driver
+  #2 3456x2234 60.00 3456 3464 3496 3536 2234 2352 2360 2456 521065 flags: phsync, pvsync; type: driver
+  #3 3456x2234 59.94 3456 3464 3496 3536 2234 2352 2360 2456 520544 flags: phsync, pvsync; type: driver
+  #4 3456x2234 50.00 3456 3464 3496 3536 2234 2842 2850 2946 520853 flags: phsync, pvsync; type: driver
+  #5 3456x2234 48.00 3456 3464 3496 3536 2234 2352 2360 2456 416852 flags: phsync, pvsync; type: driver
+  #6 3456x2234 47.95 3456 3464 3496 3536 2234 2352 2360 2456 416435 flags: phsync, pvsync; type: driver
+  props:
+	1 EDID:
+		flags: immutable blob
+		blobs:
+
+		value:
+	2 DPMS:
+		flags: enum
+		enums: On=0 Standby=1 Suspend=2 Off=3
+		value: 0
+	5 link-status:
+		flags: enum
+		enums: Good=0 Bad=1
+		value: 0
+	7 non-desktop:
+		flags: immutable range
+		values: 0 1
+		value: 0
+	4 TILE:
+		flags: immutable blob
+		blobs:
+
+		value:
+	50 vrr_capable:
+		flags: immutable range
+		values: 0 1
+		value: 1
+

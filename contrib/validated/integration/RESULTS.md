@@ -1682,3 +1682,29 @@ Power kernel `7.3.0-g1d276f9e36c7`, PMC observing, primary slot (60 s settle rul
   `cur(hw)` reached 4308/4308/4608 MHz in the first T1 run. No memcpy baseline: `perf` is not installed on the root
   (install `perf` or use a small memcpy benchmark before T3).
 - T3 (first PMC write) stays attended: payload `power-t3-20261107-98336aec.bin`, checklist in `contrib/pending/power/REPORT.md`.
+
+## DCP-120 series: 120 Hz and VRR measurements (2026-11-07 22:59 UTC) — mode list confirmed, cadence still unmeasured
+
+DCP kernel `7.3.0-dcp-g22ec57f56b27` (gpu-27 tree + `j716s-dcp.config` + FTRACE/TRACING + promotion 0001-0003 + the
+VRR pair), m1n1 `n1-warm-gpu-dcp`, self-test on, 60 s settle rule; three boots, all primary first pass, 0 faults, no
+DCP crash or swap-failed lines. Payloads `dcpc-120` (dcp9c DTB), `dcpc-120d` (dcp9d = dcp9c + `clk_disp0` 712 MHz on the
+dcp node + P3 gamut), `dcpc-120d-vrr` (dcp9d + `appledrm.fw27_panel_vrr=1 appledrm.promotion_rates=1`).
+
+- Firmware mode list (P1, from the TimingElements dictionary and the `iomfb_timing_mode` tracepoints, now compiled
+  in): six timings at 3456x2234: ID 2 120.000 Hz preferred (score 17026, total 3536x2456, 1042130 kHz), and promoted
+  ID 3 60.000, ID 4 48.000, ID 5 59.940, ID 6 47.952 (total 3536x2456), ID 7 50.000 (total 3536x2946); VRR range
+  0-0 on all, DiscreteMediaRefreshRates empty. The mode set adopts timing 2 (`set_digital_out_mode finished with 8500
+  to spare`). So the firmware already offers the fixed rates as timings; patch 0002 is a no-op and 0003's synthesized
+  rates duplicate them (with `promotion_rates=1` the DRM list is 120.00 100.01 60.00 59.94 50.00 48.00 47.95, only
+  100.01 synthesized). `files: contrib/validated/display/dcp120/`.
+- V0: `vrr_capable` 0 by default; V1: 1 with `fw27_panel_vrr=1` (the 24-120 fallback); the firmware log shows the
+  adaptive-sync parameter accepted at the mode set (`IOMFBParameter_adaptive_sync Req minRR = 0x0, mediaTargetRate =
+  0x0`).
+- P3 swap cadence FAIL: `modetest -M apple -s <conn>@<crtc>:3456x2234-120` returns `failed to set mode: Function not
+  implemented`, so no flips were driven; V2 (VRR_ENABLED toggle) then ended with `Atomic Commit failed`. The test
+  tooling, not the display, is the blocker: the agents are producing an atomic test program.
+- dcp9d DTB: the firmware's clock complaints are gone (0 `undeclared provider clock` lines vs 4 with dcp9c); the P3
+  gamut properties were read without complaint.
+- Backlight: writes to `brightness` (150, 450) are accepted but `actual_brightness` stays 300; the driver logs
+  `backlight restore unavailable: -61` and `no loader brightness reported; backlight starts at 300 nits without a
+  panel change`: the brightness path needs work on firmware 27 (agent on it).
