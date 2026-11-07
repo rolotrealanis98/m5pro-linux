@@ -1732,3 +1732,20 @@ vrr-off / vrr-off-50 with page-flip interval statistics and swap-completion coun
 accept the adaptive-sync parameter (`IOMFBParameter_adaptive_sync Req minRR = 0x0 ...`), confirming parameter 15.
 Fixed rates vs VRR in the VRR patches already match the firmware: VRR only on timing 2, timings 3-7 as real mode sets;
 the only synthesized mode is 100.01 Hz from the 120 Hz series.
+
+## DAILY-N1K: next daily promoted, the kernel trains the Wi-Fi port (2026-11-07 23:16 UTC) — PASS
+
+Kernel `7.3.0-g36845aa5f650` = the GPU daily tree (87-patch series + Aurora #1012 + the 27.2+ GPU port) + the kernel-side
+N1 training series (wireless 0004-0010) + the F6 key fix (peripherals 0007) + the read-only NVRAM nodes (nvram 0001);
+loader `m1n1-plain-n1-dt-gpu` (n1-warm-gpu + 0028: the port stays enabled and the host tunables are copied, no training);
+no `chosen.m5pro,n1` variable; `chosen.m5pro,gpu=1`; battery on. 60 s settle rule.
+
+- Test twin `daily-n1k-test-20261107-5c74c66c.bin`: primary first pass, 78 s, 18 CPUs, `port 0: trained by Linux, the
+  boot loader left it down`, link retrained after the root-port reset, Wi-Fi connected, Bluetooth, GPU firmware 27.3
+  G17S booted, `[drm] Initialized aurora`, haptic actuator, `spi-nor` probed (mtd nvram partition present), 0 faults.
+- Warm restart with wlan0 in use: same result (the kernel trains the port again).
+- Promotion: `boot.bin.prev` = the test twin, `boot.bin` = `daily-n1k-20261107-512a1c00.bin` (no self-test); first boot
+  primary, 79 s, same checks pass. `DAILY-N1K: PASS`.
+- The loader no longer trains the N1 on the daily; m1n1's N1 training (0023, 0025-0027, the n1 modes) is now an
+  optional path kept for the omacom series and #65.
+- Rollback: the twin on the prev slot; the previous GPU daily `e2b-daily-20261107-fd4b3b9e.bin` is kept on the Studio.
