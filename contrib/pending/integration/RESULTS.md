@@ -845,3 +845,23 @@ a new xHCI pair came up under `382280000.usb` (USB 3.1 Enhanced SuperSpeed), the
 same address and SSH resumed. So the m1n1 0018 USB-PD S0 setup covers hpm2 and the combo PHY tunables from the ADT
 (m1n1 0021) are right for ATC2 too. Not tested on the right port: DisplayPort (dcpext0 and the xbar stay off), charging in.
 
+### Result (WFI soak + SLEEP S1-S4, 2026-11-07 10:26-11:42 UTC, WFI-T1 kernel, Rolando at the machine for S4)
+
+Kernel `7.3.0-gf080637018df` (series + `wfi-idle` 0001/0002: WFI override, PM_DEBUG), the daily's DTB, payload
+`wfi-t1-20261107-040d4866.bin`, one boot, 76 minutes.
+- **Soak (56 min, cut short on Rolando's call):** no RCU stall, Oops or SError (the only error line was the hub's first
+  enumeration attempt during a live port move); all 18 cores pass a floating-point consistency run; CPU 0 had 409k WFI
+  entries; idle on the charger 9.8 W total system power (the spinning daily: 16.4 W). **WFI idle is validated.**
+- **Sleep, `dt-prep/s2idle/s2idle-step.sh` (copied to `/boot`, its `idle=nop` guard relaxed for the overriding kernel),
+  WD2 guard off (unverified; Rolando present):**
+  - S1 freezer: PASS, 5 s.
+  - S2 `pm_test=devices`: PASS, 7 s; every device suspend/resume callback ran; USB (22 devices), Ethernet and trackpad back.
+  - S3 `pm_test=platform` (late + noirq, power domains off): PASS, 7 s; same recovery.
+  - S4 real s2idle, `echo mem > /sys/power/state`, wake on the power button: PASS. `Timekeeping suspended for 346.641
+    seconds`; resume at 4211 s, `suspend_stats` success 4 / fail 0; USB, Ethernet (carrier back), battery 100 %.
+  - After each of S2-S4 SSH over Tailscale took 2-6 minutes to return: the WireGuard path re-forms after the Ethernet
+    adapter's suspend/resume; TCP 22 answered at once, the SSH handshake only completed later. Not a kernel symptom.
+- Not measured yet: power while asleep (on battery, overnight), lid-close wake, repeated sleep cycles in one boot, sleep on
+  the audio kernel, the USB-C right port across sleep (it was empty).
+- Next: promote the WFI kernel to the daily (add `kvm-arm.wfi_trap_policy=trap` to BASE), then enable lid sleep in logind.
+
