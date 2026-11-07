@@ -1,0 +1,144 @@
+From 0ea40ce656efe390cfeda3e5375e92e2fc6d0cb3 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 05:31:04 -0500
+Subject: [PATCH 14/15] ASoC: apple: aop_t8140: check the T6050 speaker
+ service's power state
+
+On the MCA serializer stream (T6050) the speaker service is started from
+the back-end's prepare, and ASoC unmutes the amplifiers right after that
+prepare. The service's power request (property 202, "pwrd") returns as
+soon as the firmware has taken it, and nothing checked the state it
+reached. The firmware also stops the speaker stream on its own when it
+judges the sense RX undrained, which would leave the amplifiers without
+their clock in the middle of a stream.
+
+After the pwrd request, read the power state back (property 200, as pw0
+is already confirmed) until it reads pwrd, polling every 2 ms for at most
+500 ms, then keep the 20 ms settle before returning to ASoC; an
+unreadable state or a timeout falls back to the fixed lead with a
+warning. At the stream's end, before pw0, read it once more and warn if
+the firmware has left pwrd.
+
+On the J716 the state reads pwrd at the first read every time ("pwrd
+reached after 0 ms", logged at info level for the bring-up), and no
+stream has ended outside pwrd.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ sound/soc/apple/aop_t8140.rs | 79 +++++++++++++++++++++++++++++++++++-
+ 1 file changed, 77 insertions(+), 2 deletions(-)
+
+diff --git a/sound/soc/apple/aop_t8140.rs b/sound/soc/apple/aop_t8140.rs
+index a0985ac3979e..aebabce956e1 100644
+--- a/sound/soc/apple/aop_t8140.rs
++++ b/sound/soc/apple/aop_t8140.rs
+@@ -757,6 +757,11 @@ struct SndSocT8140AopData {
+ /// keeps it open for longer gets the old order: the service stops under
+ /// unmuted amplifiers, which then latch the TDM clock fault.
+ const SPKR_STOP_GRACE_MS: u64 = 100;
++
++/// How long prepare waits for the speaker service to read back `pwrd` on the
++/// MCA serializer stream, and how often it reads.
++const SPKR_PWRD_WAIT_MS: i64 = 500;
++const SPKR_PWRD_POLL_MS: i64 = 2;
+ const HPAI_START_WORK: u64 = 1;
+ 
+ impl_has_work! {
+@@ -1380,8 +1385,10 @@ fn spkr_start(&self) -> Result<()> {
+         }
+         self.service_run(&self.spkr)?;
+         if !self.hw.spkr_leap {
+-            // Let the serializer clock settle before ASoC unmutes the
+-            // amplifiers right after this prepare.
++            // The request only asks for pwrd: wait until the firmware is
++            // there, then let the serializer clock settle before ASoC
++            // unmutes the amplifiers right after this prepare.
++            self.spkr_wait_pwrd();
+             kernel::time::delay::fsleep(kernel::time::Delta::from_millis(20));
+         }
+         if let Err(e) = self.spkr_set_mute(false) {
+@@ -1427,6 +1434,9 @@ fn spkr_go(&self) -> Result<()> {
+     /// `spkr_lock`.
+     fn spkr_retire(&self) {
+         if self.spkr.running.load(Relaxed) {
++            if !self.hw.spkr_leap {
++                self.spkr_check_still_pwrd();
++            }
+             if let Err(e) = self.spkr_set_mute(true) {
+                 dev_err!(self.dev, "spkr: mute failed: {:?}\n", e);
+             }
+@@ -1438,6 +1448,71 @@ fn spkr_retire(&self) {
+         self.sense_drain_disarm();
+     }
+ 
++    /// The speaker service's `pwrd` request (property 202) returns before the
++    /// firmware has carried it out. On the MCA serializer stream the
++    /// amplifiers unmute right after prepare, and an amplifier that comes out
++    /// of shutdown before its TDM clock is final latches "bad TDM clock". So
++    /// read the power state back (property 200, as `pw0` is confirmed) until
++    /// it reads `pwrd`, for at most [`SPKR_PWRD_WAIT_MS`]. The time it took is
++    /// logged: it is the J716 bring-up measurement of when the firmware's
++    /// serializer is really running. An unreadable state or a timeout falls
++    /// back to the fixed lead. Under `spkr_lock`.
++    fn spkr_wait_pwrd(&self) {
++        let t0 = kernel::time::Instant::<kernel::time::Monotonic>::now();
++        let mut polls = 0u32;
++        let (state, reached) = loop {
++            polls += 1;
++            let state = match self
++                .epic_wrapped_call_ret(&AudioGetDeviceProp::new(self.spkr.dev_id, PROP_POWER_STATE), 8)
++                .and_then(|r| le_u32(&r, 4))
++            {
++                Ok(state) => state,
++                Err(e) => {
++                    dev_warn!(self.dev, "spkr: power state unreadable: {:?}\n", e);
++                    return;
++                }
++            };
++            if state == SPKR_POWER_STATE_PWRD {
++                break (state, true);
++            }
++            if t0.elapsed().as_millis() >= SPKR_PWRD_WAIT_MS {
++                break (state, false);
++            }
++            kernel::time::delay::fsleep(kernel::time::Delta::from_millis(SPKR_PWRD_POLL_MS));
++        };
++        let ms = t0.elapsed().as_millis();
++        if reached {
++            dev_info!(self.dev, "spkr: pwrd reached after {} ms ({} reads)\n", ms, polls);
++        } else {
++            dev_warn!(
++                self.dev,
++                "spkr: power state {:#010x} {} ms after the pwrd request ({:#010x})\n",
++                state,
++                ms,
++                SPKR_POWER_STATE_PWRD
++            );
++        }
++    }
++
++    /// Before the service is stopped: report a firmware that left `pwrd` on
++    /// its own during the stream (it stops the speaker stream, and the
++    /// amplifiers' clock with it, when the sense RX goes undrained). Bring-up
++    /// diagnostics for the J716's mid-stream clock faults. Under `spkr_lock`.
++    fn spkr_check_still_pwrd(&self) {
++        match self
++            .epic_wrapped_call_ret(&AudioGetDeviceProp::new(self.spkr.dev_id, PROP_POWER_STATE), 8)
++            .and_then(|r| le_u32(&r, 4))
++        {
++            Ok(SPKR_POWER_STATE_PWRD) => {}
++            Ok(state) => dev_warn!(
++                self.dev,
++                "spkr: power state {:#010x} at the end of the stream, not pwrd: the firmware stopped it\n",
++                state
++            ),
++            Err(e) => dev_warn!(self.dev, "spkr: power state unreadable at stop: {:?}\n", e),
++        }
++    }
++
+     /// The stop half of `spkr_go` on the MCA serializer stream (T6050).
+     ///
+     /// ASoC mutes the amplifiers (mute_stream) only when the back-end is
+-- 
+2.56.0
+

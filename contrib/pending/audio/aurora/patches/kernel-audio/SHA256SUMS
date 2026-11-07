@@ -1,0 +1,15 @@
+2b3c19d6f03c38695e1c702d1725cec77774b00b115cceb825a2f6546cf16d26  0001-ASoC-apple-macaudio-per-machine-speaker-volume-ceili.patch
+2f5b7e2cffb73a7f64a256402b30a20fdd0f8826cc87a0259e3276f4044ac3fc  0002-soc-apple-rtkit-let-a-client-leave-placed-buffers-un.patch
+624d1a25e4f1b41a9bf5526f7caab261e7d4c2c655ff831286cc6d64a168e0d9  0003-soc-apple-aop-T6050-setup-port-and-firmware-DMA-wind.patch
+4245b442d2c41dcb0fdab973e952b5cde5d6bd80f959d3b8868a74c85909dc2b  0004-ASoC-apple-aop_t8140-T6050-variant.patch
+4edb7cc435bf88e2fb466410b31ea0b331f0d945abd302a5130385b2e592983a  0005-ASoC-apple-aop_t8140-T6050-speaker-service-has-no-ou.patch
+022f8b7bfc43bb3c2fbab925ccda308fa4d04cd5be1fd9271988c3c76c028a05  0006-ASoC-apple-t8140_aop_audio-re-align-the-J714c-V-I-se.patch
+67801a46dd6fb119e77c251d5b95298f1489f75664ca08dc646c22c6a8398d18  0007-ASoC-apple-t8140_aop_audio-run-the-J714c-speakers-on.patch
+84d18fc6b8e2d64fb9124e667ad6b876784886eade1d04210b9a36d1f1bed34b  0008-ASoC-apple-t8140_aop_audio-J714c-microphone-array-on.patch
+0bd919a40ca65bbc7c2cc20c93155bd9f5d10d8a1c32a449d100eda3980d86ee  0009-ASoC-apple-t8140_aop_audio-J714c-microphone-setup-of.patch
+ddf0076963f38127b7b2554ff1fbc45b5e8bde5df9f737c7c39f3e78a9cb8e14  0010-ASoC-apple-t8140_aop_audio-drain-the-J714c-sense-RX-.patch
+8abc32160910f4e8a9db80a7e6171d34ef538cdf21ef1a0d82bd9ad02e2d4723  0011-ASoC-apple-macaudio-Add-the-J716-MacBook-Pro-16-M5-P.patch
+e639cf79a1965288f054da80cb5b9b50bb89e5525d028aecac1ff1155b0383c1  0012-ASoC-apple-t8140_aop_audio-align-Left-Woofer-1-s-sen.patch
+e3abe1ed54a578d11b70efa1ecde8f3601e053e5fc614515aa0d38b60fdd8e1a  0013-ASoC-apple-aop_t8140-stop-the-T6050-speaker-serializ.patch
+93789341e0956d2d15fff34bd894f45f9c2964895f304e62a1c3b7b1e1ebc096  0014-ASoC-apple-aop_t8140-check-the-T6050-speaker-service.patch
+dde6c8496dbba43d727f6d3f95abf83f19ac30b65977ebba6feef5ba3e7b093c  0015-ASoC-apple-macaudio-run-the-J716-speakers-in-the-J61.patch

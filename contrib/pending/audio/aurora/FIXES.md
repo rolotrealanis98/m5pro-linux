@@ -32,3 +32,23 @@ error[E0599]: no method named `dma_handle` found for struct `Coherent<T>`       
 `patches/kernel-audio/0001-0011` regenerated with `git format-patch b790125548c4..HEAD`; only 0003 changed. Each set
 applies in sequence on b790125548c4 (gives the worktree's tree 60532256), on 302945c1ecb3 and on 6d9f1ec652a6.
 The source tree has no `.config` (stays mrproper-clean for the O= build).
+
+# Hardware-run fixes (R3-AUDIO-B2..B5, 2026-11-07)
+
+Branch `j716s-series-audio` was rebuilt as the audio kernel candidate @ `c963af7d14b9` (15 commits on `4f630b11270d`). Its
+tree is identical to the B5 kernel `e5a4712a3f0d`. The old tip is kept as `j716s-series-audio-pre-tdm` (`32512dab5b4e`).
+All 15 commit messages carry `Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>` and no Co-Authored-By/Assisted-by
+lines; Ed's commits keep his authorship. Details and measurements are in `tdm/REPORT.md`.
+
+| fix | where | why |
+|---|---|---|
+| speakersafetyd udev rule: `ATTRS{id}` only | `userspace/udev/96-speakersafetyd-j716.rules` | udev matches all parent keys of a rule on one parent; the card id and `DRIVERS` live on different parents, so the daemon never started (B2) |
+| `apple,deferred-shutdown` on the six amps | `mk-audio-dtb.py` (spk variant), `dt/j716s-audio-spk-notun-edp.dts` | a muted or shut-down amp that sees its clock stop latches a clock-only fault; with the property tas2764 clears it silently (removed the B2 Speaker Switch-off burst) |
+| 0012 (Ed 83d711c3a909) | `aop_t8140.rs` | LW1's current arrives one frame after its voltage on J714c |
+| 0013 stop order | `aop_t8140.rs` | pw0 was sent from the trigger STOP work, before ASoC's hw_free mute; now from the BE hw_free op (100 ms bound) |
+| 0014 power-state check | `aop_t8140.rs` | pwrd read back before the unmute; a warning if the firmware left pwrd by the stream's end |
+| 0015 J716 speaker link format | `macaudio.c` (`speaker_dai_fmt`, `secondary_bclk_ratio = 250`) | the ADT's serializer is the J616s link (12 MHz, 250-bit frame); with the default inverted bit clock all six amps latched `bad TDM clock` all through every stream (B2-B4); B5 with the fix: 0 faults |
+| WirePlumber fragment made self-contained | `userspace/asahi-audio/99-asahi-j716.conf` | asahi-audio (which renames the raw speaker PCM to RawSpeakers and enables `node.software-dsp`) is not installed; the graph targets RawSpeakers, so the fragment now does both |
+
+Build: `tdm/build-candidate-container.sh`, 0 warnings, `7.3.0-gc963af7d14b9`, Image.gz
+`8bd74699a6773e75877123842bf54a85842c48696f4df88105a7ffa43bea826d`.

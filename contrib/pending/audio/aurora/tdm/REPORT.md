@@ -315,6 +315,194 @@ it if hand-writing amp registers is not acceptable.
 4. 0-0038 should then be the one amp missing from the fault lines of the next tone.
 5. To undo, write back 0x03 and the old 0x0d value, or reboot.
 
+## 12. B5 passed; registers; the B6 audible plan; PipeWire; the audio kernel candidate
+
+### B5 result
+B5 = `7.3.0-ge5a4712a3f0d` + defer DTB.
+- **Faults:** 0 `bad TDM clock` in three tones (one with the daemon stopped) and a switch-off.
+- **Interrupts:** amp IRQ +11/+20/+15/+13 per tone (B4 about +638), idle +0.
+- **Daemon:** speakersafetyd up.
+
+### (1) Residual interrupts and the registers
+- **The 11-20 interrupts per tone** are the expected stream-end latches (the aurora-silicon/linux#663 behaviour).
+  - With 0013 the amps mute first (6 ms ramp), the back-end's hw_free then sends pw0, and the clock stops under muted
+    amps.
+  - A muted amp re-latches the clock-only fault about every 10 ms until its deferred shutdown (150 ms), and once more
+    after it. With `apple,deferred-shutdown` `stream_stopped` is set, so the handler clears each latch silently
+    (IRQ_HANDLED, nothing logged).
+  - One shared-line interrupt serves every amp latched at that moment, hence about 10-20 rather than 6 x 15.
+  - Harmless; it costs a few I2C reads per stream end. The idle +0 confirms nothing fires between streams.
+- **0x4a (INT_LTCH1) = 0x02, bit 1:** I cannot name this bit from the material I have; the driver and headers define
+  no bits for LTCH1. TI's TAS2764 datasheet register map is needed to name it. What is certain:
+  - `INT_MASK1` = 0xff, so this register can never pull IRQZ or reach the handler.
+  - It reads 0x02 on all six amps in every run (B2's fault contexts `02,19,00,00,04` already had it), with and without
+    the clock faults, so it does not follow the TDM state. In contrast, 0x4b went from 0x19/0x39 during the faults to
+    0x00 now.
+  - So it is a static status of the amp's supply or mode configuration. A VBAT-side indication is plausible, since the
+    driver's quirk set runs the SN012776 in its PVDD-derived VBAT mode (`TAS2764_CONV_VBAT_PVDD_MODE`). That is a
+    guess, unverified.
+  - The amps play and their sense is used, so it does not block anything. Action: name it from the datasheet before
+    any fault-handling change.
+- **0x5c (INT_CLK_CFG) = 0x19:** the power-on default (`tas2764_reg_defaults` `{ TAS2764_INT_CLK_CFG, 0x19 }`). Bit 2
+  (IRQZ_CLR) self-clears and reads 0, which shows the clears land. Nothing abnormal.
+- **The other registers confirm 0015 took effect:**
+  - `0x09` = 0x02: RX on the rising edge, RX offset 1 (I2S).
+  - `0x0d` = 0x13: bit0 = 1 is TX on the falling edge; bits 3:1 = 001 is TX offset 1, Ed's "reset TX offset"; bit4 is
+    the reset default.
+  - `0x0a` = 0x1a: RX word 24 bits, RX slot 32 bits, ASI1 source "Left".
+  - `0x0c`: RX slots 0x00/0x22/0x44 (LW1/LW2/LT) and 0x11/0x33/0x55 (RW1/RW2/RT), exactly the ADT `rx_slot` 0-5.
+  - `0x08` = 0x08: 48 kHz, FRAME_START 0.
+
+### (2) B6: audible test at `snd_soc_macaudio.speaker_max_db=-30` (payload audio-b6-20261107; Rolando listening)
+**Why it is safe:** amp level 10 is 16 dBV, about 6.3 Vrms at digital full scale. The kernel ceiling of -30 dB caps
+every digital level at about 0.2 Vrms, about 10 mW into 3.4-4.5 ohm. speakersafetyd's limits are 0.89 W per woofer and
+0.59 W per tweeter, so even 0 dBFS stays near 2% of the tweeter limit. Use 1 kHz everywhere: no low frequencies into the
+tweeters on the raw device.
+
+**Channel map** (FE channel n = TDM slot n, confirmed by `0x0c`): 0 LW1, 1 RW1, 2 LW2, 3 RW2, 4 LT, 5 RT.
+
+**Before sound (root):**
+```
+dmesg | grep -E 'Speaker volume ceiling|Speaker volumes (un)?locked'    # ceiling -30 dB, unlocked after the daemon
+systemctl is-active speakersafetyd
+amixer -c AppleJ716 sget 'Left Woofer 1 Amp Gain Volume' | tail -1      # max 10
+# debug output (per-speaker power and temperatures every 85 ms):
+mkdir -p /etc/systemd/system/speakersafetyd.service.d
+printf '[Service]\nExecStart=\nExecStart=/usr/bin/speakersafetyd -c /usr/share/speakersafetyd/ -m 7 -v\n' \
+  > /etc/systemd/system/speakersafetyd.service.d/b6-debug.conf
+systemctl daemon-reload && systemctl restart speakersafetyd
+dmesg | tail -3                                   # "Speaker volumes unlocked" again after the restart
+N=$(awk '/tas2764/{sub(":","",$1);print $1}' /proc/interrupts); cat /proc/irq/$N/spurious
+systemctl --user -M rolo@ stop wireplumber pipewire pipewire-pulse 2>/dev/null || true   # free the PCM
+amixer -c AppleJ716 cset name='Speaker Playback Mux' Secondary; amixer -c AppleJ716 cset name='Speaker Switch' on
+cd /tmp
+for l in 30 20 12 6 0; do sox -n -r 48000 -c 6 -b 16 t$l.wav synth 2 sine 1000 gain -$l; done
+sox -n -r 48000 -c 1 -b 16 m.wav synth 2 sine 1000 gain -12
+for n in 0 1 2 3 4 5; do m=""; for i in 0 1 2 3 4 5; do [ $i = $n ] && m="$m 1" || m="$m 0"; done; sox m.wav ch$n.wav remix $m; done
+sox -n -r 48000 -c 1 -b 16 m0.wav synth 10 sine 1000 gain 0
+sox m0.wav left.wav remix 1 0 1 0 1 0; sox m0.wav right.wav remix 0 1 0 1 0 1
+```
+In a second SSH session, keep running:
+`journalctl -u speakersafetyd -f -o short-monotonic | grep -vE 'SKIP'` and `dmesg -w | grep -E 'tas2764|spkr|macaudio'`.
+
+**Steps, in order, 5 s apart.** After each, note the IRQ delta, the fault lines and what Rolando hears.
+1. **Six channels at -30, -20, -12, -6, then 0 dBFS:** `aplay -D plughw:AppleJ716,1 t30.wav` and so on. Expect a faint
+   1 kHz at -30 rising to quiet-but-clear at 0 dBFS, from both sides, with no buzz or crackle.
+   - The daemon prints each speaker's line with Power below 0.02 W, the coil within a few tenths of a degree of its
+     start (50 C cold boot), and no "gain limited".
+2. **Channel identification at -12 dBFS:** `aplay -D plughw:AppleJ716,1 ch$n.wav` for n = 0..5. Rolando names
+   left/right and woofer/tweeter for each; expect LW1 RW1 LW2 RW2 LT RT in that order. Tweeters are smaller and
+   brighter, but 1 kHz reaches both kinds.
+3. **Left against right sensed power (ROOT-SETUP §5 is_scale/vs_scale):** play `left.wav` (10 s, 0 dBFS, LW1+LW2+LT),
+   wait 30 s, then `right.wav`.
+   - From the daemon's debug lines take each speaker's **Power** during the tone and the **Coil** temperature rise
+     (end minus start). At about 10 mW the Power column reads 0.01; the coil rise (about 0.1-0.3 C) separates 4x
+     cleanly.
+   - Compare RW1 with LW1, RW2 with LW2, RT with LT.
+   - **Right reads about 4x left** (power about 4x, coil rise about 4x): the J714c i2c3 doubling. Set
+     `is_scale = 1.875` and `vs_scale = 7` in the three `[Speaker/Right ...]` sections of
+     `/usr/share/speakersafetyd/apple/j716.conf`, `systemctl restart speakersafetyd`, and repeat step 3; expect equal.
+   - **Equal within about 30%:** leave the file.
+   - **Left reads about 4x right:** report; change nothing.
+   - **LW1 against LW2** (the 0012 check): within about 30%. A large gap means the late-current correction is wrong for
+     the J716 under the new edge.
+4. **Clean up:** `rm /etc/systemd/system/speakersafetyd.service.d/b6-debug.conf; systemctl daemon-reload; systemctl
+   restart speakersafetyd`.
+
+**Stop rules (any one: `amixer -c AppleJ716 cset name='Speaker Switch' off`, Ctrl-C the aplay, report):**
+- **Amp faults:** any `tas2764 ... fault:` line, or an amp IRQ delta above about 50 for one tone.
+- **Daemon:** a speakersafetyd panic, restart, `Panic!`, `gain limited` (impossible at these powers unless the sense is
+  wrong), a negative Power, or any Power above 0.05 W.
+- **Sound:** distortion, buzz, crackle, sound that continues after the tone, a driver silent in the six-channel tone,
+  or sound from the wrong place in step 2.
+- **Anything else unexpected (smell, heat, a loud pop):** hold the power button.
+
+### (2b) PipeWire with the protective graph for user `rolo`
+- **The UCM failure.** The test name was most likely wrong. `alsaucm -c AppleJ716` passes the card id. alsa-lib
+  matches a plain name against the card *name* ("MacBook Pro J716"), not the id, then falls back to a legacy file
+  `ucm2/AppleJ716/AppleJ716.conf`, hence -2 (ENOENT). PipeWire opens UCM as `hw:N`, which resolves through the card's
+  driver and long name to `ucm2/conf.d/macaudio/MacBook Pro J716.conf`.
+- **Check as root:**
+  ```
+  pacman -Q alsa-lib alsa-ucm-conf alsa-ucm-conf-asahi pipewire wireplumber lsp-plugins-lv2
+  ls /usr/share/alsa/ucm2/ucm.conf "/usr/share/alsa/ucm2/conf.d/macaudio/MacBook Pro J716.conf" \
+     /usr/share/alsa/ucm2/conf.d/macaudio/laptops/HiFi.conf /usr/share/alsa/ucm2/conf.d/macaudio/cs42l84/Headphones.conf
+  alsaucm -c hw:AppleJ716 list _verbs                       # HiFi
+  alsaucm -c hw:AppleJ716 set _verb HiFi list _devices      # Speaker, Headphones, Headset
+  alsaucm -c "hw:AppleJ716AOP" list _verbs                  # the AOP mic card (t8140-aop-audio/... file)
+  ```
+  The `set _verb` only sets the two playback muxes.
+- **If `hw:` still fails:** run `strace -f -e trace=openat alsaucm -c hw:AppleJ716 list _verbs 2>&1 | grep ucm2` to see
+  the path alsa-lib looks for.
+  - `ucm.conf` missing: alsa-ucm-conf-asahi ships only `conf.d/`, so `pacman -S alsa-ucm-conf`.
+  - A different directory or name: install our file under the name it asks for. The card driver is `macaudio` and the
+    long name "MacBook Pro J716".
+- **The WirePlumber fragment had two gaps.** It relied on asahi-audio's `99-asahi.conf`, which is not installed: that
+  file renames `hw:AppleJ716,1` to `alsa_output.platform-sound.RawSpeakers`, the node our `graph.json` targets, and
+  enables WirePlumber's `node.software-dsp`.
+  - The fragment is now self-contained: rename (48 kHz only), software-dsp rule, `wireplumber.profiles` main
+    `node.software-dsp = required`.
+  - Install the new `userspace/asahi-audio/99-asahi-j716.conf` (also in `~/Work/agents/audio-aurora/userspace/`) to
+    `/usr/share/wireplumber/wireplumber.conf.d/`.
+  - The graph uses `lsp-plugins-lv2` (compressor_stereo).
+- **As rolo** (a logged-in session, or `loginctl enable-linger rolo` first for an SSH-only test):
+  ```
+  systemctl --user restart pipewire pipewire-pulse wireplumber
+  wpctl status | sed -n '/Sinks:/,/Sources:/p'     # "MacBook Pro J716 Speakers (bring-up)"; no Raw Speaker Device
+  journalctl --user -u wireplumber -b --no-pager | grep -iE 'j716|software-dsp|filter|lv2|error' | tail -20
+  pw-dump | grep -E '"api.alsa.path"|RawSpeakers' | sort -u    # hw:AppleJ716,1 must be there (UCM Speaker device)
+  ```
+- **Root checks while PipeWire runs:**
+  - `dmesg | tail` should show no faults.
+  - speakersafetyd should still be active. udev's `ACP_IGNORE` keeps PipeWire off the sense PCM, D2c.
+  - `amixer -c AppleJ716 sget 'Speaker Switch'` should be on: UCM's Speaker device enable sets it.
+- **First pw-play (as rolo), quiet first:**
+  ```
+  wpctl set-default $(wpctl status | awk '/J716 Speakers/{gsub(/[^0-9]/,"",$2); print $2; exit}')
+  wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.30
+  sox -n -r 48000 -c 2 -b 16 /tmp/st.wav synth 3 sine 440 gain -20 ; pw-play /tmp/st.wav
+  sox -n -r 48000 -c 2 -b 16 /tmp/pn.wav synth 5 pinknoise gain -25 ; pw-play /tmp/pn.wav
+  ```
+  - Expect the 440 Hz mostly from the woofers (the graph high-passes the tweeters at 2 kHz). Pink noise should come
+    from all six drivers.
+  - Everything is quieter than the raw test: graph -10 dB, the -30 dB kernel ceiling, and the sink at 30%.
+  - Then a music file at the same volume, while watching dmesg and the daemon.
+  - Same stop rules as B6.
+  - If the sink is missing, send the wireplumber journal and the `pw-dump` paths.
+
+### (3) The audio kernel candidate
+- **Branch:** `j716s-series-audio` (worktree `/Volumes/linux-cs/wt-aurora-audio2`) was rebuilt as 15 commits on
+  `j716s-series` `4f630b11270d`: the 11-patch port plus tdm 0001-0004. The old tip is kept as branch
+  `j716s-series-audio-pre-tdm` (`32512dab5b4e`).
+- **Trailers:** every message ends with `Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>`. All Co-Authored-By
+  and Assisted-by lines were removed, including the "Assisted-by: LLM" inside 0003's port note. Ed keeps authorship of
+  his ten commits; ours are authored by Rolando Trevino.
+- **Corrected messages:**
+  - 0013 (stop order) no longer claims B2's faults were stream-end faults.
+  - 0014 (renamed "check the T6050 speaker service's power state") drops the withdrawn 0.3 s and 1032-interrupt
+    reading and states that pwrd reads back at once.
+  - 0015 adds the B5 result.
+- **Tree:** identical to B5's `e5a4712a3f0d`; code is unchanged.
+  - HEAD `c963af7d14b9`; `7.3.0-gc963af7d14b9`, built with `build-candidate-container.sh` into
+    `~/Work/agents/audio-aurora/kbuild-cand/`, 0 warnings.
+  - Image.gz `8bd74699a6773e75877123842bf54a85842c48696f4df88105a7ffa43bea826d`.
+- **DTBs:**
+  - `mk-audio-dtb.py` adds `apple,deferred-shutdown` to the spk variant. The regenerated
+    `t6050-j716s-audio-spk-notun-edp.dtb` = `9783ccb6...`, byte-identical to the B5 defer DTB.
+  - A = `d69345c1...`, in-tree `t6050-j716s.dtb` = `8c4df67a...`.
+- **Patches:**
+  - The candidate series `patches/candidate/0001-0015`; the tdm subset as `patches/0001-0004` (0003 renamed to
+    `check-the-T6050-speaker-service`).
+  - Mirrored to `contrib/pending/audio/aurora/patches/kernel-audio/` (with `SHA256SUMS`) and `tdm/patches/`.
+- **Repo docs updated:**
+  - `ANALYSIS.md` §0 (the post-B5 state).
+  - `FIXES.md` (hardware-run fixes).
+  - `R3-AUDIO-RECIPE.md` §0, the 0012-0015 rows, the spk DTB hash and the failure rows.
+  - Also `mk-audio-dtb.py`, `dt/j716s-audio-spk-notun-edp.{dts,dtb}` and `userspace/asahi-audio/99-asahi-j716.conf`.
+  - Nothing is committed.
+- **Not changed:** `mk-r3audio.py` still pins the old kbuild kernel. Payloads are built with the coordinator's own
+  tooling now.
+
 ## 9. For edimoldovan (after our run confirms 0002)
 - The J716s faults came from the speaker link format: his J714 entry has the same `IB_IF`/256 defaults. If the J714c
   ADT shows the same `fa00` 250-bit frame, 0004's format may also explain his one-bit sense shift and the LW1 delay.

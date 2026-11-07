@@ -5,6 +5,29 @@ Scratch worktree: `/Volumes/linux-cs/wt-audio-aurora`, local branch `audio-auror
 Source of the port: `github.com/edimoldovan/linux-aurora` branch `t6050-j714c` @ `671fd38e1c0d` (fetched as remote
 `edimoldovan` in `/Volumes/linux-cs/linux`; his base is integration/aurora `44d5afc79da7`, 2026-10-20, an ancestor of ours).
 
+## 0. Update 2026-11-07 (after R3-AUDIO-B2..B5): what the hardware runs changed in this analysis
+- **Speakers now run without faults.** The J716s speaker link is **not** the J714c's macaudio default.
+  - The J716s ADT gives the AOP's speaker serializer (`/arm-io/iop-audio-controller/audio-speaker/audio-speaker` reg)
+    as a 12 MHz bit clock in a 250-bit frame at 48 kHz, 6 x 32-bit playback slots and 12 x 16-bit sense slots. That is
+    the J616s/J713 link.
+  - The amps need I2S with a normal bit clock and an inverted frame clock (`NB_IF`). The default `IB_IF` (inverted bit
+    clock) made all six amps latch `bad TDM clock` about every 3 ms through every stream (B2-B4, ~638 interrupts per
+    2 s tone).
+  - Patch 0015 fixes it for the speaker link only (`speaker_dai_fmt`, 250-bit frame). B5: 0 faults.
+  - This revises section 7's "Most likely trouble" row: the BCLK ratio and format were the trouble.
+- **Stop order (0013):** pw0 now goes from the back-end's hw_free, after ASoC has muted the amps, instead of from the
+  trigger STOP work.
+- **Deferred shutdown (DT):** `apple,deferred-shutdown` on the six amps makes the tas2764 driver treat the clock-only
+  latch of muted or shut-down amps as expected. It removed the Speaker Switch-off burst (B2) and covers the stream end.
+- **Power-state check (0014):** pwrd is read back before the unmute; the firmware echoes it at once on the J716. At
+  stop, a warning appears if the firmware left pwrd (never seen).
+- **Sense alignment (0012):** Ed's 83d711c3a909 is carried. LW1-against-LW2 power and V/I sanity under the new `NB_IF`
+  edge are still to be checked (B6). The re-slice of 0006 was measured by Ed under `IB_IF`.
+- **Candidate:** branch `j716s-series-audio` @ `c963af7d14b9` = these 15 commits on `j716s-series`, with clean trailers.
+  Its build and DTB hashes are in R3-AUDIO-RECIPE.md section 0; the full trail is in `tdm/REPORT.md`.
+- **Reboot:** the B2 reboot stall did not reproduce on B3-B5 kernels. The audio drivers have no reboot-time hooks
+  (`tdm/REPORT.md` section 7).
+
 ## 1. Bottom line
 - Ed's J714c audio is a **T6050-generic AOP audio stack** plus a thin J714 layer. The generic part is 10 kernel commits in
   four files (`aop.rs`, `rtkit.rs`/`rtkit.c`, `t8140_aop_audio.rs`, `macaudio.c`). All of it ported onto 6d9f1ec (section 3);
