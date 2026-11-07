@@ -100,3 +100,13 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
   series for aurora-wip in preparation (agent).
 - GPU/DCP 27.2+ port started as six parallel agents (InitData root/sizes/HW data; power policy; status config;
   firmware identity + J716s board profile; runtime format diff; DCP 27.3 table), integrator to follow.
+
+## 2026-11-07 17:30 UTC
+- aurora-silicon/linux #1167 "arm64: dts: apple: add the J716s (MacBook Pro 16-inch, M5 Pro)" opened: `pr/j716s-board-v2`
+  674542cf2e22 (10 patches on #945 carried), validated by BOARDV2-T2 (the PR DTB + a local ATC0 gadget node boots the
+  series kernel: input, NVMe, N1, battery, sensors).
+- m1n1 T6050 bring-up series for aurora-wip ready (`pr/t6050-bringup`, 4 commits: i2c limit 16, per-cpu-id CPU_START bit,
+  RVBAR relay for cores locked to the stage-1 base, T6040-style split BAR), payload
+  `m1n1-t6050-bringup-20261107-020e7150` built; boot test must be ATTENDED (this loader disables the stage-1 watchdog, so
+  a hang parks the machine in the proxy; macOS recovery plan as for #65 v2). PR after the boot.
+- ASPM PR branch dropped as redundant (0085 validated by NOASPMFLAG-T1).
