@@ -1,0 +1,345 @@
+From c3fe53bccd5a762de35c1f39f0b1879da21bf646 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Sat, 7 Nov 2026 15:41:04 -0500
+Subject: [PATCH] chainload: check the image against its directory entry,
+ re-arm the watchdog after the read, report the decision
+
+UNTESTED on hardware; compile-checked for CHAINLOADING=1 and plain. On top of 0016.
+
+Read path (rust/src/chainload.rs):
+- rust-fatfs's seek(End) stops silently at the end of the last cluster when the FAT chain is
+  shorter than the directory entry, and an entry without a first cluster seeks to 0, so the old
+  code could chainload a truncated or empty image (an empty one jumps into the variable block
+  and m1n1's exception handler reboots: a counted boot failure that looks like a bad payload).
+  The size is now compared with the directory entry; a mismatch, a zero or >256 MiB size, or a
+  read that returns 0 before the end fails the slot, and the other slot is tried in the same
+  boot (no counted failure, no spin under the armed watchdog).
+
+Watchdog: still armed before the read (a wedged NVMe/RTKit wait resets), and re-armed with the
+full chainload.wdt budget once the image is in memory, so the read no longer eats into it.
+
+Report: chosen.m5pro,stage1 = pmu bytes, why (clean, failure, failure-in-restart,
+restart-failure, fallback-died, pmu-unread), slot, read_ms (NVMe init + FAT walk + read), size,
+wdt, mark. chainload: prints the read time.
+
+Policy (opt-in, chainload.stage-mark=1): stage-1 writes PMU boot_stage 0x31 (primary) or 0x32
+(fallback) right before the hand-over. Linux's macsmc-reboot overwrites it with 0x30 at probe and
+0 from its reboot notifier, and iBoot copies what it finds into boot_error_stage when it counts a
+failed boot. With the marks:
+  error stage 0x00  the previous session died in its own orderly restart/power-off: boot the
+                    primary slot (chainload.restart-failure=fallback keeps 0016's behaviour);
+  error stage 0x32  the fallback slot died before Linux took over: primary first;
+  anything else     fallback first, as before.
+Without the marks nothing changes except that a 0x00 error stage is reported as
+failure-in-restart. m5pro,boot-slot keeps its values (primary, fallback, *-after-failure).
+
+Image size unchanged: 0x420000 (CHAINLOADING=1), 0x410000 (plain).
+---
+ rust/src/chainload.rs |  53 +++++++++++++++++++---
+ src/chainload.c       |   9 ++++
+ src/chainload.h       |   7 +++
+ src/payload.c         | 102 ++++++++++++++++++++++++++++++++++++------
+ 4 files changed, 152 insertions(+), 19 deletions(-)
+
+diff --git a/rust/src/chainload.rs b/rust/src/chainload.rs
+index 010727ef..c05b4ef2 100644
+--- a/rust/src/chainload.rs
++++ b/rust/src/chainload.rs
+@@ -16,9 +16,20 @@ pub enum Error {
+     GPTError(gpt::Error<nvme::Error>),
+     BadArgs,
+     PartitionNotFound,
++    /// The directory entry was not found next to the file that opened (should not happen).
++    NoEntry,
++    /// The FAT chain covers fewer bytes than the directory entry says (seek(End) is clamped).
++    ShortChain { chain: usize, entry: u64 },
++    /// Zero or implausibly large size.
++    BadSize(usize),
++    /// The chain ended while reading (read returned 0 before the end).
++    ShortRead { got: usize, want: usize },
+     Unknown,
+ }
+ 
++// A stage-2 payload is 25-40 MiB today; anything above this is a corrupt directory entry.
++const MAX_IMAGE_SIZE: usize = 256 << 20;
++
+ impl From<fatfs::Error<nvme::Error>> for Error {
+     fn from(err: fatfs::Error<nvme::Error>) -> Error {
+         Error::FATError(err)
+@@ -58,18 +69,48 @@ fn load_image(spec: &str) -> Result<Vec<u8>, Error> {
+     let opts = FsOptions::new().update_accessed_date(false);
+ 
+     let fs = FileSystem::new(storage, opts)?;
+-    let mut file = fs.root_dir().open_file(path)?;
++
++    // rust-fatfs's seek(End) silently stops at the end of the last cluster of a short chain,
++    // and an entry with no first cluster seeks to 0: compare with the directory entry's size,
++    // so a damaged or half-updated entry fails here (and the other slot is tried in this same
++    // boot) instead of chainloading a truncated or empty image.
++    let rel = path.trim_start_matches('/');
++    let (dir_path, name) = rel.rsplit_once('/').unwrap_or(("", rel));
++    let dir = if dir_path.is_empty() { fs.root_dir() } else { fs.root_dir().open_dir(dir_path)? };
++    let mut entry_len: Option<u64> = None;
++    for e in dir.iter() {
++        let e = e?;
++        if e.is_file() && e.file_name().eq_ignore_ascii_case(name) {
++            entry_len = Some(e.len());
++            break;
++        }
++    }
++    let entry_len = entry_len.ok_or(Error::NoEntry)?;
++
++    let mut file = dir.open_file(name)?;
+ 
+     let size = file.seek(SeekFrom::End(0))? as usize;
+     file.seek(SeekFrom::Start(0))?;
+ 
+-    println!("File size: {}", size);
++    println!("File size: {} (directory entry {})", size, entry_len);
++
++    if size as u64 != entry_len {
++        return Err(Error::ShortChain { chain: size, entry: entry_len });
++    }
++    if size == 0 || size > MAX_IMAGE_SIZE {
++        return Err(Error::BadSize(size));
++    }
+ 
+     let mut buf: Vec<u8> = vec![0; size];
+-    let mut slice = &mut buf[..];
+-    while !slice.is_empty() {
+-        let read = file.read(slice)?;
+-        slice = &mut slice[read..];
++    let mut done = 0;
++    while done < size {
++        // read() returns 0 at the end of the chain; looping on it would spin until the
++        // watchdog bites and turn a bad entry into a counted boot failure.
++        let read = file.read(&mut buf[done..])?;
++        if read == 0 {
++            return Err(Error::ShortRead { got: done, want: size });
++        }
++        done += read;
+     }
+     println!("File read successfully");
+ 
+diff --git a/src/chainload.c b/src/chainload.c
+index e86260d6..6106f472 100644
+--- a/src/chainload.c
++++ b/src/chainload.c
+@@ -17,6 +17,7 @@ int rust_load_image(const char *spec, void **image, size_t *size);
+ #endif
+ 
+ bool chainload_wdt_keep = false;
++void (*chainload_loaded_hook)(size_t size, u64 read_ms) = NULL;
+ 
+ extern u8 _chainload_stub_start[];
+ extern u8 _chainload_stub_end[];
+@@ -151,6 +152,8 @@ int chainload_load(const char *spec, char **vars, size_t var_cnt)
+     size_t size;
+     int ret;
+ 
++    u64 start = get_ticks();
++
+     if (!nvme_init()) {
+         printf("chainload: NVME init failed\n");
+         return -1;
+@@ -161,6 +164,12 @@ int chainload_load(const char *spec, char **vars, size_t var_cnt)
+     if (ret < 0)
+         return ret;
+ 
++    u64 read_ms = ticks_to_msecs(get_ticks() - start);
++    printf("chainload: %ld bytes in %ld ms (NVMe init, FAT walk and read)\n", (long)size,
++           (long)read_ms);
++    if (chainload_loaded_hook)
++        chainload_loaded_hook(size, read_ms);
++
+     return chainload_image(image, size, vars, var_cnt);
+ }
+ 
+diff --git a/src/chainload.h b/src/chainload.h
+index 2e0b29c5..200c3a76 100644
+--- a/src/chainload.h
++++ b/src/chainload.h
+@@ -11,4 +11,11 @@ int chainload_load(const char *spec, char **vars, size_t var_cnt);
+ /* Set by a stage-1 that armed the watchdog: tell the next m1n1 to leave it armed. */
+ extern bool chainload_wdt_keep;
+ 
++/*
++ * Called by chainload_load() once the image is in memory and NVMe is shut down, right before
++ * chainload_image() copies the variables: the stage-1 uses it to re-arm the watchdog for the
++ * payload, mark the PMU boot stage and fill its report variable. read_ms is the NVMe/FAT time.
++ */
++extern void (*chainload_loaded_hook)(size_t size, u64 read_ms);
++
+ #endif
+diff --git a/src/payload.c b/src/payload.c
+index 809186bc..c451d7e9 100644
+--- a/src/payload.c
++++ b/src/payload.c
+@@ -50,6 +50,9 @@ static char *chainload_spec = NULL;
+ static char *chainload_fallback = NULL; // chainload.fallback=<PARTUUID>;<path>
+ static u32 chainload_wdt = 0;           // chainload.wdt=<seconds>, 0 = leave the watchdog off
+ static bool chainload_pmu_clear = true; // chainload.pmu-clear=0 leaves iBoot's counts to Linux
++static bool chainload_stage_mark = false; // chainload.stage-mark=1: PMU boot_stage 0x31/0x32
++static bool chainload_restart_ok = true; // with stage-mark: chainload.restart-failure=fallback
++                                         // keeps 0016's "any count means fallback"
+ #endif
+ 
+ static void *load_one_payload(void *start, size_t size);
+@@ -214,6 +217,10 @@ static bool check_var(u8 **p)
+         chainload_wdt = atol(val);
+     } else if (IS_VAR("chainload.pmu-clear=")) {
+         chainload_pmu_clear = val[0] == '1';
++    } else if (IS_VAR("chainload.restart-failure=")) {
++        chainload_restart_ok = strcmp(val, "fallback") != 0;
++    } else if (IS_VAR("chainload.stage-mark=")) {
++        chainload_stage_mark = val[0] == '1';
+ #endif
+     } else if (IS_VAR("display=")) {
+         display_configure(val);
+@@ -305,26 +312,70 @@ bool payload_logo(void **custom_128, void **custom_256)
+ }
+ 
+ #ifdef CHAINLOADING
++/*
++ * Boot stages stage-1 writes right before a hand-over when chainload.stage-mark=1. Linux's
++ * macsmc-reboot overwrites them with 0x30 at probe and with 0 from its reboot notifier, and
++ * iBoot copies whatever it finds into boot_error_stage when it counts a failed boot, so the
++ * next boot can tell "the slot we chainloaded died before Linux took over" (0x31/0x32) from
++ * "Linux was running" (0x30) and "the previous session died in its own orderly restart" (0x00).
++ */
++#define STAGE_MARK_PRIMARY  0x31
++#define STAGE_MARK_FALLBACK 0x32
++
++static char stage1_var[160];
++static const char *stage1_why = "pmu-unread";
++static const char *stage1_slot = "none";
++static u8 stage1_sp[3];
++static bool stage1_mark_fallback;
++
++static void chainload_loaded(size_t size, u64 read_ms)
++{
++    // The read is done: give the payload the full watchdog budget instead of what is left.
++    if (chainload_wdt_keep && wdt_arm(chainload_wdt) < 0)
++        chainload_wdt_keep = false;
++
++    if (chainload_stage_mark) {
++        u8 mark = stage1_mark_fallback ? STAGE_MARK_FALLBACK : STAGE_MARK_PRIMARY;
++        if (pmu_scrpad_write(PMU_SCRPAD_BOOT_STAGE, &mark, 1) >= 0)
++            printf("chainload: PMU boot_stage = 0x%02x until Linux takes over\n", mark);
++    }
++
++    snprintf(stage1_var, sizeof(stage1_var),
++             "chosen.m5pro,stage1=pmu=%02x%02x%02x;why=%s;slot=%s;read_ms=%ld;size=%ld;wdt=%d;mark=%d",
++             stage1_sp[0], stage1_sp[1], stage1_sp[2], stage1_why, stage1_slot, (long)read_ms,
++             (long)size, chainload_wdt_keep ? (int)chainload_wdt : 0, chainload_stage_mark);
++}
++
+ /*
+  * A/B selection for a chainloading stage-1, keyed on iBoot's own boot-failure bookkeeping in
+- * the PMU scratchpad. iBoot finds boot_stage != 0 at power-on whenever the previous boot did
+- * not end in a clean shutdown/restart (Linux macsmc-reboot writes 0 from its reboot notifier;
+- * a hang, a power-button hold, a watchdog bite or a panic restart leave 0x2f/0x30) and then
+- * increments boot_error_count before it loads us. So a non-zero count here means "the last
+- * attempt failed": boot chainload.fallback first. Either way, if a slot cannot be read
+- * (missing file, FAT/GPT error) try the other one before giving up to the proxy.
++ * the PMU scratchpad. iBoot counts a boot as failed when the previous one did not end in a
++ * clean restart/power-off (boot_stage != 0 at power-on, or an abnormal reset such as a watchdog
++ * bite) and records the boot_stage it found as boot_error_stage. A non-zero count therefore
++ * means "the last session ended badly", which is not always "the primary payload failed":
++ *
++ *   error stage 0x00  the previous session had already started an orderly restart or power-off
++ *                     (Linux's reboot notifier writes 0) and died in it: the session that just
++ *                     wrote a new boot.bin and rebooted, typically. Nothing says the primary
++ *                     payload is bad, so it is booted first. Only with chainload.stage-mark=1:
++ *                     the marks guarantee that a payload dying before Linux takes over leaves
++ *                     0x31/0x32, never 0x00, whatever iBoot leaves in boot_stage at hand-over.
++ *                     chainload.restart-failure=fallback restores the old behaviour.
++ *   0x32              (stage-mark) the fallback slot died before Linux took over: primary first.
++ *   anything else     the payload died while booting or running: fallback first, as before.
+  *
+- * The decision and the raw scratchpad bytes are handed to the next stage as chosen.* vars
+- * (Linux: /proc/device-tree/chosen/m5pro,boot-slot and m5pro,pmu-scrpad). m1n1 cannot write
+- * the ESP; making a fallback permanent (demoting the bad boot.bin) is the booted root's job.
++ * Either way, if a slot cannot be read (missing file, FAT/GPT error, a size or chain mismatch)
++ * the other one is tried before giving up to the proxy. The decision and the raw scratchpad
++ * bytes go to the next stage as chosen.* vars (Linux: /proc/device-tree/chosen/m5pro,*). m1n1
++ * cannot write the ESP; making a fallback permanent is the booted root's job.
+  */
+ static int chainload_run(void)
+ {
+     static char slot_var[48];
+     static char pmu_var[48];
+-    u8 sp[3] = {0}; // boot_stage, boot_error_count | panic_count << 4, boot_error_stage
+-    bool pmu_ok = pmu_scrpad_read(PMU_SCRPAD_BOOT_STAGE, sp, sizeof(sp)) >= 0;
++    u8 *sp = stage1_sp; // boot_stage, boot_error_count | panic_count << 4, boot_error_stage
++    bool pmu_ok = pmu_scrpad_read(PMU_SCRPAD_BOOT_STAGE, sp, 3) >= 0;
+     bool failed = pmu_ok && sp[1] != 0;
++    bool fallback_first = failed && chainload_fallback;
+ 
+     if (pmu_ok) {
+         printf("chainload: PMU boot_stage 0x%02x, boot errors %d, panics %d, error stage 0x%02x\n",
+@@ -333,10 +384,24 @@ static int chainload_run(void)
+                  sp[2]);
+         if (chosen_cnt < MAX_CHOSEN_VARS)
+             chosen[chosen_cnt++] = pmu_var;
++        stage1_why = failed ? "failure" : "clean";
+     } else {
+         printf("chainload: PMU scratchpad unreadable, booting the primary slot\n");
+     }
+ 
++    if (failed && sp[2] == 0x00 && chainload_stage_mark && chainload_restart_ok) {
++        printf("chainload: the previous session died in its own restart/power-off (error stage "
++               "0x00): not a payload failure, primary slot first\n");
++        stage1_why = "restart-failure";
++        fallback_first = false;
++    } else if (failed && sp[2] == 0x00) {
++        stage1_why = "failure-in-restart"; // reported; acted on only with chainload.stage-mark=1
++    } else if (failed && sp[2] == STAGE_MARK_FALLBACK) {
++        printf("chainload: the fallback slot died before Linux took over: primary slot first\n");
++        stage1_why = "fallback-died";
++        fallback_first = false;
++    }
++
+     // Keep iBoot's count from climbing to its "needs to be reinstalled" threshold when the
+     // failing payload never gets as far as macsmc-reboot (which clears it in Linux).
+     if (failed && chainload_pmu_clear) {
+@@ -347,7 +412,7 @@ static int chainload_run(void)
+ 
+     const char *specs[2] = {chainload_spec, chainload_fallback};
+     const char *names[2] = {"primary", "fallback"};
+-    if (failed && chainload_fallback) {
++    if (fallback_first) {
+         printf("chainload: the previous boot failed, trying the fallback slot first\n");
+         specs[0] = chainload_fallback;
+         specs[1] = chainload_spec;
+@@ -355,15 +420,26 @@ static int chainload_run(void)
+         names[1] = "primary";
+     }
+ 
++    snprintf(stage1_var, sizeof(stage1_var), "chosen.m5pro,stage1=pmu=%02x%02x%02x;why=%s",
++             sp[0], sp[1], sp[2], stage1_why);
+     if (chosen_cnt < MAX_CHOSEN_VARS)
+         chosen[chosen_cnt++] = slot_var;
++    if (chosen_cnt < MAX_CHOSEN_VARS)
++        chosen[chosen_cnt++] = stage1_var;
++    chainload_loaded_hook = chainload_loaded;
+ 
+     for (int i = 0; i < 2; i++) {
+         if (!specs[i])
+             continue;
++        // "-after-failure" only when the failure is what put this slot first (or second):
++        // a restart failure that changed nothing is reported in m5pro,stage1, not here.
+         snprintf(slot_var, sizeof(slot_var), "chosen.m5pro,boot-slot=%s%s", names[i],
+-                 failed ? "-after-failure" : "");
++                 fallback_first ? "-after-failure" : "");
++        stage1_slot = names[i];
++        stage1_mark_fallback = specs[i] == chainload_fallback;
+         printf("chainload: slot %s: %s\n", names[i], specs[i]);
++        // Armed for the read too (a wedged NVMe/RTKit wait resets instead of hanging), and
++        // re-armed with the full budget by chainload_loaded() once the image is in memory.
+         if (chainload_wdt && wdt_arm(chainload_wdt) >= 0)
+             chainload_wdt_keep = true;
+         if (chainload_load(specs[i], chosen, chosen_cnt) >= 0)
+-- 
+2.56.0
+
