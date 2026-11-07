@@ -5,6 +5,7 @@
 #   mesa-aurora vulkaninfo --summary
 #   mesa-aurora eglinfo -B
 #   MESA_AURORA_SHIM=g17s mesa-aurora vulkaninfo --summary   # offline, fake M5 Pro
+#   MESA_AURORA_GL=asahi mesa-aurora eglinfo -B              # native Gallium (refused renders)
 P=${MESA_AURORA_PREFIX:-/opt/mesa-aurora}
 export VK_DRIVER_FILES=$P/share/vulkan/icd.d/asahi_icd.aarch64.json
 export VK_ICD_FILENAMES=$VK_DRIVER_FILES
@@ -17,6 +18,16 @@ export LD_LIBRARY_PATH=$P/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 export ASAHI_M5_BRINGUP=${ASAHI_M5_BRINGUP:-1}
 # The software-desktop session sets these; they would hide the GPU.
 unset LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER
+# GL on the M5 Pro runs on zink over the Vulkan driver (Borealis). The Asahi
+# Gallium driver declines G17S: the G17 kernel runtime refuses every render
+# that does not carry its programs' storage list, which Gallium never sends.
+# MESA_AURORA_GL=asahi forces the native Gallium driver (for work on it only).
+if [ "${MESA_AURORA_GL:-zink}" = asahi ]; then
+  export ASAHI_GALLIUM_FORCE_M5=1
+  unset MESA_LOADER_DRIVER_OVERRIDE
+else
+  export MESA_LOADER_DRIVER_OVERRIDE=zink
+fi
 if [ -n "$MESA_AURORA_SHIM" ]; then
   export ASAHI_SHIM_CHIP=$MESA_AURORA_SHIM
   export LD_PRELOAD=$P/lib/libasahi_noop_drm_shim.so${LD_PRELOAD:+:$LD_PRELOAD}

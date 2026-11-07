@@ -1,0 +1,106 @@
+From a79e5a94e316b73b327d5774d23e15dde61b428c Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 19:52:39 +0000
+Subject: [PATCH] asahi: decline the M5 Pro and M5 Max, whose renders this
+ driver cannot submit
+
+On the M5 Pro (G17S) every GL render is refused by the kernel:
+
+  DRM_IOCTL_ASAHI_SUBMIT render failed: Invalid argument (256x256 tile 32x32 ...)
+  aurora 2300000000.gpu: [File 6 Queue 1]: IOCTL: submit failed! (... err: EINVAL)
+
+The M5 Pro and M5 Max (G17S, G17C) run on the G17 kernel runtime, which
+sizes each render's firmware pools from the programs the render runs. Its
+M5 backend therefore takes a render only after a
+DRM_ASAHI_SET_RENDER_RESOURCES(_V2) list in the same submission and fails
+SUBMIT with EINVAL otherwise (the program list is mandatory there; the
+kernel reports the contract as DRM_ASAHI_FEATURE_RENDER_RESOURCES).
+Honeykrisp sends that list; this driver never does. Beyond the list, the
+native Gallium M5 path is written for G17G only: on G17S and G17C it builds
+the background, end-of-tile and draw state with the pre-M5 encodings, so
+sending the list would only hand the firmware state it cannot run.
+
+The context was created, every render it submitted was refused, and
+applications drew nothing (black frames, wrong pixels) with no error at the
+API. Decline these devices at screen creation instead, with a message that
+says why, so GL runs on zink over Honeykrisp, which implements both. Zink is
+selected with MESA_LOADER_DRIVER_OVERRIDE=zink; without it, GBM on a display
+card falls back to software rendering rather than producing black frames.
+ASAHI_GALLIUM_FORCE_M5=1 keeps the old behaviour for work on the native
+path.
+
+G17G (the M5 on the M5 runtime, which reports no render-resource contract)
+is unchanged.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ src/gallium/drivers/asahi/agx_pipe.c | 39 ++++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+
+diff --git a/src/gallium/drivers/asahi/agx_pipe.c b/src/gallium/drivers/asahi/agx_pipe.c
+index 5ffa01b7978..b1ec80bd979 100644
+--- a/src/gallium/drivers/asahi/agx_pipe.c
++++ b/src/gallium/drivers/asahi/agx_pipe.c
+@@ -36,6 +36,7 @@
+ #include "util/os_misc.h"
+ #include "util/simple_mtx.h"
+ #include "util/timespec.h"
++#include "util/u_debug.h"
+ #include "util/u_drm.h"
+ #include "util/u_gen_mipmap.h"
+ #include "util/u_helpers.h"
+@@ -2792,6 +2793,32 @@ agx_get_cl_cts_version(struct pipe_screen *pscreen)
+    return NULL;
+ }
+ 
++/* Whether this driver can submit renders the kernel accepts on the device.
++ *
++ * The native Gallium M5 path implements the M5 command stream for G17G (the
++ * M5, T8142, on the M5 kernel runtime) only. The M5 Pro and M5 Max (G17S,
++ * G17C) run on the G17 kernel runtime instead, which sizes each render's
++ * firmware pools from the programs the render runs: every render must be
++ * preceded by DRM_ASAHI_SET_RENDER_RESOURCES(_V2) in the same submission, or
++ * SUBMIT fails with EINVAL. The kernel reports that contract as
++ * DRM_ASAHI_FEATURE_RENDER_RESOURCES. This driver sends no such list, and
++ * builds the background, end-of-tile and draw state of those chips with the
++ * pre-M5 encodings, so every render it submits there is refused and the
++ * context draws nothing. Decline the device instead: the loader then takes
++ * zink on the Vulkan driver, which implements both.
++ */
++static bool
++agx_gallium_renders_supported(const struct agx_device *dev)
++{
++   if (debug_get_bool_option("ASAHI_GALLIUM_FORCE_M5", false))
++      return true;
++
++   if (dev->params.features & DRM_ASAHI_FEATURE_RENDER_RESOURCES)
++      return false;
++
++   return !agx_chip_g17_m5(dev->chip) || dev->chip == AGX_CHIP_G17G;
++}
++
+ struct pipe_screen *
+ agx_screen_create(int fd, struct renderonly *ro,
+                   const struct pipe_screen_config *config)
+@@ -2822,6 +2849,18 @@ agx_screen_create(int fd, struct renderonly *ro,
+       return NULL;
+    }
+ 
++   if (!agx_gallium_renders_supported(&agx_screen->dev)) {
++      fprintf(stderr,
++              "asahi: Gallium cannot render on Apple %s with this kernel "
++              "(render submissions need per-render program storage, "
++              "features %#" PRIx64 "); declining so that GL uses zink\n",
++              agx_chip_name(agx_screen->dev.chip),
++              (uint64_t)agx_screen->dev.params.features);
++      agx_close_device(&agx_screen->dev);
++      ralloc_free(agx_screen);
++      return NULL;
++   }
++
+    /* Forward no16 flag from driconf. This must happen after opening the device,
+     * since agx_open_device sets debug.
+     */
+-- 
+2.56.0
+
