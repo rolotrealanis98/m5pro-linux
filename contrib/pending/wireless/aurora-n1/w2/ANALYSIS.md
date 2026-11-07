@@ -56,3 +56,56 @@ Good: `pcie-t6050: ANS stopped (0x...): starting it`, `nvme: initialized`, `stor
 `storage after training: NVMe read identical`, `ANS stopped again for Linux`. Bad, self-recovering: `STOP: storage lost`.
 Risks: starting a stopped T6050 ANS from m1n1 (clean fail -> boot without N1; half-booted -> reset to daily); RTKit boot
 loops without timeout covered by the 150 s watchdog.
+
+## 7. W2 / W2b results and patch 0026 (W2c, W2d)
+
+**Results.** W2 (n1=3, twice) proved 0025: ANS started from stopped (`0x0`), block 1 read, storage unchanged through A
+and S, re-read identical, ANS stopped again, Linux on NVMe normally, no revert. The port then stopped at
+`STOP: link up: 0x410028208 = 0xab001208 after 500 ms` (final `rc ctl 0x1 stat 0x1, port status 0xd, ltssm 0x1`: RC
+running, port ready, LTSSM started, no link; what a held-in-reset endpoint looks like). W2b (n1=4) stopped before B with
+`function-reset is not an SMC pKW4`.
+
+**The J716s descriptors** (`adt-runtime-j716s.bin`, `/arm-io/apcie0/pci-bridge0`; each property is phandle, function
+name, two args, little-endian; the SMC PMU nub is phandle 654, gpio0 is 459):
+
+| property | raw bytes | decoded |
+|---|---|---|
+| `function-reset` | `8e 02 00 00 34 57 4b 70 33 31 50 67 00 00 80 00` | pKW4, key `gP13` (0x67503133), template 0x00800000 |
+| `function-warm_reset` | `8e 02 00 00 34 57 4b 70 69 6c 70 62 00 00 00 01` | pKW4, key `bpli`, template 0x01000000 (not used) |
+| `function-perst` | `cb 01 00 00 4f 49 50 47 50 00 00 00 00 00 00 00` | GPIO, pin 80, flags 0 (what 0023 drives) |
+| `function-clkreq` | GPIO pin 76, flags 2 | not touched (the endpoint drives it) |
+| `function-pcie_port_control` | `PrtC` -> apcie0 (phandle 141), arg 142 | apcie0's own port control |
+| `function-dart_*` | `Fact`/`Self`/`SReq`/`SRel` -> dart-apcie0 (148) | DART control, not resets |
+
+`centauri-control`, `-alpha`, `-beta` carry no reset or power functions (only `pci-skip-rematch-reset`). pci-bridge1
+(SD reader) has perst GPIO 81, clkreq GPIO 77 and an SMC pKW8 `sd_pwr_en`.
+
+So the J716s N1 reset *is* an SMC pKW4 "gP13" with template 0x00800000: the same descriptor as Aura's J813
+(`SMC_KEY_GP13 0x67503133`, `N1_RESET_LO 0x800000`, written as `0x800000 | level`). 0023's check was a bug:
+`adt_getprop_copy()` (Rust, `rust/src/adt.rs`) returns the copied length on success, and 0023 compared it with 0
+(the PERST# lookup three lines above correctly tests `< 0`). The SMC was never written on W2b. edimoldovan/m1n1
+still has no J714c N1 code on any public branch (rechecked: `t6050-aurora`, `t6050-wip`, `t6050-boot`,
+`integration/aurora`); Aura `main` has only the J813 file (no change since `21c3f707e0`).
+
+**0026** (`9b9c8e1d` on 0025, branch `n1-smc`):
+* compares `adt_getprop_copy()` with the property size, so `gP13`/0x00800000 is taken;
+* `n1_smc_release()` pulses as J813: `smc_init()` (10 s RTKit wait), write `template | 0`, 50 ms, `template | 1`,
+  50 ms, `smc_shutdown()`, 100 ms, then the port reset table; a non-zero SMC result stops the training;
+* link-up wait 1 s whenever the SMC release runs (`n1=2`, `4`, `5`); `n1=1`/`3` keep 500 ms and the identical sequence;
+* `n1=5` = `n1=4` in J813's port order: config tunables, APPCLK; lane refclk (clk0/clk1 req/ack, bit 4 clear, bits 9
+  and 10, t-refclk-to-perst); internal reset bit 0 and PERST# release; then the PIPE reset wait (`0xa8` bit 0, 100 ms),
+  bit 16 clear, port ready, APPCLK bit 8, idle; then the DBI writes; LTSSM; 1 s. Bit 16 clear and APPCLK bit 8 stay
+  because Linux's adoption requires them (J813 hands Linux a generic ECAM host and skips both).
+* Size: the plain image must stay 0x400000. rodata and the relocations share one 128 KiB window, which 0026 first
+  overflowed by 8 bytes (image 0x410000, refused by mk-daily). Two 0025 messages were shortened to fit; 0x28 bytes are
+  left. `build.sh` now fails if any image is not 0x400000.
+
+Run order: **W2c = `n1=4` on the 0026 m1n1** (the one missing step, the reset pulse, with 0023's port order that reached
+the LTSSM on W2); **W2d = `n1=5`** only if W2c stops at link up. Each changes one thing.
+
+**The allowed change at 0x419600048.** That is ANS reg[0] + 0x48, the ASC `CPU_STATUS` register (m1n1
+`proxyclient/m1n1/hw/asc.py`: bit 0 RUNNING, bit 1 STOPPED, bit 2 IRQ_NOT_PEND, bit 3 FIQ_NOT_PEND, bit 5 IDLE; the
+names are partly guesses). 0x6e = bits 1,2,3,5,6; 0x6d = bits 0,2,3,5,6; 0x6c = bits 2,3,5,6. Only bits 0-1 move: the
+ANS core's run/wait state at the instant of the read. Not a counter (W2b ran shorter than W2 and moved "further").
+Expected for a live coprocessor, and 0023 already puts it in the non-fatal set; the fatal ones (PS targets, SART,
+`CC`, `BOOT_STATUS`, RUN) did not move.

@@ -3,7 +3,8 @@
 # n1-wifi/prep/gen-deploy.py does for W0/W1, with one change: the guard knows both dailies of 2026-11-07
 # (dcec81ed, the WFI daily now in boot.bin per aurora/STATE.md, and 275d84ec, its predecessor), so it never
 # "restores" the old daily over the new one.
-#   python3 -I gen-deploy-w2.py w2-n1ans-20261107-2dedddda.bin [W2]
+#   python3 -I gen-deploy-w2.py <payload file name in aurora-kernel/payloads> [TAG]
+# It prints only "wrote deploy-<TAG>.sh"; the script itself is written next to this file (w2/prep/).
 import pathlib, subprocess, sys
 H = pathlib.Path.home()
 T = H/"Documents/GitHub/m5pro-linux/contrib/validated/aurora/tools"

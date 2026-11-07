@@ -1,22 +1,30 @@
 #!/usr/bin/env python3
-# Build W2 (N1 port training with ANS started by stage-2, chosen.m5pro,n1=3) = W1's recipe (n1-wifi/prep/mk-w1.py)
-# with the 0025 m1n1 (n1-ans) and n1=3 instead of n1=1. Same kernel, DTB, initramfs, bootargs as W0/W1.
-#   python3 -I ~/Work/agents/n1-wifi/w2/prep/mk-w2.py        # n=3 (W2)
-#   python3 -I ~/Work/agents/n1-wifi/w2/prep/mk-w2.py 4      # W2b = n1=4 (adds 0023's SMC gP13 release); only after
-#                                                            # W2 stopped at "link up ... after 500 ms" (RUN-W2.md)
-# Output: ~/Work/agents/aurora-kernel/payloads/w2[b]-n1ans-<date>-<sha8>.bin (+ .recipe.txt, SHA256SUMS line).
+# Build a W2-series payload = W1's recipe (n1-wifi/prep/mk-w1.py) with another m1n1 and n1 value. Same kernel, DTB,
+# initramfs and bootargs as W0/W1; the script asserts that the payload equals W1 beyond the m1n1 and the n1 line.
+#   python3 -I ~/Work/agents/n1-wifi/w2/prep/mk-w2.py w2c    # (or 3 = w2, 4 = w2b, the old spellings)
+#   w2   n1=3  m1n1 n1-ans (0025)         ran 2026-11-07: storage fine, STOP link up after 500 ms
+#   w2b  n1=4  m1n1 n1-ans (0025)         ran 2026-11-07: STOP function-reset is not an SMC pKW4 (0023 bug)
+#   w2c  n1=4  m1n1 n1-smc (0025+0026)    SMC gP13 pulse as on J813, 0023 port order, 1 s link wait
+#   w2d  n1=5  m1n1 n1-smc (0025+0026)    w2c + J813 port order; only after w2c stopped at "link up ... after 1000 ms"
+# Output: ~/Work/agents/aurora-kernel/payloads/<tag>-<name>-<date>-<sha8>.bin (+ .recipe.txt, SHA256SUMS line).
 # Private: the initramfs carries the per-unit FTAB. Never into a repo.
 import datetime, hashlib, pathlib, subprocess, sys, tempfile
 H = pathlib.Path.home()
 N1 = H/"Work/agents/n1-wifi"
 OUT = H/"Work/agents/aurora-kernel/payloads"
 T = H/"Documents/GitHub/m5pro-linux/contrib/validated/aurora/tools"
-n = sys.argv[1] if len(sys.argv) > 1 else "3"
-assert n in ("3", "4")
-tag = "w2" if n == "3" else "w2b"
+ANS = ("m1n1-plain-n1-ans.bin", "69730b19d6debb6cd4d20e0c3a833b1467a58ec8fccf56d1312ff82db6398fc8",
+       "n1 ans: 0020+0021+0022+0023+0025, v2.0.0-76-g3e7019df", "n1ans")
+SMC = ("m1n1-plain-n1-smc.bin", "a4cc59fd94f9abc896a1ea4dd0964bf0710f154290ff957b44f31aefa9127db4",
+       "n1 smc: 0020+0021+0022+0023+0025+0026, v2.0.0-77-g9b9c8e1d", "n1smc")
+VARIANTS = {"w2": ("3", ANS), "w2b": ("4", ANS), "w2c": ("4", SMC), "w2d": ("5", SMC)}
+arg = sys.argv[1] if len(sys.argv) > 1 else "w2"
+tag = {"3": "w2", "4": "w2b"}.get(arg, arg)
+assert tag in VARIANTS, f"unknown variant {arg}: one of {', '.join(VARIANTS)}"
+n, (m1n1_name, m1n1_sha, m1n1_desc, label) = VARIANTS[tag]
 sha = lambda b: hashlib.sha256(b).hexdigest()
-M1N1 = N1/"w2/build/m1n1-plain-n1-ans.bin"
-assert sha(M1N1.read_bytes()) == "69730b19d6debb6cd4d20e0c3a833b1467a58ec8fccf56d1312ff82db6398fc8", "n1-ans m1n1 changed"
+M1N1 = N1/"w2/build"/m1n1_name
+assert sha(M1N1.read_bytes()) == m1n1_sha, f"{m1n1_name} changed"
 INITRD = N1/"payloads/initramfs-selftest-n1-b1f61a85.cpio.gz"
 assert sha(INITRD.read_bytes()) == "4f299656af6ad896e98ad7e206ae6c7765c097b9389128126c59586e2fe023e4", "n1 initramfs changed"
 DTB = H/"Work/agents/dt-prep/build/stack-right-port+hwmon.dtb"
@@ -49,14 +57,14 @@ if W1.exists():  # same bootargs, notch line, kernel, DTB and initramfs as W1, b
     w1 = W1.read_bytes()
     assert w1[M:] == blob[M:].replace(b"chosen.m5pro,n1=%s\n" % n.encode(), b"chosen.m5pro,n1=1\n", 1), "differs from W1 beyond m1n1 + n1"
 d = sha(blob)
-out = OUT/f"{tag}-n1ans-{date}-{d[:8]}.bin"
+out = OUT/f"{tag}-{label}-{date}-{d[:8]}.bin"
 out.write_bytes(blob)
 with open(OUT/"SHA256SUMS", "a") as f:
     f.write(f"{d}  {out.name}\n")
 bootargs = b[M+len(b"chosen.bootargs="):nl-1].decode()
 out.with_name(out.name + ".recipe.txt").write_text(
     f"payload   {out.name}\nsha256    {d}\nmode      test {tag.upper()}; m5.selftest ON; battery driver ENABLED (attended boot only)\n"
-    f"m1n1      {M1N1.name} sha256 {sha(M1N1.read_bytes())} (n1 ans: 0020+0021+0022+0023+0025, v2.0.0-76-g3e7019df)\n"
+    f"m1n1      {M1N1.name} sha256 {sha(M1N1.read_bytes())} ({m1n1_desc})\n"
     f"kernel    series /Volumes/linux-cs/wt-series-out/arch/arm64/boot/Image.gz (7.3.0-g4f630b11270d)\n"
     f"dtb       {DTB.name} sha256 {sha(DTB.read_bytes())}\n"
     f"initramfs {INITRD.name} sha256 {sha(INITRD.read_bytes())} (selftest base 1f61a850 + FTAB)\n"
