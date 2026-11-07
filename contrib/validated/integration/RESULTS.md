@@ -1584,3 +1584,20 @@ pass, 76 s to SSH.
   absent. Driver items: log the A534 default-surface status, drop id 119 from the publish log, replace the hard-coded
   temperature 3029, silence -ENODATA on the backlight restore, make the EDT read serve ADT timing values. The next DCP
   payloads carry FTRACE/TRACING, a corrected check script and a DTB variant with the clock and gamut additions.
+
+## OMACOM-WDT-KEEP-v30: the m1n1 stack rebased on omacom/m1n1 #30 boots the J716s (2026-11-07 22:07 UTC) — PASS
+
+Payload `omacom-wdt-keep-20261107-3713d26f.bin` = m1n1 `v1.6.1-429-g6653bb2` (#30 + our five branches: PRs #33-#37) +
+the 87-patch daily kernel, `chosen.asahi,t6050-n1=4`, self-test on. Primary slot first pass, 74 s to SSH, 18 CPUs, Wi-Fi
+(N1 trained by the loader), Bluetooth. Loader log: `Primary WDT left armed`, `SMP: installed RVBAR relay`, N1 port up,
+`kboot: MTP DAPF programmed on T6050`, and #30's USB host prep ran on the J716s for the first time (`USB0/1/2: left in
+USB 2.0 host mode for the next stage`; `chosen` carries `apple,t6050-usbprep`); no USB gadget network, as expected.
+
+Restore of the GPU daily afterwards: `fallback-after-failure`, pmu `300130` (error stage 0x30, in Linux), 39 s uptime
+102 s after the reboot: the GPU daily's first attempt reset within about a minute of the hand-over and stage 1 booted the
+prev twin (same kernel). This is the second 0x30 fallback today, and the plain GPU daily cannot be at fault by itself (it
+booted first pass seven times in between). Both 0x30 cases came within two boots of an omacom-m1n1 session (the first one
+was the power T1 boot, which followed the 0x00 fallback after the #26 session); the five boots in between (K1, K1 warm,
+K2, stage C, camera I1) and their restores were clean. Hypothesis to test: state the omacom stage 2 leaves behind (USB
+host prep, DAPF coverage, ANS handling) survives the warm restart and trips the next boot's early Linux. Consequence: the
+power T1 "failure" is not proven to be the power patches; T1 is being re-run after a clean daily boot.
