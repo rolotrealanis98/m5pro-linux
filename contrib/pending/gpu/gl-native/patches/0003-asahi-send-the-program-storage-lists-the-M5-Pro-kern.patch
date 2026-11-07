@@ -1,0 +1,543 @@
+From 43c9967427751d399803b391dcd08021a30ac8f5 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 16:49:04 -0500
+Subject: [PATCH 3/3] asahi: send the program storage lists the M5 Pro kernel
+ requires
+
+The M5 Pro and M5 Max (G17S, G17C) run on the G17 kernel runtime, which
+sizes each render's firmware pools from the programs the render runs.
+It reports that contract as DRM_ASAHI_FEATURE_RENDER_RESOURCES and
+refuses, with EINVAL at prepare_command (g17/runtime/backend.rs), every
+render that does not follow a DRM_ASAHI_SET_RENDER_RESOURCES(_V2) list
+in its submission:
+
+  DRM_IOCTL_ASAHI_SUBMIT render failed: Invalid argument (256x256 tile 32x32 ...)
+
+Build and send that list as Honeykrisp does. Each M5 graphics program a
+batch builds records its storage: the larger of its spill and SPECTPR
+frames as primary storage, twice its staging extent as a vertex
+program's secondary storage, and the render's imageblock and
+multisample footprint on a fragment program
+(hk_m5_note_render_resources). The background and end-of-tile programs
+give the tile record its primary and staging storage (hk_cmd_buffer.c).
+The list (tile record first, then every distinct program record) goes
+ahead of the render command, as 104-byte records through command 7 on
+kernels that report DRM_ASAHI_FEATURE_RENDER_RESOURCES_V2 and as
+40-byte records through command 5 otherwise. The kernel folds the list
+with a per-field maximum, so each distinct record is kept once.
+
+Compute dispatches record their storage too (workgroup size and shared
+memory, hk_m5_compute_resources) and, when the kernel reports
+DRM_ASAHI_FEATURE_COMPUTE_RESOURCES, the list goes ahead of the compute
+commands. The G17 runtime takes a mixed command array and orders it with
+barriers, so each dispatch the Gallium M5 compute path records (one
+terminated single-dispatch stream each) is its own compute command of
+the batch's submission, waiting on the ones before it, and the render
+waits on all of them. G17G keeps its one-ioctl-per-dispatch split.
+
+Like Honeykrisp on M5, send the render command through the high words
+of the background and end-of-tile resource specifiers (the M5 colour
+background's is 0xffff800000000040), keep the depth clear at 1.0 when
+the render has no depth or stencil storage (hk_drm_g17p_depth_clear),
+and mark renders whose programs write memory with
+DRM_ASAHI_RENDER_SHADER_WRITES when the kernel reports
+DRM_ASAHI_FEATURE_RENDER_SHADER_WRITES.
+
+All of this is keyed on agx_m5_render_resources(): an M5 part whose
+kernel reports the contract. The M5 (G17G) runtime reports none of these
+features, so G17G submissions are unchanged.
+
+Offline, on the noop shim's g17s-kernel identity: before this change
+the first render of a GLES 3.1 smoke test is refused exactly as on the
+machine; after it, its fifteen submissions (13 renders, 3 compute
+commands, 39 render and 2 compute program records) pass the gate, as
+Honeykrisp's vkmark submissions do.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ src/asahi/lib/agx_device.h            |  24 ++-
+ src/gallium/drivers/asahi/agx_batch.c | 216 +++++++++++++++++++++++++-
+ src/gallium/drivers/asahi/agx_pipe.c  |  17 +-
+ src/gallium/drivers/asahi/agx_state.c |  46 ++++++
+ src/gallium/drivers/asahi/agx_state.h |  28 ++++
+ 5 files changed, 319 insertions(+), 12 deletions(-)
+
+diff --git a/src/asahi/lib/agx_device.h b/src/asahi/lib/agx_device.h
+index bb965309920..cc3d7e3d46d 100644
+--- a/src/asahi/lib/agx_device.h
++++ b/src/asahi/lib/agx_device.h
+@@ -573,16 +573,34 @@ agx_cmd_header(bool compute, uint16_t barrier_vdm, uint16_t barrier_cdm)
+    };
+ }
+ 
++/*
++ * Whether the kernel sizes each render's firmware pools from the programs the
++ * render runs. The M5 Pro and M5 Max (G17S, G17C) run on the G17 kernel
++ * runtime, which reports this contract as DRM_ASAHI_FEATURE_RENDER_RESOURCES:
++ * every render must follow a DRM_ASAHI_SET_RENDER_RESOURCES(_V2) list in its
++ * submission (SUBMIT fails with EINVAL otherwise), and compute commands take
++ * a DRM_ASAHI_SET_COMPUTE_RESOURCES list when the kernel reports
++ * DRM_ASAHI_FEATURE_COMPUTE_RESOURCES. The M5 (G17G) runtime reports neither.
++ */
++static inline bool
++agx_m5_render_resources(const struct agx_device *dev)
++{
++   return agx_chip_g17_m5(dev->chip) &&
++          (dev->params.features & DRM_ASAHI_FEATURE_RENDER_RESOURCES);
++}
++
+ /* Size of the render command passed to the kernel. drm_asahi_cmd_render grew
+  * the high words of the background/EOT resource specifiers for the native
+  * AGX3 path, whose USC window sits at 2^40, and kernels that predate them
+- * reject the longer packet with EINVAL. Every other chip keeps the original
+- * layout, as Honeykrisp does in hk_drm_render_command_size().
++ * reject the longer packet with EINVAL. The G17 runtime's M5 command set
++ * reads them too (the M5 colour background's specifier is
++ * 0xffff800000000040). Every other chip keeps the original layout, as
++ * Honeykrisp does in hk_drm_render_command_size().
+  */
+ static inline uint16_t
+ agx_render_command_size(const struct agx_device *dev)
+ {
+-   return agx_chip_native_agx3(dev->chip)
++   return agx_chip_native_agx3(dev->chip) || agx_m5_render_resources(dev)
+              ? AGX_DRM_RENDER_SIZE_BASE
+              : offsetof(struct drm_asahi_cmd_render, bg_eot_rsrc_spec_hi);
+ }
+diff --git a/src/gallium/drivers/asahi/agx_batch.c b/src/gallium/drivers/asahi/agx_batch.c
+index 536ea643460..5999a9dd34a 100644
+--- a/src/gallium/drivers/asahi/agx_batch.c
++++ b/src/gallium/drivers/asahi/agx_batch.c
+@@ -144,6 +144,139 @@ agx_encoder_cleanup(struct agx_device *dev, struct agx_encoder *encoder)
+    agx_bo_unreference(dev, encoder->bo);
+ }
+ 
++/*
++ * M5 program storage on the G17 kernel runtime (agx_m5_render_resources).
++ *
++ * The kernel sizes each render's and dispatch's firmware pools from the
++ * programs listed ahead of it in the submission, folding the list with a
++ * per-field maximum after evaluating each entry on its own. A list is
++ * therefore a set: identical entries add nothing, so keep each distinct one
++ * once (a batch of a thousand draws of one program sends one record). The
++ * records follow Honeykrisp's: hk_m5_note_render_resources(),
++ * hk_cmd_buffer.c's tile record and hk_m5_compute_resources().
++ */
++void
++agx_batch_note_m5_render_program(
++   struct agx_batch *batch, const struct drm_asahi_render_program_v2 *program)
++{
++   util_dynarray_foreach(&batch->m5_render_programs,
++                         struct drm_asahi_render_program_v2, entry) {
++      if (!memcmp(entry, program, sizeof(*program)))
++         return;
++   }
++   util_dynarray_append(&batch->m5_render_programs, *program);
++}
++
++void
++agx_batch_note_m5_compute_program(
++   struct agx_batch *batch, const struct drm_asahi_compute_program *program)
++{
++   util_dynarray_foreach(&batch->m5_compute_programs,
++                         struct drm_asahi_compute_program, entry) {
++      if (!memcmp(entry, program, sizeof(*program)))
++         return;
++   }
++   util_dynarray_append(&batch->m5_compute_programs, *program);
++}
++
++/* The tile record: a fragment-stage entry carrying the render's imageblock
++ * and the largest storage of its background and end-of-tile programs. The
++ * multisample bytes are the native per-sample-count footprint, as
++ * hk_cmd_buffer.c computes it. */
++void
++agx_batch_set_m5_tile_program(struct agx_batch *batch,
++                              const struct asahi_bg_eot *const *programs,
++                              unsigned count)
++{
++   const struct agx_tilebuffer_layout *tib = &batch->tilebuffer_layout;
++   const uint32_t samples = MAX2(tib->nr_samples, 1);
++   const uint32_t sample_bytes = tib->tile_size * tib->sample_size_B;
++
++   batch->m5_tile_program = (struct drm_asahi_render_program){
++      .stage = 1,
++      .imageblock_bytes = sample_bytes * samples,
++      .multisample_bytes = samples == 2   ? sample_bytes / 4
++                           : samples == 4 ? sample_bytes
++                           : samples == 8 ? 4 * sample_bytes
++                                          : 0,
++   };
++   for (unsigned i = 0; i < count; ++i) {
++      batch->m5_tile_program.primary_bytes =
++         MAX2(batch->m5_tile_program.primary_bytes,
++              programs[i]->primary_storage_B);
++      batch->m5_tile_program.secondary_bytes =
++         MAX2(batch->m5_tile_program.secondary_bytes,
++              programs[i]->staging_storage_B);
++   }
++}
++
++/* DRM_ASAHI_SET_COMPUTE_RESOURCES for the compute commands that follow, when
++ * the kernel takes one. An empty list sends nothing: a dispatch without
++ * thread-private storage needs no plan. Returns false if the list cannot be
++ * encoded (the header size is 16 bits). */
++static bool
++agx_append_m5_compute_resources(struct agx_device *dev,
++                                struct agx_batch *batch,
++                                struct util_dynarray *cmdbuf)
++{
++   if (!(dev->params.features & DRM_ASAHI_FEATURE_COMPUTE_RESOURCES) ||
++       !batch->m5_compute_programs.size)
++      return true;
++   if (batch->m5_compute_programs.size > UINT16_MAX)
++      return false;
++
++   const struct drm_asahi_cmd_header header = {
++      .cmd_type = DRM_ASAHI_SET_COMPUTE_RESOURCES,
++      .size = batch->m5_compute_programs.size,
++      .vdm_barrier = DRM_ASAHI_BARRIER_NONE,
++      .cdm_barrier = DRM_ASAHI_BARRIER_NONE,
++   };
++   util_dynarray_append(cmdbuf, header);
++   util_dynarray_append_array(cmdbuf, uint8_t, batch->m5_compute_programs.data,
++                              batch->m5_compute_programs.size);
++   return true;
++}
++
++/* DRM_ASAHI_SET_RENDER_RESOURCES(_V2) for the render that follows: the tile
++ * record, then every linked program the render's draws ran. V2 kernels take
++ * the 104-byte records through command 7; on others each record is cut to its
++ * leading drm_asahi_render_program, which is all a Gallium render fills (no
++ * mesh, object or ray-query stage). Returns false if the list cannot be
++ * encoded. */
++static bool
++agx_append_m5_render_resources(struct agx_device *dev, struct agx_batch *batch,
++                               struct util_dynarray *cmdbuf)
++{
++   const bool v2 =
++      dev->params.features & DRM_ASAHI_FEATURE_RENDER_RESOURCES_V2;
++   const size_t stride = v2 ? sizeof(struct drm_asahi_render_program_v2)
++                            : sizeof(struct drm_asahi_render_program);
++   const unsigned count =
++      1 + util_dynarray_num_elements(&batch->m5_render_programs,
++                                     struct drm_asahi_render_program_v2);
++   if (count * stride > UINT16_MAX)
++      return false;
++
++   const struct drm_asahi_cmd_header header = {
++      .cmd_type = v2 ? DRM_ASAHI_SET_RENDER_RESOURCES_V2
++                     : DRM_ASAHI_SET_RENDER_RESOURCES,
++      .size = count * stride,
++      .vdm_barrier = DRM_ASAHI_BARRIER_NONE,
++      .cdm_barrier = DRM_ASAHI_BARRIER_NONE,
++   };
++   util_dynarray_append(cmdbuf, header);
++
++   const struct drm_asahi_render_program_v2 tile = {
++      .legacy = batch->m5_tile_program,
++   };
++   util_dynarray_append_array(cmdbuf, uint8_t, &tile, stride);
++   util_dynarray_foreach(&batch->m5_render_programs,
++                         struct drm_asahi_render_program_v2, entry) {
++      util_dynarray_append_array(cmdbuf, uint8_t, entry, stride);
++   }
++   return true;
++}
++
+ static void
+ agx_batch_init(struct agx_context *ctx,
+                const struct pipe_framebuffer_state *key,
+@@ -197,6 +330,10 @@ agx_batch_init(struct agx_context *ctx,
+    util_dynarray_init(&batch->timestamps, ctx);
+    util_dynarray_init(&batch->g17p_vdm_aliases, ctx);
+    util_dynarray_init(&batch->faulttrace_cmdbuf, ctx);
++   util_dynarray_init(&batch->m5_render_programs, ctx);
++   util_dynarray_init(&batch->m5_compute_programs, ctx);
++   memset(&batch->m5_tile_program, 0, sizeof(batch->m5_tile_program));
++   batch->m5_shader_writes = false;
+    batch->faulttrace_seqid = 0;
+ 
+    batch->clear = 0;
+@@ -384,6 +521,8 @@ agx_batch_cleanup(struct agx_context *ctx, struct agx_batch *batch, bool reset)
+    util_dynarray_fini(&batch->timestamps);
+    util_dynarray_fini(&batch->g17p_vdm_aliases);
+    util_dynarray_fini(&batch->faulttrace_cmdbuf);
++   util_dynarray_fini(&batch->m5_render_programs);
++   util_dynarray_fini(&batch->m5_compute_programs);
+ 
+    if (!(dev->debug & (AGX_DBG_TRACE | AGX_DBG_SYNC))) {
+       agx_batch_print_stats(dev, batch);
+@@ -1017,6 +1156,28 @@ agx_batch_submit(struct agx_context *ctx, struct agx_batch *batch,
+       batch->native_rejected = true;
+    }
+ 
++   /* The G17 runtime refuses a render without its program storage list, and
++    * the list's 16-bit command size bounds it. A list that does not fit is
++    * a batch this driver cannot describe to the kernel. */
++   if (!batch->native_rejected && agx_m5_render_resources(dev)) {
++      const size_t render_stride =
++         (dev->params.features & DRM_ASAHI_FEATURE_RENDER_RESOURCES_V2)
++            ? sizeof(struct drm_asahi_render_program_v2)
++            : sizeof(struct drm_asahi_render_program);
++      const size_t render_bytes =
++         (1 + util_dynarray_num_elements(&batch->m5_render_programs,
++                                         struct drm_asahi_render_program_v2)) *
++         render_stride;
++      if ((render && render_bytes > UINT16_MAX) ||
++          (compute && batch->m5_compute_programs.size > UINT16_MAX)) {
++         mesa_loge("asahi: the program storage list of batch %u does not fit "
++                   "one command (%zu render, %u compute bytes)",
++                   agx_batch_idx(batch), render ? render_bytes : 0,
++                   compute ? batch->m5_compute_programs.size : 0);
++         batch->native_rejected = true;
++      }
++   }
++
+    if (batch->native_rejected) {
+       batch_debug(batch, "DROP");
+       mesa_loge("asahi: dropping work: batch %u used state with no proven "
+@@ -1336,6 +1497,11 @@ agx_batch_submit(struct agx_context *ctx, struct agx_batch *batch,
+     * dispatch takes that role, so the loop below stops one short. */
+    const bool m5_split_prepass =
+       dev->chip == AGX_CHIP_G17G && compute;
++
++   /* The G17 runtime that runs G17S and G17C has none of that restriction:
++    * it takes a mixed command array and orders it with barriers, so the
++    * recorded dispatches go as separate commands of this one submission. */
++   const bool m5_compute_commands = agx_m5_render_resources(dev) && compute;
+    const unsigned m5_split_count =
+       !m5_split_prepass  ? 0
+       : render           ? batch->cdm_dispatch_count
+@@ -1347,13 +1513,38 @@ agx_batch_submit(struct agx_context *ctx, struct agx_batch *batch,
+       .handle = submit_syncobj,
+    };
+ 
++   /* Compute commands in this submission, which the render waits on. */
++   unsigned compute_commands = 0;
++
+    /* Submit! */
+-   if (compute && !split_compute) {
++   if (compute && !split_compute && m5_compute_commands) {
++      /* The G17 runtime (M5 Pro, M5 Max) takes a mixed command array, so
++       * each recorded dispatch is its own compute command here, the
++       * single-dispatch stream the Gallium M5 compute path builds and G17G
++       * submits one ioctl at a time. Command i waits on the i before it and
++       * on all earlier work; the storage list precedes them all. */
++      ASSERTED bool encoded =
++         agx_append_m5_compute_resources(dev, batch, &cmdbuf);
++      assert(encoded);
++
++      const uint64_t cdm_base = batch->cdm.bo->va->addr;
++      for (unsigned i = 0; i < batch->cdm_dispatch_count; ++i) {
++         struct drm_asahi_cmd_header header = agx_cmd_header(true, 0, i);
++         struct drm_asahi_cmd_compute one = *compute;
++         one.cdm_ctrl_stream_base = cdm_base + batch->cdm_dispatch[i].start;
++         one.cdm_ctrl_stream_end = cdm_base + batch->cdm_dispatch[i].end;
++
++         util_dynarray_append(&cmdbuf, header);
++         util_dynarray_append_array(&cmdbuf, uint8_t, &one, header.size);
++      }
++      compute_commands = batch->cdm_dispatch_count;
++   } else if (compute && !split_compute) {
+       /* Barrier on previous submission */
+       struct drm_asahi_cmd_header header = agx_cmd_header(true, 0, 0);
+ 
+       util_dynarray_append(&cmdbuf, header);
+       util_dynarray_append_array(&cmdbuf, uint8_t, compute, header.size);
++      compute_commands = 1;
+ 
+       if (m5_split_prepass) {
+          /* The M5 compute profile is grounded for a single-dispatch control
+@@ -1470,16 +1661,27 @@ agx_batch_submit(struct agx_context *ctx, struct agx_batch *batch,
+                                     att.list, att.count);
+       }
+ 
++      if (agx_m5_render_resources(dev)) {
++         ASSERTED bool encoded =
++            agx_append_m5_render_resources(dev, batch, &cmdbuf);
++         assert(encoded);
++
++         if (batch->m5_shader_writes &&
++             (dev->params.features & DRM_ASAHI_FEATURE_RENDER_SHADER_WRITES))
++            render->flags |= DRM_ASAHI_RENDER_SHADER_WRITES;
++      }
++
+       /* Compute starts with barriers on both prior subqueues. Waiting on
+-       * its prefix 1 therefore orders render after both the compute results
+-       * and all prior work, including ioctl input syncs on older kernels that
+-       * attach them only to the first hardware command (hk's first_sq rule).
+-       * Software attachment commands do not advance the hardware prefixes.
++       * its prefix (every compute command of this submission) therefore
++       * orders render after both the compute results and all prior work,
++       * including ioctl input syncs on older kernels that attach them only to
++       * the first hardware command (hk's first_sq rule). Software attachment
++       * and resource commands do not advance the hardware prefixes.
+        */
+-      const bool compute_here = compute && !split_compute;
++      const bool compute_here = compute && !split_compute && compute_commands;
+       struct drm_asahi_cmd_header header = agx_cmd_header(
+          false, compute_here ? DRM_ASAHI_BARRIER_NONE : 0,
+-         compute_here ? 1 : 0);
++         compute_here ? compute_commands : 0);
+       header.size = agx_render_command_size(dev);
+ 
+       util_dynarray_append(&cmdbuf, header);
+diff --git a/src/gallium/drivers/asahi/agx_pipe.c b/src/gallium/drivers/asahi/agx_pipe.c
+index c3bc40cf56c..294fc6cc5cf 100644
+--- a/src/gallium/drivers/asahi/agx_pipe.c
++++ b/src/gallium/drivers/asahi/agx_pipe.c
+@@ -1556,8 +1556,11 @@ agx_cmdbuf(struct agx_device *dev, struct drm_asahi_cmd_render *c,
+ 
+    /* G17P treats an absent ZLS allocation as an inactive depth surface.  Its
+     * native render command keeps the clear register at 1.0 in that state;
+-    * zero is only a real clear value when depth or stencil storage exists. */
+-   if (agx_native_graphics(dev) && !zres && !sres)
++    * zero is only a real clear value when depth or stencil storage exists.
++    * Honeykrisp submits M5 renders on the G17 runtime the same way
++    * (hk_drm_g17p_depth_clear). */
++   if ((agx_native_graphics(dev) || agx_m5_render_resources(dev)) && !zres &&
++       !sres)
+       c->isp_bgobjdepth = fui(1.0f);
+ 
+    /* Neither AGX3 generation publishes the ISP's depth/stencil dimensions the
+@@ -1837,6 +1840,16 @@ agx_flush_render(struct agx_context *ctx, struct agx_batch *batch,
+ 
+    struct asahi_bg_eot pipeline_store = agx_build_bg_eot(batch, true, false);
+ 
++   /* The render submits the eot program for both its final and its partial
++    * store (agx_cmdbuf), so these three are every tile program it runs. */
++   if (agx_m5_render_resources(dev)) {
++      const struct asahi_bg_eot *const tile_programs[] = {
++         &pipeline_background, &pipeline_background_partial, &pipeline_store,
++      };
++      agx_batch_set_m5_tile_program(batch, tile_programs,
++                                    ARRAY_SIZE(tile_programs));
++   }
++
+    bool clear_pipeline_textures =
+       agx_tilebuffer_spills(&batch->tilebuffer_layout);
+ 
+diff --git a/src/gallium/drivers/asahi/agx_state.c b/src/gallium/drivers/asahi/agx_state.c
+index 3fbd365844a..4c91c155988 100644
+--- a/src/gallium/drivers/asahi/agx_state.c
++++ b/src/gallium/drivers/asahi/agx_state.c
+@@ -5482,6 +5482,37 @@ agx_build_agx3_graphics_program(struct agx_batch *batch,
+          }
+       }
+    }
++   if (agx_m5_render_resources(dev)) {
++      /* The kernel sizes the render's pools from this (hk_cmd_draw.c,
++       * hk_m5_note_render_resources): primary storage is the larger of the
++       * spill frame and the SPECTPR frame; a vertex program's secondary
++       * storage is twice its staging extent; a fragment program carries the
++       * render's imageblock. */
++      const bool fragment = cs->stage == MESA_SHADER_FRAGMENT;
++      const struct agx_tilebuffer_layout *tib = &batch->tilebuffer_layout;
++      const uint32_t samples = MAX2(tib->nr_samples, 1);
++      const uint32_t sample_bytes = tib->tile_size * tib->sample_size_B;
++      const uint32_t staging_B = linked->g17p_compiler_d_valid
++                                    ? linked->g17p_compiler_d
++                                    : linked->nr_gprs;
++      const struct drm_asahi_render_program_v2 entry = {
++         .legacy = {
++            .stage = fragment,
++            .primary_bytes =
++               MAX2(linked->scratch_size, linked->agx3_spectpr_scratch_size),
++            .secondary_bytes = fragment ? 0 : staging_B * 2,
++            .imageblock_bytes = fragment ? sample_bytes * samples : 0,
++            .multisample_bytes = !fragment     ? 0
++                                 : samples == 2 ? sample_bytes / 4
++                                 : samples == 4 ? sample_bytes
++                                 : samples == 8 ? 4 * sample_bytes
++                                                : 0,
++         },
++      };
++      agx_batch_note_m5_render_program(batch, &entry);
++      batch->m5_shader_writes |= cs->so && cs->so->info.writes_memory;
++   }
++
+    if (full_va)
+       *full_va = t.gpu;
+    return agx_usc_addr(dev, t.gpu);
+@@ -5873,6 +5904,19 @@ agx_g17p_append_compute(struct agx_batch *batch,
+          const unsigned i = batch->cdm_dispatch_count++;
+          batch->cdm_dispatch[i].start = dispatch_start;
+          batch->cdm_dispatch[i].end = batch->cdm.current - cdm_base_map;
++
++         /* The dispatch's storage, as hk_m5_compute_resources() lists it.
++          * This path refuses spills, so only the workgroup's shared memory
++          * and size vary. */
++         if (agx_m5_render_resources(dev)) {
++            const struct drm_asahi_compute_program profile = {
++               .primary_bytes = info->scratch_size,
++               .threadgroup_bytes =
++                  shared ? MAX2(256u, ALIGN_POT((uint32_t)shared, 64u)) : 0,
++               .threads = wg.x * wg.y * wg.z,
++            };
++            agx_batch_note_m5_compute_program(batch, &profile);
++         }
+       }
+ 
+       if (constant_bo)
+@@ -6763,6 +6807,8 @@ agx_build_g17g_bg_eot(struct agx_batch *batch, struct agx_bg_eot_key *key,
+    return (struct asahi_bg_eot){
+       .usc = agx_usc_addr(dev, ptr.gpu),
+       .rsrc_spec = store || no_color ? 0 : UINT64_C(0xffff800000000040),
++      .primary_storage_B = desc.scratch_size,
++      .staging_storage_B = desc.compiler_d,
+    };
+ }
+ 
+diff --git a/src/gallium/drivers/asahi/agx_state.h b/src/gallium/drivers/asahi/agx_state.h
+index 598a8092fb6..f5725076cba 100644
+--- a/src/gallium/drivers/asahi/agx_state.h
++++ b/src/gallium/drivers/asahi/agx_state.h
+@@ -519,6 +519,21 @@ struct agx_batch {
+     * still needs its render. */
+    unsigned draws_refused;
+ 
++   /* M5 on the G17 kernel runtime (agx_m5_render_resources): the storage
++    * the programs of this batch need, sent ahead of its render and compute
++    * commands. m5_render_programs holds one drm_asahi_render_program_v2 per
++    * distinct linked vertex or fragment program demand, m5_tile_program the
++    * background and end-of-tile programs' record, m5_compute_programs one
++    * drm_asahi_compute_program per distinct dispatch demand. The kernel takes
++    * the maximum over each list, so they are sets. */
++   struct util_dynarray m5_render_programs;
++   struct util_dynarray m5_compute_programs;
++   struct drm_asahi_render_program m5_tile_program;
++
++   /* A graphics program of this render writes memory (its kernel write
++    * class, DRM_ASAHI_RENDER_SHADER_WRITES). */
++   bool m5_shader_writes;
++
+    uint64_t uploaded_clear_color[PIPE_MAX_COLOR_BUFS];
+    union pipe_color_union clear_color[PIPE_MAX_COLOR_BUFS];
+    double clear_depth;
+@@ -1485,8 +1500,21 @@ void agx_batch_init_state(struct agx_batch *batch);
+ struct asahi_bg_eot {
+    uint64_t usc;
+    uint64_t rsrc_spec;
++
++   /* M5: the program's primary (thread-private) and staging storage, for
++    * the render's tile record (agx_m5_render_resources). */
++   uint32_t primary_storage_B;
++   uint32_t staging_storage_B;
+ };
+ 
++void agx_batch_note_m5_render_program(
++   struct agx_batch *batch, const struct drm_asahi_render_program_v2 *program);
++void agx_batch_note_m5_compute_program(
++   struct agx_batch *batch, const struct drm_asahi_compute_program *program);
++void agx_batch_set_m5_tile_program(struct agx_batch *batch,
++                                   const struct asahi_bg_eot *const *programs,
++                                   unsigned count);
++
+ struct asahi_bg_eot agx_build_bg_eot(struct agx_batch *batch, bool store,
+                                      bool partial_render);
+ 
+-- 
+2.56.0
+
