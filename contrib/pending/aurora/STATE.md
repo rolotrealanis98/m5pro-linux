@@ -1,16 +1,55 @@
 # Aurora kernel on the J716s: current state and exact ingredients
 
 **This file is the single source of truth for the Aurora payload ingredients** (it replaces
-`pipe-park/STATE.md`, moved here with `git mv`). The newest boot is R3-V (next section); R3-T is its m1n1/DT twin
-on the older kernel, R3-R's and R3-Q's ingredients follow unchanged below, each as a delta on the one before.
+`pipe-park/STATE.md`, moved here with `git mv`). The newest boot is **R3-SERIES** (next section), built from the clean 58-patch series;
+the canonical recipe for it is `series/SERIES.md`. R3-V, R3-R and R3-Q follow below, each as a delta on the one before
+(they use the hand-assembled `aurora-j716s` branch).
 Results and the boot tables: `../integration/RESULTS.md` ("Round R3"). Per-unit values (PHY tunables) are no longer
 in the DT at all: m1n1 0021 fills them at boot.
 
-# Current (R3-V, 2026-11-07)
+# Current (R3-SERIES, 2026-11-07)
+
+Payload sha256 prefix `8c8dd836`, booted by the self-revert loop (nobody at the machine) at about 10:10: network,
+`card0-eDP-1`, trackpad (`Touch MT ready` at 1.34 s), `apple_idle`, `macsmc` bound through the native `apple,t6050-smc`
+match, the CIO reset driver bound with its own T6050 entry, NVMe partitions at 0.37 s, no error lines after filtering
+PMGR noise and the expected `pcie-apple` `-22`. **The exact recipe (patch list, config, DT, rebuild commands) is
+`series/SERIES.md`;** this section only lists what goes into the payload.
+
+| Part | R3-SERIES | Change from R3-X (= R3-V + simpledrm eDP) |
+|---|---|---|
+| m1n1 | `m1n1-plain-r2-pipepark-atc.bin`, sha256 prefix `28b26ebc` (`pipepark-atc`: 0020 + 0021) | none |
+| Kernel | `7.3.0-g4f630b11270d`: the 58 patches of `series/patches/series/` on `aurora-silicon` `integration/aurora` `33bec4016c46` (worktree `wt-series`, branch `j716s-series`, tip `4f630b11270d`). 0001-0044 are Aurora's commits carried as-is, 0045-0058 are ours | hand-assembled `aurora-j716s` branch replaced by the series |
+| Config | `make defconfig asahi.config j716s.config` (16K pages), `RUST` off. `j716s.config` is `series/j716s.config` (patch 0058) | the config additions of R3-V/R3-X are now in the fragment |
+| DT | the series' own source-form `arch/arm64/boot/dts/apple/t6050-j716s.dts` (patch 0057), compiled by the kernel build; `series/dt/t6050-j716s.dtb`, sha256 `8c4df67ac743a08b633f7e5233004180e5b18d9f82c56b9261ec76eb77458e6e`. Publishable, no per-unit values, no hand edits | source-form DT instead of the post-processed decompiled DTS. Differences from the old booted DTB: `series/dt/dt-diff.txt` |
+| Driver fixes in the series | `apple,t6050-smc` match (0052), `apple,t6050-cio-reset` entry (0051: register `0x60`, the old `t8142` fallback used `0x30`), CPU order in `t6050-max.dtsi` (0054) | native matches instead of DT fallbacks |
+| Initramfs | `initramfs-selftest.cpio.gz`, sha256 `ce0b462c0ce465d7cde5fa73bac413f0bc4bf9c833efdf70c782dde06eba217a` | none |
+| Bootargs | as R3-X: R3-Q's (below) incl. `initcall_blacklist=macsmc_power_driver_init` and `m5.selftest=1` | none |
+| Seen on the console | `pcie-apple 1cb0000000.pcie: probe failed -22`: expected, the apcie0 port is untrained | none |
+
+ESP layout (500 MB, prune `boot.bin.failed` after each self-revert):
+
+| File | Holds |
+|---|---|
+| `boot.bin` | R3-SERIES (daily) |
+| `boot.bin.prev` (the revert target) | R3-X |
+| `boot.bin.b2` | B2 (our 7.2 stack) |
+| `boot.bin.known-good` | known-good |
+
+**Open points from the series work:** ask Aurora how their m1n1 boots J716c with the old CPU order; cpufreq
+fallback (`apple,t8112-cluster-cpufreq`) against a `t6050` soc info; `dtbs_check` not run; `apple,internal-panel` on
+simpledrm needs a binding patch; hwmon disabled in the DT until `F0md`/`F1md` are read; battery still blacklisted.
+
+**Attended queue** (details: `../integration/RESULTS.md`): R3-U (m1n1 0024 + opt-in DCP handoff), W0/W1/W2 Wi-Fi
+(`n1-wifi/R3-W-RECIPE.md`), R3-S battery, audio (`audio/R3-AUDIO-RECIPE.md`: R3-AUDIO-A `a7c05d1a` mic and jack,
+R3-AUDIO-B `34e96037` speakers; Rust kernel `00e8df6f` from tree `wt-aurora-audio` `1d2ac24c066e` = R3-X tree + 11
+audio patches; `speakersafetyd`, `asahi-audio`, `alsa-ucm-conf-asahi` must be built with
+`audio/build-audio-pkgs.sh` before the speaker boot).
+
+# R3-V (2026-11-07; the base of R3-X, the delta below is against R3-R)
 
 Payload sha256 prefix `8864d45e`, booted by the self-revert loop (nobody at the machine). R3-T (`08902f08`) is the same
-payload on kernel `6d9f1ec652a6`; R3-X (R3-V + simpledrm eDP patch 0029 + `apple,internal-panel` on the framebuffer
-node) is in flight.
+payload on kernel `6d9f1ec652a6`; R3-X (`734594ed`; R3-V + simpledrm eDP patch 0029 + `apple,internal-panel` on the framebuffer
+node) booted and is `boot.bin.prev` behind R3-SERIES.
 
 | Part | R3-V | Change from R3-R |
 |---|---|---|
@@ -22,17 +61,7 @@ node) is in flight.
 | Bootargs | R3-Q's (below) incl. `initcall_blacklist=macsmc_power_driver_init` and `m5.selftest=1` | none |
 | Seen on the console | `pcie-apple 1cb0000000.pcie: probe failed -22`: expected, the apcie0 port is untrained (m1n1 0023 is opt-in); harmless | new with PR #937 |
 
-ESP layout (500 MB, prune `boot.bin.failed` after each self-revert):
-
-| File | Now | After R3-X is installed |
-|---|---|---|
-| `boot.bin` | R3-V | R3-X |
-| `boot.bin.prev` (the revert target) | R3-T | R3-V |
-| `boot.bin.b2` | B2 (our 7.2 stack) | same |
-| `boot.bin.known-good` | known-good | same |
-
-**Attended queue** (details: `../integration/RESULTS.md`): R3-U (m1n1 0024 + opt-in DCP handoff), W0/W1/W2 Wi-Fi
-(`n1-wifi/R3-W-RECIPE.md`), R3-S battery, audio mic boot (`audio/R3-AUDIO-RECIPE.md`, `CONFIG_RUST` build).
+(ESP layout when R3-V was `boot.bin`: `boot.bin.prev` = R3-T; superseded by the layout under "Current (R3-SERIES)".)
 
 # R3-R: trackpad (2026-11-07 about 01:45)
 
