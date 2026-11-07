@@ -1,7 +1,7 @@
 From 030e2113e26bddaea986f01f2e3c9080f73fe891 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 04:58:39 -0500
-Subject: [PATCH 2/2] ASoC: apple: aop_t8140: stop the T6050 speaker serializer
+Subject: [PATCH 2/3] ASoC: apple: aop_t8140: stop the T6050 speaker serializer
  after the amps mute
 
 On T6050 the speaker service runs from prepare and its stop (pw0) was sent

@@ -2,7 +2,8 @@
 
 Studio only; nothing run on the MacBook, nothing posted or pushed. (Saved by the coordinator from the agent's hand-back.)
 Base `j716s-series-audio` @ `32512dab5b4e` (the R3-AUDIO-B2 kernel). Worktree `/Volumes/linux-cs/wt-audio-tdm`, branch
-`j716s-audio-tdm`: `fa23c99a6b49` (Ed's 83d711c3a909 carried), `030e2113e26b` (ours, the stop-order fix).
+`j716s-audio-tdm`: `fa23c99a6b49` (Ed's 83d711c3a909 carried), `030e2113e26b` (ours, the stop-order fix, = B3),
+`7767a8193740` (ours, 0003: pwrd read-back before the unmute + stop-time state check; see section 10).
 edimoldovan `t6050-j714c` tip `4f8b07f31d66`.
 
 ## 1. Bottom line
@@ -96,6 +97,80 @@ every 10 ms on J713). Over-temperature/over-current (bits 0/1) are real; B2 logg
 4. A/B: new kernel with the old spk DTB; faults that remain there are the post-shutdown re-latch.
 5. If faults remain: timestamped dmesg; trace `tas2764_mute` and `spkr_dai_hw_free`.
 6. Optional: LW1 vs LW2 sensed power at 4 and 8 kHz (for 0001). 7. The section-7 reboot test before calling it clean.
+
+## 10. B3 result and the start-time burst (update 2026-11-07, after the B3 run)
+
+B3 = kernel `7.3.0-g030e2113e26b` (Image.gz bb553695..., kept in `kbuild-tdm/b3-030e2113e26b/`) + the defer DTB.
+- **Fixed:** no fault at the stream end (~154.9 s), none at `Speaker Switch` off. So 0002 + `apple,deferred-shutdown`
+  remove the stop-time faults.
+- **Clean reboot:** a plain `systemctl reboot` after the tone was clean (23 s, boot-error count 0, primary slot). The B2
+  stall did not reproduce with this kernel; the section-7 capture advice stands in case it comes back.
+- **New:** a burst of `bad TDM clock` mid-stream: seven reports at 153.152-153.171, on both buses.
+
+### Timeline, rebuilt from the code and the B3 numbers
+- **pwrd sent, about 152.82 s.** speakersafetyd opened the sense PCM at its own start (1.88 s,
+  `helpers::open_pcm`) and blocks in `readi` for 4096-frame blocks (85.3 ms). Sense data only flows once `spkr_start`
+  has armed the drain and sent `pwrd`, at the back-end prepare. Its "Sample rate: 48000" line follows its first
+  block. So `pwrd` went out at about 152.907 - 0.085 = 152.82 s.
+- **Unmute and first TX DMA, about 152.84 s.** ASoC unmutes the six amps right after that prepare (pwrd + EPIC
+  round trip + the fixed 20 ms). Trigger START, the first TX DMA, follows within milliseconds: aplay fills its buffer
+  and starts.
+- **Stream end, about 154.85 s.** That fits the coordinator's ~154.9 s.
+- **Faults, 153.152-153.171 s.** That is about 0.31 s after the unmute, in the middle of the stream.
+  - It is **not at the unmute**. An amp unmuted under a clock that is not running latches within about 10 ms.
+  - It is **all six at once** on both I2C buses. The 20 ms spread is the threaded handlers reading six latch
+    registers each over I2C. That points at the shared TDM clock from the AOP's serializer, not at a register write
+    to one amp.
+
+### The interrupt count points at a lost clock, not one glitch
+1032 interrupts on GPIO 106 after one tone. Two expectations:
+- **Stop windows only:** six muted amps re-latching about every 10 ms through their 150 ms deferred-shutdown windows
+  give about 90.
+- **Clock gone for the rest of the stream:** six unmuted amps re-latching every 10 ms from +0.31 s to the stream end
+  (about 1.7 s) give about 6 x 170 = 1020.
+
+1032 fits the second. The "10 lines = 5 faults" is `dev_crit_ratelimited`'s burst of 10 per 5 s. The "callbacks
+suppressed" summary prints only on the next call after the 5 s window, and none came, so its absence proves nothing.
+
+So the likely picture is that the serializer stopped at about +0.31 s and did not come back for that stream. Ed's
+369cac02ce47 says the firmware stops the speaker stream within about 0.2 s of the sense RX going undrained.
+Half the drain ring is 0.341 s (64 of 128 periods of 256 frames). This is a hypothesis to test, not a finding.
+Caveat: the count is since boot; the per-tone delta is what matters.
+
+### Patch 0003 (`patches/0003-ASoC-apple-aop_t8140-unmute-the-T6050-speakers-only-.patch`, commit 7767a8193740)
+- **Start:** the `pwrd` request (property 202) returns before the firmware carries it out, and nothing checked it.
+  `spkr_start` now reads the power state back (property 200, as `pw0` is already confirmed) every 2 ms until it reads
+  `pwrd`, for at most 500 ms, and then keeps the 20 ms settle before ASoC unmutes. It logs
+  `spkr: pwrd reached after N ms (M reads)`. If the state is unreadable or the wait times out, it falls back to the
+  old fixed lead with a warning.
+- **Stop:** before `pw0`, `spkr_check_still_pwrd` reads the state once more and warns
+  `spkr: power state 0x... at the end of the stream, not pwrd: the firmware stopped it` if the firmware left `pwrd`
+  on its own.
+- **What the two log lines decide:**
+  - pwrd takes about 300 ms: the amps were unmuted under a serializer that was not running yet, and 0003 is the fix.
+  - pwrd is quick but the stop line fires: the firmware dropped the stream mid-run. The cause is then upstream of
+    the amps (the sense drain or the TX side), and the fix is a 0004 once the data is in.
+- **Scope:** MCA stream only (T6050); T8140/LEAP is unchanged. No change to tas2764, macaudio or the DT.
+- **Build:** exit 0, 0 warnings, `7.3.0-g7767a8193740`.
+  - Image.gz `f9129ccd7bfa29bb4a80772a7f05ca265d6b740fe65d19f6d489345441718908`.
+  - DTBs unchanged: use the defer DTB `9783ccb6...`.
+  - format-patch now numbers the series 1/3..3/3, so the 0001/0002 file hashes changed. Their content is identical.
+
+### Next run (B4: kernel f9129ccd..., defer DTB, the B2/B3 recipe)
+1. **Gates as before.** Then read `grep -i gpio /proc/interrupts` (the tas2764 line) **before and after** one 2 s
+   -40 dBFS tone, and save the delta.
+2. **The tone as before**, `time aplay -D plughw:AppleJ716,1 /tmp/t.wav 2>&1` (keep aplay's stderr, for "underrun"),
+   with `dmesg -w` running.
+3. **Collect** the `spkr: pwrd reached after` line, any `spkr: power state ... the firmware stopped it` line, and
+   every tas2764 line with timestamps. Add `journalctl -u speakersafetyd` for the stream window: are there blocks after
+   +0.3 s, any "Expected 4096 samples, got" or "Skipping" lines?
+4. **Three tones, 5 s apart:** a burst at a fixed offset every time, or only on the first stream after boot?
+5. **One tone with speakersafetyd stopped:** the volumes stay locked, so it is silent and safe. If the burst stays, the
+   daemon's kcontrol writes and sense reads are not the trigger.
+6. **Optional, one 10 s tone:** a single burst at +0.3 s with the IRQ delta near 6000 means the clock was lost for the
+   whole stream; bursts every 0.68 s would mean something per drain-ring wrap.
+7. **Reboot check:** the B3 boot after the clean reboot lost its network (coordinator investigating). 0003 adds nothing
+   to the boot path: it acts only in the speaker back-end's prepare and stop.
 
 ## 9. For edimoldovan (after our run confirms 0002)
 His stop path has the same order, so the J714c amps should fault at every stream end (ask whether PipeWire's idle suspend
