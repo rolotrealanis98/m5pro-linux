@@ -1056,3 +1056,20 @@ the J714c showed exactly that (a freeze 20-40 s after boot) until ASPM was strip
 same payload with `pcie_aspm=off`, filmed; then the kernel print of image_response/stage (edimoldovan 50519853a58d) if
 it still fails. ESP restored to the daily; root firmware left as W3 (rollback: the `.w0` file).
 
+### Result (W3b, 2026-11-07 13:44 UTC, cold start by Rolando): **Wi-Fi and Bluetooth come up**
+
+Payload `w3b-aspmoff-20261107-009a839e.bin` (built with mk-daily from the W2c ingredients: series kernel
+`7.3.0-g4f630b11270d`, stack DTB, m1n1 `n1-smc` with `chosen.m5pro,n1=4`, the W3 initramfs carrying the FTAB with the board's
+Image4 manifest stitched in, `pcie_aspm=off`, battery on, selftest on), prev = the WFI daily. Full power-off, button.
+- m1n1 as W2c: SMC gP13 pulse, `port 0 link Gen1 x1`, `endpoint 01:00.0 is 0x1900106b`, `port 0 up, N1 at 01:00.0`.
+- Kernel: `adopted port 0`, `[106b:1900]`, `apple_centauri: enabling device`, **no phase0 line** (the ROM accepted the
+  image), `port 0: link retrained after a root-port reset` at 0.43 s, `[106b:1902]` and `[106b:1903]` on functions 1 and 2
+  (RID 0101 -> SID 2, 0102 -> SID 3), `Wi-Fi firmware channel list: 709 bytes, capabilities: 570 bytes`, `Wi-Fi firmware
+  channels: 2.4 GHz 13, 5 GHz 25, 6 GHz 0 (38 entries)` at 3.37 s; **`wlan0`** (phy0, managed) and **`hci0`** (Bluetooth,
+  version 17, manufacturer 76) registered, rfkill clear; primary slot, no revert, PMU count 0, battery 94 %.
+- Up past 123 s with ASPM off (W3 froze inside that window with ASPM on), so the J714c's ASPM finding holds here too.
+- Userspace: `W1-POST-ROOT.sh` (iwd, bluetooth for this boot), scan: see the next lines. Association with a passphrase is
+  Rolando's. Still open: warm reboot with the N1 link alive (the J714c needed a pcie-apple shutdown park), the ASPM strip
+  on the adopted port as a kernel patch instead of `pcie_aspm=off`, the WFI daily kernel with this stack, 6 GHz (0 entries
+  in this regulatory list), Bluetooth pairing.
+
