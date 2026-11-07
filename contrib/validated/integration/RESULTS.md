@@ -1357,3 +1357,22 @@ hand-off and the display hand-off code (not armed) is fine; it reserves the copr
 falls back once, the retry boots" (DAILY-NEXT full, crash-log T1, lid+Wi-Fi twin, board-v2, DCP-A). E2a/E2b and the
 no-ASPM payload were exceptions (first boot fine). Stages B0 and B run next.
 
+### Result (DCP stages B0 and B, 2026-11-07 18:50-19:07 UTC, loop; reruns with full capture)
+
+- **B0** (`dcpb0-20261107-fe531c17`: gpu-dcp m1n1, daily kernel, daily DTB + mk-fixed9's display nodes without
+  bw-scratch, `chosen.m5,t6050-display=1`): primary on the first boot (twice). Loader: `DCP: T6050: dcp at 0x48ae00000:
+  CPU_CONTROL 0x10 (running) CPU_STATUS 0xec; PROTECT dart-dcp 0xff dart-disp0 0x1b9`; dart-dcp SID 23, dart-disp0
+  SIDs 0 and 16 all `four-level, the ADT's table`; `reserved 8 coprocessor __OS_LOG segments`; **`dcp handed off: vram
+  0x10bd15f4000+0x72c4000 reserved as its framebuffer; firmware-version 27.3 beta, firmware-compat 27.3.0; dcp, mailbox,
+  dart-dcp, dart-disp0 and the display subsystem enabled`**. Kernel (no DRM_APPLE): dcp node `okay` in iommu group 0,
+  simpledrm unchanged, panel fine. **PASS.**
+- **B** (`dcpb-20261107-02a4e1d0`: same + the `7.3.0-dcp-g3671d907d570` kernel with DRM_APPLE and the 27.3 method table,
+  drm.debug + dyndbg): same loader lines; kernel: `apple-dart 48a340000.iommu ... locked: 1` and `48a300000 ... locked: 1`,
+  simpledrm card0 stays, then **`apple-dcp 48ae00000.dcp: error -ENODEV: Incompatible devicetree! Use devicetree matching
+  this kernel.`** exactly as predicted (no bw-scratch), before any DCP register access; no DART faults; netconsole target
+  up on this kernel. **PASS.** Only the internal panel's `apple,bw-scratch` offset stands between this and stage C
+  (attended). Logs: `~/Work/agents/gpu-e2/logs/dcp/` (private).
+- Observation: restoring the daily after B (a fresh copy of the same daily file) came back `fallback-after-failure`,
+  then booted: the first-boot pattern happens to a re-written copy of a known-good file too, with the drop_caches
+  mitigation in place. It is about freshly written files, not their content.
+
