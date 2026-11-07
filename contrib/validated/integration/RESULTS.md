@@ -968,3 +968,17 @@ the training window, read-verify a block, stop it again). Stage-2 log:
 - Storage register 0x419600048 changed 0x6e -> 0x6d across the training and was classified allowed (the agent's
   whitelist); the block read-back was identical.
 
+### Result (W2b, 2026-11-07 12:32 UTC, attended)
+
+Payload `w2b-n1ans-20261107-d9009a03.bin` (`n1=4`: W2 plus 0023's SMC reset release before the training). The ANS start,
+GPT read, snapshot and clean stop all repeated as on W2 (W2 itself was re-run once by a deploy mishap and reproduced
+byte for byte). The training stopped before any link attempt:
+
+    pcie-t6050: STOP: /arm-io/apcie0/pci-bridge0 function-reset is not an SMC pKW4
+
+0023's reset-release path expects the bridge's `function-reset` ADT property to name an SMC `pKW4` function; the J716s
+describes it differently. Port state afterwards back to idle (`status 0x6`, `ltssm 0x0`). Linux booted normally, NVMe
+fine, no revert, PMU count 0. The storage register 0x419600048 moved 0x6e -> 0x6c (W2: -> 0x6d), classified allowed;
+block read identical. Next (agent): decode the J716s `function-reset` descriptor and implement the right release
+(SMC key or GPIO) with the J813-style pulse and timings, then W2c.
+
