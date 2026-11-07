@@ -1,0 +1,5157 @@
+From e01026c7d41abf584cde32503bc6356295d9314a Mon Sep 17 00:00:00 2001
+From: Dj <hey@djdev.me>
+Date: Mon, 26 Oct 2026 02:34:19 -0400
+Subject: [PATCH 08/16] net: apple: Add T6050 N1 firmware and ACIPC transport
+
+Boot the N1 firmware and expose its shared ACIPC transport behind the T6050 PCIe host. After the ROM boot, isolate and quiesce function 0, put it in D3hot with PME enabled, let the host's root-port reset take the link through L2, PERST# and retraining, then restore the root port's and the endpoint's state. Keep firmware and calibration as external inputs, and retain supplier lifetime for the separate Wi-Fi and Bluetooth consumers.
+
+Source snapshot: t6050-gpu ee68abb105200e99636a5edfc647a5cfc1d89954
+Integration base: 9cbdd0734d9e186c5f5f5949a21b909d10c2571b
+
+Signed-off-by: Dj <hey@djdev.me>
+Co-developed-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+
+(cherry picked from commit de6d28883375bfadf63ca4559247b41dd148385f)
+[n1-wifi: on aurora-j716s this driver replaces integration's J813/J873 N1 driver files]
+---
+ .../bindings/net/wireless/apple,centauri.yaml |   50 +
+ drivers/bluetooth/Kconfig                     |   12 -
+ drivers/bluetooth/Makefile                    |    1 -
+ drivers/bluetooth/btcentauri.c                | 1041 -------
+ drivers/net/wireless/apple/Kconfig            |   21 +-
+ drivers/net/wireless/apple/centauri/Makefile  |    3 +-
+ .../net/wireless/apple/centauri/centauri.h    |  105 +-
+ .../wireless/apple/centauri/centauri_ipc.c    |  309 +-
+ .../wireless/apple/centauri/centauri_pci.c    |  427 ++-
+ .../wireless/apple/centauri/centauri_port.c   |  220 --
+ .../wireless/apple/centauri/centauri_wifi.c   | 2478 -----------------
+ 11 files changed, 503 insertions(+), 4164 deletions(-)
+ create mode 100644 Documentation/devicetree/bindings/net/wireless/apple,centauri.yaml
+ delete mode 100644 drivers/bluetooth/btcentauri.c
+ delete mode 100644 drivers/net/wireless/apple/centauri/centauri_port.c
+ delete mode 100644 drivers/net/wireless/apple/centauri/centauri_wifi.c
+
+diff --git a/Documentation/devicetree/bindings/net/wireless/apple,centauri.yaml b/Documentation/devicetree/bindings/net/wireless/apple,centauri.yaml
+new file mode 100644
+index 000000000000..f73dd9afceca
+--- /dev/null
++++ b/Documentation/devicetree/bindings/net/wireless/apple,centauri.yaml
+@@ -0,0 +1,50 @@
++# SPDX-License-Identifier: GPL-2.0-only
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/net/wireless/apple,centauri.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Apple N1 Centauri Control PCI function
++
++maintainers:
++  - Dj <hey@djdev.me>
++
++description: |
++  PCI function zero owns the shared N1 firmware bootstrap. The boot producer
++  supplies the personalized FTAB filename and packed firmware platform ID.
++  The endpoint must be left in its stopped ROM personality with DMA and MSI
++  quiesced. The host's root-port reset retrains the link after the ROM
++  bootstrap. This binding does not authorize adopting an existing live
++  firmware session or releasing another owner's retained DART streams.
++
++properties:
++  compatible:
++    enum:
++      - pci106b,1900
++      - pci106b,1901
++
++  reg:
++    maxItems: 1
++    description: Standard five-cell PCI function address
++
++  firmware-name:
++    $ref: /schemas/types.yaml#/definitions/string
++    description: Personalized FTAB including the required per-device calibration
++
++  apple,centauri-platform-id:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    description: Firmware chip ID in bits 15..0 and board ID in bits 30..16
++
++  apple,centauri-protocol:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    const: 27
++    description: Shared firmware wire protocol profile
++
++required:
++  - compatible
++  - reg
++  - firmware-name
++  - apple,centauri-platform-id
++  - apple,centauri-protocol
++
++additionalProperties: false
+diff --git a/drivers/bluetooth/Kconfig b/drivers/bluetooth/Kconfig
+index 832e2d3019ec..341bee4513c4 100644
+--- a/drivers/bluetooth/Kconfig
++++ b/drivers/bluetooth/Kconfig
+@@ -507,17 +507,5 @@ config BT_INTEL_PCIE
+ 	  Say Y here to compiler support for Intel Bluetooth PCIe device into
+ 	  the kernel or say M to compile it as module (btintel_pcie)
+ 
+-config BT_CENTAURI
+-	tristate "Apple N1 Beta Bluetooth transport (experimental)"
+-	depends on PCI && (ARCH_APPLE || COMPILE_TEST)
+-	help
+-	  Experimental Bluetooth transport for Apple N1 on J813.
+-	  The Centauri Control driver must boot the shared firmware before this
+-	  driver binds to Beta. Controller initialization, discovery, BR/EDR ACL,
+-	  pairing and encrypted AVDTP discovery have been tested on hardware.
+-	  ACL delivery and native startup/connection handling remain opt-in;
+-	  audio playback and LE data are unqualified. SCO/ISO is not implemented.
+-
+-	  Say M to build the btcentauri module for bring-up testing.
+ 
+ endmenu
+diff --git a/drivers/bluetooth/Makefile b/drivers/bluetooth/Makefile
+index 74c3834c2c4a..64d1484d5018 100644
+--- a/drivers/bluetooth/Makefile
++++ b/drivers/bluetooth/Makefile
+@@ -54,4 +54,3 @@ hci_uart-$(CONFIG_BT_HCIUART_AG6XX)	+= hci_ag6xx.o
+ hci_uart-$(CONFIG_BT_HCIUART_MRVL)	+= hci_mrvl.o
+ hci_uart-$(CONFIG_BT_HCIUART_AML)	+= hci_aml.o
+ hci_uart-objs				:= $(hci_uart-y)
+-obj-$(CONFIG_BT_CENTAURI)		+= btcentauri.o
+diff --git a/drivers/bluetooth/btcentauri.c b/drivers/bluetooth/btcentauri.c
+deleted file mode 100644
+index 5830c8b2285e..000000000000
+--- a/drivers/bluetooth/btcentauri.c
++++ /dev/null
+@@ -1,1041 +0,0 @@
+-// SPDX-License-Identifier: GPL-2.0-only
+-/* Apple N1 Beta command/event transport for J813 bring-up.
+- *
+- * The Centauri Control driver must have booted the shared firmware first.
+- * This driver owns only Beta. It never resets the port or the Wi-Fi function.
+- * BR/EDR discovery, ACL/SDP, pairing and encrypted AVDTP discovery are qualified.
+- * ACL remains opt-in; LE data, persistent bonds and audio are unqualified.
+- * SCO/ISO delivery is not implemented.
+- */
+-#include <linux/debugfs.h>
+-#include <linux/delay.h>
+-#include <linux/dma-mapping.h>
+-#include <linux/iopoll.h>
+-#include <linux/module.h>
+-#include <linux/mutex.h>
+-#include <linux/of.h>
+-#include <linux/pci.h>
+-#include <linux/random.h>
+-#include <linux/seq_file.h>
+-#include <linux/sizes.h>
+-#include <linux/unaligned.h>
+-#include <linux/vmalloc.h>
+-#include <linux/workqueue.h>
+-#include <net/bluetooth/bluetooth.h>
+-#include <net/bluetooth/hci_core.h>
+-
+-#define CEN_ARENA_SIZE SZ_1M
+-#define CEN_MTR 0x2000
+-#define CEN_MCR 0x2200
+-#define CEN_MESSAGES 0x4000
+-#define CEN_RX 0x8000
+-#define CEN_TX 0xa000
+-#define CEN_FOOTER 260
+-#define CEN_STRIDE (16 + CEN_FOOTER)
+-#define CEN_RX_SLOTS 17
+-#define CEN_TX_SLOTS 5
+-#define CEN_LE_RX 0xc000
+-#define CEN_LE_TX 0xe000
+-#define CEN_LE_FOOTER 256
+-#define CEN_LE_STRIDE (16 + CEN_LE_FOOTER)
+-#define CEN_LE_SLOTS 17
+-#define CEN_MESSAGE_SLOTS 16
+-#define CEN_AUX_BASE 0x20000
+-#define CEN_CAPTURE_SIZE SZ_1M
+-
+-static bool arm_le_data_rings = true;
+-module_param(arm_le_data_rings, bool, 0444);
+-MODULE_PARM_DESC(arm_le_data_rings, "Arm native Beta LE rings for radio bring-up");
+-
+-static bool arm_auxiliary_rings;
+-module_param(arm_auxiliary_rings, bool, 0444);
+-MODULE_PARM_DESC(arm_auxiliary_rings, "Diagnostic: arm remaining native Beta resources and capture received frames privately");
+-
+-static bool native_startup;
+-module_param(native_startup, bool, 0444);
+-MODULE_PARM_DESC(native_startup, "Diagnostic: program a temporary address, InitDone and random seed before the first HCI reset");
+-
+-static bool enable_acl;
+-module_param(enable_acl, bool, 0444);
+-MODULE_PARM_DESC(enable_acl, "Experimental ACL data delivery; requires LE and auxiliary rings");
+-
+-static bool native_hrb;
+-module_param(native_hrb, bool, 0444);
+-MODULE_PARM_DESC(native_hrb, "Experimental native Proxima Create Connection; requires native startup, ACL and firmware capability bit 9");
+-
+-#define CEN_OP_READ_PROP_FEATURES 0xffa3
+-#define CEN_OP_HRB_CREATE_CONN 0xff7b
+-#define CEN_PROP_HRB_CREATE BIT(9)
+-
+-struct cen_aux_spec {
+-	u16 id, slots, footer;
+-	bool receive;
+-};
+-
+-/* Host native Beta inventory; each resource is opt-in until target-qualified.
+- * HCI and LE rings remain in their existing, separately qualified arenas.
+- */
+-static const struct cen_aux_spec cen_aux_specs[] = {
+-	{ 2, 9, 2592, false }, /* ACL TX */
+-	{ 3, 9, 724, false },  /* SCO TX */
+-	{ 5, 9, 260, false },  /* LEA TX */
+-	{ 6, 5, 1024, false }, /* LLA TX */
+-	{ 8, 9, 2592, true },  /* ACL RX */
+-	{ 9, 9, 724, true },   /* SCO RX */
+-	{ 11, 9, 268, true },  /* LEA RX */
+-	{ 12, 128, 1024, true }, /* Firmware debug RX */
+-	{ 13, 17, 260, true }, /* LMP RX */
+-	{ 14, 9, 1304, false }, /* TSI TX */
+-	{ 15, 9, 1304, true }, /* TSI RX */
+-};
+-
+-struct cen_aux_state {
+-	u32 offset, packets;
+-	u16 head, post;
+-};
+-
+-struct cen_bt {
+-	struct pci_dev *pdev;
+-	struct hci_dev *hdev;
+-	struct dentry *debug;
+-	void __iomem *bar;
+-	u8 *arena;
+-	dma_addr_t dma;
+-	struct mutex lock;
+-	struct delayed_work poll;
+-	struct sk_buff_head txq;
+-	struct sk_buff_head acl_txq, le_txq;
+-	u16 acl_tx_head, le_tx_head;
+-	u16 message_head, message_tag, tx_head, rx_head, rx_post;
+-	u16 le_rx_head, le_rx_post;
+-	u32 le_rx_packets;
+-	struct cen_aux_state aux[ARRAY_SIZE(cen_aux_specs)];
+-	u8 *capture;
+-	u32 capture_used, capture_records, capture_dropped;
+-	bool ipc_requested, running;
+-	u8 native_startup_steps;
+-	bool hrb_supported, hrb_status_pending;
+-	u32 proprietary_features, hrb_commands, hrb_status_events;
+-	u32 hrb_connection_events;
+-	u8 hrb_last_link_type;
+-};
+-
+-static u16 cen_tail(struct cen_bt *bt, u16 ring)
+-{
+-	return le16_to_cpu(READ_ONCE(*(__le16 *)(bt->arena + 0x7a + ring * 2)));
+-}
+-
+-static void cen_post(struct cen_bt *bt, u16 ring, u16 value)
+-{
+-	put_unaligned_le16(value, bt->arena + 0xa8 + ring * 2);
+-	dma_wmb();
+-	writel(value, bt->bar + 0x1000 + ring * 4);
+-}
+-
+-static int cen_message(struct cen_bt *bt, const void *data, size_t length)
+-{
+-	u16 head = bt->message_head, tail, next = (head + 1) % CEN_MESSAGE_SLOTS;
+-	u16 tag = bt->message_tag + 1;
+-	u8 *descriptor = bt->arena + CEN_MTR + head * 16;
+-	u8 *completion = bt->arena + CEN_MCR + head * 32;
+-	int ret;
+-
+-	if (head >= CEN_MESSAGE_SLOTS || !length || length > 512)
+-		return -EINVAL;
+-	memset(descriptor, 0, 16);
+-	memset(completion, 0, 32);
+-	memcpy(bt->arena + CEN_MESSAGES + head * 512, data, length);
+-	put_unaligned_le32(1 | (length << 8), descriptor);
+-	put_unaligned_le64(bt->dma + CEN_MESSAGES + head * 512, descriptor + 4);
+-	put_unaligned_le16(tag, descriptor + 12);
+-	cen_post(bt, 0, next);
+-	ret = read_poll_timeout(cen_tail, tail, tail == next,
+-			      100, 1500000, false, bt, 0);
+-	if (ret)
+-		return ret;
+-	/* The device publishes the message completion before advancing its head. */
+-	ret = read_poll_timeout(le16_to_cpu, tail, tail == next,
+-			      100, 1500000, false,
+-			      READ_ONCE(*(__le16 *)(bt->arena + 0x78)));
+-	if (ret)
+-		return ret;
+-	dma_rmb();
+-	if (get_unaligned_le16(completion + 4) != tag ||
+-	    get_unaligned_le16(completion + 6) != length ||
+-	    get_unaligned_le32(completion + 8))
+-		return -EPROTO;
+-	bt->message_head = next;
+-	bt->message_tag = tag;
+-	put_unaligned_le16(bt->message_head, bt->arena + 0xa6);
+-	dma_wmb();
+-	return 0;
+-}
+-
+-static int cen_open_ring(struct cen_bt *bt, u16 id, u16 slots, u32 offset, u16 footer)
+-{
+-	u8 message[0x34] = { 1 };
+-	u32 words = footer / 4, shift = 0;
+-
+-	if (!words || footer % 4)
+-		return -EINVAL;
+-	if (words > 255)
+-		shift = min_t(u32, __ffs(words), 4);
+-	if ((words >> shift) > 255)
+-		return -EINVAL;
+-	message[2] = words >> shift;
+-	message[3] = shift << 4;
+-	put_unaligned_le16(id, message + 4);
+-	put_unaligned_le64(bt->dma + offset, message + 8);
+-	put_unaligned_le64(~0ULL, message + 0x10);
+-	put_unaligned_le16(slots, message + 0x18);
+-	put_unaligned_le16(0xffff, message + 0x1a);
+-	put_unaligned_le16(id, message + 0x1c);
+-	put_unaligned_le16(0x40, message + 0x1e);
+-	return cen_message(bt, message, sizeof(message));
+-}
+-
+-static void cen_rx_buffer(struct cen_bt *bt, u16 slot)
+-{
+-	u8 *descriptor = bt->arena + CEN_RX + slot * CEN_STRIDE;
+-
+-	memset(descriptor, 0, CEN_STRIDE);
+-	put_unaligned_le32(1 | (CEN_FOOTER << 8), descriptor);
+-	put_unaligned_le16(slot + 1, descriptor + 12);
+-}
+-
+-static void cen_le_rx_buffer(struct cen_bt *bt, u16 slot)
+-{
+-	u8 *descriptor = bt->arena + CEN_LE_RX + slot * CEN_LE_STRIDE;
+-
+-	memset(descriptor, 0, CEN_LE_STRIDE);
+-	put_unaligned_le32(1 | (CEN_LE_FOOTER << 8), descriptor);
+-	put_unaligned_le16(slot + 1, descriptor + 12);
+-}
+-
+-static void cen_capture_frame(struct cen_bt *bt, u16 ring, const u8 *data, u16 length)
+-{
+-	u8 *record;
+-
+-	if (!bt->capture)
+-		return;
+-	if (8U + length > CEN_CAPTURE_SIZE - bt->capture_used) {
+-		bt->capture_dropped++;
+-		return;
+-	}
+-	record = bt->capture + bt->capture_used;
+-	put_unaligned_le16(ring, record);
+-	put_unaligned_le16(length, record + 2);
+-	put_unaligned_le32(bt->capture_records++, record + 4);
+-	memcpy(record + 8, data, length);
+-	bt->capture_used += 8 + length;
+-}
+-
+-static int cen_receive_acl(struct cen_bt *bt, const u8 *data, u32 length)
+-{
+-	struct sk_buff *skb;
+-	u32 packet_length, pos;
+-
+-	if (length < HCI_ACL_HDR_SIZE)
+-		return -EPROTO;
+-	packet_length = HCI_ACL_HDR_SIZE + get_unaligned_le16(data + 2);
+-	if (packet_length > length)
+-		return -EPROTO;
+-	/* Airship RX attributes follow, rather than belong to, the HCI packet.
+-	 * Only the native parser's known record sizes are accepted. Their values
+-	 * remain opaque and are retained only in the private diagnostic capture.
+-	 */
+-	for (pos = packet_length; pos < length;) {
+-		if (!data[pos])
+-			break;
+-		if (data[pos] == 1)
+-			pos++;
+-		else if (data[pos] == 2 && length - pos >= 9)
+-			pos += 9;
+-		else
+-			return -EPROTO;
+-	}
+-	skb = bt_skb_alloc(packet_length, GFP_KERNEL);
+-	if (!skb) {
+-		bt->hdev->stat.err_rx++;
+-		return 0;
+-	}
+-	skb_put_data(skb, data, packet_length);
+-	hci_skb_pkt_type(skb) = HCI_ACLDATA_PKT;
+-	bt->hdev->stat.byte_rx += packet_length;
+-	hci_recv_frame(bt->hdev, skb);
+-	return 0;
+-}
+-
+-static void cen_aux_rx_buffer(struct cen_bt *bt, unsigned int index, u16 slot)
+-{
+-	const struct cen_aux_spec *spec = &cen_aux_specs[index];
+-	u8 *descriptor = bt->arena + bt->aux[index].offset + slot * (16 + spec->footer);
+-
+-	memset(descriptor, 0, 16 + spec->footer);
+-	put_unaligned_le32(1 | (spec->footer << 8), descriptor);
+-	put_unaligned_le16(slot + 1, descriptor + 12);
+-}
+-
+-static int cen_aux_start(struct cen_bt *bt)
+-{
+-	u32 offset = CEN_AUX_BASE;
+-	unsigned int i, slot;
+-	int ret;
+-
+-	for (i = 0; i < ARRAY_SIZE(cen_aux_specs); i++) {
+-		const struct cen_aux_spec *spec = &cen_aux_specs[i];
+-		struct cen_aux_state *state = &bt->aux[i];
+-		u32 length = spec->slots * (16U + spec->footer);
+-
+-		if (offset > CEN_ARENA_SIZE || length > CEN_ARENA_SIZE - offset)
+-			return -ENOSPC;
+-		state->offset = offset;
+-		offset = ALIGN(offset + length, SZ_4K);
+-		ret = cen_open_ring(bt, spec->id, spec->slots, state->offset, spec->footer);
+-		if (ret) {
+-			dev_err(&bt->pdev->dev, "Auxiliary ring %u open failed: %d\n", spec->id, ret);
+-			return ret;
+-		}
+-		if (!spec->receive)
+-			continue;
+-		for (slot = 0; slot < spec->slots - 1; slot++)
+-			cen_aux_rx_buffer(bt, i, slot);
+-		state->post = spec->slots - 1;
+-		cen_post(bt, spec->id, state->post);
+-	}
+-	return 0;
+-}
+-
+-static int cen_aux_drain(struct cen_bt *bt, bool repost)
+-{
+-	unsigned int i;
+-
+-	for (i = 0; i < ARRAY_SIZE(cen_aux_specs); i++) {
+-		const struct cen_aux_spec *spec = &cen_aux_specs[i];
+-		struct cen_aux_state *state = &bt->aux[i];
+-		u16 tail;
+-		int budget = spec->slots;
+-
+-		if (!spec->receive)
+-			continue;
+-		tail = cen_tail(bt, spec->id);
+-		if (tail >= spec->slots)
+-			return -EPROTO;
+-		while (state->head != tail && budget--) {
+-			u8 *descriptor = bt->arena + state->offset + state->head * (16 + spec->footer);
+-			u32 length;
+-
+-			dma_rmb();
+-			length = get_unaligned_le32(descriptor) >> 8;
+-			if (length > spec->footer)
+-				return -EPROTO;
+-			cen_capture_frame(bt, spec->id, descriptor + 16, length);
+-			if (repost && enable_acl && spec->id == 8 &&
+-			    cen_receive_acl(bt, descriptor + 16, length))
+-				return -EPROTO;
+-			state->packets++;
+-			state->head = (state->head + 1) % spec->slots;
+-			if (repost) {
+-				cen_aux_rx_buffer(bt, i, state->post);
+-				state->post = (state->post + 1) % spec->slots;
+-				cen_post(bt, spec->id, state->post);
+-			}
+-		}
+-	}
+-	return 0;
+-}
+-
+-static int cen_start(struct cen_bt *bt)
+-{
+-	static const u16 indices[] = { 0x78, 0x7a, 0xa6, 0xa8 };
+-	u8 config[4] = { 9, 0, 0xff, 0xff };
+-	u32 status;
+-	int i, ret;
+-
+-	put_unaligned_le16(0x300, bt->arena);
+-	put_unaligned_le16(0x68, bt->arena + 2);
+-	put_unaligned_le64(bt->dma + 0x68, bt->arena + 8);
+-	for (i = 0; i < ARRAY_SIZE(indices); i++)
+-		put_unaligned_le64(bt->dma + indices[i], bt->arena + 0x10 + i * 8);
+-	put_unaligned_le16(1, bt->arena + 0x30);
+-	put_unaligned_le16(22, bt->arena + 0x32);
+-	put_unaligned_le64(bt->dma + CEN_MCR, bt->arena + 0x34);
+-	put_unaligned_le64(bt->dma + CEN_MTR, bt->arena + 0x3c);
+-	put_unaligned_le16(16, bt->arena + 0x44);
+-	put_unaligned_le16(16, bt->arena + 0x46);
+-	/* The 25G76 native context encodes the MCR footer in four-byte words. */
+-	bt->arena[0x53] = 4;
+-	put_unaligned_le64(bt->dma + 0x10000, bt->arena + 0x58);
+-	pci_set_master(bt->pdev);
+-	writel(lower_32_bits(bt->dma), bt->bar + 0xc);
+-	writel(upper_32_bits(bt->dma), bt->bar + 0x10);
+-	writel(CEN_ARENA_SIZE, bt->bar + 0x14);
+-	bt->ipc_requested = true;
+-	writel(1, bt->bar + 0x107c);
+-	ret = readl_poll_timeout(bt->bar, status, status == 1, 100, 2000000);
+-	if (ret)
+-		return ret;
+-	dma_wmb();
+-	writel(lower_32_bits(bt->dma), bt->bar + 4);
+-	writel(upper_32_bits(bt->dma), bt->bar + 8);
+-	writel(2, bt->bar + 0x107c);
+-	ret = readl_poll_timeout(bt->bar, status, status == 2, 100, 2000000);
+-	if (ret)
+-		return ret;
+-	ret = cen_message(bt, config, sizeof(config));
+-	if (!ret)
+-		ret = cen_open_ring(bt, 7, CEN_RX_SLOTS, CEN_RX, CEN_FOOTER);
+-	if (!ret)
+-		ret = cen_open_ring(bt, 1, CEN_TX_SLOTS, CEN_TX, CEN_FOOTER);
+-	if (!ret && arm_le_data_rings)
+-		ret = cen_open_ring(bt, 10, CEN_LE_SLOTS, CEN_LE_RX, CEN_LE_FOOTER);
+-	if (!ret && arm_le_data_rings)
+-		ret = cen_open_ring(bt, 4, CEN_LE_SLOTS, CEN_LE_TX, CEN_LE_FOOTER);
+-	if (ret)
+-		return ret;
+-	for (i = 0; i < CEN_RX_SLOTS - 1; i++)
+-		cen_rx_buffer(bt, i);
+-	bt->rx_post = CEN_RX_SLOTS - 1;
+-	cen_post(bt, 7, bt->rx_post);
+-	if (arm_le_data_rings) {
+-		for (i = 0; i < CEN_LE_SLOTS - 1; i++)
+-			cen_le_rx_buffer(bt, i);
+-		bt->le_rx_post = CEN_LE_SLOTS - 1;
+-		cen_post(bt, 10, bt->le_rx_post);
+-	}
+-	if (arm_auxiliary_rings)
+-		return cen_aux_start(bt);
+-	return 0;
+-}
+-
+-static int cen_transmit(struct cen_bt *bt, struct sk_buff_head *queue,
+-			u16 ring, u16 slots, u32 offset, u16 footer, u16 *head)
+-{
+-	struct sk_buff *skb;
+-	u16 tail, next;
+-	u8 *descriptor;
+-	u32 wire_length;
+-
+-	while (!skb_queue_empty(queue)) {
+-		tail = cen_tail(bt, ring);
+-		if (tail >= slots)
+-			return -EPROTO;
+-		next = (*head + 1) % slots;
+-		if (next == tail)
+-			break;
+-		dma_rmb();
+-		skb = skb_dequeue(queue);
+-		if (!skb)
+-			break;
+-		descriptor = bt->arena + offset + *head * (16 + footer);
+-		memset(descriptor, 0, 16 + footer);
+-		put_unaligned_le16(*head + 1, descriptor + 12);
+-		memcpy(descriptor + 16, skb->data, skb->len);
+-		wire_length = skb->len;
+-		if (ring == 1 && READ_ONCE(bt->hrb_supported) &&
+-		    get_unaligned_le16(skb->data) == HCI_OP_CREATE_CONN) {
+-			u8 *command = descriptor + 16;
+-
+-			/* Native Proxima uses the ordinary 13-byte parameter layout
+-			 * followed by two zero HRB fields (no forced band). It sends
+-			 * tagging=false and role_switch=0. Address byte order matches
+-			 * standard HCI. Keep the core's sent skb/opcode unchanged.
+-			 */
+-			put_unaligned_le16(CEN_OP_HRB_CREATE_CONN, command);
+-			command[2] = 15;
+-			command[HCI_COMMAND_HDR_SIZE + 9] = 0;
+-			command[HCI_COMMAND_HDR_SIZE + 12] = 0;
+-			wire_length = HCI_COMMAND_HDR_SIZE + 15;
+-			bt->hrb_status_pending = true;
+-			bt->hrb_commands++;
+-			cen_capture_frame(bt, 1, command, wire_length);
+-		}
+-		put_unaligned_le32(1 | (wire_length << 8), descriptor);
+-		*head = next;
+-		cen_post(bt, ring, next);
+-		if (hci_skb_pkt_type(skb) == HCI_COMMAND_PKT)
+-			bt->hdev->stat.cmd_tx++;
+-		else
+-			bt->hdev->stat.acl_tx++;
+-		bt->hdev->stat.byte_tx += wire_length;
+-		kfree_skb(skb);
+-	}
+-	return 0;
+-}
+-
+-/* The N1 reports legacy scan responses in LE Extended Advertising Reports with an event type whose low
+- * byte is 0x18 (legacy PDU and scan response, neither connectable nor scannable) and other bits in the
+- * high byte (seen: 0x2518, 0x2618, 0x2718). Linux accepts only the Core values 0x1a and 0x1b for a
+- * legacy scan response and drops anything else as "Unknown advertising packet type", so report the
+- * low byte 0x18 as 0x1a and keep the high byte.
+- */
+-static void cen_normalize_ext_adv(struct sk_buff *skb)
+-{
+-	unsigned int offset = HCI_EVENT_HDR_SIZE + 2, reports;
+-
+-	if (skb->len < offset + 1 || skb->data[0] != HCI_EV_LE_META ||
+-	    skb->data[2] != HCI_EV_LE_EXT_ADV_REPORT)
+-		return;
+-	reports = skb->data[3];
+-	while (reports--) {
+-		struct hci_ev_le_ext_adv_info *info;
+-
+-		if (offset + sizeof(*info) > skb->len)
+-			return;
+-		info = (struct hci_ev_le_ext_adv_info *)(skb->data + offset);
+-		if ((le16_to_cpu(info->type) & 0x00ff) == 0x0018)
+-			info->type = cpu_to_le16((le16_to_cpu(info->type) & 0xff00) | 0x001a);
+-		offset += sizeof(*info) + info->length;
+-	}
+-}
+-
+-static void cen_poll(struct work_struct *work)
+-{
+-	struct cen_bt *bt = container_of(to_delayed_work(work), struct cen_bt, poll);
+-	struct hci_dev *hdev = bt->hdev;
+-	struct sk_buff *skb;
+-	u16 tail;
+-	u8 *descriptor;
+-	u32 length;
+-	int budget = CEN_RX_SLOTS;
+-
+-	mutex_lock(&bt->lock);
+-	if (!bt->running)
+-		goto unlock;
+-	if (readl(bt->bar + 0x18) != 2 || readl(bt->bar) != 2) {
+-		/* Preserve already completed diagnostics after abort, without posting
+-		 * any more buffers or ringing doorbells to the failed firmware.
+-		 */
+-		if (arm_auxiliary_rings && readl(bt->bar) == 2)
+-			cen_aux_drain(bt, false);
+-		goto protocol_error;
+-	}
+-	if (arm_auxiliary_rings && cen_aux_drain(bt, true))
+-		goto protocol_error;
+-	if (arm_le_data_rings) {
+-		tail = cen_tail(bt, 10);
+-		if (tail >= CEN_LE_SLOTS)
+-			goto protocol_error;
+-		while (bt->le_rx_head != tail && budget--) {
+-			dma_rmb();
+-			descriptor = bt->arena + CEN_LE_RX + bt->le_rx_head * CEN_LE_STRIDE;
+-			length = get_unaligned_le32(descriptor) >> 8;
+-			if (length > CEN_LE_FOOTER)
+-				goto protocol_error;
+-			bt->le_rx_packets++;
+-			cen_capture_frame(bt, 10, descriptor + 16, length);
+-			if (enable_acl && cen_receive_acl(bt, descriptor + 16, length))
+-				goto protocol_error;
+-			bt->le_rx_head = (bt->le_rx_head + 1) % CEN_LE_SLOTS;
+-			cen_le_rx_buffer(bt, bt->le_rx_post);
+-			bt->le_rx_post = (bt->le_rx_post + 1) % CEN_LE_SLOTS;
+-			cen_post(bt, 10, bt->le_rx_post);
+-		}
+-		budget = CEN_RX_SLOTS;
+-	}
+-	tail = cen_tail(bt, 7);
+-	if (tail >= CEN_RX_SLOTS)
+-		goto protocol_error;
+-	while (bt->rx_head != tail && budget--) {
+-		dma_rmb();
+-		descriptor = bt->arena + CEN_RX + bt->rx_head * CEN_STRIDE;
+-		length = get_unaligned_le32(descriptor) >> 8;
+-		if (length < HCI_EVENT_HDR_SIZE || length > CEN_FOOTER ||
+-		    length != descriptor[17] + HCI_EVENT_HDR_SIZE)
+-			goto protocol_error;
+-		skb = bt_skb_alloc(length, GFP_KERNEL);
+-		if (skb) {
+-			skb_put_data(skb, descriptor + 16, length);
+-			/* The firmware's status belongs to the standard connection
+-			 * request tracked by Linux. Capture the native response before
+-			 * restoring only its opcode; preserve status and command credit.
+-			 */
+-			if (bt->hrb_status_pending && length == 6 &&
+-			    skb->data[0] == HCI_EV_CMD_STATUS &&
+-			    get_unaligned_le16(skb->data + 4) == CEN_OP_HRB_CREATE_CONN) {
+-				cen_capture_frame(bt, 7, skb->data, length);
+-				put_unaligned_le16(HCI_OP_CREATE_CONN, skb->data + 4);
+-				bt->hrb_status_pending = false;
+-				bt->hrb_status_events++;
+-			}
+-			/* Native HCI flow treats 0xf0/0xf1 Connection Complete as
+-			 * ACL, with additional proprietary capability flags. Linux
+-			 * otherwise cannot find its pending ACL connection by type.
+-			 * Preserve the original event privately before normalizing it.
+-			 */
+-			if (READ_ONCE(bt->hrb_supported) &&
+-			    length == HCI_EVENT_HDR_SIZE + sizeof(struct hci_ev_conn_complete) &&
+-			    skb->data[0] == HCI_EV_CONN_COMPLETE &&
+-			    (skb->data[11] & 0xfe) == 0xf0) {
+-				cen_capture_frame(bt, 7, skb->data, length);
+-				bt->hrb_last_link_type = skb->data[11];
+-				skb->data[11] = ACL_LINK;
+-				bt->hrb_connection_events++;
+-			}
+-			cen_normalize_ext_adv(skb);
+-			hci_skb_pkt_type(skb) = HCI_EVENT_PKT;
+-			hdev->stat.byte_rx += length;
+-			hci_recv_frame(hdev, skb);
+-		} else {
+-			hdev->stat.err_rx++;
+-		}
+-		bt->rx_head = (bt->rx_head + 1) % CEN_RX_SLOTS;
+-		cen_rx_buffer(bt, bt->rx_post);
+-		bt->rx_post = (bt->rx_post + 1) % CEN_RX_SLOTS;
+-		cen_post(bt, 7, bt->rx_post);
+-	}
+-	if (cen_transmit(bt, &bt->txq, 1, CEN_TX_SLOTS, CEN_TX,
+-			 CEN_FOOTER, &bt->tx_head))
+-		goto protocol_error;
+-	/* cen_aux_specs[0] is the native BR/EDR ACL TX resource (ring 2). */
+-	if (enable_acl &&
+-	    (cen_transmit(bt, &bt->acl_txq, 2, cen_aux_specs[0].slots,
+-			  bt->aux[0].offset, cen_aux_specs[0].footer,
+-			  &bt->acl_tx_head) ||
+-	     cen_transmit(bt, &bt->le_txq, 4, CEN_LE_SLOTS, CEN_LE_TX,
+-			  CEN_LE_FOOTER, &bt->le_tx_head)))
+-		goto protocol_error;
+-	schedule_delayed_work(&bt->poll, msecs_to_jiffies(1));
+-	goto unlock;
+-protocol_error:
+-	bt->running = false;
+-	hdev->stat.err_rx++;
+-	dev_err(&bt->pdev->dev, "Beta transport stopped (exec=%u ipc=%u); polling disabled\n",
+-		readl(bt->bar + 0x18), readl(bt->bar));
+-unlock:
+-	mutex_unlock(&bt->lock);
+-}
+-
+-static int cen_hci_open(struct hci_dev *hdev)
+-{
+-	struct cen_bt *bt = hci_get_drvdata(hdev);
+-
+-	mutex_lock(&bt->lock);
+-	bt->running = true;
+-	schedule_delayed_work(&bt->poll, 0);
+-	mutex_unlock(&bt->lock);
+-	return 0;
+-}
+-
+-static int cen_hci_close(struct hci_dev *hdev)
+-{
+-	struct cen_bt *bt = hci_get_drvdata(hdev);
+-
+-	mutex_lock(&bt->lock);
+-	bt->running = false;
+-	bt->hrb_status_pending = false;
+-	mutex_unlock(&bt->lock);
+-	cancel_delayed_work_sync(&bt->poll);
+-	skb_queue_purge(&bt->txq);
+-	skb_queue_purge(&bt->acl_txq);
+-	skb_queue_purge(&bt->le_txq);
+-	return 0;
+-}
+-
+-static int cen_vendor_command(struct hci_dev *hdev, u16 opcode,
+-			      const void *data, u8 length)
+-{
+-	struct sk_buff *skb;
+-	int ret;
+-
+-	skb = __hci_cmd_sync(hdev, opcode, length, data, HCI_INIT_TIMEOUT);
+-	if (IS_ERR(skb))
+-		return PTR_ERR(skb);
+-	ret = skb->len < 1 ? -EPROTO : -bt_to_errno(skb->data[0]);
+-	kfree_skb(skb);
+-	return ret;
+-}
+-
+-static int cen_hci_post_init(struct hci_dev *hdev)
+-{
+-	struct cen_bt *bt = hci_get_drvdata(hdev);
+-	struct sk_buff *skb;
+-	u32 features;
+-	int ret;
+-
+-	if (!native_hrb)
+-		return 0;
+-	WRITE_ONCE(bt->hrb_supported, false);
+-	skb = __hci_cmd_sync(hdev, CEN_OP_READ_PROP_FEATURES, 0, NULL,
+-			     HCI_INIT_TIMEOUT);
+-	if (IS_ERR(skb))
+-		return PTR_ERR(skb);
+-	ret = skb->len == 5 ? -bt_to_errno(skb->data[0]) : -EPROTO;
+-	features = skb->len == 5 ? get_unaligned_le32(skb->data + 1) : 0;
+-	kfree_skb(skb);
+-	WRITE_ONCE(bt->proprietary_features, features);
+-	if (ret)
+-		return ret;
+-	if (!(features & CEN_PROP_HRB_CREATE))
+-		return -EOPNOTSUPP;
+-	WRITE_ONCE(bt->hrb_supported, true);
+-	bt_dev_info(hdev, "Native Proxima Create Connection capability confirmed");
+-	return 0;
+-}
+-
+-static int cen_hci_setup(struct hci_dev *hdev)
+-{
+-	struct cen_bt *bt = hci_get_drvdata(hdev);
+-	u8 address[6], init_done[16], seed[24];
+-	int ret;
+-
+-	if (!native_startup)
+-		return 0;
+-
+-	/* Native PROXIMA initialization starts with these three commands, then
+-	 * HCI Reset. The core calls setup before its ordinary reset/init sequence.
+-	 * Address provisioning is still diagnostic: use a temporary locally
+-	 * administered address, in native WriteBdAddr display/network byte order.
+-	 */
+-	ret = get_random_bytes_wait(address, sizeof(address));
+-	if (ret)
+-		return ret;
+-	address[0] = (address[0] & 0xfc) | 0x02;
+-	get_random_bytes(seed, sizeof(seed));
+-	memset(init_done, 0xff, sizeof(init_done));
+-	ret = cen_vendor_command(hdev, 0xfc06, address, sizeof(address));
+-	if (ret)
+-		goto out;
+-	WRITE_ONCE(bt->native_startup_steps, 1);
+-	ret = cen_vendor_command(hdev, 0xff0b, init_done, sizeof(init_done));
+-	if (ret)
+-		goto out;
+-	WRITE_ONCE(bt->native_startup_steps, 2);
+-	ret = cen_vendor_command(hdev, 0xfe44, seed, sizeof(seed));
+-	if (!ret)
+-		WRITE_ONCE(bt->native_startup_steps, 3);
+-out:
+-	memzero_explicit(seed, sizeof(seed));
+-	if (ret)
+-		bt_dev_err(hdev, "Native startup stopped after %u commands: %d",
+-			   bt->native_startup_steps, ret);
+-	else
+-		bt_dev_info(hdev, "Native startup accepted; temporary diagnostic address in use");
+-	return ret;
+-}
+-
+-static int cen_hci_flush(struct hci_dev *hdev)
+-{
+-	struct cen_bt *bt = hci_get_drvdata(hdev);
+-
+-	skb_queue_purge(&bt->txq);
+-	skb_queue_purge(&bt->acl_txq);
+-	skb_queue_purge(&bt->le_txq);
+-	return 0;
+-}
+-
+-static int cen_hci_send(struct hci_dev *hdev, struct sk_buff *skb)
+-{
+-	struct cen_bt *bt = hci_get_drvdata(hdev);
+-	struct sk_buff_head *queue = &bt->txq;
+-	struct hci_conn *conn;
+-	u16 handle;
+-	u8 link_type;
+-	int ret = 0;
+-
+-	if (hci_skb_pkt_type(skb) == HCI_ACLDATA_PKT && enable_acl) {
+-		if (skb->len < HCI_ACL_HDR_SIZE ||
+-		    skb->len != HCI_ACL_HDR_SIZE + get_unaligned_le16(skb->data + 2)) {
+-			ret = -EMSGSIZE;
+-			goto out;
+-		}
+-		handle = get_unaligned_le16(skb->data);
+-		rcu_read_lock();
+-		conn = hci_conn_hash_lookup_handle(hdev, hci_handle(handle));
+-		link_type = conn ? conn->type : 0xff;
+-		rcu_read_unlock();
+-		if (link_type == LE_LINK && (handle & 0x3000) != 0x3000) {
+-			queue = &bt->le_txq;
+-			if (skb->len > CEN_LE_FOOTER)
+-				ret = -EMSGSIZE;
+-		} else if (link_type == ACL_LINK) {
+-			queue = &bt->acl_txq;
+-			if (skb->len > cen_aux_specs[0].footer)
+-				ret = -EMSGSIZE;
+-		} else {
+-			ret = -EOPNOTSUPP;
+-		}
+-		if (ret)
+-			goto out;
+-	} else if (hci_skb_pkt_type(skb) != HCI_COMMAND_PKT) {
+-		ret = -EOPNOTSUPP;
+-		goto out;
+-	} else if (skb->len < HCI_COMMAND_HDR_SIZE || skb->len > CEN_FOOTER ||
+-		   skb->len != HCI_COMMAND_HDR_SIZE + skb->data[2]) {
+-		ret = -EMSGSIZE;
+-		goto out;
+-	}
+-	if (hci_skb_pkt_type(skb) == HCI_COMMAND_PKT && native_hrb) {
+-		u16 opcode = get_unaligned_le16(skb->data);
+-
+-		/* Do not mix unmanaged native commands with translated requests. */
+-		if (opcode == CEN_OP_HRB_CREATE_CONN) {
+-			ret = -EOPNOTSUPP;
+-			goto out;
+-		}
+-		if (opcode == HCI_OP_CREATE_CONN &&
+-		    skb->len != HCI_COMMAND_HDR_SIZE + sizeof(struct hci_cp_create_conn)) {
+-			ret = -EMSGSIZE;
+-			goto out;
+-		}
+-	}
+-	mutex_lock(&bt->lock);
+-	if (!bt->running)
+-		ret = -ENETDOWN;
+-	else if (skb_queue_len(queue) >= 64)
+-		ret = -ENOBUFS;
+-	else {
+-		skb_queue_tail(queue, skb);
+-		mod_delayed_work(system_wq, &bt->poll, 0);
+-	}
+-	mutex_unlock(&bt->lock);
+-	if (!ret)
+-		return 0;
+-out:
+-	/* hci_send_frame() frees rejected packets. Ownership transfers to this
+-	 * driver only when the skb is queued and send returns success.
+-	 */
+-	return ret;
+-}
+-
+-static void cen_stop(struct cen_bt *bt)
+-{
+-	pci_clear_master(bt->pdev);
+-	kvfree(bt->capture);
+-	bt->capture = NULL;
+-	/* IPC control 0 caused a firmware abort in the initial hardware probe.
+-	 * Until coordinated firmware teardown is understood, retain any published
+-	 * arena after detaching. A fresh firmware boot is required before rebinding.
+-	 */
+-	if (bt->ipc_requested || !pci_wait_for_pending_transaction(bt->pdev))
+-		dev_warn(&bt->pdev->dev, "Beta detach requires fresh firmware boot; retaining DMA arena\n");
+-	else
+-		dma_free_coherent(&bt->pdev->dev, CEN_ARENA_SIZE, bt->arena, bt->dma);
+-}
+-
+-static int cen_status_show(struct seq_file *s, void *unused)
+-{
+-	struct cen_bt *bt = s->private;
+-	unsigned int i;
+-
+-	mutex_lock(&bt->lock);
+-	seq_printf(s, "exec=%u ipc=%u running=%u tx_head=%u tx_consumed=%u rx_head=%u rx_consumed=%u queued=%u\n",
+-		   readl(bt->bar + 0x18), readl(bt->bar), bt->running,
+-		   bt->tx_head, cen_tail(bt, 1), bt->rx_head, cen_tail(bt, 7),
+-		   skb_queue_len(&bt->txq));
+-	seq_printf(s, "commands=%u events=%u tx_bytes=%u rx_bytes=%u tx_errors=%u rx_errors=%u\n",
+-		   bt->hdev->stat.cmd_tx, bt->hdev->stat.evt_rx,
+-		   bt->hdev->stat.byte_tx, bt->hdev->stat.byte_rx,
+-		   bt->hdev->stat.err_tx, bt->hdev->stat.err_rx);
+-	seq_printf(s, "le_rings=%u le_rx_packets=%u\n", arm_le_data_rings, bt->le_rx_packets);
+-	seq_printf(s, "native_startup=%u native_startup_steps=%u\n",
+-		   native_startup, READ_ONCE(bt->native_startup_steps));
+-	seq_printf(s, "native_hrb=%u hrb_supported=%u proprietary_features=0x%08x hrb_commands=%u hrb_status_events=%u hrb_pending=%u\n",
+-		   native_hrb, READ_ONCE(bt->hrb_supported),
+-		   READ_ONCE(bt->proprietary_features), bt->hrb_commands,
+-		   bt->hrb_status_events, bt->hrb_status_pending);
+-	seq_printf(s, "hrb_connection_events=%u hrb_last_link_type=0x%02x\n",
+-		   bt->hrb_connection_events, bt->hrb_last_link_type);
+-	seq_printf(s, "acl_enabled=%u acl_tx=%u acl_rx=%u acl_queued=%u le_queued=%u\n",
+-		   enable_acl, bt->hdev->stat.acl_tx, bt->hdev->stat.acl_rx,
+-		   skb_queue_len(&bt->acl_txq), skb_queue_len(&bt->le_txq));
+-	seq_printf(s, "auxiliary_rings=%u messages=%u message_head=%u capture_bytes=%u capture_records=%u capture_dropped=%u\n",
+-		   arm_auxiliary_rings, bt->message_tag, bt->message_head,
+-		   bt->capture_used, bt->capture_records, bt->capture_dropped);
+-	if (arm_auxiliary_rings)
+-		for (i = 0; i < ARRAY_SIZE(cen_aux_specs); i++)
+-			if (cen_aux_specs[i].receive)
+-				seq_printf(s, "aux_rx ring=%u packets=%u consumed=%u device_tail=%u\n",
+-					   cen_aux_specs[i].id, bt->aux[i].packets,
+-					   bt->aux[i].head, cen_tail(bt, cen_aux_specs[i].id));
+-	mutex_unlock(&bt->lock);
+-	return 0;
+-}
+-DEFINE_SHOW_ATTRIBUTE(cen_status);
+-
+-static ssize_t cen_capture_read(struct file *file, char __user *buffer,
+-				size_t count, loff_t *pos)
+-{
+-	struct cen_bt *bt = file->private_data;
+-	ssize_t ret;
+-
+-	mutex_lock(&bt->lock);
+-	ret = simple_read_from_buffer(buffer, count, pos, bt->capture, bt->capture_used);
+-	mutex_unlock(&bt->lock);
+-	return ret;
+-}
+-
+-static const struct file_operations cen_capture_fops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.read = cen_capture_read,
+-	.llseek = default_llseek,
+-};
+-
+-static ssize_t cen_capture_reset(struct file *file, const char __user *buffer,
+-				 size_t count, loff_t *pos)
+-{
+-	struct cen_bt *bt = file->private_data;
+-	unsigned int value;
+-	int ret = kstrtouint_from_user(buffer, count, 0, &value);
+-
+-	if (ret || value != 1)
+-		return ret ?: -EINVAL;
+-	mutex_lock(&bt->lock);
+-	bt->capture_used = 0;
+-	bt->capture_records = 0;
+-	bt->capture_dropped = 0;
+-	mutex_unlock(&bt->lock);
+-	return count;
+-}
+-
+-static const struct file_operations cen_capture_reset_fops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.write = cen_capture_reset,
+-};
+-
+-static int cen_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+-{
+-	struct cen_bt *bt;
+-	struct hci_dev *hdev;
+-	int ret;
+-
+-	if (!(of_machine_is_compatible("apple,j813") || of_machine_is_compatible("apple,j873g")) ||
+-	    PCI_FUNC(pdev->devfn) != 2)
+-		return -ENODEV;
+-	bt = devm_kzalloc(&pdev->dev, sizeof(*bt), GFP_KERNEL);
+-	if (!bt)
+-		return -ENOMEM;
+-	bt->pdev = pdev;
+-	mutex_init(&bt->lock);
+-	skb_queue_head_init(&bt->txq);
+-	skb_queue_head_init(&bt->acl_txq);
+-	skb_queue_head_init(&bt->le_txq);
+-	if (enable_acl && (!arm_le_data_rings || !arm_auxiliary_rings))
+-		return -EINVAL;
+-	if (native_hrb && (!native_startup || !enable_acl))
+-		return -EINVAL;
+-	INIT_DELAYED_WORK(&bt->poll, cen_poll);
+-	ret = pcim_enable_device(pdev);
+-	if (ret)
+-		return ret;
+-	if (pci_resource_len(pdev, 0) != SZ_64K)
+-		return -ENODEV;
+-	ret = pcim_iomap_regions(pdev, BIT(0), "btcentauri");
+-	if (ret)
+-		return ret;
+-	bt->bar = pcim_iomap_table(pdev)[0];
+-	if (readl(bt->bar + 0x18) != 2 || readl(bt->bar) != 0)
+-		return dev_err_probe(&pdev->dev, -EBUSY,
+-				     "Beta requires running firmware and unowned IPC (exec=%u ipc=%u)\n",
+-				     readl(bt->bar + 0x18), readl(bt->bar));
+-	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(40));
+-	if (ret)
+-		return ret;
+-	bt->arena = dma_alloc_coherent(&pdev->dev, CEN_ARENA_SIZE, &bt->dma, GFP_KERNEL);
+-	if (!bt->arena)
+-		return -ENOMEM;
+-	memset(bt->arena, 0, CEN_ARENA_SIZE);
+-	if (arm_auxiliary_rings) {
+-		bt->capture = kvzalloc(CEN_CAPTURE_SIZE, GFP_KERNEL);
+-		if (!bt->capture) {
+-			ret = -ENOMEM;
+-			goto stop;
+-		}
+-	}
+-	ret = cen_start(bt);
+-	if (ret) {
+-		dev_err(&pdev->dev, "Beta IPC initialization failed: %d\n", ret);
+-		goto stop;
+-	}
+-	hdev = hci_alloc_dev();
+-	if (!hdev) {
+-		ret = -ENOMEM;
+-		goto stop;
+-	}
+-	bt->hdev = hdev;
+-	hdev->bus = HCI_PCI;
+-	hdev->open = cen_hci_open;
+-	hdev->close = cen_hci_close;
+-	hdev->flush = cen_hci_flush;
+-	hdev->send = cen_hci_send;
+-	hdev->setup = cen_hci_setup;
+-	hdev->post_init = cen_hci_post_init;
+-	SET_HCIDEV_DEV(hdev, &pdev->dev);
+-	hci_set_drvdata(hdev, bt);
+-	pci_set_drvdata(pdev, bt);
+-	ret = hci_register_dev(hdev);
+-	if (ret) {
+-		hci_free_dev(hdev);
+-		goto stop;
+-	}
+-	bt->debug = debugfs_create_dir("btcentauri", NULL);
+-	debugfs_create_file("status", 0400, bt->debug, bt, &cen_status_fops);
+-	if (bt->capture) {
+-		debugfs_create_file("auxiliary_capture", 0400, bt->debug, bt, &cen_capture_fops);
+-		debugfs_create_file("capture_reset", 0200, bt->debug, bt, &cen_capture_reset_fops);
+-	}
+-	dev_info(&pdev->dev, "Beta HCI transport registered; ACL enabled=%u, SCO/ISO unsupported\n",
+-		 enable_acl);
+-	return 0;
+-stop:
+-	cen_stop(bt);
+-	return ret;
+-}
+-
+-static void cen_remove(struct pci_dev *pdev)
+-{
+-	struct cen_bt *bt = pci_get_drvdata(pdev);
+-
+-	debugfs_remove_recursive(bt->debug);
+-	hci_unregister_dev(bt->hdev);
+-	cen_hci_close(bt->hdev);
+-	hci_free_dev(bt->hdev);
+-	cen_stop(bt);
+-}
+-
+-/*
+- * As for the Wi-Fi functions (centauri_pci.c): the firmware keeps running, so
+- * keep the function enabled and in D0 (the PCI core's default suspend turns
+- * bus mastering off, and the next poll stopped the transport for good) and
+- * the PCIe host powered. Polling pauses across the sleep.
+- */
+-static int cen_suspend(struct device *dev)
+-{
+-	struct cen_bt *bt = pci_get_drvdata(to_pci_dev(dev));
+-
+-	cancel_delayed_work_sync(&bt->poll);
+-	device_set_awake_path(dev);
+-	return pci_save_state(to_pci_dev(dev));
+-}
+-
+-static int cen_resume(struct device *dev)
+-{
+-	struct cen_bt *bt = pci_get_drvdata(to_pci_dev(dev));
+-
+-	mutex_lock(&bt->lock);
+-	if (bt->running)
+-		schedule_delayed_work(&bt->poll, 0);
+-	mutex_unlock(&bt->lock);
+-	return 0;
+-}
+-
+-static DEFINE_SIMPLE_DEV_PM_OPS(cen_pm_ops, cen_suspend, cen_resume);
+-
+-static const struct pci_device_id cen_ids[] = {
+-	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x1903) },
+-	{ }
+-};
+-MODULE_DEVICE_TABLE(pci, cen_ids);
+-
+-static struct pci_driver cen_driver = {
+-	.name = "btcentauri",
+-	.id_table = cen_ids,
+-	.probe = cen_probe,
+-	.remove = cen_remove,
+-	.driver.pm = pm_sleep_ptr(&cen_pm_ops),
+-};
+-module_pci_driver(cen_driver);
+-MODULE_LICENSE("GPL");
+-MODULE_DESCRIPTION("Apple N1 Beta HCI command/event transport for J813 and J873 bring-up");
+diff --git a/drivers/net/wireless/apple/Kconfig b/drivers/net/wireless/apple/Kconfig
+index d3ead4d9259e..06587ffc8ea7 100644
+--- a/drivers/net/wireless/apple/Kconfig
++++ b/drivers/net/wireless/apple/Kconfig
+@@ -2,24 +2,19 @@
+ config WLAN_VENDOR_APPLE
+ 	bool "Apple wireless devices"
+ 	default y
+-	help
+-	  Support for Apple's wireless network devices.
+ 
+ if WLAN_VENDOR_APPLE
+ config APPLE_CENTAURI
+-	tristate "Apple N1 Centauri experimental J813 Wi-Fi"
++	tristate "Apple N1 Centauri firmware and IPC transport"
+ 	depends on ARCH_APPLE || COMPILE_TEST
+-	depends on PCI && CFG80211 && DEBUG_FS
++	depends on PCI && CFG80211 && PCIE_APPLE
+ 	select FW_LOADER
+ 	help
+-	  Experimental Apple N1 PCIe and ACIPC Wi-Fi support for the J813
+-	  MacBook Air. Firmware boot, ring setup and connection setup currently
+-	  use debugfs and the tools/aurora/j813 workbench. The tested single-link
+-	  WPA2 setup completes DHCP and bidirectional traffic. Suspend/resume,
+-	  roaming and automatic startup are not yet qualified.
+-
+-	  The firmware and per-device calibration are private external inputs.
+-	  This driver does not include Bluetooth HCI support.
++	  Boot the shared N1 firmware and establish its PCI DMA contexts.
++	  Requires the T6050 PCIe host's root-port reset on a bootloader-trained
++	  port, to retrain the link after the ROM boot, and a DT-supplied
++	  personalized firmware name and platform identifier.
++	  The endpoint must start in the stopped ROM personality. Firmware
++	  and per-device calibration are external inputs and are not included.
+ 
+-	  To build as a module, choose M; the module is apple_centauri.
+ endif
+diff --git a/drivers/net/wireless/apple/centauri/Makefile b/drivers/net/wireless/apple/centauri/Makefile
+index 1a17e5283e22..ddd250199888 100644
+--- a/drivers/net/wireless/apple/centauri/Makefile
++++ b/drivers/net/wireless/apple/centauri/Makefile
+@@ -1,3 +1,4 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ obj-$(CONFIG_APPLE_CENTAURI) += apple_centauri.o
+-apple_centauri-y := centauri_pci.o centauri_port.o centauri_ipc.o centauri_wifi.o
++apple_centauri-y := centauri_pci.o centauri_ipc.o
++apple_centauri-$(CONFIG_APPLE_CENTAURI_WIFI) += centauri_wifi.o
+diff --git a/drivers/net/wireless/apple/centauri/centauri.h b/drivers/net/wireless/apple/centauri/centauri.h
+index 330b9e1a207d..55106d4ef079 100644
+--- a/drivers/net/wireless/apple/centauri/centauri.h
++++ b/drivers/net/wireless/apple/centauri/centauri.h
+@@ -1,96 +1,87 @@
+-/* SPDX-License-Identifier: GPL-2.0-only */
++
+ #ifndef AURORA_CENTAURI_H
+ #define AURORA_CENTAURI_H
+ #include <linux/dma-mapping.h>
++#include <linux/interrupt.h>
+ #include <linux/mutex.h>
+-#include <linux/of.h>
+ #include <linux/pci.h>
+ #include <linux/sizes.h>
++#include <linux/workqueue.h>
+ 
++#define CEN_ALPHA_WINDOW_SIZE SZ_32M
+ #define CEN_ALPHA_SCRATCH_OFFSET SZ_8M
+ #define CEN_ALPHA_SCRATCH_SIZE (5 * SZ_1M)
+ 
+ struct centauri_ipc;
+ struct centauri_wifi;
++struct centauri_irqs {
++	struct pci_dev *pdev;
++	void *data;
++	unsigned int count;
++};
++
+ struct cen_alpha_resources {
++	struct pci_dev *pdev;
+ 	void *context, *messages, *window;
+ 	dma_addr_t context_dma, messages_dma, window_dma;
+ 	void __iomem *bar;
+ 	u32 index[4], mtr, mcr;
+ };
++enum centauri_boot_phase {
++	CEN_BOOT_ROM,
++	CEN_BOOT_CYCLE,
++	CEN_BOOT_IPC,
++	CEN_BOOT_READY,
++	CEN_BOOT_FAILED,
++	CEN_BOOT_STOPPED,
++};
++
+ struct centauri {
+ 	struct pci_dev *pdev;
+ 	void __iomem *bar;
+ 	resource_size_t size;
+-	u32 stage_offset;
++	u32 platform_id, protocol;
++	const char *firmware_name;
+ 	struct dentry *debug;
+ 	struct mutex boot_lock;
+-	void *firmware, *descriptor, *msi_page;
+-	dma_addr_t firmware_dma, descriptor_dma, msi_dma;
++	struct delayed_work boot_work;
++	enum centauri_boot_phase boot_phase;
++	bool removing, ready;
++	void *firmware, *descriptor;
++	struct centauri_irqs irqs, alpha_irqs;
++	dma_addr_t firmware_dma, descriptor_dma;
+ 	size_t firmware_size;
+ 	u32 image_response;
+-	u16 msi_original;
+-	int msi_cap;
+ 	bool boot_attempted;
+ 	bool link_ready;
+ 	struct centauri_ipc *ipc;
+ 	struct centauri_wifi *wifi;
+ };
+ 
+-/* One row per machine with an N1: the FTAB file name, the word written to BAR+0x807c,
+- * (board-id << 16) | chip-id from the machine's ADT /chosen, and the physical addresses and
+- * the one differing register value of the port cycle (centauri_port.c).
+- * J813: board 0x24, chip 0x8142 (measured); port, PHY lane and PERST pad from the live ADT.
+- * J873 (Mac mini M6): board 0x24, chip 0x8152 from its ADT, the composition taken from the J813
+- * word; port 0 config 0x388028000, lane 0x38f010000 and PERST# gpio0 pin 3 (0x31a000000 + 4 * 3)
+- * from its ADT; config +0x130 is 0x208 as in the m1n1 T8152 bring-up that links the port.
+- * keep_port_tables: the J813 sequence zeroes the 16 words at port+0x3000 and the 256 words at
+- * port+0x3800. On the J873 those are the RID2SID and MSIMAP tables that pcie-apple programmed
+- * (PORT_T602X_RID2SID, PORT_T602X_MSIMAP); the cycle then drops function 0's stream entry and
+- * its DMA arrives as SID 0 (DART "BPF reject"). Such a board gets its RID2SID table written
+- * back; the MSI map and the MSI address/config are restored on every board.
+- * link_tlv, scan_tlvs: the macOS 27.0 WLAN adapter differs from the 26.6.1 one the J813 recipe
+- * came from. startInterface carries the three link addresses in TLV 386 (was 385), and the scan
+- * request (command 0x1000f) carries a channel-list TLV 0x104 and an OCE TLV 0x165 after the fixed
+- * 14 bytes. The J873 scan crash in SCHED_Req_Add came from a zero passive dwell in those 14 bytes
+- * (see build_scan), not from the missing TLVs; whether the TLVs are required is untested.
+- */
+-struct centauri_board {
+-	const char *compatible;
+-	const char *firmware;
+-	u32 board_word;
+-	u64 port, phy, pad;
+-	u32 tune_130;
+-	u16 bridge_id;	/* root port device ID, 0 = any Apple root port */
+-	bool keep_port_tables;
+-	u16 link_tlv;
+-	bool scan_tlvs;
+-};
+-
+-static inline const struct centauri_board *centauri_board(void)
+-{
+-	static const struct centauri_board boards[] = {
+-		{ "apple,j813", "apple/centauri/j813-ftab.bin", 0x00248142,
+-		  0x488028000ULL, 0x48f010000ULL, 0x39a000300ULL, 0x03020000, 0x100c, false,
+-		  385, false },
+-		{ "apple,j873g", "apple/centauri/j873-ftab.bin", 0x00248152,
+-		  0x388028000ULL, 0x38f010000ULL, 0x31a00000cULL, 0x208, 0, true,
+-		  386, true },
+-	};
+-	int i;
+-
+-	for (i = 0; i < ARRAY_SIZE(boards); i++)
+-		if (of_machine_is_compatible(boards[i].compatible))
+-			return &boards[i];
+-	return NULL;
+-}
++int centauri_request_irqs(struct centauri_irqs *irqs, struct pci_dev *pdev,
++			 unsigned int count, irq_handler_t handler, void *data);
++void centauri_free_irqs(struct centauri_irqs *irqs);
+ 
+-int centauri_port_cycle(struct pci_dev *pdev);
+ int centauri_start_ipc(struct centauri *c);
+ void centauri_free_ipc(struct centauri *c);
+ int centauri_alpha_resources(struct centauri *c, struct cen_alpha_resources *resources);
+-int centauri_alpha_log_buffer(struct centauri *c, void **cpu, dma_addr_t *dma, size_t *size);
++bool centauri_stop_dma(struct pci_dev *pdev);
++
++#if IS_ENABLED(CONFIG_APPLE_CENTAURI_WIFI)
++irqreturn_t centauri_alpha_irq(int irq, void *data);
+ int centauri_wifi_register(struct centauri *c);
+ void centauri_wifi_unregister(struct centauri *c);
+-void centauri_wifi_kick(struct centauri *c);
++#else
++static inline irqreturn_t centauri_alpha_irq(int irq, void *data)
++{
++	return IRQ_HANDLED;
++}
++static inline int centauri_wifi_register(struct centauri *c)
++{
++	return 0;
++}
++static inline void centauri_wifi_unregister(struct centauri *c)
++{
++}
++#endif
+ #endif
+diff --git a/drivers/net/wireless/apple/centauri/centauri_ipc.c b/drivers/net/wireless/apple/centauri/centauri_ipc.c
+index 4c26c7085381..1b8b8abb00be 100644
+--- a/drivers/net/wireless/apple/centauri/centauri_ipc.c
++++ b/drivers/net/wireless/apple/centauri/centauri_ipc.c
+@@ -1,14 +1,10 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+-/* Native DMA implementation of the measured J813 Control/Alpha bootstrap.
+- * Wire layout source: AppleCentauriCommon/scripts/alpha_wifi_scan.py v259.
+- * Polling and bounded bootstrap rings are deliberate bring-up restrictions.
+- */
+-#include <linux/debugfs.h>
++
+ #include <linux/delay.h>
+-#include <linux/interrupt.h>
+ #include <linux/io.h>
+ #include <linux/iopoll.h>
+ #include <linux/list.h>
++#include <linux/pm_domain.h>
+ #include <linux/module.h>
+ #include <linux/slab.h>
+ #include <linux/sizes.h>
+@@ -17,7 +13,7 @@
+ 
+ struct cen_buffer {
+ 	struct list_head list;
+-	struct device *dev;
++	struct device *owner;
+ 	void *cpu;
+ 	dma_addr_t dma;
+ 	size_t size;
+@@ -32,40 +28,30 @@ struct cen_context {
+ struct centauri_ipc {
+ 	struct list_head buffers;
+ 	struct pci_dev *function[3];
++	bool enabled[3], owned[3];
++	bool alpha_pm_domain;
+ 	void __iomem *bar[3];
+ 	struct cen_context control, alpha;
+ 	struct cen_buffer *secondary, *window, *cchi_rx, *cchi_tx, *debug_rx;
+-	struct cen_buffer *alpha_log;
+-	struct cen_buffer *msi[3];
+-	unsigned int vectors[3];
+ 	u16 cchi_head, cchi_tail;
+ };
+ 
+-/* Each function has its own IOMMU stream on the J873 (RID2SID entries 1, 2, 3 and separate DART
+- * domains), so a buffer a function's firmware reads or writes has to be mapped through that
+- * function's own struct device. Function 0 is the Control firmware, 1 Alpha (Wi-Fi), 2 Beta.
+- */
+-static struct cen_buffer *buffer_alloc(struct centauri *c, unsigned int function, size_t size)
++static struct cen_buffer *buffer_alloc(struct centauri *c, unsigned int function,
++				      size_t size)
+ {
+ 	struct cen_buffer *buffer = kzalloc(sizeof(*buffer), GFP_KERNEL);
+-	struct pci_dev *owner = function ? c->ipc->function[function] : c->pdev;
+ 
+ 	if (!buffer)
+ 		return NULL;
+-	if (!owner) {
+-		kfree(buffer);
+-		return NULL;
+-	}
+-	buffer->dev = &owner->dev;
++	buffer->owner = get_device(&c->ipc->function[function]->dev);
+ 	buffer->size = PAGE_ALIGN(size);
+-	buffer->cpu = dma_alloc_coherent(buffer->dev, buffer->size, &buffer->dma, GFP_KERNEL);
++	buffer->cpu = dma_alloc_coherent(buffer->owner, buffer->size, &buffer->dma, GFP_KERNEL);
+ 	if (!buffer->cpu) {
++		put_device(buffer->owner);
+ 		kfree(buffer);
+ 		return NULL;
+ 	}
+ 	memset(buffer->cpu, 0, buffer->size);
+-	dev_dbg(&c->pdev->dev, "dma buffer fn%u %#llx..%#llx (%zu bytes)\n", function,
+-		(u64)buffer->dma, (u64)buffer->dma + buffer->size, buffer->size);
+ 	list_add_tail(&buffer->list, &c->ipc->buffers);
+ 	return buffer;
+ }
+@@ -97,40 +83,6 @@ static int ftab_entry(const void *image, size_t size, const char tag[4],
+ 	return -ENOENT;
+ }
+ 
+-/* The native secondary FTAB reserves a bounded "cras" region. Capture it
+- * after a firmware abort; these private diagnostics may contain device data.
+- */
+-static ssize_t firmware_crash_read(struct file *file, char __user *buffer,
+-				   size_t count, loff_t *pos)
+-{
+-	struct centauri *c = file->private_data;
+-	struct cen_buffer *secondary;
+-	u32 offset, length;
+-	ssize_t ret;
+-
+-	mutex_lock(&c->boot_lock);
+-	if (!c->ipc || !c->ipc->secondary) {
+-		ret = -ENODEV;
+-		goto unlock;
+-	}
+-	secondary = c->ipc->secondary;
+-	ret = ftab_entry(secondary->cpu, secondary->size, "cras", &offset, &length, false);
+-	if (ret)
+-		goto unlock;
+-	dma_rmb();
+-	ret = simple_read_from_buffer(buffer, count, pos, secondary->cpu + offset, length);
+-unlock:
+-	mutex_unlock(&c->boot_lock);
+-	return ret;
+-}
+-
+-static const struct file_operations firmware_crash_fops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.read = firmware_crash_read,
+-	.llseek = default_llseek,
+-};
+-
+ static int secondary_init(struct centauri *c)
+ {
+ 	u32 offset, length, count, i, required;
+@@ -160,16 +112,19 @@ static int secondary_init(struct centauri *c)
+ 		return -ENOMEM;
+ 	memcpy(c->ipc->secondary->cpu, seed, length);
+ 	dma_wmb();
+-	pci_write_config_dword(c->pdev, 0xf88, lower_32_bits(c->ipc->secondary->dma));
+-	pci_write_config_dword(c->pdev, 0xf8c, upper_32_bits(c->ipc->secondary->dma));
+-	pci_write_config_dword(c->pdev, 0xf90, required);
+-	dev_info(&c->pdev->dev, "secondary memory: seed=%u required=%u\n", length, required);
+-	debugfs_create_file("firmware_crash", 0400, c->debug, c, &firmware_crash_fops);
++	ret = pci_write_config_dword(c->pdev, 0xf88, lower_32_bits(c->ipc->secondary->dma));
++	if (!ret)
++		ret = pci_write_config_dword(c->pdev, 0xf8c, upper_32_bits(c->ipc->secondary->dma));
++	if (!ret)
++		ret = pci_write_config_dword(c->pdev, 0xf90, required);
++	if (ret)
++		return pcibios_err_to_errno(ret);
++
+ 	return 0;
+ }
+ 
+-static int context_init(struct centauri *c, unsigned int function, struct cen_context *ctx,
+-			u16 tr, u16 cr, dma_addr_t scratch, size_t scratch_size)
++static int context_init(struct centauri *c, struct cen_context *ctx,
++			unsigned int function, u16 tr, u16 cr, dma_addr_t scratch, size_t scratch_size)
+ {
+ 	u8 *header;
+ 	dma_addr_t dma;
+@@ -214,13 +169,20 @@ static int handshake(void __iomem *bar, struct cen_context *ctx,
+ 
+ 	writel(1, bar + control);
+ 	ret = readl_poll_timeout(bar + status, value, value == 1, 100, 2000000);
+-	if (ret)
++	if (ret) {
++		pr_err("centauri: IPC init timeout status@%#x=%#x control@%#x=%#x context=%pad\n",
++		       status, value, control, readl(bar + control), &ctx->buffer->dma);
+ 		return ret;
++	}
+ 	writel(lower_32_bits(ctx->buffer->dma), bar + address);
+ 	writel(upper_32_bits(ctx->buffer->dma), bar + address + 4);
+ 	dma_wmb();
+ 	writel(2, bar + control);
+-	return readl_poll_timeout(bar + status, value, value == 2, 100, 2000000);
++	ret = readl_poll_timeout(bar + status, value, value == 2, 100, 2000000);
++	if (ret)
++		pr_err("centauri: IPC run timeout status@%#x=%#x control@%#x=%#x context=%pad\n",
++		       status, value, control, readl(bar + control), &ctx->buffer->dma);
++	return ret;
+ }
+ 
+ static int message(struct cen_context *ctx, void __iomem *doorbell,
+@@ -301,7 +263,7 @@ static int cchi_init(struct centauri *c)
+ 	entry = ipc->cchi_tx->cpu;
+ 	put_unaligned_le32(1 | (64 << 8), entry);
+ 	put_unaligned_le32(1, entry + 12);
+-	put_unaligned_le16(64, entry + 16); /* CCHI gid 0, oid 0, seq 0 hello. */
++	put_unaligned_le16(64, entry + 16);
+ 	dma_wmb();
+ 	writel(1, c->bar + 0x900c);
+ 	ret = read_poll_timeout(READ_ONCE, tail, le16_to_cpu(tail) != 0,
+@@ -314,7 +276,6 @@ static int cchi_init(struct centauri *c)
+ 	if ((get_unaligned_le32(entry) >> 8) < 8 || entry[18] || entry[19])
+ 		return -EPROTO;
+ 	ipc->cchi_head = ipc->cchi_tail = 1;
+-	dev_info(&c->pdev->dev, "Control CCHI hello response received\n");
+ 	return 0;
+ }
+ 
+@@ -333,107 +294,66 @@ static int memswap_handoff(struct centauri *c, unsigned int function, const char
+ 	dma_rmb();
+ 	memcpy(working->cpu, secondary->cpu + offset, size);
+ 	dma_wmb();
+-	pci_write_config_dword(c->ipc->function[function], 0xf88, lower_32_bits(working->dma));
+-	pci_write_config_dword(c->ipc->function[function], 0xf8c, upper_32_bits(working->dma));
+-	pci_write_config_dword(c->ipc->function[function], 0xf90, size);
+-	dev_info(&c->pdev->dev, "memswap function %u: %.4s %u bytes\n", function, tag, size);
+-	return 0;
+-}
+-
+-static irqreturn_t function_irq(int irq, void *data)
+-{
+-	centauri_wifi_kick(data);
+-	return IRQ_HANDLED;
+-}
+-
+-/* Real MSIs need an MSI controller on the port (pcie-apple, pcie-apple-msi). The data rings
+- * name Alpha vectors 3 and 8, so a function gets all 16 vectors or none; one that gets none
+- * keeps the DMA mailbox below (polled). Alpha asks first: on the J873 the 10GbE NIC shares
+- * the controller's 32 vectors and only one block of 16 is left.
+- */
+-static int request_vectors(struct centauri *c, unsigned int function)
+-{
+-	struct pci_dev *pdev = c->ipc->function[function];
+-	int count, i, ret;
+-
+-	count = pci_alloc_irq_vectors(pdev, 16, 16, PCI_IRQ_MSI);
+-	if (count < 0)
+-		return count;
+-	for (i = 0; i < count; i++) {
+-		ret = request_irq(pci_irq_vector(pdev, i), function_irq, 0, "centauri", c);
+-		if (ret) {
+-			while (i--)
+-				free_irq(pci_irq_vector(pdev, i), c);
+-			pci_free_irq_vectors(pdev);
+-			return ret;
+-		}
+-	}
+-	c->ipc->vectors[function] = count;
++	ret = pci_write_config_dword(c->ipc->function[function], 0xf88, lower_32_bits(working->dma));
++	if (!ret)
++		ret = pci_write_config_dword(c->ipc->function[function], 0xf8c, upper_32_bits(working->dma));
++	if (!ret)
++		ret = pci_write_config_dword(c->ipc->function[function], 0xf90, size);
++	if (ret)
++		return pcibios_err_to_errno(ret);
+ 	return 0;
+ }
+ 
+-static void free_vectors(struct centauri *c, unsigned int function)
+-{
+-	struct pci_dev *pdev = c->ipc->function[function];
+-
+-	while (c->ipc->vectors[function])
+-		free_irq(pci_irq_vector(pdev, --c->ipc->vectors[function]), c);
+-	pci_free_irq_vectors(pdev);
+-}
++static struct dev_pm_domain centauri_alpha_pm_domain;
+ 
+ static int enumerate_functions(struct centauri *c)
+ {
+ 	struct centauri_ipc *ipc = c->ipc;
+-	u16 control;
+-	int i, cap;
+-	dma_addr_t msi;
++	int i, ret;
+ 
+-	pci_lock_rescan_remove();
+-	/* The ROM personality was single-function; boot exposes Alpha and Beta. */
+ 	c->pdev->multifunction = 1;
+ 	pci_rescan_bus(c->pdev->bus);
+-	pci_unlock_rescan_remove();
+-	for (i = 2; i >= 0; i--) {
++	for (i = 0; i < 3; i++) {
+ 		ipc->function[i] = pci_get_domain_bus_and_slot(pci_domain_nr(c->pdev->bus),
+-				c->pdev->bus->number, PCI_DEVFN(0, i));
++				c->pdev->bus->number, PCI_DEVFN(PCI_SLOT(c->pdev->devfn), i));
+ 		if (!ipc->function[i] || ipc->function[i]->vendor != PCI_VENDOR_ID_APPLE ||
+ 		    (i && ipc->function[i]->device != 0x1901 + i))
+ 			return -ENODEV;
+-		if (!(pci_resource_flags(ipc->function[i], 0) & IORESOURCE_MEM))
++		if (ipc->function[i]->cfg_size < 0xf94 ||
++		    !(pci_resource_flags(ipc->function[i], 0) & IORESOURCE_MEM) ||
++		    pci_resource_len(ipc->function[i], 0) < (i ? 0x2000 : 0x9080))
+ 			return -ENODEV;
++		if (i && ipc->function[i]->dev.driver)
++			return -EBUSY;
++		ipc->owned[i] = true;
+ 		ipc->bar[i] = pci_iomap(ipc->function[i], 0, 0);
+ 		if (!ipc->bar[i])
+ 			return -ENOMEM;
+-		cap = pci_find_capability(ipc->function[i], PCI_CAP_ID_MSI);
+-		if (!cap)
+-			return -ENODEV;
+-		pci_read_config_word(ipc->function[i], cap + PCI_MSI_FLAGS, &control);
+-		if (!(control & PCI_MSI_FLAGS_64BIT))
+-			return -EOPNOTSUPP;
+-		if (i < 2 && !request_vectors(c, i)) {
+-			dev_info(&c->pdev->dev, "function %d: %u MSIs\n", i, ipc->vectors[i]);
+-			pci_set_master(ipc->function[i]);
+-			continue;
+-		}
+ 		if (i) {
+-			ipc->msi[i] = buffer_alloc(c, i, SZ_16K);
+-			if (!ipc->msi[i])
+-				return -ENOMEM;
++			ret = pci_enable_device_mem(ipc->function[i]);
++			if (ret)
++				return ret;
++			ipc->enabled[i] = true;
++		}
++		if (i == 1 && !ipc->function[i]->dev.driver) {
++			dev_pm_domain_set(&ipc->function[i]->dev, &centauri_alpha_pm_domain);
++			ipc->alpha_pm_domain = true;
++		}
++		ret = dma_set_mask_and_coherent(&ipc->function[i]->dev, DMA_BIT_MASK(40));
++		if (ret)
++			return ret;
++		if (i == 1) {
++			ret = centauri_request_irqs(&c->alpha_irqs, ipc->function[i],
++						    16, centauri_alpha_irq, c);
++			if (ret)
++				return ret;
+ 		}
+-		msi = i ? ipc->msi[i]->dma : c->msi_dma;
+-		pci_write_config_dword(ipc->function[i], cap + PCI_MSI_ADDRESS_LO,
+-				       lower_32_bits(msi));
+-		pci_write_config_dword(ipc->function[i], cap + PCI_MSI_ADDRESS_HI,
+-				       upper_32_bits(msi));
+-		pci_write_config_word(ipc->function[i], cap + PCI_MSI_DATA_64, 0xa5a0 + 0x100 * i);
+-		pci_write_config_word(ipc->function[i], cap + PCI_MSI_FLAGS,
+-			(control & ~PCI_MSI_FLAGS_QSIZE) | (5 << 4) | PCI_MSI_FLAGS_ENABLE);
+ 		pci_set_master(ipc->function[i]);
+ 	}
+ 	return 0;
+ }
+ 
+-int centauri_start_ipc(struct centauri *c)
++static int centauri_start_ipc_locked(struct centauri *c)
+ {
+ 	struct centauri_ipc *ipc;
+ 	u32 stage;
+@@ -452,13 +372,13 @@ int centauri_start_ipc(struct centauri *c)
+ 	ret = secondary_init(c);
+ 	if (ret)
+ 		goto failed;
+-	ret = context_init(c, 0, &ipc->control, 13, 1, 0, 0);
++	ret = context_init(c, &ipc->control, 0, 13, 1, 0, 0);
+ 	if (ret)
+ 		goto failed;
+ 	writel(lower_32_bits(c->descriptor_dma), c->bar + 0x8044);
+ 	writel(upper_32_bits(c->descriptor_dma), c->bar + 0x8048);
+ 	writel(0x20, c->bar + 0x804c);
+-	writel(0x62746632, c->bar + 0x8074); /* 2ftb */
++	writel(0x62746632, c->bar + 0x8074);
+ 	dma_wmb();
+ 	writel(1, c->bar + 0x9070);
+ 	ret = readl_poll_timeout(c->bar + 0x8000, stage, stage == 2 || stage == 3, 100, 3000000);
+@@ -466,11 +386,9 @@ int centauri_start_ipc(struct centauri *c)
+ 		ret = ret ?: -EIO;
+ 		goto failed;
+ 	}
+-	dev_info(&c->pdev->dev, "Control firmware reached OS stage\n");
+ 	ret = handshake(c->bar, &ipc->control, 0x8050, 0x8054, 0x907c);
+ 	if (ret)
+ 		goto failed;
+-	dev_info(&c->pdev->dev, "Control IPC handshake complete\n");
+ 	ret = memswap_handoff(c, 0, "mswc");
+ 	if (!ret)
+ 		ret = memswap_handoff(c, 2, "mswb");
+@@ -486,28 +404,53 @@ int centauri_start_ipc(struct centauri *c)
+ 		ret = ret ?: -EIO;
+ 		goto failed;
+ 	}
+-	ipc->window = buffer_alloc(c, 1, SZ_16M);
++	ipc->window = buffer_alloc(c, 1, CEN_ALPHA_WINDOW_SIZE);
+ 	if (!ipc->window) {
+ 		ret = -ENOMEM;
+ 		goto failed;
+ 	}
+-	ret = context_init(c, 1, &ipc->alpha, 192, 234,
+-			   ipc->window->dma + CEN_ALPHA_SCRATCH_OFFSET,
+-			   CEN_ALPHA_SCRATCH_SIZE);
++	ret = context_init(c, &ipc->alpha, 1, 192, 234,
++		ipc->window->dma + CEN_ALPHA_SCRATCH_OFFSET, CEN_ALPHA_SCRATCH_SIZE);
+ 	if (ret)
+ 		goto failed;
+ 	writel(lower_32_bits(ipc->window->dma), ipc->bar[1] + 0x18);
+ 	writel(upper_32_bits(ipc->window->dma), ipc->bar[1] + 0x1c);
+-	writel(SZ_16M, ipc->bar[1] + 0x20);
++	writel(CEN_ALPHA_WINDOW_SIZE, ipc->bar[1] + 0x20);
+ 	ret = handshake(ipc->bar[1], &ipc->alpha, 0xc, 0x10, 0x1028);
+ 	if (ret)
+ 		goto failed;
+-	dev_info(&c->pdev->dev, "Alpha Wi-Fi firmware running; IPC handshake complete\n");
+-	return centauri_wifi_register(c);
++	ret = centauri_wifi_register(c);
++	if (ret)
++		return ret;
++
++	/* Publish usable shared firmware before the Beta consumer probes. */
++	smp_store_release(&c->ready, true);
++	ret = device_attach(&ipc->function[2]->dev);
++	if (ret < 0)
++		dev_warn(&c->pdev->dev, "Beta driver attachment failed: %d\n", ret);
++	return 0;
+ failed:
+ 	dev_err(&c->pdev->dev, "IPC bootstrap failed: %d (Control stage=%#x)\n",
+ 		ret, readl(c->bar + 0x8000));
+-	/* Published DMA stays pinned until every function is stopped at removal. */
++	if (ipc->bar[1])
++		dev_err(&c->pdev->dev, "Alpha stage=%#x IPC=%#x window=%#x/%#x/%#x\n",
++			readl(ipc->bar[1] + 8), readl(ipc->bar[1] + 0xc),
++			readl(ipc->bar[1] + 0x18), readl(ipc->bar[1] + 0x1c), readl(ipc->bar[1] + 0x20));
++	if (ipc->bar[2])
++		dev_err(&c->pdev->dev, "Beta stage=%#x IPC=%#x\n",
++			readl(ipc->bar[2] + 0x18), readl(ipc->bar[2] + 0x1c));
++
++	return ret;
++}
++
++int centauri_start_ipc(struct centauri *c)
++{
++	int ret;
++
++	if (!pci_trylock_rescan_remove())
++		return -EAGAIN;
++	ret = READ_ONCE(c->removing) ? -ECANCELED : centauri_start_ipc_locked(c);
++	pci_unlock_rescan_remove();
+ 	return ret;
+ }
+ 
+@@ -515,34 +458,40 @@ void centauri_free_ipc(struct centauri *c)
+ {
+ 	struct centauri_ipc *ipc = c->ipc;
+ 	struct cen_buffer *buffer, *next;
+-	int i, cap;
+-	u16 control;
++	int i;
+ 
+ 	if (!ipc)
+ 		return;
+-	for (i = 0; i < 3; i++)
+-		if (ipc->vectors[i])
+-			free_vectors(c, i);
++	if (ipc->owned[2])
++		device_release_driver(&ipc->function[2]->dev);
+ 	centauri_wifi_unregister(c);
++	centauri_free_irqs(&c->alpha_irqs);
+ 	for (i = 0; i < 3; i++) {
+-		if (!ipc->function[i])
++		if (!ipc->owned[i])
+ 			continue;
+-		cap = pci_find_capability(ipc->function[i], PCI_CAP_ID_MSI);
+-		if (cap) {
+-			pci_read_config_word(ipc->function[i], cap + PCI_MSI_FLAGS, &control);
+-			pci_write_config_word(ipc->function[i], cap + PCI_MSI_FLAGS,
+-				control & ~PCI_MSI_FLAGS_ENABLE);
+-		}
+ 		pci_clear_master(ipc->function[i]);
+ 	}
++	for (i = 0; i < 3; i++) {
++		if (ipc->owned[i] && !centauri_stop_dma(ipc->function[i])) {
++			dev_warn(&c->pdev->dev,
++				 "retaining IPC DMA after pending transaction timeout\n");
++			return;
++		}
++	}
+ 	list_for_each_entry_safe(buffer, next, &ipc->buffers, list) {
+-		dma_free_coherent(buffer->dev, buffer->size, buffer->cpu, buffer->dma);
++		memzero_explicit(buffer->cpu, buffer->size);
++		dma_free_coherent(buffer->owner, buffer->size, buffer->cpu, buffer->dma);
++		put_device(buffer->owner);
+ 		list_del(&buffer->list);
+ 		kfree(buffer);
+ 	}
++	if (ipc->alpha_pm_domain)
++		dev_pm_domain_set(&ipc->function[1]->dev, NULL);
+ 	for (i = 0; i < 3; i++) {
+ 		if (ipc->bar[i])
+ 			pci_iounmap(ipc->function[i], ipc->bar[i]);
++		if (ipc->enabled[i])
++			pci_disable_device(ipc->function[i]);
+ 		pci_dev_put(ipc->function[i]);
+ 	}
+ 	kfree(ipc);
+@@ -555,6 +504,7 @@ int centauri_alpha_resources(struct centauri *c, struct cen_alpha_resources *res
+ 
+ 	if (!ipc || !ipc->window || !ipc->alpha.buffer || !ipc->alpha.messages)
+ 		return -ENODEV;
++	resources->pdev = ipc->function[1];
+ 	resources->context = ipc->alpha.buffer->cpu;
+ 	resources->context_dma = ipc->alpha.buffer->dma;
+ 	resources->messages = ipc->alpha.messages->cpu;
+@@ -567,22 +517,3 @@ int centauri_alpha_resources(struct centauri *c, struct cen_alpha_resources *res
+ 	resources->mcr = ipc->alpha.mcr;
+ 	return 0;
+ }
+-
+-/* Called once under the Wi-Fi lock. Published logging memory stays owned by
+- * IPC until every function has bus mastering disabled in centauri_free_ipc.
+- */
+-int centauri_alpha_log_buffer(struct centauri *c, void **cpu, dma_addr_t *dma, size_t *size)
+-{
+-	struct centauri_ipc *ipc = c->ipc;
+-
+-	if (!ipc || !ipc->window)
+-		return -ENODEV;
+-	if (!ipc->alpha_log)
+-		ipc->alpha_log = buffer_alloc(c, 1, SZ_4M);
+-	if (!ipc->alpha_log)
+-		return -ENOMEM;
+-	*cpu = ipc->alpha_log->cpu;
+-	*dma = ipc->alpha_log->dma;
+-	*size = ipc->alpha_log->size;
+-	return 0;
+-}
+diff --git a/drivers/net/wireless/apple/centauri/centauri_pci.c b/drivers/net/wireless/apple/centauri/centauri_pci.c
+index 86ad99c48db2..42e768c351ac 100644
+--- a/drivers/net/wireless/apple/centauri/centauri_pci.c
++++ b/drivers/net/wireless/apple/centauri/centauri_pci.c
+@@ -1,9 +1,7 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+-/* Initial real-hardware N1 PCI/ACIPC backend for J813.
+- * Register offsets are from AppleCentauriCommon/PROTOCOL.md and its measured
+- * J813 prototype. Firmware execution and radio operations are separate gates.
+- */
+-#include <linux/debugfs.h>
++
++#include <linux/delay.h>
++#include <linux/apple-centauri.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/firmware.h>
+ #include <linux/io.h>
+@@ -11,78 +9,126 @@
+ #include <linux/module.h>
+ #include <linux/mutex.h>
+ #include <linux/of.h>
++#include <linux/property.h>
+ #include <linux/pci.h>
+-#include <linux/seq_file.h>
+ #include <linux/sizes.h>
+ #include <linux/unaligned.h>
+ 
+ #include "centauri.h"
+ 
+-static struct dentry *centauri_debug;
++static struct pci_driver centauri_driver;
+ 
+-static unsigned int board_word;
+-module_param(board_word, uint, 0644);
+-MODULE_PARM_DESC(board_word, "Diagnostic: word written to BAR0+0x807c before the ROM boot, 0 = per-machine table value");
++bool apple_centauri_control_ready(struct pci_dev *pdev)
++{
++	struct centauri *c;
+ 
+-static int centauri_status_show(struct seq_file *s, void *unused)
++	if (pdev->driver != &centauri_driver)
++		return false;
++	c = pci_get_drvdata(pdev);
++	return c && !READ_ONCE(c->removing) && smp_load_acquire(&c->ready);
++}
++EXPORT_SYMBOL_GPL(apple_centauri_control_ready);
++
++/* No DMA backing is released without verified bus-master shutdown. */
++bool centauri_stop_dma(struct pci_dev *pdev)
+ {
+-	struct centauri *c = s->private;
++	u16 command;
++	int ret;
+ 
+-	seq_printf(s, "pci=%s vendor=%04x device=%04x\n",
+-		   pci_name(c->pdev), c->pdev->vendor, c->pdev->device);
+-	if (c->link_ready)
+-		seq_printf(s, "bar0_size=%pa exec_stage=%#x\n", &c->size,
+-			   readl(c->bar + c->stage_offset));
+-	else
+-		seq_puts(s, "link unavailable; endpoint reads disabled\n");
+-	seq_printf(s, "transport=hardware-pci firmware_boot=%s image_response=%#x wifi=%s\n",
+-		   c->boot_attempted ? "attempted" : "not-started", c->image_response,
+-		   READ_ONCE(c->wifi) ? "registered" : "not-owned-by-this-function");
++	pci_clear_master(pdev);
++	ret = pci_read_config_word(pdev, PCI_COMMAND, &command);
++	if (ret || (command & PCI_COMMAND_MASTER))
++		return false;
++	return pci_wait_for_pending_transaction(pdev);
++}
++
++void centauri_free_irqs(struct centauri_irqs *irqs)
++{
++	if (!irqs->pdev)
++		return;
++	while (irqs->count)
++		free_irq(pci_irq_vector(irqs->pdev, --irqs->count), irqs->data);
++	pci_free_irq_vectors(irqs->pdev);
++	irqs->pdev = NULL;
++}
++
++int centauri_request_irqs(struct centauri_irqs *irqs, struct pci_dev *pdev,
++			 unsigned int count, irq_handler_t handler, void *data)
++{
++	int ret;
++
++	ret = pci_alloc_irq_vectors(pdev, count, count, PCI_IRQ_MSI);
++	if (ret < 0)
++		return ret;
++	irqs->pdev = pdev;
++	irqs->data = data;
++	for (irqs->count = 0; irqs->count < count; irqs->count++) {
++		ret = request_irq(pci_irq_vector(pdev, irqs->count), handler, 0,
++				  "centauri", data);
++		if (ret) {
++			centauri_free_irqs(irqs);
++			return ret;
++		}
++	}
+ 	return 0;
+ }
+-DEFINE_SHOW_ATTRIBUTE(centauri_status);
++
++static irqreturn_t centauri_control_irq(int irq, void *data)
++{
++	return IRQ_HANDLED;
++}
+ 
+ static void centauri_free_boot(struct centauri *c)
+ {
+ 	struct device *dev = &c->pdev->dev;
+ 
+ 	if (!c->link_ready && c->boot_attempted) {
++		while (c->alpha_irqs.count)
++			free_irq(pci_irq_vector(c->alpha_irqs.pdev, --c->alpha_irqs.count), c);
++		while (c->irqs.count)
++			free_irq(pci_irq_vector(c->pdev, --c->irqs.count), c);
+ 		dev_warn(dev, "retaining DMA buffers after failed link transition; reboot required\n");
+ 		return;
+ 	}
+-	/* Stop device writes before any DMA storage is released. */
++
+ 	centauri_free_ipc(c);
+-	if (c->msi_cap)
+-		pci_write_config_word(c->pdev, c->msi_cap + PCI_MSI_FLAGS,
+-				      c->msi_original & ~PCI_MSI_FLAGS_ENABLE);
+-	pci_clear_master(c->pdev);
++	centauri_free_irqs(&c->irqs);
++	if (c->ipc || !centauri_stop_dma(c->pdev)) {
++		dev_warn(dev, "retaining boot DMA until outstanding transactions stop\n");
++		return;
++	}
+ 	if (c->firmware)
+ 		dma_free_coherent(dev, c->firmware_size, c->firmware, c->firmware_dma);
+ 	if (c->descriptor)
+ 		dma_free_coherent(dev, SZ_16K, c->descriptor, c->descriptor_dma);
+-	if (c->msi_page)
+-		dma_free_coherent(dev, SZ_16K, c->msi_page, c->msi_dma);
+-	c->firmware = c->descriptor = c->msi_page = NULL;
++	c->firmware = NULL;
++	c->descriptor = NULL;
+ }
+ 
+ static int centauri_rom_boot(struct centauri *c)
+ {
+ 	const struct firmware *fw;
+-	const struct centauri_board *board = centauri_board();
+ 	struct device *dev = &c->pdev->dev;
+ 	u32 stage;
+ 	int ret;
+ 
+-	if ((c->pdev->device != 0x1900 && c->pdev->device != 0x1901) || !board)
++	if (c->pdev->device != 0x1900 && c->pdev->device != 0x1901)
+ 		return -ENODEV;
+ 	if (!c->link_ready || c->boot_attempted)
+ 		return -EBUSY;
+ 	stage = readl(c->bar + 0x8000);
+-	if (stage != 0 && stage != 4 && stage != 1)
++	if (stage != 0)
+ 		return -EBUSY;
+-	ret = request_firmware(&fw, board->firmware, dev);
+-	if (ret)
++
++	ret = request_firmware_direct(&fw, c->firmware_name, dev);
++	if (ret) {
++		dev_err(dev, "required firmware %s unavailable: %d\n", c->firmware_name, ret);
+ 		return ret;
++	}
++	if (READ_ONCE(c->removing)) {
++		ret = -ECANCELED;
++		goto release;
++	}
+ 	if (fw->size < 0x30 || fw->size > SZ_64M ||
+ 	    memcmp(fw->data + 0x20, "rkosftab", 8)) {
+ 		ret = -EINVAL;
+@@ -91,61 +137,46 @@ static int centauri_rom_boot(struct centauri *c)
+ 	c->firmware_size = PAGE_ALIGN(fw->size);
+ 	c->firmware = dma_alloc_coherent(dev, c->firmware_size, &c->firmware_dma, GFP_KERNEL);
+ 	c->descriptor = dma_alloc_coherent(dev, SZ_16K, &c->descriptor_dma, GFP_KERNEL);
+-	c->msi_page = dma_alloc_coherent(dev, SZ_16K, &c->msi_dma, GFP_KERNEL);
+-	if (!c->firmware || !c->descriptor || !c->msi_page) {
++	if (!c->firmware || !c->descriptor) {
+ 		ret = -ENOMEM;
+ 		goto free_buffers;
+ 	}
+ 	memset(c->firmware, 0, c->firmware_size);
+ 	memcpy(c->firmware, fw->data, fw->size);
+ 	memset(c->descriptor, 0, SZ_16K);
+-	memset(c->msi_page, 0, SZ_16K);
+-	/* Measured ROM scatter entry: u64 DMA, u32 length, u32 flags, u64 x2 zero. */
++
+ 	put_unaligned_le64(c->firmware_dma, c->descriptor);
+ 	put_unaligned_le32(ALIGN(fw->size, SZ_4K), c->descriptor + 8);
+-	c->msi_cap = pci_find_capability(c->pdev, PCI_CAP_ID_MSI);
+-	if (!c->msi_cap) {
+-		ret = -ENODEV;
+-		goto free_buffers;
+-	}
+-	pci_read_config_word(c->pdev, c->msi_cap + PCI_MSI_FLAGS, &c->msi_original);
+-	if (!(c->msi_original & PCI_MSI_FLAGS_64BIT)) {
+-		ret = -EOPNOTSUPP;
++	ret = centauri_request_irqs(&c->irqs, c->pdev, 4,
++				    centauri_control_irq, c);
++	if (ret)
+ 		goto free_buffers;
+-	}
+-	/* Poll the measured DMA-backed MSI mailbox until native IRQ support exists. */
+-	pci_write_config_dword(c->pdev, c->msi_cap + PCI_MSI_ADDRESS_LO, lower_32_bits(c->msi_dma));
+-	pci_write_config_dword(c->pdev, c->msi_cap + PCI_MSI_ADDRESS_HI, upper_32_bits(c->msi_dma));
+-	pci_write_config_word(c->pdev, c->msi_cap + PCI_MSI_DATA_64, 0xa5a0);
+-	pci_write_config_word(c->pdev, c->msi_cap + PCI_MSI_FLAGS,
+-		(c->msi_original & ~PCI_MSI_FLAGS_QSIZE) | PCI_MSI_FLAGS_ENABLE);
+ 	pci_set_master(c->pdev);
+-	dev_info(dev, "ROM boot: %s, %zu bytes, board word %#x\n", board->firmware, fw->size,
+-		 board_word ?: board->board_word);
+-	writel(board_word ?: board->board_word, c->bar + 0x807c);
++	writel(c->platform_id, c->bar + 0x807c);
+ 	writel(0, c->bar + 0x803c);
+ 	writel(lower_32_bits(c->descriptor_dma), c->bar + 0x8044);
+ 	writel(upper_32_bits(c->descriptor_dma), c->bar + 0x8048);
+ 	writel(0x20, c->bar + 0x804c);
+ 	dma_wmb();
+ 	c->boot_attempted = true;
+-	if (stage == 4 || stage == 1) {
+-		c->image_response = readl(c->bar + 0x8040);
+-		dev_info(dev, "adopted firmware stage %u; native DMA buffers ready\n", stage);
+-		ret = 0;
+-		goto release;
+-	}
+ 	writel(1, c->bar + 0x9000);
+ 	ret = readl_poll_timeout(c->bar + 0x8040, c->image_response,
+-				c->image_response != 0, 20000, 20000000);
++				READ_ONCE(c->removing) || c->image_response != 0, 20000, 20000000);
++	if (READ_ONCE(c->removing)) {
++		ret = -ECANCELED;
++		goto release;
++	}
++	if (!ret && c->image_response != 1)
++		ret = -EIO;
+ 	if (!ret)
+-		ret = readl_poll_timeout(c->bar + 0x8000, stage, stage != 0, 20000, 20000000);
++		ret = readl_poll_timeout(c->bar + 0x8000, stage,
++				READ_ONCE(c->removing) || stage != 0, 20000, 20000000);
+ 	else
+ 		stage = readl(c->bar + 0x8000);
++	if (READ_ONCE(c->removing))
++		ret = -ECANCELED;
+ 	dma_rmb();
+-	dev_info(dev, "ROM firmware result: response=%#x stage=%#x mailbox=%#x poll=%d\n",
+-		 c->image_response, stage, READ_ONCE(*(u32 *)c->msi_page), ret);
+-	/* Keep DMA buffers owned until device removal, even on timeout. */
++
+ 	if (!ret && stage != 4)
+ 		ret = -EIO;
+ 	goto release;
+@@ -156,61 +187,180 @@ static int centauri_rom_boot(struct centauri *c)
+ 	return ret;
+ }
+ 
+-static ssize_t centauri_boot_write(struct file *file, const char __user *buffer,
+-				  size_t count, loff_t *pos)
++/*
++ * After the ROM boot the N1 runs its firmware from host memory and must come back on a
++ * retrained link: the isolated function 0 is quiesced, put in D3hot with PME enabled
++ * (the host's PME_Turn_Off then takes the link to L2), the host resets and retrains the
++ * root port (PERST# asserted and released around it; the firmware keeps running), and the
++ * root port's and the endpoint's state are restored.
++ */
++static int centauri_port_cycle(struct pci_dev *endpoint)
+ {
+-	struct centauri *c = file->private_data;
+-	u32 value;
+-	int ret = kstrtou32_from_user(buffer, count, 0, &value);
++	struct pci_host_bridge *host = pci_find_host_bridge(endpoint->bus);
++	struct pci_dev *bridge = endpoint->bus->self, *sibling;
++	u16 command, pmctrl;
++	u32 identity;
++	int ret, pm;
+ 
+-	if (ret || value < 1 || value > 3)
+-		return ret ?: -EINVAL;
+-	mutex_lock(&c->boot_lock);
+-	if (value == 1) {
+-		ret = centauri_rom_boot(c);
+-	} else if (value == 3) {
+-		ret = centauri_start_ipc(c);
+-	} else if (!c->firmware || !c->link_ready || readl(c->bar + 0x8000) != 4) {
++	if (!host->reset_root_port || !bridge || !pci_is_root_bus(bridge->bus))
++		return -EOPNOTSUPP;
++	pm = endpoint->pm_cap;
++	if (!pm)
++		return -ENODEV;
++	if (!pci_trylock_rescan_remove())
++		return -EAGAIN;
++	list_for_each_entry(sibling, &endpoint->bus->devices, bus_list) {
++		if (sibling != endpoint) {
++			ret = -EBUSY;
++			goto out;
++		}
++	}
++	ret = pci_save_state(bridge) ?: pci_save_state(endpoint);
++	if (ret)
++		goto out;
++	ret = pcibios_err_to_errno(pci_read_config_word(endpoint, PCI_COMMAND, &command));
++	if (ret)
++		goto out;
++	if (!centauri_stop_dma(endpoint)) {
+ 		ret = -EBUSY;
+-	} else {
+-		c->link_ready = false;
+-		ret = centauri_port_cycle(c->pdev);
+-		if (!ret) {
+-			c->link_ready = true;
+-			dev_info(&c->pdev->dev, "post-reset execution stage=%#x\n",
+-				 readl(c->bar + 0x8000));
++		goto stopped;
++	}
++	ret = pcibios_err_to_errno(pci_read_config_word(endpoint, pm + PCI_PM_CTRL, &pmctrl));
++	if (ret)
++		goto stopped;
++	ret = pcibios_err_to_errno(pci_write_config_word(endpoint, pm + PCI_PM_CTRL,
++		(pmctrl & ~PCI_PM_CTRL_STATE_MASK) | PCI_D3hot | PCI_PM_CTRL_PME_ENABLE));
++	if (ret)
++		goto stopped;
++	usleep_range(10000, 11000);
++
++	ret = host->reset_root_port(host, bridge);
++	if (ret)
++		goto stopped;
++	pci_restore_state(bridge);
++	ret = pcibios_err_to_errno(pci_read_config_dword(endpoint, PCI_VENDOR_ID, &identity));
++	if (!ret && identity != 0x1900106b && identity != 0x1901106b)
++		ret = -ENODEV;
++	if (ret)
++		goto stopped;
++	pci_restore_state(endpoint);
++	ret = pcibios_err_to_errno(pci_write_config_word(endpoint, pm + PCI_PM_CTRL,
++		pmctrl & ~PCI_PM_CTRL_STATE_MASK));
++	if (ret)
++		goto stopped;
++	usleep_range(10000, 11000);
++	ret = pcibios_err_to_errno(pci_write_config_word(endpoint, PCI_COMMAND, command));
++	if (!ret)
++		goto out;
++stopped:
++	/* A partial transition never restores endpoint DMA or bridge decoding. */
++	pci_clear_master(endpoint);
++	pci_write_config_word(bridge, PCI_COMMAND, 0);
++	pci_err(endpoint, "N1 port cycle stopped: %d\n", ret);
++out:
++	pci_unlock_rescan_remove();
++	return ret;
++}
++
++static int centauri_cycle(struct centauri *c)
++{
++	int ret;
++
++	if (!c->firmware || !c->link_ready || readl(c->bar + 0x8000) != 4)
++		return -EBUSY;
++	c->link_ready = false;
++	ret = centauri_port_cycle(c->pdev);
++	if (ret == -EAGAIN) {
++		c->link_ready = true;
++	} else if (!ret) {
++		pci_restore_msi_state(c->pdev);
++		c->link_ready = true;
++	}
++	return ret;
++}
++
++static void centauri_boot_worker(struct work_struct *work)
++{
++	struct centauri *c = container_of(to_delayed_work(work), struct centauri, boot_work);
++	bool retry = false;
++	int ret;
++
++	mutex_lock(&c->boot_lock);
++	while (!READ_ONCE(c->removing)) {
++		switch (c->boot_phase) {
++		case CEN_BOOT_ROM:
++			ret = centauri_rom_boot(c);
++			if (!ret)
++				c->boot_phase = readl(c->bar + 0x8000) == 1 ?
++					CEN_BOOT_IPC : CEN_BOOT_CYCLE;
++			break;
++		case CEN_BOOT_CYCLE:
++			ret = centauri_cycle(c);
++			if (!ret)
++				c->boot_phase = CEN_BOOT_IPC;
++			break;
++		case CEN_BOOT_IPC:
++			ret = centauri_start_ipc(c);
++			if (!ret)
++				c->boot_phase = CEN_BOOT_READY;
++			break;
++		default:
++			goto out;
++		}
++		if (ret == -EAGAIN && (c->boot_phase == CEN_BOOT_CYCLE ||
++		    (c->boot_phase == CEN_BOOT_IPC && !c->ipc))) {
++			retry = true;
++			break;
++		}
++		if (ret) {
++			dev_err(&c->pdev->dev, "N1 automatic startup failed in phase%u: %d\n",
++				c->boot_phase, ret);
++			c->boot_phase = CEN_BOOT_FAILED;
++			break;
+ 		}
+ 	}
++out:
++	if (READ_ONCE(c->removing))
++		c->boot_phase = CEN_BOOT_STOPPED;
+ 	mutex_unlock(&c->boot_lock);
+-	return ret ?: count;
++	if (retry && !READ_ONCE(c->removing))
++		queue_delayed_work(system_long_wq, &c->boot_work, msecs_to_jiffies(20));
+ }
+ 
+-static const struct file_operations centauri_boot_fops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.write = centauri_boot_write,
+-};
+-
+ static int centauri_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+ {
+ 	struct centauri *c;
+-	dma_addr_t dma;
+-	void *page;
+ 	int ret;
++	struct pci_host_bridge *bridge = pci_find_host_bridge(pdev->bus);
+ 
++	if (!bridge || !bridge->dev.parent ||
++	    !of_device_is_compatible(bridge->dev.parent->of_node, "apple,t6050-pcie"))
++		return -ENODEV;
++	if (PCI_FUNC(pdev->devfn) != 0)
++		return -ENODEV;
+ 	c = devm_kzalloc(&pdev->dev, sizeof(*c), GFP_KERNEL);
+ 	if (!c)
+ 		return -ENOMEM;
+ 	c->pdev = pdev;
+ 	c->link_ready = true;
+ 	mutex_init(&c->boot_lock);
+-	c->stage_offset = id->driver_data;
++	INIT_DELAYED_WORK(&c->boot_work, centauri_boot_worker);
++	c->boot_phase = CEN_BOOT_ROM;
++	ret = device_property_read_string(&pdev->dev, "firmware-name", &c->firmware_name);
++	if (ret)
++		return dev_err_probe(&pdev->dev, ret, "missing personalized firmware name\n");
++	ret = device_property_read_u32(&pdev->dev, "apple,centauri-platform-id", &c->platform_id);
++	if (ret)
++		return ret;
++	ret = device_property_read_u32(&pdev->dev, "apple,centauri-protocol", &c->protocol);
++	if (ret || c->protocol != 27)
++		return -EINVAL;
+ 	ret = pcim_enable_device(pdev);
+ 	if (ret)
+ 		return ret;
+ 	c->size = pci_resource_len(pdev, 0);
+ 	if (!(pci_resource_flags(pdev, 0) & IORESOURCE_MEM) ||
+-	    c->size < c->stage_offset + sizeof(u32))
++	    c->size < 0x9080)
+ 		return dev_err_probe(&pdev->dev, -ENODEV, "invalid ACIPC BAR0\n");
+ 	ret = pcim_iomap_regions(pdev, BIT(0), "apple_centauri");
+ 	if (ret)
+@@ -219,20 +369,10 @@ static int centauri_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+ 	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(40));
+ 	if (ret)
+ 		return dev_err_probe(&pdev->dev, ret, "40-bit DMA unavailable\n");
+-	/* Test Linux's DART allocation without publishing it to the device. */
+-	page = dma_alloc_coherent(&pdev->dev, SZ_16K, &dma, GFP_KERNEL);
+-	if (!page)
+-		return dev_err_probe(&pdev->dev, -ENOMEM, "DART DMA allocation failed\n");
+-	memset(page, 0, SZ_16K);
+-	dev_info(&pdev->dev, "ACIPC endpoint reachable: stage=%#x, 40-bit DMA mapping=%pad\n",
+-		 readl(c->bar + c->stage_offset), &dma);
+-	dma_free_coherent(&pdev->dev, SZ_16K, page, dma);
+-	/* Bus mastering remains disabled until the firmware transport owns buffers. */
++
+ 	pci_clear_master(pdev);
+ 	pci_set_drvdata(pdev, c);
+-	c->debug = debugfs_create_dir(pci_name(pdev), centauri_debug);
+-	debugfs_create_file("status", 0400, c->debug, c, &centauri_status_fops);
+-	debugfs_create_file("rom_boot", 0200, c->debug, c, &centauri_boot_fops);
++	queue_delayed_work(system_long_wq, &c->boot_work, 0);
+ 	return 0;
+ }
+ 
+@@ -240,35 +380,36 @@ static void centauri_remove(struct pci_dev *pdev)
+ {
+ 	struct centauri *c = pci_get_drvdata(pdev);
+ 
++	WRITE_ONCE(c->removing, true);
++	cancel_delayed_work_sync(&c->boot_work);
++	mutex_lock(&c->boot_lock);
+ 	centauri_wifi_unregister(c);
+-	debugfs_remove_recursive(c->debug);
+ 	centauri_free_boot(c);
++	c->boot_phase = CEN_BOOT_STOPPED;
++	mutex_unlock(&c->boot_lock);
+ }
+ 
+-/*
+- * The N1 firmware keeps running across s2idle: it cannot be restarted without
+- * the bootloader's link training. Without PM callbacks the PCI core disables a
+- * function at suspend, which turns bus mastering off under the running
+- * firmware and leaves every ring dead (each scan then fails with -EIO). Save
+- * the state ourselves so the core keeps the function enabled and in D0, and
+- * keep the PCIe host's power domains up through the noirq phase.
+- */
+ static int centauri_suspend(struct device *dev)
+ {
+-	device_set_awake_path(dev);
+-	return pci_save_state(to_pci_dev(dev));
++	struct pci_dev *pdev = to_pci_dev(dev);
++	struct centauri *c = pci_get_drvdata(pdev);
++
++	guard(mutex)(&c->boot_lock);
++	if (c->boot_phase != CEN_BOOT_READY)
++		return -EBUSY;
++	return pci_save_state(pdev);
++}
++
++static int centauri_resume(struct device *dev)
++{
++	return 0;
+ }
+ 
+-static DEFINE_SIMPLE_DEV_PM_OPS(centauri_pm_ops, centauri_suspend, NULL);
++static DEFINE_SIMPLE_DEV_PM_OPS(centauri_pm_ops, centauri_suspend, centauri_resume);
+ 
+-/* 0x1903 is the Beta (Bluetooth) function: btcentauri claims it. This driver needs functions
+- * 0 and 1 (1 is enabled here, its BAR is used by the Wi-Fi code) and reaches function 2 only
+- * through config space and its struct device for DMA.
+- */
+ static const struct pci_device_id centauri_ids[] = {
+-	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x1900), .driver_data = 0x8000 },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x1901), .driver_data = 0x8000 },
+-	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x1902), .driver_data = 0x0008 },
++	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x1900) },
++	{ PCI_DEVICE(PCI_VENDOR_ID_APPLE, 0x1901) },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(pci, centauri_ids);
+@@ -278,28 +419,10 @@ static struct pci_driver centauri_driver = {
+ 	.id_table = centauri_ids,
+ 	.probe = centauri_probe,
+ 	.remove = centauri_remove,
++	.shutdown = centauri_remove,
+ 	.driver.pm = pm_sleep_ptr(&centauri_pm_ops),
+ };
+ 
+-static int __init centauri_init(void)
+-{
+-	int ret;
+-
+-	centauri_debug = debugfs_create_dir("apple_centauri", NULL);
+-	ret = pci_register_driver(&centauri_driver);
+-	if (ret)
+-		debugfs_remove_recursive(centauri_debug);
+-	return ret;
+-}
+-
+-static void __exit centauri_exit(void)
+-{
+-	pci_unregister_driver(&centauri_driver);
+-	debugfs_remove_recursive(centauri_debug);
+-}
+-module_init(centauri_init);
+-module_exit(centauri_exit);
++module_pci_driver(centauri_driver);
+ MODULE_LICENSE("GPL");
+-MODULE_DESCRIPTION("Apple N1 Centauri native PCI and ACIPC bring-up backend");
+-MODULE_FIRMWARE("apple/centauri/j813-ftab.bin");
+-MODULE_FIRMWARE("apple/centauri/j873-ftab.bin");
++MODULE_DESCRIPTION("Apple N1 Centauri PCI firmware and ACIPC transport");
+diff --git a/drivers/net/wireless/apple/centauri/centauri_port.c b/drivers/net/wireless/apple/centauri/centauri_port.c
+deleted file mode 100644
+index 59eadc3f8521..000000000000
+--- a/drivers/net/wireless/apple/centauri/centauri_port.c
++++ /dev/null
+@@ -1,220 +0,0 @@
+-// SPDX-License-Identifier: GPL-2.0-only
+-/* Preboot -> boot port cycle, transcribed from the J813 measured proxy
+- * alpha_wifi_scan.py pcie_cycle/apple_teardown/apple_bringup sequence.
+- * Apertures and the PERST pad come from the per-machine table in centauri.h; those were
+- * verified from the live ADT. The J873 row reuses the J813 sequence with T8152 addresses and
+- * config +0x130 = 0x208: the reset table and the lane window bits equal the T8152 bring-up that
+- * links port 0 in m1n1, but the cycle itself (link down, retrain with firmware running) has not
+- * been run on a J873. This temporary board helper belongs in the host-controller driver.
+- */
+-#include <linux/delay.h>
+-#include <linux/io.h>
+-#include <linux/iopoll.h>
+-#include <linux/of.h>
+-#include <linux/pci.h>
+-#include "centauri.h"
+-
+-static void update(void __iomem *base, u32 offset, u32 clear, u32 set)
+-{
+-	writel((readl(base + offset) & ~clear) | set, base + offset);
+-}
+-
+-static bool wait_bits(void __iomem *address, u32 mask, u32 wanted, u32 us)
+-{
+-	u32 value;
+-
+-	return !readl_poll_timeout(address, value, (value & mask) == wanted, 100, us);
+-}
+-
+-int centauri_port_cycle(struct pci_dev *pdev)
+-{
+-	static const u32 reset[][2] = {
+-		{0x88, 0x110}, {0x100, ~0U}, {0x148, ~0U}, {0x210, ~0U},
+-		{0x80, 0}, {0x84, 0}, {0x104, 0xfffffff0}, {0x124, 0x100},
+-		{0x16c, 0}, {0x13c, 0}, {0x800, 0x00100100},
+-		{0x808, 0x001001ff}, {0x82c, 0x00010000},
+-	};
+-	u32 tune[][2] = {
+-		{0x130, 0}, {0x140, 0x10}, {0x144, 0x00253770},
+-		{0x21c, 0}, {0x834, 0}, {0x83c, 0},
+-	};
+-	const struct centauri_board *board = centauri_board();
+-	struct pci_dev *bridge = pdev->bus->self;
+-	void __iomem *port, *phy, *pad;
+-	u32 value, gpio, identity;
+-	u16 link;
+-	unsigned int lanes, i;
+-	int ret = -ETIMEDOUT, pm;
+-	bool ack, l2;
+-	u32 rid2sid[16], msimap[256], msicfg = 0, msiaddr = 0, valid = 0;
+-	bool saved = false;
+-
+-	if (!board || !board->port || !bridge || bridge->vendor != PCI_VENDOR_ID_APPLE ||
+-	    (board->bridge_id && bridge->device != board->bridge_id))
+-		return -ENODEV;
+-	tune[0][1] = board->tune_130;
+-	port = ioremap(board->port, 0x4000);
+-	phy = ioremap(board->phy, 0x1000);
+-	pad = ioremap(board->pad, sizeof(u32));
+-	if (!port || !phy || !pad) {
+-		ret = -ENOMEM;
+-		goto out;
+-	}
+-	gpio = readl(pad);
+-	if (gpio & BIT(21)) {
+-		ret = -EPERM;
+-		goto out;
+-	}
+-	ret = pci_save_state(bridge);
+-	if (ret)
+-		goto out;
+-	ret = pci_save_state(pdev);
+-	if (ret)
+-		goto out;
+-	if (board->keep_port_tables)
+-		for (i = 0; i < ARRAY_SIZE(rid2sid); i++)
+-			rid2sid[i] = readl(port + 0x3000 + 4 * i);
+-	/* The reset below also clears an MSI controller's setup (pcie-apple, pcie-apple-msi). */
+-	for (i = 0; i < ARRAY_SIZE(msimap); i++)
+-		msimap[i] = readl(port + 0x3800 + 4 * i);
+-	msicfg = readl(port + 0x124);
+-	msiaddr = readl(port + 0x16c);
+-	saved = true;
+-	pcie_capability_read_word(bridge, PCI_EXP_LNKSTA, &link);
+-	lanes = (link & PCI_EXP_LNKSTA_NLW) >> PCI_EXP_LNKSTA_NLW_SHIFT;
+-	lanes = lanes >= 1 && lanes <= 16 ? BIT(lanes) - 1 : 1;
+-	pm = pci_find_capability(pdev, PCI_CAP_ID_PM);
+-	if (pm) {
+-		pci_write_config_word(pdev, pm + PCI_PM_CTRL, 0x103);
+-		msleep(10);
+-	}
+-	update(port, 0x800, 0, 0x100);
+-	writel(0x11, port + 0x88);
+-	ack = wait_bits(port + 0x88, 1, 0, 500000);
+-	l2 = wait_bits(port + 0x208, BIT(6), BIT(6), 500000);
+-	dev_info(&pdev->dev, "port preboot transition: PME ack=%d L2=%d\n", ack, l2);
+-	/* Endpoint reads cease here until the root LTSSM is back in L0. */
+-	pci_write_config_word(bridge, PCI_COMMAND, 0);
+-	pci_read_config_dword(bridge, PCI_PRIMARY_BUS, &value);
+-	pci_write_config_dword(bridge, PCI_PRIMARY_BUS, value & 0xff0000ff);
+-	update(phy, 0, BIT(31), 0);
+-	writel((gpio & ~0xfU) | 2, pad);
+-	if (readl(pad) != ((gpio & ~0xfU) | 2)) {
+-		ret = -EIO;
+-		goto out;
+-	}
+-	wait_bits(port + 0x804, BIT(2), 0, 50000);
+-	wait_bits(port + 0x820, 0x1ff, 0, 100000);
+-	update(port, 0x13c, 0, 0x100);
+-	for (i = 0; i < 200; i++) {
+-		pci_read_config_dword(bridge, 0x728, &value);
+-		if ((value & 0x3f) == 0x14)
+-			break;
+-		usleep_range(1000, 1200);
+-	}
+-	wait_bits(port + 0x208, BIT(12), 0, 200000);
+-	readl(phy);
+-	wait_bits(port + 0xa8, 3, 0, 10000);
+-	update(port, 0x82c, 0, BIT(24));
+-	wait_bits(port + 0xa8, lanes << 16, lanes << 16, 20000);
+-	update(port, 0x82c, 0, BIT(16));
+-	udelay(10);
+-	update(port, 0x82c, 1, 0);
+-	udelay(10);
+-	update(port, 0x82c, BIT(24), 0);
+-	update(port, 0x13c, 0x100, 0);
+-	update(phy, 0, BIT(31), 0);
+-	update(phy, 0, 0x400, 0);
+-	update(phy, 0, 0x200, 0);
+-	update(phy, 0, 0, 0x10);
+-	update(phy, 0, 1, 0);
+-	update(phy, 0, 2, 0);
+-	writel(~0U, port + 0x100);
+-	update(port, 0x800, 1, 0);
+-	wait_bits(port + 0x804, 1, 0, 200000);
+-	update(phy, 0, BIT(31), 0);
+-	for (i = 0; i < ARRAY_SIZE(reset); i++)
+-		writel(reset[i][1], port + reset[i][0]);
+-	for (i = 0; i < 16; i++)
+-		writel(0, port + 0x3000 + 4 * i);
+-	for (i = 0; i < 256; i++)
+-		writel(0, port + 0x3800 + 4 * i);
+-	for (i = 0; i < ARRAY_SIZE(tune); i++)
+-		writel(tune[i][1], port + tune[i][0]);
+-	update(port, 0x800, 0, 1);
+-	udelay(10);
+-	update(phy, 0, 0, 1);
+-	if (!wait_bits(phy, 4, 4, 50000))
+-		goto timed_out;
+-	update(phy, 0, 0, 2);
+-	if (!wait_bits(phy, 8, 8, 50000))
+-		goto timed_out;
+-	update(phy, 0, 0x10, 0);
+-	udelay(100);
+-	update(phy, 0, 0, 0x200);
+-	update(phy, 0, 0, 0x400);
+-	udelay(100);
+-	update(port, 0x82c, 0, 1);
+-	writel((gpio & ~0xfU) | 3, pad);
+-	udelay(100);
+-	readl(phy);
+-	wait_bits(port + 0xa8, 3, 0, 20000);
+-	update(port, 0x82c, BIT(16), 0);
+-	if (!wait_bits(port + 0x804, 1, 1, 200000))
+-		goto timed_out;
+-	update(port, 0x800, 0x100, 0);
+-	pci_read_config_dword(bridge, 0x8bc, &value);
+-	pci_write_config_dword(bridge, 0x8bc, value ^ 1);
+-	pci_read_config_dword(bridge, 0x80, &value);
+-	pci_write_config_dword(bridge, 0x80, value | 0x400);
+-	update(phy, 0, 0, BIT(31));
+-	update(port, 0x80, 0, 1);
+-	for (i = 0; i < 2000; i++) {
+-		pci_read_config_dword(bridge, 0x728, &value);
+-		if ((value & 0x3f) == 0x11)
+-			break;
+-		usleep_range(1000, 1200);
+-	}
+-	if (i == 2000)
+-		goto timed_out;
+-	msleep(100);
+-	pci_restore_state(bridge);
+-	/* Bus numbers/windows now restored; endpoint config may be read again. */
+-	pci_read_config_dword(pdev, PCI_VENDOR_ID, &identity);
+-	if (identity != 0x1901106b && identity != 0x1900106b) {
+-		ret = -ENODEV;
+-		goto out;
+-	}
+-	pci_restore_state(pdev);
+-	if (pm) {
+-		pci_write_config_word(pdev, pm + PCI_PM_CTRL, 0);
+-		msleep(10);
+-	}
+-	dev_info(&pdev->dev, "port transition complete: endpoint=%#x LTSSM=%#x\n",
+-		 identity, value & 0x3f);
+-	ret = 0;
+-	goto out;
+-timed_out:
+-	ret = -ETIMEDOUT;
+-out:
+-	if (saved) {
+-		if (board->keep_port_tables)
+-			for (i = 0; i < ARRAY_SIZE(rid2sid); i++) {
+-				writel(rid2sid[i], port + 0x3000 + 4 * i);
+-				valid += !!(rid2sid[i] & BIT(31));
+-			}
+-		for (i = 0; i < ARRAY_SIZE(msimap); i++)
+-			writel(msimap[i], port + 0x3800 + 4 * i);
+-		writel(msiaddr, port + 0x16c);
+-		writel(msicfg, port + 0x124);
+-		dev_info(&pdev->dev, "restored %u RID2SID entries and the MSI setup %#x/%#x (ret %d)\n",
+-			 valid, msicfg, msiaddr, ret);
+-	}
+-	if (pad)
+-		iounmap(pad);
+-	if (phy)
+-		iounmap(phy);
+-	if (port)
+-		iounmap(port);
+-	return ret;
+-}
+diff --git a/drivers/net/wireless/apple/centauri/centauri_wifi.c b/drivers/net/wireless/apple/centauri/centauri_wifi.c
+deleted file mode 100644
+index 1c854cb45902..000000000000
+--- a/drivers/net/wireless/apple/centauri/centauri_wifi.c
++++ /dev/null
+@@ -1,2478 +0,0 @@
+-// SPDX-License-Identifier: GPL-2.0-only
+-/* cfg80211 connection to the measured Alpha command/management rings.
+- * Control queues recycle across hardware-validated wraps. Packet data uses
+- * a separate protocol; never report transmit success before implementing it.
+- */
+-#include <linux/etherdevice.h>
+-#include <linux/debugfs.h>
+-#include <linux/ieee80211.h>
+-#include <linux/iopoll.h>
+-#include <linux/module.h>
+-#include <linux/seq_file.h>
+-#include <linux/unaligned.h>
+-#include <linux/workqueue.h>
+-#include <net/cfg80211.h>
+-#include <net/regulatory.h>
+-#include "centauri.h"
+-
+-#define CR_BASE 0x100000
+-#define TR_BASE 0x400000
+-#define RING_SPAN 0x20000
+-#define TX_BUFFER 0x600000
+-#define BUFFER_SIZE 2048
+-#define DATA_TX_BUFFER 0xd00000
+-#define DATA_RX_BUFFER 0xe00000
+-#define DATA_TX_SLOTS 128
+-#define DATA_TX_QUEUE_LIMIT 64
+-
+-/* The firmware owns window +8 MiB through +13 MiB as scratch memory. */
+-static_assert(DATA_TX_BUFFER >= CEN_ALPHA_SCRATCH_OFFSET + CEN_ALPHA_SCRATCH_SIZE);
+-static_assert(DATA_TX_BUFFER + DATA_TX_SLOTS * BUFFER_SIZE <= DATA_RX_BUFFER);
+-
+-static bool auto_rings = true;
+-module_param(auto_rings, bool, 0644);
+-MODULE_PARM_DESC(auto_rings, "Open the data rings (data_probe ids 76, 24, 15, 12 before the join, 25 after it) from the connect path; 1 = on (default). The data_probe debugfs files still work and are skipped for rings already open");
+-
+-static int data_probe_locked(struct centauri_wifi *wifi, unsigned int id, bool internal);
+-
+-static bool roam_scan;
+-module_param(roam_scan, bool, 0644);
+-MODULE_PARM_DESC(roam_scan, "Let the firmware run its own roam and background scans after a join; 0 = off (default). The scans take the radio off channel for seconds (72 percent ping loss measured) until the host programs a roam profile");
+-
+-static bool host_setup = true;
+-module_param(host_setup, bool, 0644);
+-MODULE_PARM_DESC(host_setup, "Before a join, tell the firmware the host is awake (command 6) and apply the reference TX defaults (commands 43 and 52) when the tx_config files have not; 1 = on (default)");
+-
+-static bool verify_pmk;
+-module_param(verify_pmk, bool, 0400);
+-MODULE_PARM_DESC(verify_pmk, "Compare firmware PMK with the requested key without exposing either");
+-
+-static bool eapol_after_assoc;
+-module_param(eapol_after_assoc, bool, 0644);
+-MODULE_PARM_DESC(eapol_after_assoc, "One EAPOL-Start probe at the next successful association event");
+-
+-static bool link_diagnostics;
+-module_param(link_diagnostics, bool, 0644);
+-MODULE_PARM_DESC(link_diagnostics, "Query non-secret firmware link status during association");
+-
+-static bool eapol_control_profile;
+-module_param(eapol_control_profile, bool, 0644);
+-MODULE_PARM_DESC(eapol_control_profile, "Use the measured control TX profile for the EAPOL-Start probe");
+-
+-static bool eapol_unicast;
+-module_param(eapol_unicast, bool, 0644);
+-MODULE_PARM_DESC(eapol_unicast, "Address the bounded EAPOL-Start probe to the associated AP");
+-
+-static bool eapol_relative_lifetime;
+-module_param(eapol_relative_lifetime, bool, 0644);
+-MODULE_PARM_DESC(eapol_relative_lifetime, "Use a measured two-second relative expiration for the probe");
+-
+-static bool data_tx_broadcast;
+-module_param(data_tx_broadcast, bool, 0400);
+-MODULE_PARM_DESC(data_tx_broadcast, "Diagnostic: open TR 25 with measured broadcast metadata; transmit only broadcast Ethernet frames");
+-
+-static bool data_tx_control_profile;
+-module_param(data_tx_control_profile, bool, 0600);
+-MODULE_PARM_DESC(data_tx_control_profile, "Diagnostic: select configured TX policy 1 for normal data; apply tx_config action 2 first");
+-
+-static bool data_tx_native_prepare = true;
+-module_param(data_tx_native_prepare, bool, 0600);
+-MODULE_PARM_DESC(data_tx_native_prepare, "Use native packet preparation value 4; disable only to reproduce the legacy data TX failure");
+-
+-static bool station_link_addresses;
+-module_param(station_link_addresses, bool, 0400);
+-MODULE_PARM_DESC(station_link_addresses, "Diagnostic: use the netdev address for each firmware link in this single-link WPA2 client");
+-
+-struct centauri_rx_snapshot {
+-	__le32 version, count;
+-	struct {
+-		u8 completion[32];
+-		u8 packet[4096];
+-	} sample[8];
+-};
+-
+-struct centauri_wifi {
+-	struct centauri *control;
+-	struct cen_alpha_resources a;
+-	struct wiphy *wiphy;
+-	struct wireless_dev wdev;
+-	struct net_device *netdev;
+-	struct work_struct scan_work;
+-	struct work_struct connect_work;
+-	struct delayed_work link_work;
+-	struct cfg80211_scan_request *scan_request;
+-	struct mutex lock;
+-	/* The logger has its own coherent allocation. Reads/acknowledgements
+-	 * must remain possible while scan/connect hold the command mutex.
+-	 * Initialization takes lock then fwlog_lock; readers take only the latter.
+-	 */
+-	struct mutex fwlog_lock;
+-	u16 main_head, command_head, sequence;
+-	u32 rx_seen[5];
+-	u16 rx_next[5], rx_head[5];
+-	u16 reply_sequence, reply_status;
+-	u32 reply_command, channels_seen, scans_done, beacons_seen;
+-	bool reply_valid, registered, configured;
+-	bool stopping;
+-	bool connecting, connected, connect_event, disconnect_event;
+-	bool associated, pmk_seen, pmk_matches;
+-	u8 expected_pmk[32];
+-	u16 connect_status;
+-	u8 bssid[ETH_ALEN], connect_payload[1024], request_ie[256];
+-	size_t connect_size, request_ie_size;
+-	struct dentry *data_probe_file;
+-	struct dentry *data_status_file;
+-	struct dentry *data_rx_snapshot_file;
+-	struct centauri_rx_snapshot rx_snapshot;
+-	u32 data_rx_received, data_rx_reposted, data_rx_bad;
+-	struct sk_buff_head data_tx_queue;
+-	u16 data_tx_length[DATA_TX_SLOTS];
+-	bool data_tx_busy[DATA_TX_SLOTS];
+-	u32 data_tx_submitted, data_tx_completed, data_tx_failed;
+-	u32 data_tx_coalesced, data_tx_bad;
+-	struct dentry *station_stats_file;
+-	struct dentry *eapol_start_file;
+-	struct dentry *country_file;
+-	struct dentry *link_status_file;
+-	struct dentry *tx_config_file;
+-	struct dentry *host_wakeup_file;
+-	struct dentry *fwlog_start_file, *fwlog_status_file, *fwlog_buffer_file, *fwlog_ack_file;
+-	void *fwlog_buffer;
+-	dma_addr_t fwlog_dma;
+-	size_t fwlog_size;
+-	bool fwlog_attempted, fwlog_ready;
+-	u8 tx_profile[10], tx_defaults_applied;
+-	bool host_awake_sent;
+-	bool tx_profile_valid;
+-	u8 link_count, link_prime[3], link_channel[3], link_band[3], emlsr_mode;
+-	bool link_status_valid, emlsr_valid;
+-	u16 link_status_size;
+-	u16 link_tags[12], link_lengths[12];
+-	u8 link_tlv_count;
+-	u8 country[3];
+-	bool country_valid;
+-	u8 station_stats[0x378];
+-	bool station_stats_valid;
+-	u8 rx_crypto_stats[64];
+-	bool rx_crypto_stats_valid;
+-	struct dentry *rx_crypto_stats_file;
+-	u8 dot11_mib_stats[192];
+-	bool dot11_mib_stats_valid;
+-	struct dentry *dot11_mib_stats_file;
+-	u8 tx_power_report[280];
+-	bool tx_power_report_valid;
+-	struct dentry *tx_power_report_file;
+-	u16 stats_reply_size, stats_tag, stats_length;
+-	u32 data_probe_done;
+-	struct ieee80211_supported_band bands[2];
+-	struct ieee80211_channel channels[39];
+-};
+-
+-/* These helpers require wifi->lock, including from the connect worker. */
+-static int transmit_eapol_start(struct centauri_wifi *wifi);
+-static int query_station_stats(struct centauri_wifi *wifi);
+-static int query_link_status(struct centauri_wifi *wifi);
+-
+-static const u32 rx_buffer[5] = { 0, 0, 0x620000, 0x680000, 0x700000 };
+-static const u16 ring_size[5] = { 0, 64, 192, 96, 192 };
+-static const u16 five_ghz[] = {
+-	36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112,
+-	116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165,
+-};
+-static struct ieee80211_rate rates[] = {
+-	{ .bitrate = 10 }, { .bitrate = 20 }, { .bitrate = 55 }, { .bitrate = 110 },
+-	{ .bitrate = 60 }, { .bitrate = 90 }, { .bitrate = 120 }, { .bitrate = 180 },
+-	{ .bitrate = 240 }, { .bitrate = 360 }, { .bitrate = 480 }, { .bitrate = 540 },
+-};
+-static const u32 cipher_suites[] = {
+-	WLAN_CIPHER_SUITE_CCMP, WLAN_CIPHER_SUITE_AES_CMAC,
+-};
+-
+-static u16 index_read(struct centauri_wifi *wifi, unsigned int array, unsigned int index)
+-{
+-	return le16_to_cpu(READ_ONCE(*(__le16 *)(wifi->a.context + wifi->a.index[array] + 2 * index)));
+-}
+-
+-static void index_write(struct centauri_wifi *wifi, unsigned int array,
+-			unsigned int index, u16 value)
+-{
+-	WRITE_ONCE(*(__le16 *)(wifi->a.context + wifi->a.index[array] + 2 * index), cpu_to_le16(value));
+-}
+-
+-static void completions(struct centauri_wifi *wifi)
+-{
+-	unsigned int vector;
+-
+-	for (vector = 0; vector <= 4; vector++)
+-		index_write(wifi, 2, vector, index_read(wifi, 0, vector));
+-	dma_wmb();
+-}
+-
+-static int alpha_message(struct centauri_wifi *wifi, const void *message, size_t size)
+-{
+-	u16 head = wifi->main_head;
+-	u8 *descriptor;
+-	unsigned long deadline = jiffies + msecs_to_jiffies(2000);
+-
+-	if (head >= 15 || size > 512)
+-		return -ENOSPC;
+-	memcpy(wifi->a.messages + (head + 1) * 512, message, size);
+-	descriptor = wifi->a.context + wifi->a.mtr + 16 * head;
+-	put_unaligned_le32(1 | (size << 8), descriptor);
+-	put_unaligned_le64(wifi->a.messages_dma + (head + 1) * 512, descriptor + 4);
+-	put_unaligned_le32(head + 1, descriptor + 12);
+-	index_write(wifi, 3, 0, head + 1);
+-	if (head)
+-		index_write(wifi, 3, 8, head + 1);
+-	dma_wmb();
+-	wifi->main_head++;
+-	writel(1, wifi->a.bar + 0x1004);
+-	do {
+-		if (readl(wifi->a.bar + 8) != 2)
+-			return -EIO;
+-		if (index_read(wifi, 1, 0) >= head + 1) {
+-			dma_rmb();
+-			completions(wifi);
+-			return 0;
+-		}
+-		usleep_range(100, 200);
+-	} while (time_before(jiffies, deadline));
+-	return -ETIMEDOUT;
+-}
+-
+-static int open_pair(struct centauri_wifi *wifi, u16 id)
+-{
+-	u8 cr[0x2c] = { 2 }, tr[0x34] = { 1 };
+-	int ret;
+-
+-	put_unaligned_le32(id | (id << 16), cr + 4);
+-	put_unaligned_le64(wifi->a.window_dma + CR_BASE + (id - 1) * RING_SPAN, cr + 8);
+-	put_unaligned_le16(1024, cr + 0x10);
+-	put_unaligned_le16(0xffff, cr + 0x12);
+-	ret = alpha_message(wifi, cr, sizeof(cr));
+-	if (ret)
+-		return ret;
+-	put_unaligned_le32(id | (id << 16), tr + 4);
+-	put_unaligned_le64(wifi->a.window_dma + TR_BASE + (id - 1) * RING_SPAN, tr + 8);
+-	put_unaligned_le64(~0ULL, tr + 0x10);
+-	put_unaligned_le16(ring_size[id], tr + 0x18);
+-	put_unaligned_le16(id, tr + 0x1a);
+-	put_unaligned_le16(id, tr + 0x1c);
+-	put_unaligned_le16(0x40, tr + 0x1e);
+-	put_unaligned_le16(2, tr + 0x24);
+-	return alpha_message(wifi, tr, sizeof(tr));
+-}
+-
+-static void report_beacon(struct centauri_wifi *wifi, const u8 *payload, size_t size)
+-{
+-	const u8 *frame, *ie, *end;
+-	struct ieee80211_channel *channel;
+-	struct cfg80211_bss *bss;
+-	u16 frame_size;
+-	int number = 0, frequency, signal;
+-	enum nl80211_band band;
+-
+-	if (!wifi->registered || size < 0x60 + 36)
+-		return;
+-	/* The ACIPC packet length is authoritative; the vendor descriptor's
+-	 * separate 802.11 length can include a stripped FCS. The measured parser
+-	 * consumes the frame bytes that were actually returned.
+-	 */
+-	frame_size = size - 0x60;
+-	frame = payload + 0x60;
+-	if (!ieee80211_is_beacon(*(__le16 *)frame) && !ieee80211_is_probe_resp(*(__le16 *)frame))
+-		return;
+-	end = frame + frame_size;
+-	for (ie = frame + 36; ie + 2 <= end && ie + 2 + ie[1] <= end; ie += 2 + ie[1]) {
+-		if ((ie[0] == WLAN_EID_DS_PARAMS || ie[0] == WLAN_EID_HT_OPERATION) && ie[1])
+-			number = ie[2];
+-	}
+-	if (!number)
+-		return;
+-	band = number <= 14 ? NL80211_BAND_2GHZ : NL80211_BAND_5GHZ;
+-	frequency = ieee80211_channel_to_frequency(number, band);
+-	channel = ieee80211_get_channel(wifi->wiphy, frequency);
+-	if (!channel)
+-		return;
+-	signal = max((s8)payload[0x16], (s8)payload[0x17]);
+-	if (signal >= 0 || signal < -127)
+-		signal = -95;
+-	bss = cfg80211_inform_bss_frame(wifi->wiphy, channel,
+-		(struct ieee80211_mgmt *)frame, frame_size, signal * 100, GFP_KERNEL);
+-	if (bss) {
+-		wifi->beacons_seen++;
+-		cfg80211_put_bss(wifi->wiphy, bss);
+-	}
+-}
+-
+-static void post_receive(struct centauri_wifi *wifi, unsigned int ring, u16 slot)
+-{
+-	u8 *descriptor = wifi->a.window + TR_BASE + (ring - 1) * RING_SPAN + slot * 16;
+-	u32 offset = rx_buffer[ring] + slot * BUFFER_SIZE;
+-
+-	memset(wifi->a.window + offset, 0, BUFFER_SIZE);
+-	put_unaligned_le32(1 | (BUFFER_SIZE << 8), descriptor);
+-	put_unaligned_le64(wifi->a.window_dma + offset, descriptor + 4);
+-	put_unaligned_le32(slot + 1, descriptor + 12);
+-}
+-
+-/* Host-owned RX buffer cookies and completion length are the ACIPC fields
+- * validated in probe 28. Probe 29 validates the footer's prefix length and
+- * Ethernet framing with IPv4 header checksums and IPv6 payload lengths.
+- * Called with wifi->lock, including during connect/command polling.
+- */
+-static void drain_data_rx(struct centauri_wifi *wifi)
+-{
+-	u16 head, tail, post;
+-	unsigned int processed = 0;
+-
+-	if (!(wifi->data_probe_done & BIT(4)) || readl(wifi->a.bar + 8) != 2)
+-		return;
+-	head = index_read(wifi, 0, 207);
+-	tail = index_read(wifi, 2, 207);
+-	post = index_read(wifi, 3, 12);
+-	if (head >= 128 || tail >= 128 || post >= 128) {
+-		wifi->data_rx_bad++;
+-		return;
+-	}
+-	dma_rmb();
+-	while (tail != head && processed < 127) {
+-		u8 *completion = wifi->a.window + 0x240000 + tail * 32;
+-		u32 header = get_unaligned_le32(completion);
+-		u32 info = get_unaligned_le32(completion + 4);
+-		u16 cookie = info & 0xffff, length = info >> 16;
+-		u16 next = (post + 1) % 128;
+-		u32 count = le32_to_cpu(wifi->rx_snapshot.count);
+-		u8 *packet, *descriptor;
+-		u32 buffer;
+-
+-		if ((header >> 16) != 12 || !cookie || cookie > 127 ||
+-		    length > 4096 || get_unaligned_le32(completion + 8)) {
+-			wifi->data_rx_bad++;
+-			break;
+-		}
+-		/* Do not overwrite a descriptor the receive engine still owns. */
+-		if (next == index_read(wifi, 1, 12))
+-			break;
+-		buffer = DATA_RX_BUFFER + (cookie - 1) * 4096;
+-		packet = wifi->a.window + buffer;
+-		if (count < ARRAY_SIZE(wifi->rx_snapshot.sample)) {
+-			memcpy(wifi->rx_snapshot.sample[count].completion, completion, 32);
+-			memcpy(wifi->rx_snapshot.sample[count].packet, packet, length);
+-			wifi->rx_snapshot.version = cpu_to_le32(1);
+-			wifi->rx_snapshot.count = cpu_to_le32(count + 1);
+-		}
+-		wifi->data_rx_received++;
+-		if (wifi->connected && netif_running(wifi->netdev)) {
+-			u32 footer = get_unaligned_le32(completion + 12);
+-			unsigned int padding = (footer >> 12) & 15;
+-			struct sk_buff *skb = NULL;
+-
+-			/* Extended prefix headers are not decoded yet. */
+-			if (!(footer & BIT(24)) && length >= padding + ETH_HLEN)
+-				skb = netdev_alloc_skb_ip_align(wifi->netdev, length - padding);
+-			if (skb) {
+-				skb_put_data(skb, packet + padding, length - padding);
+-				skb->protocol = eth_type_trans(skb, wifi->netdev);
+-				skb->ip_summed = CHECKSUM_NONE;
+-				wifi->netdev->stats.rx_packets++;
+-				wifi->netdev->stats.rx_bytes += length - padding;
+-				netif_rx(skb);
+-			} else {
+-				wifi->netdev->stats.rx_dropped++;
+-			}
+-		} else {
+-			wifi->netdev->stats.rx_dropped++;
+-		}
+-		descriptor = wifi->a.window + 0x520000 + post * 16;
+-		put_unaligned_le32(1 | (4096 << 8), descriptor);
+-		put_unaligned_le64(wifi->a.window_dma + buffer, descriptor + 4);
+-		put_unaligned_le32(cookie, descriptor + 12);
+-		wifi->data_rx_reposted++;
+-		tail = (tail + 1) % 128;
+-		post = next;
+-		processed++;
+-	}
+-	if (processed) {
+-		dma_wmb();
+-		index_write(wifi, 2, 207, tail);
+-		index_write(wifi, 3, 12, post);
+-		dma_wmb();
+-		writel(1, wifi->a.bar + 0x1050);
+-	}
+-}
+-
+-/* Serialized with the firmware poller. Payload slots remain owned until a
+- * CR completion, even if the device has already consumed the TR descriptor.
+- */
+-static void drain_data_tx(struct centauri_wifi *wifi)
+-{
+-	u16 head, tail, post;
+-	unsigned int budget = 256;
+-	bool posted = false, completed = false;
+-
+-	if (!(wifi->data_probe_done & BIT(5)) || readl(wifi->a.bar + 8) != 2)
+-		return;
+-	head = index_read(wifi, 0, 192);
+-	tail = index_read(wifi, 2, 192);
+-	post = index_read(wifi, 3, 25);
+-	if (head >= 2048 || tail >= 2048 || post >= DATA_TX_SLOTS)
+-		return;
+-	dma_rmb();
+-	while (tail != head && budget--) {
+-		u8 *entry = wifi->a.window + 0x200000 + tail * 32;
+-		u16 ring = get_unaligned_le32(entry) >> 16;
+-		u16 cookie = get_unaligned_le16(entry + 4);
+-		u16 count = get_unaligned_le16(entry + 9);
+-		u8 status = entry[12];
+-
+-		if (ring == 25) {
+-			unsigned int first, i;
+-
+-			/* Airship cr_controller::sync maps CD bytes 9:10 to the
+-			 * transfer count. With the multicomp flag (CD byte 1 bit 0),
+-			 * the cookie names the LAST transfer; prior transfers share
+-			 * its completion status. We submit one contiguous DMA buffer
+-			 * per slot, so those preceding cookies must all still be busy.
+-			 */
+-			if (!cookie || cookie > DATA_TX_SLOTS || !count ||
+-			    count >= DATA_TX_SLOTS || !(entry[1] & 1)) {
+-				wifi->data_tx_bad++;
+-				break;
+-			}
+-			first = (cookie + DATA_TX_SLOTS - count) % DATA_TX_SLOTS;
+-			for (i = 0; i < count; i++)
+-				if (!wifi->data_tx_busy[(first + i) % DATA_TX_SLOTS])
+-					break;
+-			if (i != count) {
+-				wifi->data_tx_bad++;
+-				break;
+-			}
+-			if (count > 1)
+-				wifi->data_tx_coalesced++;
+-			for (i = 0; i < count; i++) {
+-				unsigned int slot = (first + i) % DATA_TX_SLOTS;
+-
+-				wifi->data_tx_completed++;
+-				if (status == 0 || status == 0x83) {
+-					wifi->netdev->stats.tx_packets++;
+-					wifi->netdev->stats.tx_bytes += wifi->data_tx_length[slot];
+-				} else {
+-					wifi->data_tx_failed++;
+-					wifi->netdev->stats.tx_errors++;
+-				}
+-				wifi->data_tx_busy[slot] = false;
+-			}
+-		}
+-		tail = (tail + 1) % 2048;
+-		completed = true;
+-	}
+-	if (completed)
+-		index_write(wifi, 2, 192, tail);
+-	budget = DATA_TX_SLOTS - 1;
+-	while (wifi->connected && !READ_ONCE(wifi->stopping) &&
+-	       netif_running(wifi->netdev) && budget--) {
+-		u16 next = (post + 1) % DATA_TX_SLOTS;
+-		u32 buffer = DATA_TX_BUFFER + post * BUFFER_SIZE;
+-		u8 *descriptor = wifi->a.window + 0x540000 + post * 32;
+-		struct sk_buff *skb;
+-		u8 destination[ETH_ALEN];
+-		u64 metadata = 6ULL << 27;
+-
+-		if (wifi->data_tx_busy[post] || next == index_read(wifi, 1, 25))
+-			break;
+-		skb = skb_dequeue(&wifi->data_tx_queue);
+-		if (!skb)
+-			break;
+-		/* This diagnostic ring is only valid for its broadcast destination.
+-		 * Do not silently send unicast or IPv6 multicast through that flow.
+-		 */
+-		if (data_tx_broadcast &&
+-		    (skb_copy_bits(skb, 0, destination, ETH_ALEN) ||
+-		     !is_broadcast_ether_addr(destination))) {
+-			wifi->netdev->stats.tx_dropped++;
+-			dev_kfree_skb_any(skb);
+-			continue;
+-		}
+-		if (skb_copy_bits(skb, 0, wifi->a.window + buffer, skb->len)) {
+-			wifi->netdev->stats.tx_dropped++;
+-			dev_kfree_skb_any(skb);
+-			continue;
+-		}
+-		memset(descriptor, 0, 32);
+-		put_unaligned_le32(3 | (skb->len << 8), descriptor);
+-		put_unaligned_le64(wifi->a.window_dma + buffer, descriptor + 4);
+-		put_unaligned_le16(post + 1, descriptor + 12);
+-		/* AirshipDataPacket type 1 supplies this 16-byte TX header inline.
+-		 * setTxPolicyId(1), 0x1809ed27c, sets validity bit 60 and ID bit 48.
+-		 * Keep normal policy zero by default; the switch permits a bounded
+-		 * comparison with the existing, read-back-verified control profile.
+-		 */
+-		if (READ_ONCE(data_tx_control_profile) &&
+-		    (wifi->tx_defaults_applied & BIT(1)))
+-			metadata |= BIT_ULL(60) | BIT_ULL(48);
+-		/* Native 25G76 AirshipDataPacket::prepare (0x18090faf8) writes
+-		 * (argument & 7) to bits 17:15. Guest37's captured DHCP Discover
+-		 * has value 4 (0x20000). The same-connection Linux A/B changes
+-		 * zero DHCP offers into three offers by setting only this field.
+-		 * The opt-out retains the old value for diagnostic reproduction.
+-		 */
+-		if (READ_ONCE(data_tx_native_prepare))
+-			metadata |= 4ULL << 15;
+-		put_unaligned_le64(metadata, descriptor + 16);
+-		put_unaligned_le64(2000000, descriptor + 24);
+-		wifi->data_tx_length[post] = skb->len;
+-		wifi->data_tx_busy[post] = true;
+-		wifi->data_tx_submitted++;
+-		dev_kfree_skb_any(skb);
+-		post = next;
+-		posted = true;
+-	}
+-	if (posted || completed) {
+-		dma_wmb();
+-		if (posted)
+-			index_write(wifi, 3, 25, post);
+-		dma_wmb();
+-		writel(1, wifi->a.bar + 0x1030);
+-	}
+-	if (wifi->connected && !READ_ONCE(wifi->stopping) && netif_running(wifi->netdev) &&
+-	    skb_queue_len(&wifi->data_tx_queue) < DATA_TX_QUEUE_LIMIT)
+-		netif_wake_queue(wifi->netdev);
+-}
+-
+-static void drain(struct centauri_wifi *wifi)
+-{
+-	unsigned int ring;
+-	bool posted = false;
+-
+-	for (ring = 2; ring <= 4; ring++) {
+-		unsigned int budget = ring_size[ring];
+-
+-		while (budget--) {
+-			u16 slot = wifi->rx_next[ring], size, status, sequence;
+-			u32 command;
+-			u8 *descriptor = wifi->a.window + TR_BASE + (ring - 1) * RING_SPAN + slot * 16;
+-			u8 *packet = wifi->a.window + rx_buffer[ring] + slot * BUFFER_SIZE;
+-
+-			if (!(READ_ONCE(descriptor[15]) & 4))
+-				break;
+-			dma_rmb();
+-			size = get_unaligned_le16(packet + 0x10);
+-			status = get_unaligned_le16(packet + 0xe);
+-			sequence = get_unaligned_le16(packet + 0x12);
+-			command = get_unaligned_le32(packet + 0x14) & ~BIT(30);
+-			wifi->rx_seen[ring]++;
+-			wifi->rx_next[ring] = (slot + 1) % ring_size[ring];
+-			if (size < 24 || size > BUFFER_SIZE)
+-				goto refill;
+-			if (ring == 4) {
+-				report_beacon(wifi, packet + 24, size - 24);
+-			} else if (command & BIT(31)) {
+-				if (command == 0x80000030)
+-					wifi->channels_seen++;
+-				if (command == 0x80000005)
+-					wifi->scans_done++;
+-				if (command == 0x80000000 && wifi->connecting) {
+-					wifi->connect_event = true;
+-					wifi->connect_status = status;
+-				}
+-				if (command == 0x80000001) {
+-					wifi->associated = status == 0;
+-					dev_info(&wifi->control->pdev->dev, "Wi-Fi association event: status=%u\n", status);
+-					if (eapol_after_assoc && wifi->associated && wifi->connecting &&
+-					    !wifi->connect_event) {
+-						int probe_ret = transmit_eapol_start(wifi);
+-
+-						eapol_after_assoc = false;
+-						dev_info(&wifi->control->pdev->dev,
+-							 "association-event EAPOL-Start: rc=%d\n", probe_ret);
+-					}
+-				}
+-				/* ACI event 0x50 carries fixed, non-secret supplicant
+-				 * diagnostics: result, phase and handshake timestamps.
+-				 * Do not dump the event or any EAPOL/key material.
+-				 */
+-				if (command == 0x80000050 && size >= 64)
+-					dev_info(&wifi->control->pdev->dev,
+-						 "Wi-Fi supplicant: result=%u phase=%u times=%u/%u/%u/%u/%u\n",
+-						 get_unaligned_le32(packet + 0x18), packet[0x1c],
+-						 get_unaligned_le32(packet + 0x24),
+-						 get_unaligned_le32(packet + 0x28),
+-						 get_unaligned_le32(packet + 0x2c),
+-						 get_unaligned_le32(packet + 0x30),
+-						 get_unaligned_le32(packet + 0x34));
+-				if (command == 0x80000003 || command == 0x80000004)
+-					wifi->disconnect_event = true;
+-				if (wifi->connecting && command != 0x80000000 &&
+-				    command != 0x80000001 && command != 0x80000030 &&
+-				    command != 0x80000005 && command != 0x80000050)
+-					dev_info_ratelimited(&wifi->control->pdev->dev,
+-						"Wi-Fi event: id=%#x status=%u size=%u\n",
+-						command, status, size);
+-			} else {
+-				wifi->reply_valid = true;
+-				wifi->reply_sequence = sequence;
+-				wifi->reply_status = status;
+-				wifi->reply_command = command;
+-				if (command == 10) {
+-					wifi->country_valid = !status && size >= 27;
+-					if (wifi->country_valid)
+-						memcpy(wifi->country, packet + 24, 3);
+-				}
+-				if (command == 56) {
+-					wifi->tx_profile_valid = !status && size >= 34;
+-					if (wifi->tx_profile_valid)
+-						memcpy(wifi->tx_profile, packet + 24, sizeof(wifi->tx_profile));
+-				}
+-				if (command == 20 && !status) {
+-					/* getInterfaceStatus skips its 32-byte fixed response. */
+-					unsigned int pos = 32;
+-
+-					wifi->link_status_size = size;
+-					while (pos + 4 <= size) {
+-						u16 tag = get_unaligned_le16(packet + pos);
+-						u16 length = get_unaligned_le16(packet + pos + 2);
+-						u8 *value = packet + pos + 4;
+-						unsigned int i;
+-
+-						if (length > size - pos - 4)
+-							break;
+-						if (wifi->link_tlv_count < ARRAY_SIZE(wifi->link_tags)) {
+-							wifi->link_tags[wifi->link_tlv_count] = tag;
+-							wifi->link_lengths[wifi->link_tlv_count++] = length;
+-						}
+-						/* ACIDebugAdapter::dumpMloStatus, TLVs 377/378.
+-						 * Keep only link count/channel/role. Do not retain MACs.
+-						 */
+-						if (tag == 377 && length >= 64 && value[0] <= 3) {
+-							wifi->link_count = value[0];
+-							wifi->link_status_valid = true;
+-							for (i = 0; i < value[0]; i++) {
+-								u16 chanspec = get_unaligned_le16(value + 26 + 17 * i);
+-
+-								wifi->link_prime[i] = value[25 + 17 * i];
+-								wifi->link_channel[i] = chanspec & 0xff;
+-								wifi->link_band[i] = (chanspec >> 14) & 3;
+-							}
+-						}
+-						if (tag == 378 && length >= 9) {
+-							wifi->emlsr_valid = true;
+-							wifi->emlsr_mode = value[0];
+-						}
+-						pos += 4 + length;
+-					}
+-				}
+-				if (command == 0xb0001) {
+-					wifi->stats_reply_size = size;
+-					wifi->stats_tag = size >= 28 ? get_unaligned_le16(packet + 24) : 0;
+-					wifi->stats_length = size >= 28 ? get_unaligned_le16(packet + 26) : 0;
+-				}
+-				if (command == 0xb0001 && !status && wifi->stats_tag == 0xf928 &&
+-				    (wifi->stats_length == 752 || wifi->stats_length == 888) &&
+-				    size >= 28 + wifi->stats_length) {
+-					/* Native firmware returns the older 752-byte counter record. */
+-					memset(wifi->station_stats, 0, sizeof(wifi->station_stats));
+-					memcpy(wifi->station_stats, packet + 28, wifi->stats_length);
+-					wifi->station_stats_valid = true;
+-				}
+-				if (command == 0xb0001 && !status && wifi->stats_tag == 0xf921 &&
+-				    wifi->stats_length == sizeof(wifi->rx_crypto_stats) &&
+-				    size >= 28 + sizeof(wifi->rx_crypto_stats)) {
+-					memcpy(wifi->rx_crypto_stats, packet + 28, sizeof(wifi->rx_crypto_stats));
+-					wifi->rx_crypto_stats_valid = true;
+-				}
+-				if (command == 0xb0001 && !status && wifi->stats_tag == 0xf91b &&
+-				    wifi->stats_length == sizeof(wifi->dot11_mib_stats) &&
+-				    size >= 28 + sizeof(wifi->dot11_mib_stats)) {
+-					memcpy(wifi->dot11_mib_stats, packet + 28, sizeof(wifi->dot11_mib_stats));
+-					wifi->dot11_mib_stats_valid = true;
+-				}
+-				if (command == 0xb0001 && !status && wifi->stats_tag == 0xf920 &&
+-				    wifi->stats_length == sizeof(wifi->tx_power_report) &&
+-				    size >= 28 + sizeof(wifi->tx_power_report)) {
+-					memcpy(wifi->tx_power_report, packet + 28, sizeof(wifi->tx_power_report));
+-					wifi->tx_power_report_valid = true;
+-				}
+-				if (command == 0xf0025) {
+-					wifi->pmk_seen = !status && size >= 60;
+-					wifi->pmk_matches = wifi->pmk_seen &&
+-						get_unaligned_le16(packet + 26) == 32 &&
+-						!memcmp(packet + 28, wifi->expected_pmk, 32);
+-					memzero_explicit(packet + 24, size - 24);
+-				}
+-			}
+-		refill:
+-			post_receive(wifi, ring, wifi->rx_head[ring]);
+-			wifi->rx_head[ring] = (wifi->rx_head[ring] + 1) % ring_size[ring];
+-			dma_wmb();
+-			index_write(wifi, 3, ring, wifi->rx_head[ring]);
+-			posted = true;
+-		}
+-	}
+-	completions(wifi);
+-	if (posted)
+-		writel(1, wifi->a.bar + 0x1004);
+-	drain_data_rx(wifi);
+-	drain_data_tx(wifi);
+-}
+-
+-static int command(struct centauri_wifi *wifi, u32 id, const void *payload, size_t size)
+-{
+-	u16 slot = wifi->command_head, sequence = ++wifi->sequence;
+-	u8 *packet, *descriptor;
+-	unsigned long deadline = jiffies + msecs_to_jiffies(1500);
+-
+-	if (size + 24 > BUFFER_SIZE)
+-		return -EMSGSIZE;
+-	if ((slot + 1) % ring_size[1] == index_read(wifi, 1, 1))
+-		return -ENOSPC;
+-	packet = wifi->a.window + TX_BUFFER + slot * BUFFER_SIZE;
+-	memset(packet, 0, 24 + size);
+-	put_unaligned_le16(24 + size, packet + 0x10);
+-	put_unaligned_le16(sequence, packet + 0x12);
+-	put_unaligned_le32(id, packet + 0x14);
+-	if (size)
+-		memcpy(packet + 24, payload, size);
+-	descriptor = wifi->a.window + TR_BASE + slot * 16;
+-	put_unaligned_le32(1 | ((24 + size) << 8), descriptor);
+-	put_unaligned_le64(wifi->a.window_dma + TX_BUFFER + slot * BUFFER_SIZE, descriptor + 4);
+-	put_unaligned_le32(slot + 1, descriptor + 12);
+-	dma_wmb();
+-	wifi->command_head = (slot + 1) % ring_size[1];
+-	index_write(wifi, 3, 1, wifi->command_head);
+-	wifi->reply_valid = false;
+-	dma_wmb();
+-	writel(1, wifi->a.bar + 0x1004);
+-	do {
+-		drain(wifi);
+-		if (readl(wifi->a.bar + 8) != 2)
+-			return -EIO;
+-		/* Bit 30 is more-data-pending, not part of the command identity.
+-		 * Scan/connect replies set it before their later completion event.
+-		 */
+-		if (wifi->reply_valid && wifi->reply_sequence == sequence &&
+-		    (wifi->reply_command & ~BIT(30)) == id) {
+-			if (wifi->reply_status)
+-				dev_info(&wifi->control->pdev->dev,
+-					 "Wi-Fi command %#x rejected: firmware_status=%u\n",
+-					 id, wifi->reply_status);
+-			return wifi->reply_status ? -EREMOTEIO : 0;
+-		}
+-		usleep_range(500, 1000);
+-	} while (time_before(jiffies, deadline));
+-	dev_err(&wifi->control->pdev->dev, "Wi-Fi command %#x timed out (rx=%u)\n", id, wifi->rx_seen[2]);
+-	return -ETIMEDOUT;
+-}
+-
+-static int radio_start(struct centauri_wifi *wifi)
+-{
+-	u8 start[5 + 4 + 3 * ETH_ALEN] = { 0, 0x0b, 0, 0, 0 };
+-	size_t start_size = 5;
+-	unsigned int ring, slot;
+-	int ret;
+-
+-	/* The stock 26.x startInterface supplies TLV 385, length 18; the macOS 27.0
+-	 * adapter uses 386 (board table). Firmware 0x5736c0 otherwise generates three unrelated
+-	 * random addresses. This diagnostic keeps the sole active link equal
+-	 * to the netdev identity; it does not enable multi-link association.
+-	 */
+-	if (station_link_addresses) {
+-		const struct centauri_board *board = centauri_board();
+-
+-		put_unaligned_le16(board ? board->link_tlv : 385, start + 5);
+-		put_unaligned_le16(3 * ETH_ALEN, start + 7);
+-		for (slot = 0; slot < 3; slot++)
+-			ether_addr_copy(start + 9 + slot * ETH_ALEN, wifi->netdev->dev_addr);
+-		start_size = sizeof(start);
+-	}
+-	for (ring = 1; ring <= 4; ring++) {
+-		ret = open_pair(wifi, ring);
+-		if (ret)
+-			return ret;
+-	}
+-	for (ring = 2; ring <= 4; ring++) {
+-		for (slot = 0; slot < ring_size[ring] - 1; slot++)
+-			post_receive(wifi, ring, slot);
+-		wifi->rx_head[ring] = ring_size[ring] - 1;
+-		dma_wmb();
+-		index_write(wifi, 3, ring, ring_size[ring] - 1);
+-	}
+-	dma_wmb();
+-	writel(1, wifi->a.bar + 0x1004);
+-	msleep(400);
+-	ret = command(wifi, 0, NULL, 0);
+-	if (!ret)
+-		ret = command(wifi, 1, wifi->netdev->dev_addr, ETH_ALEN);
+-	if (!ret)
+-		ret = command(wifi, 2, start, start_size);
+-	if (ret)
+-		return ret;
+-	msleep(1000);
+-	wifi->configured = true;
+-	dev_info(&wifi->control->pdev->dev, "Wi-Fi command rings ready; interface started\n");
+-	return 0;
+-}
+-
+-static void append_tlv(u8 *payload, size_t *size, u16 tag, const void *data, u16 length);
+-
+-/* Dwell times in ms for the scan request. The macOS 27 scan adapter copies
+- * the first request dwell field into frame +0x20 and +0x22 and the second into +0x24 and logs
+- * "dwelltime active[%d, %d] passive %d". A zero passive dwell makes the J873 scan state machine
+- * assert in SCHED_Req_Add (the dwell it selects must not be zero) and the whole firmware traps.
+- */
+-#define SCAN_ACTIVE_DWELL_MS	110
+-#define SCAN_PASSIVE_DWELL_MS	110
+-
+-/* Fixed scan request (command 0x1000f), 14 bytes, chunk number first. */
+-static size_t build_scan(struct centauri_wifi *wifi, unsigned int chunk, u8 *buf)
+-{
+-	u8 fixed[14] = { 1, 0, 0, 0x80, 0, 2, 0, 0x10 };
+-	const struct centauri_board *board = centauri_board();
+-	u8 list[1 + 4 * 13], oce[5] = { 0, 0, 1, 0, 0 };
+-	unsigned int first = chunk * 13, n, i;
+-	size_t size = sizeof(fixed);
+-
+-	put_unaligned_le16(SCAN_ACTIVE_DWELL_MS, fixed + 8);
+-	put_unaligned_le16(SCAN_ACTIVE_DWELL_MS, fixed + 10);
+-	put_unaligned_le16(SCAN_PASSIVE_DWELL_MS, fixed + 12);
+-	memcpy(buf, fixed, sizeof(fixed));
+-	buf[0] = chunk + 1;
+-	if (!board || !board->scan_tlvs)
+-		return size;
+-	/* The macOS 27.0 scan request appends TLV 0x104, a count and then
+-	 * {channel, band (0 = 2.4 GHz, 1 = 5 GHz), 0, 0} per channel, and TLV 0x165, an OCE block
+-	 * whose flags byte always has bit 0 set. One chunk covers 13 entries of the wiphy table.
+-	 */
+-	n = min_t(unsigned int, 13, 13 + ARRAY_SIZE(five_ghz) - first);
+-	list[0] = n;
+-	for (i = 0; i < n; i++) {
+-		const struct ieee80211_channel *channel = &wifi->channels[first + i];
+-
+-		list[1 + 4 * i] = channel->hw_value;
+-		list[2 + 4 * i] = channel->band == NL80211_BAND_5GHZ;
+-		list[3 + 4 * i] = 0;
+-		list[4 + 4 * i] = 0;
+-	}
+-	append_tlv(buf, &size, 0x104, list, 1 + 4 * n);
+-	append_tlv(buf, &size, 0x165, oce, sizeof(oce));
+-	return size;
+-}
+-
+-static void scan_worker(struct work_struct *work)
+-{
+-	struct centauri_wifi *wifi = container_of(work, struct centauri_wifi, scan_work);
+-	struct cfg80211_scan_info info = {};
+-	struct cfg80211_scan_request *request;
+-	u8 scan[14 + 4 + 1 + 4 * 13 + 4 + 5];
+-	size_t scan_size;
+-	unsigned int chunk;
+-	int ret = 0;
+-
+-	mutex_lock(&wifi->lock);
+-	for (chunk = 0; chunk < 3 && !ret; chunk++) {
+-		u32 channels = wifi->channels_seen, done = wifi->scans_done;
+-		bool stopped = false;
+-		unsigned long deadline;
+-
+-		scan_size = build_scan(wifi, chunk, scan);
+-		ret = command(wifi, 65551, scan, scan_size);
+-		if (ret)
+-			break;
+-		deadline = jiffies + msecs_to_jiffies(8000);
+-		do {
+-			drain(wifi);
+-			if (readl(wifi->a.bar + 8) != 2) {
+-				ret = -EIO;
+-				break;
+-			}
+-			if (!stopped && wifi->channels_seen - channels >= 8) {
+-				stopped = true;
+-				ret = command(wifi, 65537, NULL, 0);
+-				if (ret)
+-					break;
+-			}
+-			if (stopped && wifi->scans_done > done)
+-				break;
+-			usleep_range(1000, 2000);
+-		} while (time_before(jiffies, deadline));
+-		if (!ret && wifi->scans_done == done)
+-			ret = -ETIMEDOUT;
+-	}
+-	info.aborted = !!ret;
+-	request = wifi->scan_request;
+-	wifi->scan_request = NULL;
+-	mutex_unlock(&wifi->lock);
+-	dev_info(&wifi->control->pdev->dev, "Wi-Fi scan finished: rc=%d channels=%u beacons=%u\n",
+-		 ret, wifi->channels_seen, wifi->beacons_seen);
+-	if (request)
+-		cfg80211_scan_done(request, &info);
+-}
+-
+-static int wifi_scan(struct wiphy *wiphy, struct cfg80211_scan_request *request)
+-{
+-	struct centauri_wifi *wifi = *(struct centauri_wifi **)wiphy_priv(wiphy);
+-	int ret = 0;
+-
+-	mutex_lock(&wifi->lock);
+-	if (!wifi->configured)
+-		ret = -ENETDOWN;
+-	else if (wifi->scan_request || wifi->connecting)
+-		ret = -EBUSY;
+-	else {
+-		wifi->scan_request = request;
+-		schedule_work(&wifi->scan_work);
+-	}
+-	mutex_unlock(&wifi->lock);
+-	return ret;
+-}
+-
+-static int rsn_caps_offset(const u8 *body, size_t size)
+-{
+-	size_t offset = 6;
+-	u16 count;
+-	unsigned int i;
+-
+-	for (i = 0; i < 2; i++) {
+-		if (offset + 2 > size)
+-			return -EINVAL;
+-		count = get_unaligned_le16(body + offset);
+-		offset += 2 + 4 * count;
+-		if (offset > size)
+-			return -EINVAL;
+-	}
+-	return offset + 2 <= size ? offset : -EINVAL;
+-}
+-
+-static void append_tlv(u8 *payload, size_t *size, u16 tag, const void *data, u16 length)
+-{
+-	put_unaligned_le16(tag, payload + *size);
+-	put_unaligned_le16(length, payload + *size + 2);
+-	memcpy(payload + *size + 4, data, length);
+-	*size += 4 + length;
+-}
+-
+-static int wifi_connect(struct wiphy *wiphy, struct net_device *netdev,
+-			struct cfg80211_connect_params *params)
+-{
+-	/* The stock 26.x join emits a 12-byte TLV 376. The macOS 27.0.1
+-	 * adapter writes tag 0x178 with length 14: the MLD configuration bytes
+-	 * that its default initialisation fills with the defaults below, bytes
+-	 * 12 and 13 being 0 and the flags byte (bits from the connection parameters, 0 by default).
+-	 * Preserve the unspecified-link masks; all-zero is not the non-MLO default.
+-	 */
+-	static const u8 mld_defaults[14] = {
+-		1, 0, 1, 0xff, 0xff, 0xff, 0xff, 0xff,
+-		0xff, 0xff, 0xff, 3, 0, 0,
+-	};
+-	/* Firmware connection-context defaults (aciw 0x511ee8). TLV 0xf913
+-	 * replaces all five values. Sending zeros arms Supp_AddTimer with a
+-	 * zero duration and aborts WPA before message 2 can be transmitted.
+-	 */
+-	static const __le32 connection_timeouts[] = {
+-		cpu_to_le32(260), cpu_to_le32(6000), cpu_to_le32(2000),
+-		cpu_to_le32(15000), cpu_to_le32(300),
+-	};
+-	struct centauri_wifi *wifi = *(struct centauri_wifi **)wiphy_priv(wiphy);
+-	struct cfg80211_bss *bss;
+-	const struct cfg80211_bss_ies *ies;
+-	const u8 *rsn, *ap_rsn;
+-	u8 rsn_body[255], ssid[35], zero[20] = {}, pmf;
+-	u8 *payload = wifi->connect_payload;
+-	size_t size = 130, rsn_size;
+-	u16 caps = 0;
+-	int ret = 0, offset;
+-
+-	if (!params->ssid_len || params->ssid_len > 32 || !params->crypto.psk ||
+-	    params->crypto.n_akm_suites != 1 || params->crypto.akm_suites[0] != WLAN_AKM_SUITE_PSK ||
+-	    params->crypto.n_ciphers_pairwise != 1 || params->crypto.ciphers_pairwise[0] != WLAN_CIPHER_SUITE_CCMP ||
+-	    params->crypto.cipher_group != WLAN_CIPHER_SUITE_CCMP || params->ie_len > sizeof(wifi->request_ie))
+-		return -EOPNOTSUPP;
+-	rsn = cfg80211_find_ie(WLAN_EID_RSN, params->ie, params->ie_len);
+-	if (!rsn || rsn_caps_offset(rsn + 2, rsn[1]) < 0)
+-		return -EINVAL;
+-	mutex_lock(&wifi->lock);
+-	if (!wifi->configured || wifi->connecting || wifi->connected || wifi->scan_request) {
+-		ret = -EBUSY;
+-		goto out;
+-	}
+-	bss = cfg80211_get_bss(wiphy, params->channel, params->bssid,
+-		params->ssid, params->ssid_len, IEEE80211_BSS_TYPE_ESS, IEEE80211_PRIVACY_ON);
+-	if (!bss) {
+-		ret = -ENOENT;
+-		goto out;
+-	}
+-	/* Match the measured successful J813 association shape. The firmware
+-	 * expects the AP RSN capability bits even with the legal single-AKM STA IE.
+-	 */
+-	rcu_read_lock();
+-	ies = rcu_dereference(bss->ies);
+-	ap_rsn = ies ? cfg80211_find_ie(WLAN_EID_RSN, ies->data, ies->len) : NULL;
+-	if (ap_rsn) {
+-		offset = rsn_caps_offset(ap_rsn + 2, ap_rsn[1]);
+-		if (offset >= 0)
+-			caps = get_unaligned_le16(ap_rsn + 2 + offset);
+-	}
+-	rcu_read_unlock();
+-	rsn_size = rsn[1];
+-	memcpy(rsn_body, rsn + 2, rsn_size);
+-	offset = rsn_caps_offset(rsn_body, rsn_size);
+-	put_unaligned_le16(caps, rsn_body + offset);
+-	pmf = !!(caps & BIT(7));
+-	memset(payload, 0, sizeof(wifi->connect_payload));
+-	payload[0] = 1;
+-	memcpy(payload + 1, bss->bssid, ETH_ALEN);
+-	memcpy(wifi->bssid, bss->bssid, ETH_ALEN);
+-	payload[7] = ieee80211_frequency_to_channel(bss->channel->center_freq);
+-	/* AppleChanSpecToACI maps chanspec 0xc000 (5 GHz) to ACI 1;
+-	 * 0x4000 (6 GHz) maps to ACI 2. Earlier RE notes swapped these.
+-	 */
+-	payload[8] = bss->channel->band == NL80211_BAND_2GHZ ? 0 : 1;
+-	payload[0x47] = 4;
+-	/* ACIConnectionAdapter::mapRSNCipherSuiteToACIWsec maps CCMP to 4.
+-	 * The RSN IE does not replace this fixed cipher field.
+-	 */
+-	put_unaligned_le16(4, payload + 0x48);
+-	put_unaligned_le16(32, payload + 0x4a);
+-	memcpy(payload + 0x4c, params->crypto.psk, 32);
+-	if (verify_pmk)
+-		memcpy(wifi->expected_pmk, params->crypto.psk, 32);
+-	append_tlv(payload, &size, 304, zero, 1);
+-	append_tlv(payload, &size, 63763, connection_timeouts, sizeof(connection_timeouts));
+-	ssid[0] = 1;
+-	ssid[1] = 4;
+-	ssid[2] = params->ssid_len;
+-	memcpy(ssid + 3, params->ssid, params->ssid_len);
+-	append_tlv(payload, &size, 342, ssid, 3 + params->ssid_len);
+-	append_tlv(payload, &size, WLAN_EID_RSN, rsn_body, rsn_size);
+-	/* The fixed field carries the PMK. The firmware accepts a join with the PMK alone (measured); the macOS TLV 313 carries the
+-	 * passphrase and is not sent.
+-	 */
+-	append_tlv(payload, &size, 316, &pmf, 1);
+-	append_tlv(payload, &size, 376, mld_defaults, sizeof(mld_defaults));
+-	wifi->connect_size = size;
+-	memcpy(wifi->request_ie, params->ie, params->ie_len);
+-	wifi->request_ie_size = params->ie_len;
+-	wifi->connecting = true;
+-	wifi->connect_status = 0;
+-	wifi->associated = wifi->pmk_seen = wifi->pmk_matches = false;
+-	wifi->connect_event = wifi->disconnect_event = false;
+-	cfg80211_put_bss(wiphy, bss);
+-	schedule_work(&wifi->connect_work);
+-out:
+-	mutex_unlock(&wifi->lock);
+-	return ret;
+-}
+-
+-/* Without the host power state the firmware treats the host as asleep, powers the PHYs down and traps about 15 s after the
+- * join. Same three commands as the host_wakeup and tx_config debugfs files; called with wifi->lock held.
+- */
+-static void host_setup_commands(struct centauri_wifi *wifi)
+-{
+-	static const u8 awake[3] = {};
+-	static const u8 control_profile[] = { 0x54, 1, 10, 0, 0, 8, 0, 0, 0xff, 0xff, 0xff, 0xff, 1, 1 };
+-	u8 lifetime[20] = {};
+-	int ret, i;
+-
+-	if (!host_setup)
+-		return;
+-	if (!wifi->host_awake_sent) {
+-		ret = command(wifi, 6, awake, sizeof(awake));
+-		dev_info(&wifi->control->pdev->dev, "host power state awake: rc=%d status=%u\n", ret, wifi->reply_status);
+-		wifi->host_awake_sent = !ret;
+-	}
+-	if (!(wifi->tx_defaults_applied & BIT(0))) {
+-		for (i = 0; i < 4; i++)
+-			put_unaligned_le32(2000000, lifetime + 4 + 4 * i);
+-		ret = command(wifi, 43, lifetime, sizeof(lifetime));
+-		if (!ret)
+-			wifi->tx_defaults_applied |= BIT(0);
+-		dev_info(&wifi->control->pdev->dev, "TX packet lifetime defaults: rc=%d\n", ret);
+-	}
+-	if (!(wifi->tx_defaults_applied & BIT(1))) {
+-		ret = command(wifi, 52, control_profile, sizeof(control_profile));
+-		if (!ret)
+-			wifi->tx_defaults_applied |= BIT(1);
+-		dev_info(&wifi->control->pdev->dev, "TX control profile defaults: rc=%d\n", ret);
+-	}
+-}
+-
+-static void connect_worker(struct work_struct *work)
+-{
+-	struct centauri_wifi *wifi = container_of(work, struct centauri_wifi, connect_work);
+-	unsigned long deadline;
+-	u16 slot, status, command_status;
+-	bool checked_pmk = false, probed_eapol = false, queried_link = false;
+-	int ret;
+-
+-	mutex_lock(&wifi->lock);
+-	if (auto_rings) {
+-		static const unsigned int ring_ids[] = { 76, 24, 15, 12 };
+-		unsigned int n;
+-
+-		for (n = 0; n < ARRAY_SIZE(ring_ids); n++) {
+-			int ring_ret = data_probe_locked(wifi, ring_ids[n], true);
+-
+-			if (ring_ret && ring_ret != -EBUSY)
+-				dev_warn(&wifi->control->pdev->dev, "data ring %u setup failed: %d\n", ring_ids[n], ring_ret);
+-		}
+-	}
+-	host_setup_commands(wifi);
+-	slot = wifi->command_head;
+-	ret = command(wifi, 131072, wifi->connect_payload, wifi->connect_size);
+-	command_status = wifi->reply_status;
+-	memzero_explicit(wifi->connect_payload, sizeof(wifi->connect_payload));
+-	deadline = jiffies + msecs_to_jiffies(15000);
+-	while (!ret && !wifi->connect_event && time_before(jiffies, deadline)) {
+-		drain(wifi);
+-		if (link_diagnostics && wifi->associated && !queried_link) {
+-			unsigned int i;
+-			int link_ret;
+-
+-			queried_link = true;
+-			link_ret = query_link_status(wifi);
+-			dev_info(&wifi->control->pdev->dev,
+-				 "connection link status: rc=%d complete=%d valid=%d count=%u emlsr=%d/%u\n",
+-				 link_ret, wifi->connect_event, wifi->link_status_valid, wifi->link_count,
+-				 wifi->emlsr_valid, wifi->emlsr_mode);
+-			for (i = 0; i < wifi->link_tlv_count; i++)
+-				dev_info(&wifi->control->pdev->dev, "connection link TLV: tag=%u length=%u\n",
+-					 wifi->link_tags[i], wifi->link_lengths[i]);
+-			if (wifi->link_status_valid)
+-				for (i = 0; i < wifi->link_count; i++)
+-					dev_info(&wifi->control->pdev->dev,
+-						 "connection link %u: prime=%u channel=%u band=%u\n",
+-						 i, wifi->link_prime[i], wifi->link_channel[i], wifi->link_band[i]);
+-		}
+-		if (eapol_after_assoc && wifi->associated && !probed_eapol) {
+-			unsigned int i;
+-			int probe_ret;
+-
+-			probed_eapol = true;
+-			probe_ret = query_station_stats(wifi);
+-			dev_info(&wifi->control->pdev->dev,
+-				 "connection counters: complete=%d rc=%d valid=%d length=%u\n",
+-				 wifi->connect_event, probe_ret, wifi->station_stats_valid, wifi->stats_length);
+-			if (!probe_ret && wifi->station_stats_valid)
+-				for (i = 0; i < wifi->stats_length; i += 4) {
+-					u32 value = get_unaligned_le32(wifi->station_stats + i);
+-
+-					if (value)
+-						dev_info(&wifi->control->pdev->dev,
+-							 "station counter %03x=%u\n", i, value);
+-				}
+-		}
+-		if (verify_pmk && wifi->associated && !checked_pmk) {
+-			int key_ret = command(wifi, 0xf0025, wifi->bssid, ETH_ALEN);
+-
+-			checked_pmk = true;
+-			dev_info(&wifi->control->pdev->dev,
+-				 "Wi-Fi firmware key check: rc=%d available=%d matches=%d\n",
+-				 key_ret, wifi->pmk_seen, wifi->pmk_matches);
+-		}
+-		if (readl(wifi->a.bar + 8) != 2)
+-			ret = -EIO;
+-		usleep_range(1000, 2000);
+-	}
+-	if (!ret && !wifi->connect_event)
+-		ret = -ETIMEDOUT;
+-	status = !ret && wifi->connect_status == 0 ? WLAN_STATUS_SUCCESS : WLAN_STATUS_UNSPECIFIED_FAILURE;
+-	wifi->connecting = false;
+-	wifi->connected = status == WLAN_STATUS_SUCCESS;
+-	if (wifi->connected && !roam_scan) {
+-		int roam_ret = command(wifi, 0x20016, NULL, 0);
+-
+-		dev_info(&wifi->control->pdev->dev, "roam scan off: rc=%d status=%u\n", roam_ret, wifi->reply_status);
+-	}
+-	memzero_explicit(wifi->expected_pmk, sizeof(wifi->expected_pmk));
+-	/* The command and connection completion have consumed the PMK buffer. */
+-	if (slot < ring_size[1])
+-		memzero_explicit(wifi->a.window + TX_BUFFER + slot * BUFFER_SIZE, BUFFER_SIZE);
+-	mutex_unlock(&wifi->lock);
+-	dev_info(&wifi->control->pdev->dev,
+-		 "Wi-Fi authentication result: rc=%d command_status=%u event_status=%u complete_event=%d\n",
+-		 ret, command_status, wifi->connect_status, wifi->connect_event);
+-	cfg80211_connect_result(wifi->netdev, wifi->bssid,
+-		wifi->request_ie, wifi->request_ie_size, NULL, 0, status, GFP_KERNEL);
+-	if (status == WLAN_STATUS_SUCCESS && auto_rings && !READ_ONCE(wifi->stopping)) {
+-		/* The normal TX ring is opened after the connection result, as in the manual recipe (data_probe 25 after wpa completed);
+-		 * doing it after cfg80211_connect_result keeps the join inside the supplicant's timeout.
+-		 */
+-		int ring_ret;
+-
+-		mutex_lock(&wifi->lock);
+-		ring_ret = data_probe_locked(wifi, 25, true);
+-		mutex_unlock(&wifi->lock);
+-		if (ring_ret && ring_ret != -EBUSY)
+-			dev_warn(&wifi->control->pdev->dev, "data ring 25 setup failed: %d\n", ring_ret);
+-	}
+-	if (status == WLAN_STATUS_SUCCESS && !READ_ONCE(wifi->stopping)) {
+-		netif_carrier_on(wifi->netdev);
+-		if (wifi->data_probe_done & BIT(5))
+-			netif_wake_queue(wifi->netdev);
+-		schedule_delayed_work(&wifi->link_work, msecs_to_jiffies(20));
+-	}
+-}
+-
+-static void link_worker(struct work_struct *work)
+-{
+-	struct centauri_wifi *wifi = container_of(to_delayed_work(work), struct centauri_wifi, link_work);
+-	bool disconnected;
+-
+-	mutex_lock(&wifi->lock);
+-	drain(wifi);
+-	disconnected = wifi->disconnect_event || READ_ONCE(wifi->stopping) ||
+-		readl(wifi->a.bar + 8) != 2;
+-	if (disconnected)
+-		wifi->connected = false;
+-	mutex_unlock(&wifi->lock);
+-	if (disconnected) {
+-		netif_stop_queue(wifi->netdev);
+-		skb_queue_purge(&wifi->data_tx_queue);
+-		netif_carrier_off(wifi->netdev);
+-		cfg80211_disconnected(wifi->netdev, WLAN_REASON_UNSPECIFIED, NULL, 0, false, GFP_KERNEL);
+-	} else {
+-		schedule_delayed_work(&wifi->link_work, msecs_to_jiffies(20));
+-	}
+-}
+-
+-/* MSI from Control or Alpha: service the data rings now instead of at the next poll. */
+-void centauri_wifi_kick(struct centauri *c)
+-{
+-	struct centauri_wifi *wifi = READ_ONCE(c->wifi);
+-
+-	if (wifi && READ_ONCE(wifi->connected) && !READ_ONCE(wifi->stopping))
+-		mod_delayed_work(system_wq, &wifi->link_work, 0);
+-}
+-
+-static int wifi_disconnect(struct wiphy *wiphy, struct net_device *netdev, u16 reason)
+-{
+-	struct centauri_wifi *wifi = *(struct centauri_wifi **)wiphy_priv(wiphy);
+-	u8 payload[16] = {};
+-	bool connected;
+-	int ret;
+-
+-	mutex_lock(&wifi->lock);
+-	if (wifi->connecting) {
+-		mutex_unlock(&wifi->lock);
+-		return -EBUSY;
+-	}
+-	put_unaligned_le16(reason, payload);
+-	put_unaligned_le16(328, payload + 8);
+-	put_unaligned_le16(4, payload + 10);
+-	/* Preserve the firmware's default disconnect budget. */
+-	put_unaligned_le32(500, payload + 12);
+-	ret = command(wifi, 131073, payload, sizeof(payload));
+-	connected = wifi->connected;
+-	wifi->connected = false;
+-	mutex_unlock(&wifi->lock);
+-	cancel_delayed_work_sync(&wifi->link_work);
+-	netif_stop_queue(netdev);
+-	skb_queue_purge(&wifi->data_tx_queue);
+-	netif_carrier_off(netdev);
+-	if (connected)
+-		cfg80211_disconnected(netdev, reason, NULL, 0, true, GFP_KERNEL);
+-	return ret == -EREMOTEIO && wifi->reply_status == 326 ? 0 : ret;
+-}
+-
+-static int wifi_power_mgmt(struct wiphy *wiphy, struct net_device *netdev,
+-			   bool enabled, int timeout)
+-{
+-	struct centauri_wifi *wifi = *(struct centauri_wifi **)wiphy_priv(wiphy);
+-	u8 mode = enabled ? 0 : 3;
+-	int ret;
+-
+-	/* ACIIO80211PowerAdapter::setPowerSaveMode, command 7. */
+-	mutex_lock(&wifi->lock);
+-	ret = wifi->configured ? command(wifi, 7, &mode, sizeof(mode)) : -ENETDOWN;
+-	mutex_unlock(&wifi->lock);
+-	return ret;
+-}
+-
+-static void wifi_regulatory(struct wiphy *wiphy, struct regulatory_request *request)
+-{
+-	struct centauri_wifi *wifi = *(struct centauri_wifi **)wiphy_priv(wiphy);
+-	u8 country[3] = { request->alpha2[0], request->alpha2[1], 1 };
+-	int ret;
+-
+-	/* ACIRegulatoryAdapter::setCountryCode, command 9. Leave world-domain
+-	 * handling to cfg80211; do not invent a device country or bypass SAR.
+-	 */
+-	if (country[0] < 'A' || country[0] > 'Z' || country[1] < 'A' || country[1] > 'Z')
+-		return;
+-	mutex_lock(&wifi->lock);
+-	if (wifi->configured) {
+-		ret = command(wifi, 9, country, sizeof(country));
+-		dev_info(&wifi->control->pdev->dev,
+-			 "Wi-Fi country %c%c: rc=%d\n", country[0], country[1], ret);
+-	}
+-	mutex_unlock(&wifi->lock);
+-}
+-
+-/*
+- * The joined BSS as cfg80211 knows it from the last scan. No firmware query
+- * for live link statistics is known yet, so its signal is the scan's.
+- */
+-static struct cfg80211_bss *wifi_joined_bss(struct centauri_wifi *wifi)
+-{
+-	if (!wifi->connected)
+-		return NULL;
+-	return cfg80211_get_bss(wifi->wiphy, NULL, wifi->bssid, NULL, 0,
+-				IEEE80211_BSS_TYPE_ESS, IEEE80211_PRIVACY_ANY);
+-}
+-
+-static int wifi_get_station(struct wiphy *wiphy, struct wireless_dev *wdev,
+-			    const u8 *mac, struct station_info *sinfo)
+-{
+-	struct centauri_wifi *wifi = *(struct centauri_wifi **)wiphy_priv(wiphy);
+-	struct net_device_stats *stats = &wifi->netdev->stats;
+-	struct cfg80211_bss *bss;
+-	int ret = 0;
+-
+-	mutex_lock(&wifi->lock);
+-	if (!wifi->connected || !ether_addr_equal(mac, wifi->bssid)) {
+-		ret = -ENOENT;
+-		goto out;
+-	}
+-	sinfo->filled |= BIT_ULL(NL80211_STA_INFO_RX_PACKETS) |
+-			 BIT_ULL(NL80211_STA_INFO_TX_PACKETS) |
+-			 BIT_ULL(NL80211_STA_INFO_RX_BYTES64) |
+-			 BIT_ULL(NL80211_STA_INFO_TX_BYTES64) |
+-			 BIT_ULL(NL80211_STA_INFO_TX_FAILED) |
+-			 BIT_ULL(NL80211_STA_INFO_RX_DROP_MISC);
+-	sinfo->rx_packets = stats->rx_packets;
+-	sinfo->tx_packets = stats->tx_packets;
+-	sinfo->rx_bytes = stats->rx_bytes;
+-	sinfo->tx_bytes = stats->tx_bytes;
+-	sinfo->tx_failed = stats->tx_errors;
+-	sinfo->rx_dropped_misc = stats->rx_dropped;
+-
+-	bss = wifi_joined_bss(wifi);
+-	if (bss) {
+-		sinfo->filled |= BIT_ULL(NL80211_STA_INFO_SIGNAL);
+-		sinfo->signal = bss->signal / 100;	/* mBm */
+-		cfg80211_put_bss(wiphy, bss);
+-	}
+-out:
+-	mutex_unlock(&wifi->lock);
+-	return ret;
+-}
+-
+-static int wifi_get_channel(struct wiphy *wiphy, struct wireless_dev *wdev,
+-			    unsigned int link_id, struct cfg80211_chan_def *chandef)
+-{
+-	struct centauri_wifi *wifi = *(struct centauri_wifi **)wiphy_priv(wiphy);
+-	struct cfg80211_bss *bss;
+-	int ret = -ENODATA;
+-
+-	mutex_lock(&wifi->lock);
+-	bss = wifi_joined_bss(wifi);
+-	if (bss) {
+-		/* The join asks the firmware for a 20 MHz channel. */
+-		cfg80211_chandef_create(chandef, bss->channel, NL80211_CHAN_NO_HT);
+-		cfg80211_put_bss(wiphy, bss);
+-		ret = 0;
+-	}
+-	mutex_unlock(&wifi->lock);
+-	return ret;
+-}
+-
+-static const struct cfg80211_ops wifi_ops = {
+-	.scan = wifi_scan,
+-	.connect = wifi_connect,
+-	.disconnect = wifi_disconnect,
+-	.set_power_mgmt = wifi_power_mgmt,
+-	.get_station = wifi_get_station,
+-	.get_channel = wifi_get_channel,
+-};
+-
+-static int net_open(struct net_device *netdev)
+-{
+-	netif_carrier_off(netdev);
+-	netif_stop_queue(netdev);
+-	return 0;
+-}
+-
+-static int net_stop(struct net_device *netdev)
+-{
+-	struct centauri_wifi *wifi = *(struct centauri_wifi **)netdev_priv(netdev);
+-
+-	netif_stop_queue(netdev);
+-	skb_queue_purge(&wifi->data_tx_queue);
+-	return 0;
+-}
+-
+-static netdev_tx_t net_transmit(struct sk_buff *skb, struct net_device *netdev)
+-{
+-	struct centauri_wifi *wifi = *(struct centauri_wifi **)netdev_priv(netdev);
+-
+-	if (READ_ONCE(wifi->stopping) || !READ_ONCE(wifi->connected) ||
+-	    skb->len < ETH_HLEN || skb->len > BUFFER_SIZE) {
+-		netdev->stats.tx_dropped++;
+-		dev_kfree_skb_any(skb);
+-		return NETDEV_TX_OK;
+-	}
+-	if (skb_queue_len(&wifi->data_tx_queue) >= DATA_TX_QUEUE_LIMIT) {
+-		netif_stop_queue(netdev);
+-		return NETDEV_TX_BUSY;
+-	}
+-	skb_queue_tail(&wifi->data_tx_queue, skb);
+-	if (skb_queue_len(&wifi->data_tx_queue) >= DATA_TX_QUEUE_LIMIT)
+-		netif_stop_queue(netdev);
+-	mod_delayed_work(system_wq, &wifi->link_work, 0);
+-	return NETDEV_TX_OK;
+-}
+-
+-static const struct net_device_ops net_ops = {
+-	.ndo_open = net_open,
+-	.ndo_stop = net_stop,
+-	.ndo_start_xmit = net_transmit,
+-	.ndo_validate_addr = eth_validate_addr,
+-};
+-
+-/* Airship direct_memregion::map (0x1802864e0) sends opcode 8, a region ID,
+- * byte size and a 64-bit DVA in a 24-byte header. Alpha's region-debug is ID 1.
+- * Firmware 0x175340 passes those fields to DramPhyService_handle_buffer;
+- * InitDramLoggerMgr writes a 0x158-byte control header to the supplied buffer.
+- * This is distinct from the fw_debug transfer ring. Never print log payloads:
+- * firmware diagnostics may contain private connection material.
+- */
+-static ssize_t fwlog_start_write(struct file *file, const char __user *input,
+-				size_t count, loff_t *position)
+-{
+-	struct centauri_wifi *wifi = file->private_data;
+-	u8 message[24] = { 8, 0, 1, 0 };
+-	unsigned int action;
+-	unsigned long deadline;
+-	int ret;
+-
+-	ret = kstrtouint_from_user(input, count, 0, &action);
+-	if (ret || action != 1)
+-		return ret ?: -EINVAL;
+-	mutex_lock(&wifi->lock);
+-	mutex_lock(&wifi->fwlog_lock);
+-	if (!wifi->configured || wifi->connecting || wifi->connected || wifi->scan_request) {
+-		ret = -EBUSY;
+-		goto out;
+-	}
+-	if (wifi->fwlog_attempted) {
+-		ret = -EALREADY;
+-		goto out;
+-	}
+-	ret = centauri_alpha_log_buffer(wifi->control, &wifi->fwlog_buffer,
+-					 &wifi->fwlog_dma, &wifi->fwlog_size);
+-	if (ret)
+-		goto out;
+-	put_unaligned_le32(wifi->fwlog_size, message + 4);
+-	put_unaligned_le64(wifi->fwlog_dma, message + 8);
+-	wifi->fwlog_attempted = true;
+-	ret = alpha_message(wifi, message, sizeof(message));
+-	if (ret)
+-		goto report;
+-	deadline = jiffies + msecs_to_jiffies(2000);
+-	do {
+-		if (readl(wifi->a.bar + 8) != 2) {
+-			ret = -EIO;
+-			goto report;
+-		}
+-		dma_rmb();
+-		if (get_unaligned_le16(wifi->fwlog_buffer) == 0x201) {
+-			wifi->fwlog_ready = true;
+-			goto report;
+-		}
+-		usleep_range(1000, 2000);
+-	} while (time_before(jiffies, deadline));
+-	ret = -ETIMEDOUT;
+-report:
+-	dev_info(&wifi->control->pdev->dev,
+-		 "Wi-Fi DRAM logger: rc=%d initialized=%u stage=%u\n",
+-		 ret, wifi->fwlog_ready, readl(wifi->a.bar + 8));
+-out:
+-	mutex_unlock(&wifi->fwlog_lock);
+-	mutex_unlock(&wifi->lock);
+-	return ret ?: count;
+-}
+-
+-static const struct file_operations fwlog_start_ops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.write = fwlog_start_write,
+-};
+-
+-static ssize_t fwlog_status_read(struct file *file, char __user *output,
+-				size_t count, loff_t *position)
+-{
+-	struct centauri_wifi *wifi = file->private_data;
+-	char text[320];
+-	u8 header[0xb4] = { 0 };
+-	int length;
+-
+-	mutex_lock(&wifi->fwlog_lock);
+-	if (wifi->fwlog_buffer) {
+-		dma_rmb();
+-		memcpy(header, wifi->fwlog_buffer, sizeof(header));
+-	}
+-	length = scnprintf(text, sizeof(text),
+-		"attempted=%u initialized=%u bytes=%zu version=%#x blocks=%u block_size=%u mask=%#x data_offset=%u consumer=%u producer=%u header14=%u header18=%u header1c=%u connecting=%u scanning=%u\n",
+-		wifi->fwlog_attempted, wifi->fwlog_ready, wifi->fwlog_size,
+-		get_unaligned_le16(header), get_unaligned_le16(header + 2),
+-		get_unaligned_le32(header + 4), get_unaligned_le32(header + 8),
+-		get_unaligned_le32(header + 12), get_unaligned_le32(header + 16),
+-		get_unaligned_le32(header + 0xb0),
+-		get_unaligned_le32(header + 20), get_unaligned_le32(header + 24),
+-		get_unaligned_le32(header + 28),
+-		!!READ_ONCE(wifi->connecting), !!READ_ONCE(wifi->scan_request));
+-	mutex_unlock(&wifi->fwlog_lock);
+-	return simple_read_from_buffer(output, count, position, text, length);
+-}
+-
+-static const struct file_operations fwlog_status_ops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.read = fwlog_status_read,
+-	.llseek = default_llseek,
+-};
+-
+-/* The exact firmware's 0x144cfc compares header +0xb0 (producer) against
+- * +0x10 (host consumer). InitDramLoggerMgr registers a GDMA read of +0x10.
+- * Only acknowledge records after a private snapshot has been verified.
+- * Leave three entries reserved for the firmware's three DMA descriptors
+- * until completion/record sequencing is independently decoded.
+- */
+-static ssize_t fwlog_ack_write(struct file *file, const char __user *input,
+-			       size_t count, loff_t *position)
+-{
+-	struct centauri_wifi *wifi = file->private_data;
+-	u8 *header;
+-	u32 requested, consumer, producer, pending;
+-	u16 blocks;
+-	int ret;
+-
+-	ret = kstrtou32_from_user(input, count, 0, &requested);
+-	if (ret)
+-		return ret;
+-	mutex_lock(&wifi->fwlog_lock);
+-	if (!wifi->fwlog_ready || readl(wifi->a.bar + 8) != 2) {
+-		ret = -ENETDOWN;
+-		goto out;
+-	}
+-	header = wifi->fwlog_buffer;
+-	dma_rmb();
+-	blocks = get_unaligned_le16(header + 2);
+-	consumer = get_unaligned_le32(header + 0x10);
+-	producer = get_unaligned_le32(header + 0xb0);
+-	pending = producer - consumer;
+-	if (get_unaligned_le16(header) != 0x201 || blocks < 8 ||
+-	    pending > blocks || pending < 3 || requested - consumer > pending - 3) {
+-		ret = -EINVAL;
+-		goto out;
+-	}
+-	WRITE_ONCE(*(__le32 *)(header + 0x10), cpu_to_le32(requested));
+-	dma_wmb();
+-	ret = 0;
+-out:
+-	mutex_unlock(&wifi->fwlog_lock);
+-	return ret ?: count;
+-}
+-
+-static const struct file_operations fwlog_ack_ops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.write = fwlog_ack_write,
+-};
+-
+-/* Root-only binary diagnostics. Save directly to a protected artifact, never
+- * the console or a text log. The device may update blocks during a read.
+- */
+-static ssize_t fwlog_buffer_read(struct file *file, char __user *output,
+-				size_t count, loff_t *position)
+-{
+-	struct centauri_wifi *wifi = file->private_data;
+-	ssize_t ret;
+-
+-	mutex_lock(&wifi->fwlog_lock);
+-	if (!wifi->fwlog_ready) {
+-		ret = -ENODATA;
+-	} else {
+-		dma_rmb();
+-		ret = simple_read_from_buffer(output, count, position,
+-					    wifi->fwlog_buffer, wifi->fwlog_size);
+-	}
+-	mutex_unlock(&wifi->fwlog_lock);
+-	return ret;
+-}
+-
+-static const struct file_operations fwlog_buffer_ops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.read = fwlog_buffer_read,
+-	.llseek = default_llseek,
+-};
+-
+-/* The hardware data-ring callback requires the ten-byte WLAN clientdata
+- * extension after the 44-byte ACIPC header. Without it UMAC asserts at
+- * 0x11760e. Keep these empty-ring probes explicit until packet DMA is proven.
+- * The reserved regions below do not overlap control rings or scan buffers.
+- */
+-/* Called with wifi->lock held. From the connect path (internal) the "connecting" flag is expected to be set. */
+-static int data_probe_locked(struct centauri_wifi *wifi, unsigned int id, bool internal)
+-{
+-	u8 message[0x34 + 10] = { 0 };
+-	unsigned int vector, offset, size, bit, doorbell, irq;
+-	bool transfer = false;
+-	int ret;
+-
+-	if (id == 76) {
+-		vector = 192;
+-		offset = 0x200000;
+-		size = 2048;
+-		bit = 0;
+-		doorbell = 18;
+-		irq = 3;
+-	} else if (id == 14) {
+-		vector = 206;
+-		offset = 0x220000;
+-		size = 256;
+-		bit = 1;
+-		doorbell = 11;
+-		irq = 8;
+-	} else if (id == 15) {
+-		vector = 207;
+-		offset = 0x240000;
+-		size = 128;
+-		bit = 2;
+-		doorbell = 11;
+-		irq = 8;
+-	} else if (id == 24 || id == 25 || id == 12) {
+-		transfer = true;
+-		vector = id;
+-		offset = id == 12 ? 0x520000 : id == 24 ? 0x500000 : 0x540000;
+-		size = 128;
+-		bit = id == 12 ? 4 : id == 24 ? 3 : 5;
+-		doorbell = id == 12 ? 11 : 18;
+-		irq = id == 12 ? 8 : 3;
+-	} else {
+-		return -EINVAL;
+-	}
+-	if (readl(wifi->a.bar + 8) != 2) {
+-		ret = -EIO;
+-		return ret;
+-	}
+-	if ((!internal && wifi->connecting) || wifi->scan_request ||
+-	    (wifi->data_probe_done & BIT(bit))) {
+-		ret = -EBUSY;
+-		return ret;
+-	}
+-	wifi->data_probe_done |= BIT(bit);
+-	memset(wifi->a.window + offset, 0, size * 32);
+-	index_write(wifi, transfer ? 1 : 0, vector, 0);
+-	index_write(wifi, transfer ? 3 : 2, vector, 0);
+-	message[0] = transfer ? 1 : 2;
+-	message[2] = transfer && id == 12 ? 0 : 4;
+-	put_unaligned_le16(id, message + 4);
+-	put_unaligned_le16(vector, message + 6);
+-	put_unaligned_le64(wifi->a.window_dma + offset, message + 8);
+-	if (transfer) {
+-		put_unaligned_le64(~0ULL, message + 0x10);
+-		put_unaligned_le16(size, message + 0x18);
+-		put_unaligned_le16(id == 12 ? 12 : 76, message + 0x1a);
+-		put_unaligned_le16(doorbell, message + 0x1c);
+-		put_unaligned_le16(id == 12 ? 0x220 : 0, message + 0x1e);
+-		put_unaligned_le32(16, message + 0x20);
+-		put_unaligned_le16(irq, message + 0x24);
+-	} else {
+-		put_unaligned_le16(size, message + 0x10);
+-		put_unaligned_le16(id == 15 ? 12 : 0xffff, message + 0x12);
+-		put_unaligned_le16(doorbell, message + 0x14);
+-		put_unaligned_le32(1, message + 0x18);
+-		put_unaligned_le16(irq, message + 0x1c);
+-	}
+-	/* AirshipDataTxTransferRing::initWithOptions maps the host MCBC
+-	 * parameters to version 0, hardware interface 0, TID 6, AC 3, and
+-	 * six broadcast destination bytes. The default probe is unchanged.
+-	 */
+-	if (id == 25 && data_tx_broadcast) {
+-		message[0x34 + 2] = 6;
+-		message[0x34 + 3] = 3;
+-		eth_broadcast_addr(message + 0x34 + 4);
+-	}
+-	ret = alpha_message(wifi, message, (transfer ? 0x34 : 0x2c) + 10);
+-	msleep(1000);
+-	dev_info(&wifi->control->pdev->dev,
+-		 "data %s probe id=%u index=%u extension=10 rc=%d stage=%u head=%u tail=%u\n",
+-		 transfer ? "TR" : "CR", id, vector, ret, readl(wifi->a.bar + 8),
+-		 index_read(wifi, transfer ? 3 : 0, vector),
+-		 index_read(wifi, transfer ? 1 : 2, vector));
+-	if (!ret && readl(wifi->a.bar + 8) != 2)
+-		ret = -EIO;
+-	if (!ret && transfer && id == 12) {
+-		unsigned int slot;
+-
+-		/* Give the receive engine bounded, individually identifiable buffers.
+-		 * No recycling or network delivery until the completion ABI is proven.
+-		 */
+-		for (slot = 0; slot < size - 1; slot++) {
+-			u8 *descriptor = wifi->a.window + offset + slot * 16;
+-			u32 buffer = DATA_RX_BUFFER + slot * 4096;
+-
+-			memset(wifi->a.window + buffer, 0, 4096);
+-			put_unaligned_le32(1 | (4096 << 8), descriptor);
+-			put_unaligned_le64(wifi->a.window_dma + buffer, descriptor + 4);
+-			put_unaligned_le32(slot + 1, descriptor + 12);
+-		}
+-		dma_wmb();
+-		index_write(wifi, 3, vector, size - 1);
+-		dma_wmb();
+-		writel(1, wifi->a.bar + 0x1050);
+-		msleep(100);
+-		dev_info(&wifi->control->pdev->dev,
+-			 "data RX buffers posted=%u stage=%u tr_tail=%u cr_head=%u\n",
+-			 size - 1, readl(wifi->a.bar + 8), index_read(wifi, 1, 12),
+-			 index_read(wifi, 0, 207));
+-	}
+-	return ret;
+-}
+-
+-static ssize_t data_probe_write(struct file *file, const char __user *input,
+-			       size_t count, loff_t *position)
+-{
+-	struct centauri_wifi *wifi = file->private_data;
+-	unsigned int id;
+-	int ret;
+-
+-	ret = kstrtouint_from_user(input, count, 0, &id);
+-	if (ret)
+-		return ret;
+-	mutex_lock(&wifi->lock);
+-	ret = data_probe_locked(wifi, id, false);
+-	mutex_unlock(&wifi->lock);
+-	return ret ?: count;
+-}
+-
+-static int transmit_eapol_start(struct centauri_wifi *wifi)
+-{
+-	u16 head = index_read(wifi, 3, 24);
+-	u8 *descriptor = wifi->a.window + 0x500000 + head * 32;
+-	u8 *packet = wifi->a.window + 0xf00000 + head * 64;
+-	u64 metadata = 0;
+-	unsigned int attempt;
+-
+-	if (readl(wifi->a.bar + 8) != 2 || !(wifi->data_probe_done & BIT(3)))
+-		return -ENETDOWN;
+-	/* Eight independent buffers bound the probe without ring reuse. */
+-	if (head >= 8 || index_read(wifi, 1, 24) != head)
+-		return -EBUSY;
+-	if (eapol_unicast && (!wifi->associated || !is_valid_ether_addr(wifi->bssid)))
+-		return -ENOTCONN;
+-	/* A standards-defined EAPOL-Start, with no credential/key material.
+-	 * Descriptor flags 3 mean a DMA buffer plus the 16-byte WLAN footer.
+-	 * Interface zero and default TX policy have a zero footer.
+-	 */
+-	memset(packet, 0, 64);
+-	if (eapol_unicast)
+-		memcpy(packet, wifi->bssid, ETH_ALEN);
+-	else
+-		memcpy(packet, "\x01\x80\xc2\x00\x00\x03", ETH_ALEN);
+-	memcpy(packet + ETH_ALEN, wifi->netdev->dev_addr, ETH_ALEN);
+-	put_unaligned_be16(ETH_P_PAE, packet + 12);
+-	packet[14] = 2;
+-	packet[15] = 1;
+-	memset(descriptor, 0, 32);
+-	put_unaligned_le32(3 | (18 << 8), descriptor);
+-	put_unaligned_le64(wifi->a.window_dma + 0xf00000 + head * 64, descriptor + 4);
+-	put_unaligned_le16(head + 1, descriptor + 12);
+-	if (eapol_control_profile)
+-		metadata |= BIT_ULL(60) | BIT_ULL(48);
+-	if (eapol_relative_lifetime) {
+-		/* AirshipDataPacket::setRelativeExpirationTime uses mode 6 in
+-		 * bits 29:27 and microseconds in the second metadata word.
+-		 */
+-		metadata |= 6ULL << 27;
+-		put_unaligned_le64(2000000, descriptor + 24);
+-	}
+-	put_unaligned_le64(metadata, descriptor + 16);
+-	dma_wmb();
+-	index_write(wifi, 3, 24, head + 1);
+-	dma_wmb();
+-	writel(1, wifi->a.bar + 0x1030);
+-	for (attempt = 0; attempt < 20; attempt++) {
+-		if (index_read(wifi, 1, 24) == head + 1 || readl(wifi->a.bar + 8) != 2)
+-			break;
+-		usleep_range(5000, 6000);
+-	}
+-	dev_info(&wifi->control->pdev->dev,
+-		 "EAPOL-Start DMA probe: slot=%u associated=%d unicast=%d relative_expiry=%d stage=%u tr_tail=%u cr_head=%u\n",
+-		 head, wifi->associated, eapol_unicast, eapol_relative_lifetime, readl(wifi->a.bar + 8),
+-		 index_read(wifi, 1, 24), index_read(wifi, 0, 192));
+-	return readl(wifi->a.bar + 8) == 2 ? 0 : -EIO;
+-}
+-
+-static ssize_t eapol_start_write(struct file *file, const char __user *input,
+-				size_t count, loff_t *position)
+-{
+-	struct centauri_wifi *wifi = file->private_data;
+-	bool enabled;
+-	int ret;
+-
+-	ret = kstrtobool_from_user(input, count, &enabled);
+-	if (ret || !enabled)
+-		return ret ?: -EINVAL;
+-	mutex_lock(&wifi->lock);
+-	if (wifi->connecting || wifi->scan_request) {
+-		ret = -EBUSY;
+-		goto out;
+-	}
+-	ret = transmit_eapol_start(wifi);
+-out:
+-	mutex_unlock(&wifi->lock);
+-	return ret ?: count;
+-}
+-
+-static const struct file_operations eapol_start_ops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.write = eapol_start_write,
+-};
+-
+-static const struct file_operations data_probe_ops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.write = data_probe_write,
+-};
+-
+-static ssize_t data_status_read(struct file *file, char __user *output,
+-			       size_t count, loff_t *position)
+-{
+-	struct centauri_wifi *wifi = file->private_data;
+-	char status[1536];
+-	unsigned int i, length;
+-
+-	mutex_lock(&wifi->lock);
+-	dma_rmb();
+-	length = scnprintf(status, sizeof(status),
+-			   "stage=%u tx_cr=%u tx_tr=%u/%u rx_cr=%u rx_tr=%u/%u received=%u reposted=%u bad=%u samples=%u normal_tx_tr=%u/%u submitted=%u completed=%u failed=%u queued=%u coalesced=%u tx_bad=%u\n",
+-			   readl(wifi->a.bar + 8), index_read(wifi, 0, 192),
+-			   index_read(wifi, 1, 24), index_read(wifi, 3, 24),
+-			   index_read(wifi, 0, 207), index_read(wifi, 1, 12),
+-			   index_read(wifi, 3, 12), wifi->data_rx_received,
+-			   wifi->data_rx_reposted, wifi->data_rx_bad,
+-			   le32_to_cpu(wifi->rx_snapshot.count),
+-			   index_read(wifi, 1, 25), index_read(wifi, 3, 25),
+-			   wifi->data_tx_submitted, wifi->data_tx_completed,
+-			   wifi->data_tx_failed, skb_queue_len(&wifi->data_tx_queue),
+-			   wifi->data_tx_coalesced, wifi->data_tx_bad);
+-	for (i = 0; i < 8; i++) {
+-		u8 *entry = wifi->a.window + 0x240000 + i * 32;
+-
+-		length += scnprintf(status + length, sizeof(status) - length,
+-			"rx_completion[%u]=%08x %08x %08x %08x %08x %08x %08x %08x\n",
+-			i, get_unaligned_le32(entry), get_unaligned_le32(entry + 4),
+-			get_unaligned_le32(entry + 8), get_unaligned_le32(entry + 12),
+-			get_unaligned_le32(entry + 16), get_unaligned_le32(entry + 20),
+-			get_unaligned_le32(entry + 24), get_unaligned_le32(entry + 28));
+-	}
+-	for (i = 0; i < 8; i++) {
+-		u8 *entry = wifi->a.window + 0x200000 + i * 32;
+-
+-		length += scnprintf(status + length, sizeof(status) - length,
+-			"tx_completion[%u]=%08x %08x %08x %08x %08x %08x %08x %08x\n",
+-			i, get_unaligned_le32(entry), get_unaligned_le32(entry + 4),
+-			get_unaligned_le32(entry + 8), get_unaligned_le32(entry + 12),
+-			get_unaligned_le32(entry + 16), get_unaligned_le32(entry + 20),
+-			get_unaligned_le32(entry + 24), get_unaligned_le32(entry + 28));
+-	}
+-	mutex_unlock(&wifi->lock);
+-	return simple_read_from_buffer(output, count, position, status, length);
+-}
+-
+-static const struct file_operations data_status_ops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.read = data_status_read,
+-};
+-
+-/* Contains private network traffic: retrieve only as a protected binary file.
+- * Samples are copied once into host memory and never change after count 8.
+- */
+-static ssize_t data_rx_snapshot_read(struct file *file, char __user *output,
+-				    size_t count, loff_t *position)
+-{
+-	struct centauri_wifi *wifi = file->private_data;
+-	ssize_t ret;
+-
+-	mutex_lock(&wifi->lock);
+-	ret = simple_read_from_buffer(output, count, position, &wifi->rx_snapshot,
+-				      sizeof(wifi->rx_snapshot));
+-	mutex_unlock(&wifi->lock);
+-	return ret;
+-}
+-
+-static const struct file_operations data_rx_snapshot_ops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.read = data_rx_snapshot_read,
+-	.llseek = default_llseek,
+-};
+-
+-static ssize_t country_status_read(struct file *file, char __user *output,
+-				  size_t count, loff_t *position)
+-{
+-	struct centauri_wifi *wifi = file->private_data;
+-	char status[96];
+-	unsigned int length;
+-	int ret;
+-
+-	mutex_lock(&wifi->lock);
+-	wifi->country_valid = false;
+-	ret = wifi->configured ? command(wifi, 10, NULL, 0) : -ENETDOWN;
+-	length = scnprintf(status, sizeof(status), "rc=%d valid=%d country_bytes=%02x/%02x/%02x\n",
+-			   ret, wifi->country_valid, wifi->country[0], wifi->country[1], wifi->country[2]);
+-	mutex_unlock(&wifi->lock);
+-	return simple_read_from_buffer(output, count, position, status, length);
+-}
+-
+-static const struct file_operations country_ops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.read = country_status_read,
+-};
+-
+-static int query_link_status(struct centauri_wifi *wifi)
+-{
+-	wifi->link_status_valid = wifi->emlsr_valid = false;
+-	wifi->link_count = wifi->link_status_size = 0;
+-	wifi->link_tlv_count = 0;
+-	return wifi->configured ? command(wifi, 20, NULL, 0) : -ENETDOWN;
+-}
+-
+-static int link_status_show(struct seq_file *seq, void *unused)
+-{
+-	struct centauri_wifi *wifi = seq->private;
+-	unsigned int i;
+-	int ret;
+-
+-	mutex_lock(&wifi->lock);
+-	ret = query_link_status(wifi);
+-	seq_printf(seq, "rc=%d valid=%d size=%u count=%u emlsr=%d/%u\n", ret,
+-		   wifi->link_status_valid, wifi->link_status_size, wifi->link_count,
+-		   wifi->emlsr_valid, wifi->emlsr_mode);
+-	for (i = 0; i < wifi->link_tlv_count; i++)
+-		seq_printf(seq, "tag=%u length=%u\n", wifi->link_tags[i], wifi->link_lengths[i]);
+-	if (wifi->link_status_valid)
+-		for (i = 0; i < wifi->link_count; i++)
+-			seq_printf(seq, "link=%u prime=%u channel=%u band=%u\n", i,
+-				   wifi->link_prime[i], wifi->link_channel[i], wifi->link_band[i]);
+-	mutex_unlock(&wifi->lock);
+-	return 0;
+-}
+-
+-static int link_status_open(struct inode *inode, struct file *file)
+-{
+-	return single_open(file, link_status_show, inode->i_private);
+-}
+-
+-static const struct file_operations link_status_ops = {
+-	.owner = THIS_MODULE,
+-	.open = link_status_open,
+-	.read = seq_read,
+-	.llseek = seq_lseek,
+-	.release = single_release,
+-};
+-
+-static int tx_config_show(struct seq_file *seq, void *unused)
+-{
+-	struct centauri_wifi *wifi = seq->private;
+-	u8 id;
+-	int ret;
+-
+-	mutex_lock(&wifi->lock);
+-	seq_printf(seq, "applied=%u\n", wifi->tx_defaults_applied);
+-	for (id = 0; id <= 1; id++) {
+-		wifi->tx_profile_valid = false;
+-		ret = wifi->configured ? command(wifi, 56, &id, sizeof(id)) : -ENETDOWN;
+-		seq_printf(seq, "profile=%u rc=%d status=%u valid=%d", id, ret,
+-			   wifi->reply_status, wifi->tx_profile_valid);
+-		if (wifi->tx_profile_valid)
+-			seq_printf(seq, " rate=%#x rts_threshold=%u rts_retries=%u retries=%u type=%u id=%u",
+-				   get_unaligned_le32(wifi->tx_profile),
+-				   get_unaligned_le16(wifi->tx_profile + 4), wifi->tx_profile[6],
+-				   wifi->tx_profile[7], wifi->tx_profile[8], wifi->tx_profile[9]);
+-		seq_putc(seq, '\n');
+-	}
+-	mutex_unlock(&wifi->lock);
+-	return 0;
+-}
+-
+-static int tx_config_open(struct inode *inode, struct file *file)
+-{
+-	return single_open(file, tx_config_show, inode->i_private);
+-}
+-
+-static ssize_t tx_config_write(struct file *file, const char __user *input,
+-			       size_t count, loff_t *position)
+-{
+-	struct centauri_wifi *wifi = ((struct seq_file *)file->private_data)->private;
+-	/* Exact configureTxDataCtrlPacketProfile: command 52, TLV 340/10.
+-	 * 0xa0154 is the TLV header, not the command ID.
+-	 */
+-	static const u8 control_profile[] = {
+-		0x54, 1, 10, 0, 0, 8, 0, 0, 0xff, 0xff, 0xff, 0xff, 1, 1,
+-	};
+-	u8 lifetime[20] = {};
+-	unsigned int action, i;
+-	int ret;
+-
+-	ret = kstrtouint_from_user(input, count, 0, &action);
+-	if (ret || (action != 1 && action != 2))
+-		return ret ?: -EINVAL;
+-	mutex_lock(&wifi->lock);
+-	if (!wifi->configured || wifi->connecting || wifi->scan_request) {
+-		ret = -EBUSY;
+-		goto out;
+-	}
+-	if (action == 1) {
+-		/* AppleWLAN80211STA::resetTxPacketLifetime selects 2000 ms for
+-		 * each AC. The ACI adapter converts to firmware microseconds.
+-		 */
+-		for (i = 0; i < 4; i++)
+-			put_unaligned_le32(2000000, lifetime + 4 + 4 * i);
+-		ret = command(wifi, 43, lifetime, sizeof(lifetime));
+-	} else {
+-		ret = command(wifi, 52, control_profile, sizeof(control_profile));
+-	}
+-	if (!ret)
+-		wifi->tx_defaults_applied |= BIT(action - 1);
+-	dev_info(&wifi->control->pdev->dev, "reference TX setup action=%u rc=%d\n", action, ret);
+-out:
+-	mutex_unlock(&wifi->lock);
+-	return ret ?: count;
+-}
+-
+-static const struct file_operations tx_config_ops = {
+-	.owner = THIS_MODULE,
+-	.open = tx_config_open,
+-	.read = seq_read,
+-	.write = tx_config_write,
+-	.llseek = seq_lseek,
+-	.release = single_release,
+-};
+-
+-static ssize_t host_wakeup_write(struct file *file, const char __user *input,
+-				size_t count, loff_t *position)
+-{
+-	struct centauri_wifi *wifi = file->private_data;
+-	/* ACIIO80211PowerAdapter::hostWakeup selects state 0 in command 6.
+-	 * This firmware's SysCmdSetHostPowerState accepts the fixed 27-byte
+-	 * request without TLVs. Keep its existing event filter: the newer host
+-	 * adapter's 92-byte event list exceeds this firmware's 86-byte limit.
+-	 */
+-	const u8 payload[3] = {};
+-	unsigned int action;
+-	int ret;
+-
+-	ret = kstrtouint_from_user(input, count, 0, &action);
+-	if (ret || action != 1)
+-		return ret ?: -EINVAL;
+-	mutex_lock(&wifi->lock);
+-	if (!wifi->configured || wifi->connecting || wifi->scan_request || wifi->connected) {
+-		ret = -EBUSY;
+-		goto out;
+-	}
+-	ret = command(wifi, 6, payload, sizeof(payload));
+-	dev_info(&wifi->control->pdev->dev, "host wakeup state=0 rc=%d status=%u stage=%u\n",
+-		 ret, wifi->reply_status, readl(wifi->a.bar + 8));
+-out:
+-	mutex_unlock(&wifi->lock);
+-	return ret ?: count;
+-}
+-
+-static const struct file_operations host_wakeup_ops = {
+-	.owner = THIS_MODULE,
+-	.open = simple_open,
+-	.write = host_wakeup_write,
+-};
+-
+-static int query_station_stats(struct centauri_wifi *wifi)
+-{
+-	u8 payload[22] = {};
+-	int ret;
+-
+-	/* ACIDebugAdapter::queryStaCounterStats: statistic bit 37, all peers.
+-	 * Its fixed counter record contains no key or packet payload bytes.
+-	 */
+-	put_unaligned_le64(BIT_ULL(37), payload);
+-	payload[8] = 1;
+-	put_unaligned_le16(363, payload + 9);
+-	put_unaligned_le16(9, payload + 11);
+-	wifi->station_stats_valid = false;
+-	wifi->stats_reply_size = wifi->stats_tag = wifi->stats_length = 0;
+-	ret = wifi->configured ? command(wifi, 0xb0001, payload, sizeof(payload)) : -ENETDOWN;
+-	if (!ret) {
+-		usleep_range(1000, 2000);
+-		drain(wifi);
+-	}
+-	return ret;
+-}
+-
+-static int station_stats_show(struct seq_file *seq, void *unused)
+-{
+-	struct centauri_wifi *wifi = seq->private;
+-	unsigned int i;
+-	int ret;
+-
+-	mutex_lock(&wifi->lock);
+-	ret = query_station_stats(wifi);
+-	seq_printf(seq, "rc=%d valid=%d size=%u tag=%#x length=%u\n", ret,
+-		   wifi->station_stats_valid, wifi->stats_reply_size, wifi->stats_tag, wifi->stats_length);
+-	if (!ret && wifi->station_stats_valid)
+-		for (i = 0; i < wifi->stats_length; i += 4) {
+-			u32 value = get_unaligned_le32(wifi->station_stats + i);
+-
+-			if (value)
+-				seq_printf(seq, "%03x %u\n", i, value);
+-		}
+-	mutex_unlock(&wifi->lock);
+-	return 0;
+-}
+-
+-static int station_stats_open(struct inode *inode, struct file *file)
+-{
+-	return single_open(file, station_stats_show, inode->i_private);
+-}
+-
+-static const struct file_operations station_stats_ops = {
+-	.owner = THIS_MODULE,
+-	.open = station_stats_open,
+-	.read = seq_read,
+-	.llseek = seq_lseek,
+-	.release = single_release,
+-};
+-
+-static int rx_crypto_stats_show(struct seq_file *seq, void *unused)
+-{
+-	/* ACIStatisticsAdapter::printRxChipCounterStats at 0x1809d7b80:
+-	 * statistic bit 30, response TLV 0xf921, sixteen LE32 counters.
+-	 * Unlike the station record, this fixed structure contains no MACs.
+-	 */
+-	static const char * const names[] = {
+-		"rx_duplicate_errors", "rx_ampdu_duplicate_errors",
+-		"rx_unicast_tkip_replay_errors", "rx_unicast_tkip_decrypt_errors",
+-		"rx_multicast_tkip_replay_errors", "rx_multicast_tkip_decrypt_errors",
+-		"rx_unicast_ccmp_replay_errors", "rx_unicast_ccmp_decrypt_errors",
+-		"rx_multicast_ccmp_replay_errors", "rx_multicast_ccmp_decrypt_errors",
+-		"phy_total_detect_count", "phy_ofdm_detect_count", "phy_11b_detect_count",
+-		"phy_plcp_error_count", "phy_total_receive_count", "phy_plcp_good_count",
+-	};
+-	struct centauri_wifi *wifi = seq->private;
+-	u8 payload[22] = {};
+-	unsigned int i;
+-	int ret;
+-
+-	put_unaligned_le64(BIT_ULL(30), payload);
+-	payload[8] = 1;
+-	put_unaligned_le16(363, payload + 9);
+-	put_unaligned_le16(9, payload + 11);
+-	mutex_lock(&wifi->lock);
+-	wifi->rx_crypto_stats_valid = false;
+-	wifi->stats_reply_size = wifi->stats_tag = wifi->stats_length = 0;
+-	ret = wifi->configured ? command(wifi, 0xb0001, payload, sizeof(payload)) : -ENETDOWN;
+-	if (!ret) {
+-		usleep_range(1000, 2000);
+-		drain(wifi);
+-	}
+-	seq_printf(seq, "rc=%d valid=%d size=%u tag=%#x length=%u\n", ret,
+-		   wifi->rx_crypto_stats_valid, wifi->stats_reply_size, wifi->stats_tag, wifi->stats_length);
+-	if (!ret && wifi->rx_crypto_stats_valid)
+-		for (i = 0; i < ARRAY_SIZE(names); i++)
+-			seq_printf(seq, "%s=%u\n", names[i],
+-				   get_unaligned_le32(wifi->rx_crypto_stats + i * 4));
+-	mutex_unlock(&wifi->lock);
+-	return 0;
+-}
+-
+-static int rx_crypto_stats_open(struct inode *inode, struct file *file)
+-{
+-	return single_open(file, rx_crypto_stats_show, inode->i_private);
+-}
+-
+-static const struct file_operations rx_crypto_stats_ops = {
+-	.owner = THIS_MODULE,
+-	.open = rx_crypto_stats_open,
+-	.read = seq_read,
+-	.llseek = seq_lseek,
+-	.release = single_release,
+-};
+-
+-static int dot11_mib_stats_show(struct seq_file *seq, void *unused)
+-{
+-	/* ACIStatisticsAdapter::printDot11MibStats at 0x1809d7fb0:
+-	 * statistic bit 25, scope 2/interface 0, TLV 0xf91b, 24 LE64s.
+-	 * Keep the host field names: tx_status_success is firmware accounting,
+-	 * not independent proof of over-the-air acknowledgement or AP delivery.
+-	 */
+-	static const char * const names[] = {
+-		"rx_msdu_pushed", "rx_msdu_pushed_multi", "rx_mpdu", "rx_mpdu_dup",
+-		"rx_ampdu_dup", "rx_mpdu_drop_error", "rx_msdu_drop_filter",
+-		"rx_holes_0", "rx_holes_1", "rx_holes_2", "rx_holes_3", "rx_holes_4",
+-		"rx_holes_5", "rx_holes_6", "rx_holes_7", "rx_holes_8",
+-		"tx_pulled", "tx_pulled_multi", "tx_pulled_core", "tx_status_success",
+-		"tx_status_abort_request", "tx_status_peer_gone",
+-		"tx_status_retries_exhausted", "tx_status_lifetime_expired",
+-	};
+-	struct centauri_wifi *wifi = seq->private;
+-	u8 payload[22] = {};
+-	unsigned int i;
+-	int ret;
+-
+-	put_unaligned_le64(BIT_ULL(25), payload);
+-	payload[8] = 1;
+-	put_unaligned_le16(363, payload + 9);
+-	put_unaligned_le16(9, payload + 11);
+-	/* The scope byte follows the eight-byte interface value in TLV 363. */
+-	payload[21] = 2;
+-	mutex_lock(&wifi->lock);
+-	wifi->dot11_mib_stats_valid = false;
+-	wifi->stats_reply_size = wifi->stats_tag = wifi->stats_length = 0;
+-	ret = wifi->configured ? command(wifi, 0xb0001, payload, sizeof(payload)) : -ENETDOWN;
+-	if (!ret) {
+-		usleep_range(1000, 2000);
+-		drain(wifi);
+-	}
+-	seq_printf(seq, "rc=%d valid=%d size=%u tag=%#x length=%u\n", ret,
+-		   wifi->dot11_mib_stats_valid, wifi->stats_reply_size, wifi->stats_tag, wifi->stats_length);
+-	if (!ret && wifi->dot11_mib_stats_valid)
+-		for (i = 0; i < ARRAY_SIZE(names); i++)
+-			seq_printf(seq, "%s=%llu\n", names[i],
+-				   (unsigned long long)get_unaligned_le64(wifi->dot11_mib_stats + i * 8));
+-	mutex_unlock(&wifi->lock);
+-	return 0;
+-}
+-
+-static int dot11_mib_stats_open(struct inode *inode, struct file *file)
+-{
+-	return single_open(file, dot11_mib_stats_show, inode->i_private);
+-}
+-
+-static const struct file_operations dot11_mib_stats_ops = {
+-	.owner = THIS_MODULE,
+-	.open = dot11_mib_stats_open,
+-	.read = seq_read,
+-	.llseek = seq_lseek,
+-	.release = single_release,
+-};
+-
+-static int tx_power_report_show(struct seq_file *seq, void *unused)
+-{
+-	/* Exact stock 25G76 WLANACIAdapter::queryLastTxStats, 0x180914d58:
+-	 * bit29, scope1/radio bitmap, TLV 0xf920 with 280 bytes. The newer
+-	 * macOS27 adapter expects 320 bytes and has a different record stride.
+-	 * Stock getLastTxInfo (0x1809150f8) reads the first five 28-byte records.
+-	 * These are rate/power observations, not proof of ACK or AP delivery.
+-	 */
+-	struct centauri_wifi *wifi = seq->private;
+-	u8 payload[22] = {};
+-	unsigned int radio, i;
+-	int ret;
+-
+-	put_unaligned_le64(BIT_ULL(29), payload);
+-	payload[8] = 1;
+-	put_unaligned_le16(363, payload + 9);
+-	put_unaligned_le16(9, payload + 11);
+-	payload[21] = 1;
+-	mutex_lock(&wifi->lock);
+-	for (radio = 1; radio <= 2; radio++) {
+-		put_unaligned_le64(radio, payload + 13);
+-		wifi->tx_power_report_valid = false;
+-		wifi->stats_reply_size = wifi->stats_tag = wifi->stats_length = 0;
+-		ret = wifi->configured ? command(wifi, 0xb0001, payload, sizeof(payload)) : -ENETDOWN;
+-		if (!ret) {
+-			usleep_range(1000, 2000);
+-			drain(wifi);
+-		}
+-		seq_printf(seq, "radio_bitmap=%u rc=%d valid=%d size=%u tag=%#x length=%u\n",
+-			   radio, ret, wifi->tx_power_report_valid, wifi->stats_reply_size,
+-			   wifi->stats_tag, wifi->stats_length);
+-		if (ret || !wifi->tx_power_report_valid)
+-			continue;
+-		for (i = 0; i < 5; i++) {
+-			const u8 *record = wifi->tx_power_report + i * 28;
+-
+-			/* Keep hardware enums and power bytes raw until interpreted
+-			 * against this exact firmware; omit unreviewed record fields.
+-			 */
+-			seq_printf(seq, "sample=%u power0_qdb_raw=%u power1_qdb_raw=%u power_qdb_raw=%u "
+-				   "hw_preamble=%u hw_rate=%u nss=%u hw_bw=%u hw_gi=%u\n",
+-				   i, record[14], record[15], record[16], record[17],
+-				   record[20], record[21] + 1, record[24], record[27]);
+-		}
+-	}
+-	mutex_unlock(&wifi->lock);
+-	return 0;
+-}
+-
+-static int tx_power_report_open(struct inode *inode, struct file *file)
+-{
+-	return single_open(file, tx_power_report_show, inode->i_private);
+-}
+-
+-static const struct file_operations tx_power_report_ops = {
+-	.owner = THIS_MODULE,
+-	.open = tx_power_report_open,
+-	.read = seq_read,
+-	.llseek = seq_lseek,
+-	.release = single_release,
+-};
+-
+-int centauri_wifi_register(struct centauri *c)
+-{
+-	struct centauri_wifi *wifi;
+-	unsigned int i;
+-	int ret;
+-
+-	wifi = kzalloc(sizeof(*wifi), GFP_KERNEL);
+-	if (!wifi)
+-		return -ENOMEM;
+-	c->wifi = wifi;
+-	wifi->control = c;
+-	mutex_init(&wifi->lock);
+-	mutex_init(&wifi->fwlog_lock);
+-	skb_queue_head_init(&wifi->data_tx_queue);
+-	INIT_WORK(&wifi->scan_work, scan_worker);
+-	INIT_WORK(&wifi->connect_work, connect_worker);
+-	INIT_DELAYED_WORK(&wifi->link_work, link_worker);
+-	ret = centauri_alpha_resources(c, &wifi->a);
+-	if (ret)
+-		goto failed;
+-	wifi->wiphy = wiphy_new(&wifi_ops, sizeof(struct centauri_wifi *));
+-	wifi->netdev = alloc_etherdev(sizeof(struct centauri_wifi *));
+-	if (!wifi->wiphy || !wifi->netdev) {
+-		ret = -ENOMEM;
+-		goto failed;
+-	}
+-	*(struct centauri_wifi **)wiphy_priv(wifi->wiphy) = wifi;
+-	*(struct centauri_wifi **)netdev_priv(wifi->netdev) = wifi;
+-	set_wiphy_dev(wifi->wiphy, &c->pdev->dev);
+-	wifi->wiphy->interface_modes = BIT(NL80211_IFTYPE_STATION);
+-	wifi->wiphy->max_scan_ssids = 1;
+-	wifi->wiphy->signal_type = CFG80211_SIGNAL_TYPE_MBM;
+-	wifi->wiphy->reg_notifier = wifi_regulatory;
+-	wifi->wiphy->cipher_suites = cipher_suites;
+-	wifi->wiphy->n_cipher_suites = ARRAY_SIZE(cipher_suites);
+-	wiphy_ext_feature_set(wifi->wiphy, NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_PSK);
+-	for (i = 0; i < 13; i++) {
+-		wifi->channels[i].band = NL80211_BAND_2GHZ;
+-		wifi->channels[i].hw_value = i + 1;
+-		wifi->channels[i].center_freq = ieee80211_channel_to_frequency(i + 1, NL80211_BAND_2GHZ);
+-		wifi->channels[i].max_power = 20;
+-	}
+-	for (i = 0; i < ARRAY_SIZE(five_ghz); i++) {
+-		wifi->channels[13 + i].band = NL80211_BAND_5GHZ;
+-		wifi->channels[13 + i].hw_value = five_ghz[i];
+-		wifi->channels[13 + i].center_freq = ieee80211_channel_to_frequency(five_ghz[i], NL80211_BAND_5GHZ);
+-		wifi->channels[13 + i].max_power = 20;
+-	}
+-	wifi->bands[0].channels = wifi->channels;
+-	wifi->bands[0].n_channels = 13;
+-	wifi->bands[0].bitrates = rates;
+-	wifi->bands[0].n_bitrates = ARRAY_SIZE(rates);
+-	wifi->bands[1].channels = wifi->channels + 13;
+-	wifi->bands[1].n_channels = ARRAY_SIZE(five_ghz);
+-	wifi->bands[1].bitrates = rates + 4;
+-	wifi->bands[1].n_bitrates = ARRAY_SIZE(rates) - 4;
+-	wifi->wiphy->bands[NL80211_BAND_2GHZ] = &wifi->bands[0];
+-	wifi->wiphy->bands[NL80211_BAND_5GHZ] = &wifi->bands[1];
+-	ret = wiphy_register(wifi->wiphy);
+-	if (ret)
+-		goto failed;
+-	wifi->registered = true;
+-	wifi->wdev.wiphy = wifi->wiphy;
+-	wifi->wdev.iftype = NL80211_IFTYPE_STATION;
+-	wifi->wdev.netdev = wifi->netdev;
+-	wifi->netdev->ieee80211_ptr = &wifi->wdev;
+-	wifi->netdev->netdev_ops = &net_ops;
+-	SET_NETDEV_DEV(wifi->netdev, &c->pdev->dev);
+-	strscpy(wifi->netdev->name, "wlan%d", IFNAMSIZ);
+-	wifi->netdev->max_mtu = ETH_DATA_LEN;
+-	eth_hw_addr_random(wifi->netdev);
+-	ret = register_netdev(wifi->netdev);
+-	if (ret)
+-		goto failed;
+-	ret = radio_start(wifi);
+-	if (ret) {
+-		dev_err(&c->pdev->dev, "Wi-Fi ring/interface setup failed: %d\n", ret);
+-		goto failed;
+-	}
+-	dev_info(&c->pdev->dev, "cfg80211 interface %s ready for scan tests; packet data unavailable\n",
+-		 wifi->netdev->name);
+-	wifi->data_probe_file = debugfs_create_file("data_probe", 0200, c->debug, wifi, &data_probe_ops);
+-	wifi->data_status_file = debugfs_create_file("data_status", 0400, c->debug, wifi, &data_status_ops);
+-	wifi->data_rx_snapshot_file = debugfs_create_file("data_rx_snapshot", 0400,
+-		c->debug, wifi, &data_rx_snapshot_ops);
+-	wifi->station_stats_file = debugfs_create_file("station_stats", 0400, c->debug, wifi, &station_stats_ops);
+-	wifi->rx_crypto_stats_file = debugfs_create_file("rx_crypto_stats", 0400,
+-		c->debug, wifi, &rx_crypto_stats_ops);
+-	wifi->dot11_mib_stats_file = debugfs_create_file("dot11_mib_stats", 0400,
+-		c->debug, wifi, &dot11_mib_stats_ops);
+-	wifi->tx_power_report_file = debugfs_create_file("tx_power_report", 0400,
+-		c->debug, wifi, &tx_power_report_ops);
+-	wifi->eapol_start_file = debugfs_create_file("eapol_start", 0200, c->debug, wifi, &eapol_start_ops);
+-	wifi->country_file = debugfs_create_file("country", 0400, c->debug, wifi, &country_ops);
+-	wifi->link_status_file = debugfs_create_file("link_status", 0400, c->debug, wifi, &link_status_ops);
+-	wifi->tx_config_file = debugfs_create_file("tx_config", 0600, c->debug, wifi, &tx_config_ops);
+-	wifi->host_wakeup_file = debugfs_create_file("host_wakeup", 0200, c->debug, wifi, &host_wakeup_ops);
+-	wifi->fwlog_start_file = debugfs_create_file("fwlog_start", 0200, c->debug, wifi, &fwlog_start_ops);
+-	wifi->fwlog_status_file = debugfs_create_file("fwlog_status", 0400, c->debug, wifi, &fwlog_status_ops);
+-	wifi->fwlog_buffer_file = debugfs_create_file("fwlog_buffer", 0400, c->debug, wifi, &fwlog_buffer_ops);
+-	wifi->fwlog_ack_file = debugfs_create_file("fwlog_ack", 0200, c->debug, wifi, &fwlog_ack_ops);
+-	return 0;
+-failed:
+-	centauri_wifi_unregister(c);
+-	return ret;
+-}
+-
+-void centauri_wifi_unregister(struct centauri *c)
+-{
+-	struct centauri_wifi *wifi = c->wifi;
+-
+-	if (!wifi)
+-		return;
+-	WRITE_ONCE(wifi->stopping, true);
+-	if (wifi->netdev && wifi->netdev->reg_state == NETREG_REGISTERED)
+-		netif_tx_disable(wifi->netdev);
+-	debugfs_remove(wifi->data_probe_file);
+-	debugfs_remove(wifi->data_status_file);
+-	debugfs_remove(wifi->data_rx_snapshot_file);
+-	debugfs_remove(wifi->station_stats_file);
+-	debugfs_remove(wifi->rx_crypto_stats_file);
+-	debugfs_remove(wifi->dot11_mib_stats_file);
+-	debugfs_remove(wifi->tx_power_report_file);
+-	debugfs_remove(wifi->eapol_start_file);
+-	debugfs_remove(wifi->country_file);
+-	debugfs_remove(wifi->link_status_file);
+-	debugfs_remove(wifi->tx_config_file);
+-	debugfs_remove(wifi->host_wakeup_file);
+-	debugfs_remove(wifi->fwlog_start_file);
+-	debugfs_remove(wifi->fwlog_status_file);
+-	debugfs_remove(wifi->fwlog_buffer_file);
+-	debugfs_remove(wifi->fwlog_ack_file);
+-	cancel_work_sync(&wifi->scan_work);
+-	cancel_work_sync(&wifi->connect_work);
+-	cancel_delayed_work_sync(&wifi->link_work);
+-	skb_queue_purge(&wifi->data_tx_queue);
+-	if (wifi->scan_request) {
+-		struct cfg80211_scan_info info = { .aborted = true };
+-
+-		cfg80211_scan_done(wifi->scan_request, &info);
+-		wifi->scan_request = NULL;
+-	}
+-	if (wifi->netdev && wifi->netdev->reg_state == NETREG_REGISTERED)
+-		unregister_netdev(wifi->netdev);
+-	if (wifi->registered)
+-		wiphy_unregister(wifi->wiphy);
+-	if (wifi->wiphy)
+-		wiphy_free(wifi->wiphy);
+-	if (wifi->netdev)
+-		free_netdev(wifi->netdev);
+-	memzero_explicit(wifi, sizeof(*wifi));
+-	kfree(wifi);
+-	c->wifi = NULL;
+-}
