@@ -1077,3 +1077,12 @@ Image4 manifest stitched in, `pcie_aspm=off`, battery on, selftest on), prev = t
   `iwd` fails to start: the kernel lacks `CRYPTO_USER_API_HASH`, `CRYPTO_USER_API_SKCIPHER`, `KEY_DH_OPERATIONS`,
   `CRYPTO_ARC4` (`CRYPTO_USER_API=m` with no module installed). Config 0065 adds them; association is next.
 
+### Result (DAILY-NEXT bisect A and B, 2026-11-07 13:51-13:57 UTC, loop, nobody at the machine)
+
+- **A** `bisect-A-20261107-eb8916fb.bin`: series tip + 0063 (MTP haptic built in), kernel `7.3.0-g595c6158020f`: **boots**
+  (primary, 18 CPUs, network, no revert; nft works; `ip rule` unsupported as expected; two `haptic` dmesg lines).
+- **B** `bisect-B-20261107-907eab2b.bin`: series tip + 0064 (netfilter, policy routing, WireGuard, bridge/veth/overlay/
+  fuse), kernel `7.3.0-g445b2338a033`: **boots** (nft ok, `ip rule` lists the local table).
+- So the full kernel's failure (DAILY-NEXT-T1) is either the combination, a size effect, or a one-off. Next: re-run the
+  full kernel once (and kernel D = 0064 + 0065 iwd crypto), with the crash-log capture in place if it is ready.
+
