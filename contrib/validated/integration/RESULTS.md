@@ -997,3 +997,14 @@ all six): `0x08=0x08 0x09=0x02 0x0a=0x1a 0x0d=0x13` (the new edge: TDM_CFG1 0x02
   PipeWire graph, the meaning of the residual interrupts and latch 0x4a bit 1 (agent).
 - Next: B6 with `speaker_max_db=-30` and a -10 dBFS tone (about -40 dB out, quiet but audible) with Rolando listening.
 
+### Result (GPU E0 readback, 2026-11-07 12:41 UTC, on the WFI daily, read-only MMIO through /dev/mem)
+
+`contrib/pending/gpu/e0/e0-readback.sh` (dry-run validated first; 14 32-bit reads, all inside ADT device windows, none in
+System RAM). Stage 1: PMGR PS PMP (gate 27) `0x0f0000ff`, PMS_SRAM (gate 28) `0x0f0000ff` (both on). Stage 1b: the PMP SRAM
+cold-marker words at 0x28457bcc0..bcdc are all zero, including +0x7bcd8 where the t6050/pmp driver expects `0xfeed1b00`:
+**the SRAM is not in the "cold" state that driver assumes**, so a host-side PMP start would take a different path on this
+boot chain (iBoot loads the PMP; our m1n1 does not start it). Stage 1c (PMGR group 3): GPX `0x1f0003ff` (on, auto), AFR
+`0x0f040300` (off), CS `0x0f000300` (off), GFX `0x0f040300` = exactly the analysis's expectation (off, auto-off, parents
+AFR+GPX). **Verdict: GO E1 with the caveat "PMP SRAM NOT-COLD"**; E1 (the ID-register read and the clean "M5 Pro not yet
+available" refusal) does not touch the PMP. Logs `/boot/r1-logs/e0-20261107T124129Z/`.
+
