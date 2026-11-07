@@ -924,3 +924,20 @@ with speakersafetyd stopped (volumes locked, silent), none after `Speaker Switch
 - Logs: `/boot/r1-logs/audio-b4-20261107/` (private). Next: 0004 after the geometry comparison (agent); a 2- or 4-channel
   stream as a discriminator.
 
+### Result (LID sleep, 2026-11-07 12:20 UTC, WFI daily, Rolando at the machine)
+
+Root changes: `/etc/systemd/logind.conf.d/20-m5pro-lid-sleep.conf` (HandleLidSwitch=suspend, ExternalPower=suspend,
+Docked=ignore), `/etc/systemd/sleep.conf.d/20-m5pro-s2idle.conf` (AllowSuspend=yes, hibernation off, SuspendState=mem),
+`/etc/udev/rules.d/97-m5pro-xhci-wakeup.rules` (xhci wakeup enabled, as the S-tests did by hand); `suspend.target`,
+`sleep.target` and `systemd-suspend.service` unmasked (hibernate units stay masked: this kernel has CONFIG_HIBERNATION=y).
+- First lid close: logind saw it ("Lid closed. Suspending...") and the still-masked `suspend.target` refused it. Lesson:
+  the bring-up's safety mask lived in two places (the sleep.conf drop-in and the unit mask).
+- Second lid close: suspend entered (`PM: suspend entry` 70 ms after "Lid closed."), and 230 ms later the SMC emitted
+  `SMC HID Event: 03 00 01` (the "lid opened" code) while the lid stayed closed, at the same instant as the MTP's "Sending
+  Cumulus Report to enter Dependent Mode"; macsmc-input is a wakeup source, so the suspend ended after 0.74 s
+  (`suspend_stats` success 1 / fail 0). Opening the lid 20 s later produced no further event. With the lid test earlier,
+  with no suspend configured, 03 01 00 / 03 00 01 tracked close / open faithfully.
+- So: lid close triggers sleep correctly, the wake path works, but a spurious lid-open event aborts it. Under analysis
+  (`~/Work/agents/lid-sleep/`); the power button and the command path (`systemctl suspend`) are unaffected.
+- The udev `power-switch` tag and ID_INPUT_SWITCH are correct; the device is `Apple SMC power/lid events` (event0).
+
