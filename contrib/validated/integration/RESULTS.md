@@ -1232,3 +1232,15 @@ because the adopted N1 port is up. The previous daily (no PCIe at all) slept fin
 adopted N1 port**: a pcie-apple suspend/resume path for adopted ports (agent). Until then the Wi-Fi daily does not
 sleep on lid close (it stays awake); the lid daily 534ca146 sleeps but has no Wi-Fi.
 
+### Result (NEXT-DAILY, 2026-11-07 16:14-16:21 UTC, Rolando watching the panel)
+
+Test payload `next-daily-wifi-20261107-7e285d94` (series 3f2bdbc61510, 86 patches; N1-aware m1n1; W4 chosen lines;
+stitched-FTAB initramfs): boots clean on the panel, primary, 18 CPUs, N1 adopted (3 functions), wlan0 associated,
+hci0, lid settle 2000, two MTP haptic devices (Rolando: trackpad clicks give feedback), nft ok, netconsole configfs
+present and configured, `AppleJ716` speaker card + `AppleJ716AOP` mic card, -30 dB ceiling, speakersafetyd active,
+PipeWire J716 sink and mic. 2 s 1 kHz tone at -20 dBFS through the sink: `spkr: pwrd reached`, 0 faults.
+**Daily promoted: `daily-wifi-20261107-78b12875.bin`** (its no-self-test twin): primary, all of the above; `boot.bin.prev`
+= the test twin 7e285d94. Known gap carried over: lid-close sleep aborts (N1 port suspend_noirq -EBUSY), fix in progress.
+netconsole: the UniFi gateway now forwards UDP 6666 to the Proxmox receiver (iptables, not persistent), but the gateway
+sits behind an ISP modem (double NAT), so nothing arrives until that modem forwards the port too.
+
