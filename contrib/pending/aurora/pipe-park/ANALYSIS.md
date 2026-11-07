@@ -141,7 +141,7 @@ The alternatives I rejected:
 
 Built: `build/m1n1-plain-r2-pipepark.bin` (ccbb51bc + 0020, the R3-N m1n1 plus this change only) and
 `build/m1n1-plain-pipepark.bin` (d5b29b03 + 0020). Both are 0x400000 bytes with no warnings, and the
-recipe reproduces `7497c0b1...` and `2c46317d...` byte for byte. Payload: `R3-O-RECIPE.md`.
+recipe reproduces `7497c0b1...` and `2c46317d...` byte for byte. Payload: `R3-O-RECIPE.md` (retired, see git history).
 
 **(b) DT side**: nothing to change. No property influences the check.
 

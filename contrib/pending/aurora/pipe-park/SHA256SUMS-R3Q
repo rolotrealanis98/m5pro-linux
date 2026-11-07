@@ -1,6 +1,0 @@
-731a093c9da9e9f2f55a4007dad3985a025cef3d113a8fa7e46dd5b968db1565  ANALYSIS-R3O.md
-c4521844618f78c3503aa99e3b64eed8f82ac5f161cadfb09cd890e175f407b0  R3-Q-RECIPE.md
-f140ddafc64e06afc3ad045b1636d0439aad9d9a0280b624606a7da84816ed74  mk-r3q.py
-827cdd5e11ee077a479afc3489f10d8a2f2252705e410a1b055ae7824cdd2c82  patches/kernel-r3q/0001-phy-apple-t6050-park-the-PIPE-from-a-dummy-producer-on-any-clock.patch
-48e3215d149a2a71e5320d818550464818e72ebec5a18b1b3df421fa01073f84  patches/kernel-r3q/0002-phy-apple-t6050-carry-on-when-the-PIPE-lock-is-not-acknowledged.patch
-565b9934823e8f124baaba6179647022c92144a875350d4e2b5804a03bba5491  patches/kernel-r3q/0003-phy-apple-t6050-restart-the-PHY-firmware-on-its-original-data.patch

@@ -39,7 +39,7 @@ Per-unit values (the combo-PHY tunables, dmesg, serials) are not in this folder 
    the root). The rule since R3-K: no boot until this check is clean and all required drivers are
    `=y`.
 6. **Payload.** Use `mk-daily.py` (named ingredients, pins, daily and test modes, a printed deploy plan; the ESP rules are
-   in `ESP-POLICY.md`). `mk-r3.py` is the older hard-coded script, which shows the layout: m1n1-plain (exactly 0x400000 bytes) + `chosen.bootargs=...`
+   in `ESP-POLICY.md`). `mk-r3.py` (retired, see git history) is the older hard-coded script, which shows the layout: m1n1-plain (exactly 0x400000 bytes) + `chosen.bootargs=...`
    + `chosen.asahi,show-notch=1` + `Image.gz` + DTB + initramfs, written as one file with a
    `SHA256SUMS` line. Paths are hard-coded to the Studio; edit them. Only the first two payloads
    were made by this script; the rest used the same recipe with other kernel, DTB and initramfs.
@@ -57,7 +57,7 @@ Per-unit values (the combo-PHY tunables, dmesg, serials) are not in this folder 
 | `dt-depcheck.py` | `dt-depcheck.py DTS KERNEL_TREE`: offline compatible / provider check |
 | `mk-daily.py` | builds the daily and test payloads from the `INGREDIENTS` table, writes the recipe and a `SHA256SUMS` line, `--deploy-plan` prints the ESP swap |
 | `ESP-POLICY.md` | what lives on the ESP, the four-payload rule, the self-revert contract, selftest versus the daily |
-| `mk-r3.py` | the original hard-coded payload assembly (superseded by `mk-daily.py`) |
+| `mk-r3.py` (retired, see git history) | the original hard-coded payload assembly (superseded by `mk-daily.py`) |
 | `mk-selftest-initramfs.sh` | debug initramfs with the DIAG block and the self-revert service (macOS) |
 
 Lineage of the initramfs: `host/macos/mk-debug-initramfs.sh` (60 s root wait, dropbear, nvme rebind)

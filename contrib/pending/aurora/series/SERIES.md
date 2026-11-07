@@ -110,7 +110,7 @@ DTB sha256 `8c4df67ac743a08b633f7e5233004180e5b18d9f82c56b9261ec76eb77458e6e`, b
 
 Reference: the booted DTB `~/Work/agents/aurora-kernel/t6050-j716s-typec-fixed8-notun-edp.dtb`
 (sha256 `60114b95...`, byte-identical to compiling `dts/j716s-typec-fixed8-notun-edp.dts`; it is the repo's
-`t6050-j716s-aurora-decompiled.dts` plus `apple,internal-panel`). `tools/compare-dt.sh` lists every property
+`t6050-j716s-aurora-decompiled.dts` (retired, see git history) plus `apple,internal-panel`). `tools/compare-dt.sh` lists every property
 with phandles resolved to node paths (so numbering cannot hide or fake a difference) and the child order of
 every node. Remaining differences (`dt/dt-diff.txt`):
 
@@ -174,7 +174,7 @@ make LLVM=1 ARCH=arm64 O=/Volumes/linux-cs/wt-j716s-out -j12 Image.gz dtbs
     ~/Work/agents/aurora-kernel/t6050-j716s-typec-fixed8-notun-edp.dtb
 ```
 
-The payload recipe is unchanged (`contrib/pending/aurora/tools/mk-r3.py` layout, R3-V bootargs, m1n1
+The payload recipe is unchanged (`contrib/pending/aurora/tools/mk-r3.py` (retired, see git history) layout, R3-V bootargs, m1n1
 `pipepark-atc` with 0020/0021); only the kernel tree and the DTB come from here. No `reorder-cpus.py`, no
 hand edits.
 
