@@ -865,3 +865,18 @@ Kernel `7.3.0-gf080637018df` (series + `wfi-idle` 0001/0002: WFI override, PM_DE
   the audio kernel, the USB-C right port across sleep (it was empty).
 - Next: promote the WFI kernel to the daily (add `kvm-arm.wfi_trap_policy=trap` to BASE), then enable lid sleep in logind.
 
+### Result (W0, 2026-11-07 11:44 UTC, self-revert loop + A/B stage-1, Rolando nearby)
+
+Payload `w0-n1dt-20261107-24276a09.bin` (`n1-wifi/prep/RUN-W0.md`): the daily's series kernel and DTB, m1n1 `n1-dt`
+(the daily's m1n1 + 0022 N1 DT fill-in + the dart-pmp0 dapf line), the selftest initramfs carrying the FTAB (private), battery
+on, `m5.selftest=1`, prev = the daily `275d84ec`. Root prepared first (`W0-ROOT-PREP.sh`: FTAB at
+`/usr/lib/firmware/apple/centauri/j716s-ftab.bin`, digest matches the Studio copy; iwd, iw, wireless-regdb, bluez
+installed, nothing enabled).
+
+**PASS (port not trained, as expected).** Primary slot, network at ~60 s, `m5-selftest`: "network OK, keeping this
+payload", no revert; `pcie-apple 1cb0000000.pcie: probe ... failed with error -22` (root port disabled, untrained); the
+device tree's `pci@0,0` carries the five tunables lists (`apple,apcie-config-tunables`, `pcie-rc-tunables`, gen3/gen4/gen5
+shadow tunables) that m1n1 0022 fills from the ADT. No `chosen/m5pro,n1` (W0 does not set it). No SError/Oops.
+Not captured: m1n1's `n1: port 0: ... linksts ...` line (no `phram.ko` on the root for this kernel; the modules build will
+provide it, or a panel video). Next: W1 (`RUN-W1.md`, attended: m1n1 trains apcie0 port 0 behind `chosen.m5pro,n1=1`).
+
