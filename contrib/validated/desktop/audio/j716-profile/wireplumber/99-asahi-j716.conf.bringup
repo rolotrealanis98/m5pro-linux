@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# WirePlumber fragment: load the J716 bring-up speaker DSP graph.
+# Install: /usr/share/wireplumber/wireplumber.conf.d/99-asahi-j716.conf
+# Self-contained: asahi-audio (whose 99-asahi.conf renames the raw speaker
+# PCM and enables WirePlumber's software DSP) is not installed on this root,
+# so this fragment does both for hw:AppleJ716,1. If asahi-audio is installed
+# later, its rules and these agree. The node path hw:AppleJ716,1 only exists
+# when the card's UCM profile loads (alsa-ucm-conf-asahi + our
+# conf.d/macaudio/MacBook Pro J716.conf): without UCM, ACP names the PCM
+# differently and none of these rules match.
+# The microphone array has its own fragment, 99-asahi-j716-mic.conf.
+monitor.alsa.rules = [
+    {
+        matches = [
+            { api.alsa.path = "hw:AppleJ716,1" }
+        ]
+        actions = {
+            update-props = {
+                # The AOP's speaker serializer runs at 48 kHz only.
+                audio.allowed-rates = [48000]
+                # Channel n is amp slot n (LW1 RW1 LW2 RW2 LT RT): unpositioned, so
+                # the graph's AUX0-5 outputs land on the amps by index. UCM's
+                # default 6-channel map (FL FR RL RR FC LFE) would send a plain
+                # stereo stream to LW1 and RW1 only.
+                audio.position = [ AUX0, AUX1, AUX2, AUX3, AUX4, AUX5 ]
+                node.name = "alsa_output.platform-sound.RawSpeakers"
+                node.description = "Raw Speaker Device (do not use)"
+                node.nick = "RawSpeakers"
+            }
+        }
+    }
+]
+
+node.software-dsp.rules = [
+    # J716 (MacBook Pro 16", M5 Pro/Max) - BRING-UP graph, not a tuning
+    {
+        matches = [
+            { api.alsa.path = "hw:AppleJ716,1" }
+        ]
+        actions = {
+            create-filter = {
+                filter-path = "/usr/share/asahi-audio/j716/graph.json"
+                hide-parent = true
+            }
+        }
+    }
+]
+
+wireplumber.profiles = {
+    main = {
+        node.software-dsp = required
+    }
+}

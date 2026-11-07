@@ -1,0 +1,114 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-2.0-or-later
+# j716-audio-ab: switch the J716 speakers between the bring-up graph and the
+# J716 speaker profile, and speakersafetyd between the bring-up profile and the
+# AID41-calibrated one. Run as root. It never plays audio.
+#
+#   j716-audio-ab status
+#   j716-audio-ab bringup | profile | profile-bankstown   [--no-restart]
+#   j716-audio-ab safety bringup | aid41                   [--no-restart]
+#
+# Graph switch: installs one of the staged WirePlumber fragments as
+# /usr/share/wireplumber/wireplumber.conf.d/99-asahi-j716.conf, then restarts
+# PipeWire and WirePlumber in every logged-in user's session (or not, with
+# --no-restart: it then takes effect at the next login).
+# Safety switch: installs one of the staged speakersafetyd profiles as
+# /usr/share/speakersafetyd/apple/j716.conf and restarts speakersafetyd. The
+# kernel locks the speaker volume while the daemon restarts and keeps its
+# -30 dB ceiling either way.
+set -euo pipefail
+
+STAGE=/usr/share/asahi-audio/j716/profile
+WP=/usr/share/wireplumber/wireplumber.conf.d/99-asahi-j716.conf
+SSD=/usr/share/speakersafetyd/apple/j716.conf
+LV2_BANKSTOWN=/usr/lib/lv2/bankstown.lv2
+
+die() { echo "j716-audio-ab: $*" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || die "run as root"
+[ -d "$STAGE" ] || die "$STAGE missing (stage the profile first)"
+
+restart=1
+args=()
+for a in "$@"; do
+	case "$a" in
+	--no-restart) restart=0 ;;
+	*) args+=("$a") ;;
+	esac
+done
+set -- "${args[@]+"${args[@]}"}"
+
+which_variant() { # $1 = installed file, $2 = staged prefix
+	local f
+	for f in "$2".*; do
+		cmp -s "$1" "$f" && { echo "${f##*.conf.}"; return; }
+	done
+	echo "unknown (matches no staged variant)"
+}
+
+user_sessions() {
+	loginctl list-users --no-legend 2>/dev/null | awk '$1 >= 1000 { print $2 }'
+}
+
+restart_audio() {
+	local u
+	[ "$restart" = 1 ] || { echo "not restarted; takes effect at the next login"; return; }
+	for u in $(user_sessions); do
+		echo "restarting pipewire, pipewire-pulse, wireplumber for $u"
+		systemctl --machine="$u@" --user restart pipewire pipewire-pulse wireplumber ||
+			echo "  restart failed for $u (no running user manager?)"
+	done
+}
+
+status() {
+	echo "graph:  $(which_variant "$WP" "$STAGE/wireplumber/99-asahi-j716.conf")"
+	echo "safety: $(which_variant "$SSD" "$STAGE/speakersafetyd/j716.conf")  (speakersafetyd $(systemctl is-active speakersafetyd))"
+	echo "kernel: $(dmesg 2>/dev/null | grep -o 'Speaker volume ceiling.*' | tail -1)"
+	[ -d "$LV2_BANKSTOWN" ] && echo "bankstown-lv2: installed" || echo "bankstown-lv2: not installed (profile-bankstown unavailable)"
+	local u
+	for u in $(user_sessions); do
+		echo "audio for $u:"
+		systemd-run --machine="$u@" --user --pipe --wait --quiet wpctl inspect @DEFAULT_AUDIO_SINK@ 2>/dev/null |
+			grep -E ' node\.(name|description) ' | sed 's/^ *\*\{0,1\} */  default sink: /' || true
+		systemd-run --machine="$u@" --user --pipe --wait --quiet wpctl status 2>/dev/null |
+			grep -E 'audio_effect\.j716|effect_output\.j716' | sed 's/^[ │├└─]*/  filter: /' || true
+	done
+}
+
+install_variant() { # $1 staged file, $2 target
+	local t=$2
+	[ -f "$1" ] || die "$1 missing"
+	if [ -e "$t" ] && [ ! -e "$t.j716-ab-orig" ]; then
+		cp -a "$t" "$t.j716-ab-orig" # first switch only: the file as it was
+	fi
+	install -m0644 "$1" "$t.j716-ab-new"
+	mv -f "$t.j716-ab-new" "$t"
+	echo "installed $(basename "$1") as $t"
+}
+
+case "${1:-status}" in
+status)
+	status ;;
+bringup | profile | profile-bankstown)
+	if [ "$1" = profile-bankstown ] && [ ! -d "$LV2_BANKSTOWN" ]; then
+		die "bankstown-lv2 is not installed; the graph would fail to load"
+	fi
+	install_variant "$STAGE/wireplumber/99-asahi-j716.conf.$1" "$WP"
+	restart_audio ;;
+safety)
+	case "${2:-}" in
+	bringup | aid41) ;;
+	*) die "usage: j716-audio-ab safety bringup|aid41" ;;
+	esac
+	install_variant "$STAGE/speakersafetyd/j716.conf.$2" "$SSD"
+	if [ "$restart" = 1 ]; then
+		systemctl restart speakersafetyd
+		sleep 2
+		systemctl is-active speakersafetyd
+		journalctl -u speakersafetyd -b -n 40 --no-pager -o cat | grep -E 'Config file|Max temperature|Max power|Min gain' | sort -u
+	else
+		echo "speakersafetyd not restarted; takes effect at its next start"
+	fi ;;
+*)
+	sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+	exit 2 ;;
+esac

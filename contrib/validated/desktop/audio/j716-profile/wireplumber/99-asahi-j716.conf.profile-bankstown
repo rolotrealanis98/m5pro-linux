@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# WirePlumber fragment: J716 speakers through the J716 speaker profile with the bankstown bass enhancer (needs bankstown-lv2).
+# Installed as /usr/share/wireplumber/wireplumber.conf.d/99-asahi-j716.conf by
+# j716-audio-ab (which keeps the bring-up variant to switch back to); do not
+# install it by hand next to the bring-up fragment: both create a filter on
+# the same PCM.
+#
+# Same rename as asahi-audio's 99-asahi.conf gives every other Mac, so the
+# node names match Omarchy's (its audio.json hides effect_output.jNNN-convolver
+# and RawSpeakers): the user sees one sink, "MacBook Pro J716 Speakers"
+# (audio_effect.j716-convolver). asahi-audio itself is not installed on this
+# root, so this fragment also turns on node.software-dsp.
+# The microphone array has its own fragment, 99-asahi-j716-mic.conf.
+monitor.alsa.rules = [
+    {
+        matches = [
+            { api.alsa.path = "hw:AppleJ716,1" }
+        ]
+        actions = {
+            update-props = {
+                # The AOP's speaker serializer runs at 48 kHz only.
+                audio.allowed-rates = [48000]
+                # Channel n is amp slot n (LW1 RW1 LW2 RW2 LT RT, the ADT
+                # speaker order and TDM rx slots 0-5): unpositioned, so the
+                # graph's AUX0-5 outputs land on the amps by index.
+                audio.position = [ AUX0, AUX1, AUX2, AUX3, AUX4, AUX5 ]
+                node.name = "alsa_output.platform-sound.RawSpeakers"
+                node.description = "Raw Speaker Device (do not use)"
+                node.nick = "RawSpeakers"
+            }
+        }
+    }
+]
+
+node.software-dsp.rules = [
+    # J716 (MacBook Pro 16", M5 Pro/Max), AID41. macOS gives AID41 the
+    # same speaker tuning as AID35 (J616s) and AID29 (J516), byte for
+    # byte, so this is the J616s graph with the J316 FIRs.
+    {
+        matches = [
+            { api.alsa.path = "hw:AppleJ716,1" }
+        ]
+        actions = {
+            create-filter = {
+                filter-path = "/usr/share/asahi-audio/j716/profile/graph-bankstown.json"
+                hide-parent = true
+            }
+        }
+    }
+]
+
+wireplumber.profiles = {
+    main = {
+        node.software-dsp = required
+    }
+}

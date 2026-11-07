@@ -1,0 +1,179 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# speakersafetyd 2.0.1 profile for MacBook Pro 16-inch M5 Pro/Max (J716s/J716c),
+# acoustic ID 41, speaker-id 3. CALIBRATED PROFILE, staged; the bring-up
+# profile (j316.conf made conservative) stays active until the listening check.
+# Install as /usr/share/speakersafetyd/apple/j716.conf with
+# `j716-audio-ab safety aid41` (keeps the bring-up file to switch back to).
+#
+# Where every value comes from. [M] = macOS AID41 speaker tuning (macOS 27.2,
+# /System/Library/Audio/Tunings/AID41/DSP/Strips: the SpeakerProtect (spp3)
+# preset of builtin_speaker_out_general.austrip, its _0/_3 speaker-id variants,
+# and aid41-aufx-spp3-appl.plist), read with the same field mapping as
+# speakersafetyd's docs/audump.py. [A] = J716s ADT. [K] = our kernel/DT.
+# [B6] = speakersafetyd -v log of the R3-AUDIO-B6 run (2026-11-07).
+# INFERRED marks every number that is not read directly from a source.
+#
+# - AID41's speaker tuning is byte-identical to AID35 (J616s, M4 Pro 16") and
+#   AID29 (J516, M3 Pro 16"): same strips, same spp3 plist, same DSP graphs.
+#   The six drivers are the J516/J616s drivers as far as macOS is concerned.
+# - t_ambient 50 [M Thermal_AmbientTemp].
+# - t_limit 140, t_headroom 10 [M, every channel]. The bring-up profile
+#   used 120.
+# - Woofers: tr_coil 26.06, tr_magnet 25.55, tau_coil 5.53, tau_magnet 197.25 [M].
+#   Tweeters: tr_coil 26.91, tr_magnet 23.93, tau_coil 1.55, tau_magnet 73.26 [M].
+#   Max continuous power (t_limit - t_ambient) / (tr_coil + tr_magnet):
+#   woofer 1.74 W, tweeter 1.77 W (bring-up profile: 0.89 W / 0.59 W).
+# - z_nominal: Reb_ref, woofers 2.70, tweeters 3.20 [M]. The ADT's
+#   speaker-thiele-small gives this unit's six coils as 3.29-3.39 ohm at about
+#   31 C [A]. 2.0.1 uses z_nominal only for min_gain; the lower [M] value is
+#   the more conservative one, so it is kept.
+# - z_shunt 0.09 (Rshunt), a_t_20c / a_t_35c [M per channel]. 2.0.1 does not
+#   read them.
+# - is_scale 3.75, vs_scale 14 [M IMONScale/VMONScale, all six channels].
+#   Left equals right on this machine [B6: the six-channel 0 dBFS tone reads
+#   0.04 W on all four woofers and 0.03 W on both tweeters; the left-only and
+#   right-only tones move the left/right coil difference by +0.09/-0.07 C
+#   (tweeters) and +0.03/-0.02 C (woofers), symmetric], so the J714c's halved
+#   right-side scales do NOT apply to the J716s.
+#   INFERRED, flag: the sensed power is about 4x what the drive predicts
+#   (1 kHz at 0 dBFS under the -30 dB kernel ceiling at amp level 10 = 16 dBV
+#   is about 0.2 Vrms, 8-12 mW into these coils; the daemon reads 0.03-0.04 W
+#   on every amp). That is V and I each reading about 2x, on both buses: a
+#   one-bit sense slot offset under the new NB_IF link format would do exactly
+#   that. It errs on the safe side (the model heats faster than the coil).
+#   Check before lifting the kernel ceiling (LISTENING-TEST.md, part D).
+# - Channels: speaker order and names = DT sound-name-prefix in ADT speakerN
+#   order LW1 RW1 LW2 RW2 LT RT [A, K]; is_chan 2n / vs_chan 2n+1 = DT
+#   ti,imon/vmon-slot-no [K]. Left/right attribution checked [B6];
+#   woofer 1 against woofer 2 within a side is INFERRED (same map as J616s
+#   and J714c, not separable with a tone on both).
+# - group 1 woofers, 0 tweeters [M SpeakerGroup].
+# - Globals visense_pcm 2 (macaudio "Speaker Sense"), channels 12 (ADT sense
+#   slots), period 4096, t_hysteresis 5, t_window 20, link_gains, uclamp_max
+#   64: audump.py's values for every spp3 machine.
+# - Amp gain: macOS runs amp_gain 15 (18.5 dBV) [A speaker-config]; our DT
+#   holds level 10 (16 dBV) [K]. The daemon reads the control, so this file
+#   is right for either; raising the DT level is a separate step.
+# - Not used: the SMC (no speaker-model keys were read); Apple's displacement
+#   model (spp3 displacement protection is off on AID41).
+#
+# speakersafetyd strips trailing letters from the first DT compatible
+# ("apple,j716s" -> apple/j716) and opens hw:AppleJ716.
+
+[Globals]
+visense_pcm = 2
+t_ambient = 50.0
+t_hysteresis = 5.0
+t_window = 20.0
+channels = 12
+period = 4096
+link_gains = True
+uclamp_max = 64
+
+[Controls]
+vsense = VSENSE Switch
+isense = ISENSE Switch
+amp_gain = Amp Gain Volume
+volume = Speaker Volume
+
+[Speaker/Left Woofer 1]
+group = 1
+tr_coil = 26.06
+tr_magnet = 25.55
+tau_coil = 5.53
+tau_magnet = 197.25
+t_limit = 140.0
+t_headroom = 10.0
+z_nominal = 2.70
+z_shunt = 0.09
+a_t_20c = 0.00374895
+a_t_35c = 0.00354903
+is_scale = 3.75
+vs_scale = 14
+is_chan = 0
+vs_chan = 1
+
+[Speaker/Right Woofer 1]
+group = 1
+tr_coil = 26.06
+tr_magnet = 25.55
+tau_coil = 5.53
+tau_magnet = 197.25
+t_limit = 140.0
+t_headroom = 10.0
+z_nominal = 2.70
+z_shunt = 0.09
+a_t_20c = 0.00374895
+a_t_35c = 0.00354903
+is_scale = 3.75
+vs_scale = 14
+is_chan = 2
+vs_chan = 3
+
+[Speaker/Left Woofer 2]
+group = 1
+tr_coil = 26.06
+tr_magnet = 25.55
+tau_coil = 5.53
+tau_magnet = 197.25
+t_limit = 140.0
+t_headroom = 10.0
+z_nominal = 2.70
+z_shunt = 0.09
+a_t_20c = 0.00374895
+a_t_35c = 0.00354903
+is_scale = 3.75
+vs_scale = 14
+is_chan = 4
+vs_chan = 5
+
+[Speaker/Right Woofer 2]
+group = 1
+tr_coil = 26.06
+tr_magnet = 25.55
+tau_coil = 5.53
+tau_magnet = 197.25
+t_limit = 140.0
+t_headroom = 10.0
+z_nominal = 2.70
+z_shunt = 0.09
+a_t_20c = 0.00374895
+a_t_35c = 0.00354903
+is_scale = 3.75
+vs_scale = 14
+is_chan = 6
+vs_chan = 7
+
+[Speaker/Left Tweeter]
+group = 0
+tr_coil = 26.91
+tr_magnet = 23.93
+tau_coil = 1.55
+tau_magnet = 73.26
+t_limit = 140.0
+t_headroom = 10.0
+z_nominal = 3.20
+z_shunt = 0.09
+a_t_20c = 0.00382045
+a_t_35c = 0.00361650
+is_scale = 3.75
+vs_scale = 14
+is_chan = 8
+vs_chan = 9
+
+[Speaker/Right Tweeter]
+group = 0
+tr_coil = 26.91
+tr_magnet = 23.93
+tau_coil = 1.55
+tau_magnet = 73.26
+t_limit = 140.0
+t_headroom = 10.0
+z_nominal = 3.20
+z_shunt = 0.09
+a_t_20c = 0.00382045
+a_t_35c = 0.00361650
+is_scale = 3.75
+vs_scale = 14
+is_chan = 10
+vs_chan = 11
