@@ -1139,4 +1139,11 @@ to 63 / 52 C after), which looks like an ambient/scale offset in the J716 profil
 follow-up for the sense scaling pass (left vs right power at a longer tone).
 Next: the PipeWire profile for the desktop user, the sense-scaling check, then the audio kernel candidate as the daily
 once the N1 restart issue is solved (the daily must carry both stacks).
+- **Desktop path (same boot, 14:31 UTC):** user `rolo` in group `audio`, linger on, PipeWire/WirePlumber enabled; the
+  current `99-asahi-j716.conf` fragment (RawSpeakers rename with AUX0-5 positions, software DSP on, the J716 graph) replaces
+  the UCM sink with `audio_effect.j716-bringup` (default) and exposes the mic graph as a source. `pw-play` of a 4 s 440 Hz
+  -12 dBFS stereo file at sink volume 1.0: the speaker PCM ran at S24_LE 48 kHz 6 ch (MMAP), `spkr: pwrd reached`, amp IRQ
+  +16, 0 faults, daemon fine. An earlier silence through PipeWire came from an old copy of the fragment on the root (UCM
+  sink only, software DSP off). speakersafetyd's 71/58 C idle coil readings are its deliberate warm-start assumption
+  (99 C cold, 120 C warm, decaying to t_ambient 50 C), not a profile bug.
 
