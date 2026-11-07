@@ -1,0 +1,25 @@
+# per build: warnings not in its baseline (base = #26 6d879ae plain; ci-base = #26 CHAINLOADING=1), file:line:col stripped
+c01: new: none; missing: none
+c02: new: none; missing: none
+c03: new: none; missing: none
+c04: new: none; missing: none
+c05: new: none; missing: none
+c06: new: >    src/kboot.c: warning: stack usage is 4256 bytes [-Wstack-usage=]; missing: < src/kboot.c: warning: stack usage is 4256 bytes [-Wstack-usage=]
+< warning: constant `MAX_CORES_PER_CLUSTERG15V14_8_3` is never used
+c07: new: none; missing: none
+c08: new: none; missing: none
+c09: new: none; missing: none
+c10: new: none; missing: none
+c11: new: none; missing: none
+c12: new: none; missing: none
+c13: new: > warning: constant `MAX_CORES_PER_CLUSTERG15V14_8_3` is never used  CC    build/minilzlib/rangedec.o; missing: < warning: constant `MAX_CORES_PER_CLUSTERG15V14_8_3` is never used
+wdt-standalone: new: none; missing: none
+ci-tip1: new: none; missing: none
+ci-tip2: new: none; missing: none
+ci-tip3: new: none; missing: none
+ci-tip4: new: none; missing: none
+ci-tip5: new: none; missing: none
+ci-wdt-standalone: new: none; missing: none
+ci-base0: new: none; missing: none
+base0: new: none; missing: none
+# c06/c13: the same warnings; -j8 output interleaved a warning with another line (see logs), no new warning text

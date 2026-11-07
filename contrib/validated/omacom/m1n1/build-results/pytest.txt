@@ -1,0 +1,11 @@
+121fcbf Merge pull request #20 from satchlj/j613-gpu26-ident: 441 passed, 17 skipped, 10 subtests passed in 38.13s
+6d879ae cpufreq: T6050: 3 failed, 438 passed, 17 skipped, 10 subtests passed in 38.36s
+    FAILED tests/python/test_nvme_adoption.py::test_adopted_queue_lifetime - subp...
+    FAILED tests/python/test_smp_handoff_gate.py::test_pending_calls_block_dt_preparation_and_kernel_publication
+    FAILED tests/python/test_t8103_inherited_reservation.py::test_inherited_reservation
+f8ab2e1 smp: t6050: forward cores locked to a stage 1 base t: 442 passed, 17 skipped, 10 subtests passed in 39.95s
+561df3a pcie: t6050: handle a warm N1 and a live port 0 at e: 442 passed, 17 skipped, 10 subtests passed in 40.47s
+8906f3b kboot_gpu: hand the T6050 GPU to the G17 driver from: 442 passed, 17 skipped, 10 subtests passed in 38.73s
+1e7b278 kboot: t6050: publish DCP firmware-compat 27.3.0 for: 442 passed, 17 skipped, 10 subtests passed in 36.89s
+aee8488 wdt: leave the watchdog armed when the boot-args say: 443 passed, 17 skipped, 10 subtests passed in 38.29s
+0d93a70 wdt: leave the watchdog armed when the boot-args say: 442 passed, 17 skipped, 10 subtests passed in 36.10s
