@@ -1,4 +1,4 @@
-From 5a8f40d5a25118a5faa255fcb299a84f3739fe02 Mon Sep 17 00:00:00 2001
+From 0673e22df9005164c9b5a8d8cad6ada3ac7dc79d Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 19:27:05 -0500
 Subject: [PATCH 1/5] kboot: n1: fill the T6050 N1 hand-off in the DT
@@ -48,7 +48,7 @@ index 9c4784e..d982819 100644
  	kboot_display_handoff.o kboot_display_facts.o kboot_gpu26.o kboot_gpu_t6031.o kboot_t6031.o \
  	main.o boot_options.o \
 diff --git a/src/kboot.c b/src/kboot.c
-index 1cf5139..a60bd63 100644
+index 0d231eb..0c1e8a6 100644
 --- a/src/kboot.c
 +++ b/src/kboot.c
 @@ -20,6 +20,7 @@
@@ -59,7 +59,7 @@ index 1cf5139..a60bd63 100644
  #include "kboot_pmp_t8122.h"
  #include "kboot_t6031.h"
  #include "malloc.h"
-@@ -6565,6 +6566,8 @@ int kboot_prepare_dt(void *fdt)
+@@ -6594,6 +6595,8 @@ int kboot_prepare_dt(void *fdt)
          return -1;
      if (dt_set_bluetooth())
          return -1;

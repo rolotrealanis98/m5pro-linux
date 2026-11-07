@@ -1,11 +1,153 @@
-121fcbf Merge pull request #20 from satchlj/j613-gpu26-ident: 441 passed, 17 skipped, 10 subtests passed in 38.13s
-6d879ae cpufreq: T6050: 3 failed, 438 passed, 17 skipped, 10 subtests passed in 38.36s
+c614476 Merge pull request #25 from scottjones/j504/bringup: 465 passed, 17 skipped, 10 subtests passed in 38.98s
+ad08bf5 payload: T6050 stage 2 marks stage 1's live ANS sess: 4 failed, 303 passed, 9 skipped, 1 xfailed, 141 errors, 10 subtests passed in 41.20s
     FAILED tests/python/test_nvme_adoption.py::test_adopted_queue_lifetime - subp...
     FAILED tests/python/test_smp_handoff_gate.py::test_pending_calls_block_dt_preparation_and_kernel_publication
     FAILED tests/python/test_t8103_inherited_reservation.py::test_inherited_reservation
-f8ab2e1 smp: t6050: forward cores locked to a stage 1 base t: 442 passed, 17 skipped, 10 subtests passed in 39.95s
-561df3a pcie: t6050: handle a warm N1 and a live port 0 at e: 442 passed, 17 skipped, 10 subtests passed in 40.47s
-8906f3b kboot_gpu: hand the T6050 GPU to the G17 driver from: 442 passed, 17 skipped, 10 subtests passed in 38.73s
-1e7b278 kboot: t6050: publish DCP firmware-compat 27.3.0 for: 442 passed, 17 skipped, 10 subtests passed in 36.89s
-aee8488 wdt: leave the watchdog armed when the boot-args say: 443 passed, 17 skipped, 10 subtests passed in 38.29s
-0d93a70 wdt: leave the watchdog armed when the boot-args say: 442 passed, 17 skipped, 10 subtests passed in 36.10s
+    FAILED tests/python/test_universal_boot.py::test_embedded_target_applies_across_chip_generations
+    ERROR tests/python/test_m3_defaults_optout.py::test_no_config_gets_the_whole_air_recipe[plain]
+    ERROR tests/python/test_m3_defaults_optout.py::test_no_config_gets_the_whole_air_recipe[stage2]
+    ERROR tests/python/test_m3_defaults_optout.py::test_the_pro_gets_its_two_defaults[plain-j514s]
+    ERROR tests/python/test_m3_defaults_optout.py::test_the_pro_gets_its_two_defaults[plain-j516s]
+    ERROR tests/python/test_m3_defaults_optout.py::test_the_pro_gets_its_two_defaults[stage2-j514s]
+    ERROR tests/python/test_m3_defaults_optout.py::test_the_pro_gets_its_two_defaults[stage2-j516s]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j514s_owner_lines_are_kept[plain-gpu-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j514s_owner_lines_are_kept[plain-dcp-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j514s_owner_lines_are_kept[plain-gpu-on-then-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j514s_owner_lines_are_kept[plain-master-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j514s_owner_lines_are_kept[plain-master-off-gpu-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j514s_owner_lines_are_kept[stage2-gpu-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j514s_owner_lines_are_kept[stage2-dcp-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j514s_owner_lines_are_kept[stage2-gpu-on-then-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j514s_owner_lines_are_kept[stage2-master-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j514s_owner_lines_are_kept[stage2-master-off-gpu-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_the_j516c_gets_its_display_and_gpu_defaults_and_nothing_else[plain]
+    ERROR tests/python/test_m3_defaults_optout.py::test_the_j516c_gets_its_display_and_gpu_defaults_and_nothing_else[stage2]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[plain-gpu-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[plain-gpu-on-then-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[plain-gpu-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[plain-master-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[plain-master-off-gpu-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[plain-master-off-dcp-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[plain-dcp-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[plain-dcp-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[plain-both-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[stage2-gpu-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[stage2-gpu-on-then-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[stage2-gpu-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[stage2-master-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[stage2-master-off-gpu-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[stage2-master-off-dcp-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[stage2-dcp-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[stage2-dcp-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_j516c_owner_lines_are_kept[stage2-both-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_maxes_and_macs_get_no_default[plain-j514c]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_maxes_and_macs_get_no_default[plain-j514m]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_maxes_and_macs_get_no_default[plain-j516m]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_maxes_and_macs_get_no_default[plain-j293]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_maxes_and_macs_get_no_default[stage2-j514c]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_maxes_and_macs_get_no_default[stage2-j514m]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_maxes_and_macs_get_no_default[stage2-j516m]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_maxes_and_macs_get_no_default[stage2-j293]
+    ERROR tests/python/test_m3_defaults_optout.py::test_the_j514c_manual_line_works_as_before[plain-gpu]
+    ERROR tests/python/test_m3_defaults_optout.py::test_the_j514c_manual_line_works_as_before[plain-gpu-dcp]
+    ERROR tests/python/test_m3_defaults_optout.py::test_the_j514c_manual_line_works_as_before[stage2-gpu]
+    ERROR tests/python/test_m3_defaults_optout.py::test_the_j514c_manual_line_works_as_before[stage2-gpu-dcp]
+    ERROR tests/python/test_m3_defaults_optout.py::test_owner_lines_are_kept[plain-gpu-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_owner_lines_are_kept[plain-gpu-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_owner_lines_are_kept[plain-gpu-on-then-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_owner_lines_are_kept[plain-dcp-off-gpu-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_owner_lines_are_kept[plain-dcp-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_owner_lines_are_kept[plain-master-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_owner_lines_are_kept[stage2-gpu-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_owner_lines_are_kept[stage2-gpu-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_owner_lines_are_kept[stage2-gpu-on-then-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_owner_lines_are_kept[stage2-dcp-off-gpu-on]
+    ERROR tests/python/test_m3_defaults_optout.py::test_owner_lines_are_kept[stage2-dcp-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_owner_lines_are_kept[stage2-master-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_full_but_not_overflowing_chosen_buffer_is_no_loss[plain]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_full_but_not_overflowing_chosen_buffer_is_no_loss[stage2]
+    ERROR tests/python/test_m3_defaults_optout.py::test_an_img4_end_is_no_loss[plain-plain-header]
+    ERROR tests/python/test_m3_defaults_optout.py::test_an_img4_end_is_no_loss[plain-header-reading-as-a-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_an_img4_end_is_no_loss[stage2-plain-header]
+    ERROR tests/python/test_m3_defaults_optout.py::test_an_img4_end_is_no_loss[stage2-header-reading-as-a-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_lines_m1n1_does_not_know_are_no_loss[plain-unknown-variable]
+    ERROR tests/python/test_m3_defaults_optout.py::test_lines_m1n1_does_not_know_are_no_loss[plain-line-without-equals-before-unknown]
+    ERROR tests/python/test_m3_defaults_optout.py::test_lines_m1n1_does_not_know_are_no_loss[stage2-unknown-variable]
+    ERROR tests/python/test_m3_defaults_optout.py::test_lines_m1n1_does_not_know_are_no_loss[stage2-line-without-equals-before-unknown]
+    ERROR tests/python/test_m3_defaults_optout.py::test_literal_display_zero_is_the_framebuffer_setting[plain]
+    ERROR tests/python/test_m3_defaults_optout.py::test_literal_display_zero_is_the_framebuffer_setting[stage2]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[plain-gpu-on-fillers-lost-gpu-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[plain-marker-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[plain-missing-newline]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[plain-overlong-earlier-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[plain-overlong-name]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[plain-overlong-value]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[plain-swallowed-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[plain-unknown-after-config]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[plain-unknown-after-kernel]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[stage2-gpu-on-fillers-lost-gpu-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[stage2-marker-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[stage2-missing-newline]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[stage2-overlong-earlier-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[stage2-overlong-name]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[stage2-overlong-value]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[stage2-swallowed-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[stage2-unknown-after-config]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_air_graphics_off_and_boots[stage2-unknown-after-kernel]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_pro_graphics_off_and_boots[plain]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_pro_graphics_off_and_boots[stage2]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[plain-gpu-on-fillers-lost-gpu-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[plain-marker-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[plain-missing-newline]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[plain-overlong-earlier-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[plain-overlong-name]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[plain-overlong-value]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[plain-swallowed-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[plain-unknown-after-config]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[plain-unknown-after-kernel]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[stage2-gpu-on-fillers-lost-gpu-off]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[stage2-marker-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[stage2-missing-newline]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[stage2-overlong-earlier-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[stage2-overlong-name]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[stage2-overlong-value]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[stage2-swallowed-line]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[stage2-unknown-after-config]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_keeps_max_graphics_off_and_boots[stage2-unknown-after-kernel]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_drops_the_owners_max_lines_and_keeps_the_rest[plain]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_lost_line_drops_the_owners_max_lines_and_keeps_the_rest[stage2]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_failed_setter_replacing_gpu_on_with_gpu_off[plain]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_failed_setter_replacing_gpu_on_with_gpu_off[stage2]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_kboot_table_too_small_for_the_config[plain]
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_kboot_table_too_small_for_the_config[stage2]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_boards_keep_their_lines_after_a_loss[plain-j514c-chosen.asahi,t6031-gpu=]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_boards_keep_their_lines_after_a_loss[plain-j516m-chosen.asahi,t6031-gpu=]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_boards_keep_their_lines_after_a_loss[plain-j293-chosen.test,switch=]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_boards_keep_their_lines_after_a_loss[stage2-j514c-chosen.asahi,t6031-gpu=]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_boards_keep_their_lines_after_a_loss[stage2-j516m-chosen.asahi,t6031-gpu=]
+    ERROR tests/python/test_m3_defaults_optout.py::test_other_boards_keep_their_lines_after_a_loss[stage2-j293-chosen.test,switch=]
+    ERROR tests/python/test_m3_defaults_optout.py::test_stage_1_hands_its_loss_on_after_every_owner_line
+    ERROR tests/python/test_m3_defaults_optout.py::test_stage_1_loss_keeps_max_graphics_off
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_clean_stage_1_leaves_the_j516c_default
+    ERROR tests/python/test_m3_defaults_optout.py::test_stage_1_loss_survives_a_stage_2_owner_marker_line
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_clean_stage_1_hands_over_its_lines_only
+    ERROR tests/python/test_m3_defaults_optout.py::test_stage_2_overflowing_with_stage_1_lines_keeps_graphics_off
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_configured_stage_1_hands_on_a_loss_within_its_capacity
+    ERROR tests/python/test_m3_defaults_optout.py::test_a_configured_stage_1_with_a_full_chosen_buffer_still_refuses_as_before
+    ERROR tests/python/test_m3_defaults_optout.py::test_fourteen_owner_lines_overflow_stage_2_after_a_configured_stage_1[j613]
+    ERROR tests/python/test_m3_defaults_optout.py::test_fourteen_owner_lines_overflow_stage_2_after_a_configured_stage_1[j516s]
+    ERROR tests/python/test_m3_defaults_optout.py::test_fourteen_owner_lines_overflow_stage_2_after_a_configured_stage_1[j516c]
+    ERROR tests/python/test_m3_defaults_optout.py::test_fourteen_owner_lines_overflow_stage_2_after_a_configured_stage_1[j293]
+    ERROR tests/python/test_m3_defaults_optout.py::test_updater_gpu_on_then_off_keeps_the_gpu_off
+    ERROR tests/python/test_m3_defaults_optout.py::test_updater_many_owner_lines_overflow_stage_2_and_keep_graphics_off
+    ERROR tests/python/test_m3_defaults_optout.py::test_updater_empty_config_hands_the_j516c_display_and_gpu_over_on_the_boot_that_loads_it
+    ERROR tests/python/test_m3_defaults_optout.py::test_updater_j516c_gpu_zero_keeps_the_handoff_off
+    ERROR tests/python/test_m3_defaults_optout.py::test_updater_j516c_dcp_zero_keeps_the_display_handoff_off
+    ERROR tests/python/test_m3_defaults_optout.py::test_updater_j514s_gpu_zero_keeps_the_handoff_off
+    ERROR tests/python/test_m3_defaults_optout.py::test_updater_read_loop_fix_keeps_a_last_line_without_newline
+80e7953 smp: t6050: forward cores locked to a stage 1 base t: 442 passed, 17 skipped, 10 subtests passed in 39.65s
+26519fb pcie: t6050: handle a warm N1 and a live port 0 at e: 442 passed, 17 skipped, 10 subtests passed in 40.30s
+be49759 kboot_gpu: hand the T6050 GPU to the G17 driver from: 442 passed, 17 skipped, 10 subtests passed in 39.24s
+256759b kboot: t6050: publish DCP firmware-compat 27.3.0 for: 442 passed, 17 skipped, 10 subtests passed in 37.09s
+6653bb2 wdt: leave the watchdog armed when the boot-args say: 443 passed, 17 skipped, 10 subtests passed in 39.96s
+a08882b wdt: leave the watchdog armed when the boot-args say: 466 passed, 17 skipped, 10 subtests passed in 37.30s

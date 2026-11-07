@@ -1,4 +1,4 @@
-From 3ac8c178ed76836c23acb35948d38ebecd533946 Mon Sep 17 00:00:00 2001
+From a656c62de767c8b7ac609b414dc68acdd1f4b0ee Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 07:05:38 -0500
 Subject: [PATCH 3/5] pcie: t6050: start ANS for the N1 training's storage
@@ -35,6 +35,9 @@ Linux waits for this ANS (it can take about 3 s to answer after a stop).
 =1 and =2 are unchanged.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+
+# Conflicts:
+#	src/nvme.c
 ---
  src/kboot_n1.c   | 16 ++++++----
  src/nvme.c       | 20 ++++++++++++-
@@ -80,18 +83,18 @@ index 341d7e5..30ad019 100644
              pcie_t6050_storage_lost("during the port 0 training");
          if (ret) {
 diff --git a/src/nvme.c b/src/nvme.c
-index 3ecef63..aa5c62c 100644
+index b12cf5a..b75533c 100644
 --- a/src/nvme.c
 +++ b/src/nvme.c
-@@ -133,6 +133,7 @@ static bool nvme_initialized = false;
- static bool nvme_reboot_required;
- bool nvme_adopt_live_session = false;
+@@ -135,6 +135,7 @@ bool nvme_adopt_live_session = false;
  bool nvme_keep_running_for_linux = false;
+ bool nvme_t6050_stop_coproc =
+     false; /* T6050: stop the coprocessor at shutdown (it does not restart) */
 +static bool nvme_stop_requested;
  static u8 nvme_die;
  
  static asc_dev_t *nvme_asc = NULL;
-@@ -670,7 +671,7 @@ bool nvme_shutdown(void)
+@@ -672,7 +673,7 @@ bool nvme_shutdown(void)
      if (nvme_type == NVME_T8132 && (adminq.failed || ioq.failed))
          goto out_preserve;
  
@@ -100,7 +103,7 @@ index 3ecef63..aa5c62c 100644
          u32 cc = read32(nvme_base + NVME_CC);
          u32 csts = read32(nvme_base + NVME_CSTS);
          u32 boot_status = read32(nvme_base + NVME_BOOT_STATUS);
-@@ -720,6 +721,9 @@ bool nvme_shutdown(void)
+@@ -740,6 +741,9 @@ bool nvme_shutdown(void)
      if (nvme_type == NVME_T8132) {
          write64_lo_hi(nvme_base + NVME_IOQ_CMDS, 0);
          write64_lo_hi(nvme_base + NVME_IOQ_CQES, 0);
@@ -110,7 +113,7 @@ index 3ecef63..aa5c62c 100644
          nvme_adopt_live_session = true;
          nvme_initialized = false;
          printf("nvme: controller disabled; preserving live RTKit session\n");
-@@ -748,6 +752,20 @@ out_preserve:
+@@ -768,6 +772,20 @@ out_preserve:
      return false;
  }
  

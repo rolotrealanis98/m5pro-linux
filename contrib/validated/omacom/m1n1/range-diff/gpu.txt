@@ -1,13 +1,17 @@
-1:  686e792 ! 1:  8906f3b kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
+1:  686e792 ! 1:  be49759 kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
     @@ Commit message
          coprocessor mailboxes at their native windows. dt_set_gpu() has no
          T6050 case yet ("ADT: GPU: unsupported chip!").
      
     -    Add dt_set_gpu_t6050(), shaped like the T6040 fill. It runs only if the
-    +    Add dt_set_gpu_t6050(), beside the T8140 fill. It runs only if the
-         gpu node is apple,agx-g17s and enabled in the device tree, and takes
+    -    gpu node is apple,agx-g17s and enabled in the device tree, and takes
+    +    Add dt_set_gpu_t6050(), beside the G17 fill that #30 adds for
+    +    apple,agx-t6050. dt_set_gpu() picks it when the gpu node is
+    +    apple,agx-g17s and keeps the G17 fill for every other T6050 gpu node.
+    +    It runs only if that node is enabled in the device tree, and takes
          everything from the ADT of this boot:
           - uat-handoff, uat-l2-pagetables, uat-pagetables, uat-ttbs: /arm-io/sgx
+            gfx-handoff, gfx-shared-l2-region, gfx-shared-region, gpu-region;
     @@ Commit message
             from the coprocessor whose ADT role is the mailbox's
             apple,firmware-role, once the mailbox's interrupts are checked to be
@@ -23,11 +27,15 @@
      
     -    There is no chosen.* opt-in. As for T6040 and T8140, the device tree
     -    that comes with the kernel decides whether the GPU is used; the opt-ins
-    +    There is no chosen.* opt-in. As for T8140, the device tree that comes
-    +    with the kernel decides whether the GPU is used; the opt-ins
+    +    There is no chosen.* opt-in. As for T8140 and the G17 fill, the device
+    +    tree that comes with the kernel decides whether the GPU is used; the opt-ins
          in this file guard GPU register access (the G15 identity probes and
          power stand-ins), which this does not do.
      
+    +    The two do not overlap: the J716s ADT's sgx has perf-state-table-count
+    +    2, where the G17 fill takes 4 (the J714c's), and the g17s driver keeps
+    +    its own operating points.
+    +
     +    Tested on the J716s with the same fill on our stage 2 behind an opt-in
     +    (E2b, firmware 27.3 26C5035r): the G17 driver probes, both InitData
     +    are acknowledged and the DRM device registers; Vulkan and GL (on zink)
@@ -69,7 +77,23 @@
     -         return dt_set_gpu_t6040(dt);
     + {
     +     if (chip_id == T8140)
-    +         return dt_set_gpu_t8140(dt);
+    +         return dt_set_gpu_g17(dt, &g17_t8140);
+    +-    if (chip_id == T6050)
+    ++    if (chip_id == T6050) {
+    ++        /*
+    ++         * Two kernel drivers, told apart by the gpu node: apple,agx-g17s adopts the GPU with its
+    ++         * firmware images and mailboxes (dt_set_gpu_t6050()); apple,agx-t6050 takes the G17 OPP
+    ++         * and UAT fill.
+    ++         */
+    ++        int gpu = fdt_path_offset(dt, "gpu");
+    ++        if (gpu >= 0 && !fdt_node_check_compatible(dt, gpu, "apple,agx-g17s"))
+    ++            return dt_set_gpu_t6050(dt);
+    +         return dt_set_gpu_g17(dt, &g17_t6050);
+    ++    }
       
-     +    if (chip_id == T6050)
-     +        return dt_set_gpu_t6050(dt);
+    -+    if (chip_id == T6050)
+    -+        return dt_set_gpu_t6050(dt);
+    -+
+          bool has_cs_afr = false;
+          int (*calc_power)(u32 count, u32 table_count, const struct perf_state *core,
+    -                       const struct perf_state *sram, const struct aux_perf_states *cs, u32 *max_pwr,

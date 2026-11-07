@@ -1,27 +1,46 @@
-From 47e8282deb8b2f66cde8d3eef455bc4483c6c820 Mon Sep 17 00:00:00 2001
+From ddd9d356a914df1729a1734e3c4aff523bc3328f Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:54:50 -0500
-Subject: [PATCH 1/2] tests: build the T6050 paths that #26 adds
+Subject: [PATCH 1/2] tests: build the T6050 paths that #30 adds
 
-Three host tests compile production bodies that #26 extends for T6050,
+Five host tests compile production bodies that #30 extends for T6050
 and stop compiling or matching on its head:
 - test_nvme_adoption and test_smp_handoff_gate: nvme_init() and
   kboot_boot() now name T6050, and kboot_boot() calls dapf_init().
   Define T6050 and stub dapf_init() beside the existing stubs.
+- test_m3_defaults_optout: payload_run() names T6050 for the live ANS
+  session hand-off. Define it.
+- test_universal_boot: the stage 1 config block now reads boot_spec and
+  kernel (an appended next stage takes only the proxy window). Declare
+  both, NULL, so the block runs as before.
 - test_t8103_inherited_reservation ends its block at the T8140 heap
   check, which is now "T8140 || T6050" with a comment line before it.
   Match both forms.
 
-integration/aurora passes all three before and after; on #26's head
+integration/aurora passes all five before and after; on #30's head
 they fail without this.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
+ tests/python/test_m3_defaults_optout.py          | 1 +
  tests/python/test_nvme_adoption.py               | 1 +
  tests/python/test_smp_handoff_gate.py            | 2 ++
  tests/python/test_t8103_inherited_reservation.py | 4 +++-
- 3 files changed, 6 insertions(+), 1 deletion(-)
+ tests/python/test_universal_boot.py              | 2 ++
+ 5 files changed, 9 insertions(+), 1 deletion(-)
 
+diff --git a/tests/python/test_m3_defaults_optout.py b/tests/python/test_m3_defaults_optout.py
+index d068566..6c5eb39 100644
+--- a/tests/python/test_m3_defaults_optout.py
++++ b/tests/python/test_m3_defaults_optout.py
+@@ -219,6 +219,7 @@ static const char *adt_getprop(void *a, int node, const char *name, u32 *len) {
+ static void cpufreq_payload_boost(bool on) {}
+ static void cpufreq_init(void) {}
+ #define T8140 0x8140
++#define T6050 0x6050
+ #define SMP_TIMEOUT -2
+ #define MAX_CPUS 4
+ static int smp_start_secondaries(void) { return 0; }
 diff --git a/tests/python/test_nvme_adoption.py b/tests/python/test_nvme_adoption.py
 index 66c19b8..65a5f02 100644
 --- a/tests/python/test_nvme_adoption.py
@@ -69,6 +88,19 @@ index 0e871b9..4e38b9e 100644
      block = text[start:end]
      call = re.search(
          r"    if \(fdt_add_mem_rsv\(dt, \(u64\)_base, image_end - \(u64\)_base\)\)\n"
+diff --git a/tests/python/test_universal_boot.py b/tests/python/test_universal_boot.py
+index c72b4ee..0a1add9 100644
+--- a/tests/python/test_universal_boot.py
++++ b/tests/python/test_universal_boot.py
+@@ -21,6 +21,8 @@ def test_embedded_target_applies_across_chip_generations(tmp_path):
+ static unsigned chip_id;
+ static bool stage1_config_applied;
+ static char *chainload_spec;
++static char *boot_spec;
++static void *kernel;
+ static const char *configured;
+ static char stage1_esp_chosen[128];
+ static char *chosen[MAX_CHOSEN_VARS];
 -- 
 2.56.0
 

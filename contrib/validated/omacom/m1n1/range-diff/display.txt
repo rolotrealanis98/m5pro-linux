@@ -1,4 +1,4 @@
-1:  8e5c8e9 ! 1:  b87cfab firmware: add the 27.2 and 27.3 beta 1 stub iBoot strings
+1:  8e5c8e9 ! 1:  2743732 firmware: add the 27.2 and 27.3 beta 1 stub iBoot strings
     @@ Commit message
          and the 27.2 stub's mBoot-20457.41.3 as V27_2.
      
@@ -19,7 +19,7 @@
           [V27_0]      = {V27_0,      "27.0",        {27, 0, 0},     3, "mBoot-20457.1.29"},
      +    // Aura (aurora-silicon/aura PR #61): the 27.2 stub's iBoot string.
      +    [V27_2]      = {V27_2,      "27.2",        {27, 2, 0},     3, "mBoot-20457.41.3"},
-2:  db04421 ! 2:  badcc4b kboot: t6050: reserve the running coprocessors' __OS_LOG segments
+2:  db04421 ! 2:  4ec7412 kboot: t6050: reserve the running coprocessors' __OS_LOG segments
     @@ Commit message
          "unknown compatible" for it; dart-disp0 is locked as before.
      
@@ -33,13 +33,14 @@
       }
       
      +/*
-3:  d7f99dd ! 3:  922e6c1 kboot: t6050: hand the internal display to the firmware-27 DCP driver
+3:  d7f99dd ! 3:  1e911fe kboot: t6050: hand the internal display to the firmware-27 DCP driver
     @@ Commit message
          handoff marker: it expects the loader to describe the framebuffer, name
          the DCP firmware and enable the display nodes, and it refuses a
          firmware-compat it has no method table for at probe, before it touches
     -    the DCP. aurora-wip does none of this for T6050.
-    +    the DCP. integration/aurora does none of this for T6050.
+    +    the DCP. Neither integration/aurora nor #30 does any of this for
+    +    T6050.
      
          On every T6050 boot, read the internal display as iBoot left it and log
          it: the DCP ASC's CPU control and status, the PROTECT of dart-dcp and
@@ -110,7 +111,7 @@
      +        t6050_dcp_log("OVERRIDE: firmware-compat 27.0.0\n");
      +        compat = &compat_27_0;
      +    }
-4:  e0640ca ! 4:  1e7b278 kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
+4:  e0640ca ! 4:  256759b kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
     @@ Commit message
          13.5 beta 4 publishes 13.5.0. apple,firmware-version stays the stub's.
      

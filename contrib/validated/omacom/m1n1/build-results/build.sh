@@ -2,7 +2,7 @@
 # Build the omacom/m1n1 T6050 series (worktree ~/Work/agents/omacom-m1n1/tree) with the aurora-prs-2
 # recipe: Apple `container`, Fedora 43, clang/lld 21, rustc 1.99.1 (m1n1-t6050-bringup/build/build.sh style).
 #   base0     = omacom/integration/aurora 121fcbf (the default branch)
-#   base      = omacom/m1n1#26 head 6d879ae (edimoldovan j714c/t6050), warning baseline
+#   base      = omacom/m1n1#30 head ad08bf5 (edimoldovan j714c/diskboot), warning baseline
 #   cNN       = each commit of the series, plain `make` (the boot-test image)
 #   ci-<tip>  = each branch tip and base with `make CHAINLOADING=1` (omacom CI's build)
 #   pytest    = omacom CI's pytest set on base and each tip (gcc host compiler, as CI's default job)
@@ -12,7 +12,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 TREE=$HOME/Work/agents/aurora-prs-2/m1n1   # main repo: the worktree's .git file points outside the container
 OUT=$HERE; RUST=${RUST:-1.99.1}
 G="git -C $TREE"
-BASE0=$($G rev-parse omacom/integration/aurora); BASE=$($G rev-parse omacom-pr/26)
+BASE0=$($G rev-parse omacom/integration/aurora); BASE=$($G rev-parse omacom-pr/30)
 TIPS="omacom/t6050-bringup omacom/t6050-n1 omacom/t6050-gpu omacom/t6050-display omacom/wdt-keep"
 STANDALONE=$($G rev-parse omacom/wdt-keep-standalone)
 : > "$OUT/refs.txt"

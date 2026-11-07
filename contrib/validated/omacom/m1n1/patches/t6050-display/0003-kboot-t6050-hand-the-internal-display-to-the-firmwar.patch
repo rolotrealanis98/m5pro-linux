@@ -1,4 +1,4 @@
-From 922e6c1aa852820309d6a261848bbdb9914fcda2 Mon Sep 17 00:00:00 2001
+From 1e911feff8db5e6d473e0840c16f2c0b88ee4ce0 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 14:09:19 -0500
 Subject: [PATCH 3/4] kboot: t6050: hand the internal display to the
@@ -9,7 +9,8 @@ the DCP iBoot leaves running and its boot-locked DARTs. It has no
 handoff marker: it expects the loader to describe the framebuffer, name
 the DCP firmware and enable the display nodes, and it refuses a
 firmware-compat it has no method table for at probe, before it touches
-the DCP. integration/aurora does none of this for T6050.
+the DCP. Neither integration/aurora nor #30 does any of this for
+T6050.
 
 On every T6050 boot, read the internal display as iBoot left it and log
 it: the DCP ASC's CPU control and status, the PROTECT of dart-dcp and
@@ -46,7 +47,7 @@ Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
  1 file changed, 262 insertions(+), 2 deletions(-)
 
 diff --git a/src/kboot.c b/src/kboot.c
-index 75a628d..6d86b75 100644
+index 892ab3a..382c580 100644
 --- a/src/kboot.c
 +++ b/src/kboot.c
 @@ -5381,17 +5381,277 @@ static void dt_reserve_t6050_oslogs(void)

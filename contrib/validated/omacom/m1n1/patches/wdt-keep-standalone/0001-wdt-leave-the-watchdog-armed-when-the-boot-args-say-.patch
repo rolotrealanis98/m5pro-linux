@@ -1,4 +1,4 @@
-From 0d93a70713885bc34857c7c161dab26d7333fb75 Mon Sep 17 00:00:00 2001
+From a08882b23dcca178a5cd5fb5715caf12d0a7916d Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:25:50 -0500
 Subject: [PATCH] wdt: leave the watchdog armed when the boot-args say

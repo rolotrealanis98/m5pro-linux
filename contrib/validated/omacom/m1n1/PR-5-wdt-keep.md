@@ -1,6 +1,6 @@
 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
 
-Base: integration/aurora 121fcbf3 (`omacom/wdt-keep-standalone`). The commit is independent of the T6050 stack. In the stack it is also the last branch, `omacom/wdt-keep` on PR-4, with the same commit.
+Base: integration/aurora c614476 (`omacom/wdt-keep-standalone`). The commit is independent of the T6050 stack. It is also the last branch of the stack, `omacom/wdt-keep` on PR-4 (on #30), with the same commit.
 
 m1n1 disables the SoC watchdog at start. A chainloading stage 1 can arm the watchdog before it starts its stage 2, so that a stage 2 or a kernel that hangs resets the machine and iBoot counts a failed boot. That protection is lost the moment stage 2 runs. On our J716s, a stage 2 that fell back to the proxy sat there until someone pressed the power button. The next start then booted the same stage 2 again, because the PMU boot-error count does not cover a boot that stops in the proxy.
 
@@ -18,15 +18,17 @@ Not in this PR: arming the watchdog in omacom's own stage 1. In our chain, our A
 
 MacBook Pro 16-inch, M5 Pro (J716s, Mac17,8), macOS 27.3 beta 1 stub (26C5035r).
 
-This check ran in our own stage 2 as a substring match of the same token, not on this branch. Our A/B stage 1 armed the watchdog for 150 s and passed the token on every boot on 2026-11-07. That day:
+**This commit on hardware (2026-11-07):** the full T6050 stack with this commit on top, built on #26 before #30 replaced it, booted the J716s on the first pass behind our A/B stage 1. The log showed `Primary WDT left armed (m1n1.wdt=keep)`. The loader then trained the N1, Linux came up on 18 CPUs with Wi-Fi: pass. The commit is unchanged by the rebase.
+
+Before that, the same check ran in our own stage 2 as a substring match of the same token. Our A/B stage 1 armed the watchdog for 150 s and passed the token on every boot on 2026-11-07. That day:
 - Payloads that hung or panicked before `apple_wdt` probed came back unattended on the fallback payload, with the boot-slot marked `fallback-after-failure`: DAILY-NEXT-T1, W3 (a cold start), and the boots of freshly written files that fell back once.
 - Every boot that reached Linux kept running with the kernel feeding the watchdog (R3-S: 160 s against the 150 s timeout, and every soak after it).
 - The only boot on 2026-11-07 that needed someone at the power button was the one Aurora loader without this check: it disabled the watchdog and parked in the proxy.
 
 This branch:
-- Builds with `make` and `make CHAINLOADING=1`, standalone and at the top of the T6050 stack: 15 warnings, the same as the base, none new. Sizes are unchanged.
+- Builds with `make` and `make CHAINLOADING=1`, standalone and at the top of the T6050 stack: no new warnings against the base. Sizes are unchanged.
 - CI's pytest set (Linux): all pass, including the new test.
-- Boot-test payload for the J716s (not deployed): the full T6050 stack (`omacom/wdt-keep`) with the daily's kernel, DTB and initramfs and `chosen.asahi,t6050-n1=4`, self-test on. With our stage 1's token it keeps the stage 1 watchdog armed, so it is the one payload in this set that can boot unattended.
+- Boot-test payload rebuilt on #30: the full T6050 stack (`omacom/wdt-keep`) with the daily's kernel, DTB and initramfs and `chosen.asahi,t6050-n1=4`, self-test on. With our stage 1's token it keeps the stage 1 watchdog armed, so it is the one payload in this set that can boot unattended.
 
 Questions:
 - Is a boot-args token the right channel, or would you rather have a field in the chainload header (`chainload.h`) that only a chainloading m1n1 can set?

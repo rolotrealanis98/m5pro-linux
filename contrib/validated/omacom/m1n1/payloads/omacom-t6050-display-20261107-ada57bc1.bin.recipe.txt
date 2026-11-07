@@ -1,0 +1,19 @@
+payload   omacom-t6050-display-20261107-ada57bc1.bin
+size      39292442 bytes
+sha256    ada57bc1fc55d570c7c1181364a7e3a9518ace05f4520c26dfa9422a547929f7
+mode      test; m5.selftest ON (self-reverts to boot.bin.prev without network in 90 s); battery driver ENABLED (attended boot only)
+m1n1      custom:c12.bin [UNPINNED]  /Users/rolo/Work/agents/omacom-m1n1/build/c12.bin
+          sha256 f061c06a048feea09dd72073a0e7a59c50e3080230df4daf5ecc469cb476423a
+kernel    custom:Image-7.3.0-ga0f2f30c967b.gz [UNPINNED]  /Users/rolo/Work/agents/next-daily/images/Image-7.3.0-ga0f2f30c967b.gz
+          sha256 0f302e9a7a05be12884d38e2aff794ec64ae094619eb9d06df8e5bac6e5106fb
+dtb       custom:t6050-j716s-daily-dcp9.dtb [UNPINNED]  /Users/rolo/Work/agents/gpu-e2/payloads/private/dt/t6050-j716s-daily-dcp9.dtb
+          sha256 e26dcbbc1d3dadde11e44ff15c8b1185d907b564b0ec999643b83f335f5ffe7d
+initramfs custom:initramfs-ftab.cpio.gz [UNPINNED]  /Users/rolo/Work/agents/next-daily/payloads/private/initramfs-ftab.cpio.gz
+          sha256 cffbbaf1030d224ca092c586aa25ab0ef2a93db5a1e2701aa3bd0d5618b2fbfa
+bootargs  earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5 kvm-arm.wfi_trap_policy=trap m5.selftest=1
+layout    m1n1 @0x0+0x410000 | bootargs @0x410000+0xd8 | show-notch @0x4100d8+0x4f | Image.gz @0x410127+0x115e459 | dtb @0x156e580+0xa05c | initramfs @0x15785dc+0x100083e
+note      m1n1 custom:c12.bin is unpinned: the sha256 above is the only record of it
+note      kernel custom:Image-7.3.0-ga0f2f30c967b.gz is unpinned: the sha256 above is the only record of it
+note      dtb custom:t6050-j716s-daily-dcp9.dtb is unpinned: the sha256 above is the only record of it
+note      initramfs custom:initramfs-ftab.cpio.gz is unpinned: the sha256 above is the only record of it
+note      battery driver enabled: attended boot only; a probe hang is not self-recoverable

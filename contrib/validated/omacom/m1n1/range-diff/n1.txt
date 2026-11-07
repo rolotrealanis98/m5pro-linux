@@ -1,4 +1,4 @@
-1:  a8b4519 ! 1:  5a8f40d kboot: n1: fill the T6050 N1 hand-off in the DT
+1:  a8b4519 ! 1:  0673e22 kboot: n1: fill the T6050 N1 hand-off in the DT
     @@ Commit message
          Nothing here trains a link.
      
@@ -23,7 +23,7 @@
      @@ src/kboot.c: int kboot_prepare_dt(void *fdt)
               return -1;
           if (dt_set_bluetooth())
-2:  9823d48 ! 2:  6c8497b pcie: t6050: train apcie0 port 0 (the N1) behind chosen.asahi,t6050-n1
+2:  9823d48 ! 2:  b2dfd87 pcie: t6050: train apcie0 port 0 (the N1) behind chosen.asahi,t6050-n1
     @@ Commit message
          Adds pmgr_psreg_by_name(), and makes pmgr_power_is_on() skip virtual
          devices: T6050 has a no_ps APCIE_PHY_SW beside the real one. Adds
@@ -77,14 +77,31 @@
      
       ## src/kboot.h ##
      @@ src/kboot.h: int kboot_set_uboot(const char *name, const char *value);
-3:  06e6c66 ! 3:  3ac8c17 pcie: t6050: start ANS for the N1 training's storage checks (chosen.asahi,t6050-n1=3|4)
+3:  06e6c66 ! 3:  a656c62 pcie: t6050: start ANS for the N1 training's storage checks (chosen.asahi,t6050-n1=3|4)
     @@ Commit message
          =1 and =2 are unchanged.
      
          Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+    +
+    +    # Conflicts:
+    +    #       src/nvme.c
      
       ## src/kboot_n1.c ##
      @@
+    @@ src/kboot_n1.c: int kboot_setup_n1(void *dt)
+              if (ret) {
+     
+      ## src/nvme.c ##
+    -@@ src/nvme.c: static bool nvme_initialized = false;
+    - static bool nvme_reboot_required;
+    - bool nvme_adopt_live_session = false;
+    +@@ src/nvme.c: bool nvme_adopt_live_session = false;
+      bool nvme_keep_running_for_linux = false;
+    + bool nvme_t6050_stop_coproc =
+    +     false; /* T6050: stop the coprocessor at shutdown (it does not restart) */
+     +static bool nvme_stop_requested;
+      static u8 nvme_die;
+      
     @@ src/nvme.c: bool nvme_shutdown(void)
      +    }
      +    /* nvme_stop() goes on below and stops ANS as on M1-M3 */
@@ -98,7 +115,7 @@
      @@ src/nvme.c: out_preserve:
           return false;
       }
-4:  4d50f1f ! 4:  c49ef5d pcie: t6050: pulse the N1 reset through the SMC as on J813 (chosen.asahi,t6050-n1=2|4)
+4:  4d50f1f ! 4:  2ec2604 pcie: t6050: pulse the N1 reset through the SMC as on J813 (chosen.asahi,t6050-n1=2|4)
     @@ Commit message
          =1 and =3 are unchanged (same register sequence, 500 ms link wait).
      
@@ -106,4 +123,4 @@
      
       ## src/pcie_t6050.c ##
      @@
--:  ------- > 5:  561df3a pcie: t6050: handle a warm N1 and a live port 0 at entry (chosen.asahi,t6050-n1=2|4)
+-:  ------- > 5:  26519fb pcie: t6050: handle a warm N1 and a live port 0 at entry (chosen.asahi,t6050-n1=2|4)

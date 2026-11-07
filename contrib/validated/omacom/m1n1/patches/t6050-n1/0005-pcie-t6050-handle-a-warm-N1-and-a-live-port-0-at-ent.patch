@@ -1,4 +1,4 @@
-From 561df3a66f4309e518645df11597c98e6e2e69c6 Mon Sep 17 00:00:00 2001
+From 26519fb00302cb14ea187bd8f0a5562d224abd55 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:21:07 -0500
 Subject: [PATCH 5/5] pcie: t6050: handle a warm N1 and a live port 0 at entry

@@ -1,4 +1,4 @@
-From badcc4b2782b033ad4a739291ae73cff8058a40a Mon Sep 17 00:00:00 2001
+From 4ec7412c577b5106688e7739708bbaa74c3e909c Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 14:09:19 -0500
 Subject: [PATCH 2/4] kboot: t6050: reserve the running coprocessors' __OS_LOG
@@ -29,7 +29,7 @@ Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
  1 file changed, 146 insertions(+)
 
 diff --git a/src/kboot.c b/src/kboot.c
-index 3465ca0..75a628d 100644
+index 8735d0c..892ab3a 100644
 --- a/src/kboot.c
 +++ b/src/kboot.c
 @@ -5245,11 +5245,157 @@ static void dt_set_j514s_native(void)

@@ -1,4 +1,4 @@
-From 6c8497be17a0c5d1ea2b21690144ba1cae5f928b Mon Sep 17 00:00:00 2001
+From b2dfd87447afafe667a6b1d3efffeb9dec9ba50c Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 19:29:44 -0500
 Subject: [PATCH 2/5] pcie: t6050: train apcie0 port 0 (the N1) behind
@@ -64,7 +64,7 @@ index d982819..c3b4e24 100644
  	proxy.o \
  	ringbuffer.o \
 diff --git a/src/kboot.c b/src/kboot.c
-index a60bd63..3465ca0 100644
+index 0c1e8a6..8735d0c 100644
 --- a/src/kboot.c
 +++ b/src/kboot.c
 @@ -433,6 +433,12 @@ static const char *kboot_chosen_param(const char *name)
@@ -81,10 +81,10 @@ index a60bd63..3465ca0 100644
   * A later preparation (the proxy can prepare again, with another device tree or after changing
   * the config) first removes the defaults an earlier one added, so an earlier default never
 diff --git a/src/kboot.h b/src/kboot.h
-index 3ea5d27..cc41c22 100644
+index 0406964..667da3d 100644
 --- a/src/kboot.h
 +++ b/src/kboot.h
-@@ -28,6 +28,7 @@ int kboot_set_uboot(const char *name, const char *value);
+@@ -29,6 +29,7 @@ int kboot_set_uboot(const char *name, const char *value);
  int dt_gpu_t8122_26_calibrate(void *dt);
  int dt_set_gpu_t8122_26(void *dt);
  int kboot_prepare_dt(void *fdt);

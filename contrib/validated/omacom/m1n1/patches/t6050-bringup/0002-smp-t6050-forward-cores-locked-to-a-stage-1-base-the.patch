@@ -1,4 +1,4 @@
-From f8ab2e17c3c4531f6c6eccf6176f3d65f4706475 Mon Sep 17 00:00:00 2001
+From 80e7953bc8eefcedad7196efd2460979c7323f6f Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 12:18:20 -0500
 Subject: [PATCH 2/2] smp: t6050: forward cores locked to a stage 1 base the
@@ -40,10 +40,10 @@ Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
  4 files changed, 229 insertions(+), 18 deletions(-)
 
 diff --git a/src/kboot.c b/src/kboot.c
-index a8bd838..1cf5139 100644
+index b39a551..0d231eb 100644
 --- a/src/kboot.c
 +++ b/src/kboot.c
-@@ -6501,6 +6501,13 @@ int kboot_prepare_dt(void *fdt)
+@@ -6530,6 +6530,13 @@ int kboot_prepare_dt(void *fdt)
      if (relocated_from && fdt_add_mem_rsv(dt, relocated_from, SZ_16K))
          bail("FDT: couldn't add reservation for m1n1's old reset vector\n");
  

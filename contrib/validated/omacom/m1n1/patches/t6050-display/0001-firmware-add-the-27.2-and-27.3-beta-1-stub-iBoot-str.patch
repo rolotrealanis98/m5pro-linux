@@ -1,4 +1,4 @@
-From b87cfab000409f4bfc9c76a3c73b64b05c5f0310 Mon Sep 17 00:00:00 2001
+From 2743732c7a7f5bd4adedc8641ddc2a48041f6cd7 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 13:58:27 -0500
 Subject: [PATCH 1/4] firmware: add the 27.2 and 27.3 beta 1 stub iBoot strings

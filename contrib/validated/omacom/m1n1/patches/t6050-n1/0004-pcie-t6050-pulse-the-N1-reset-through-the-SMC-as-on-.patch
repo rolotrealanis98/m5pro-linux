@@ -1,4 +1,4 @@
-From c49ef5d9212dd43bddb38263b277d830d765f7f2 Mon Sep 17 00:00:00 2001
+From 2ec2604d3e2e76f29c03090fea6f7130b76c1e24 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 07:42:07 -0500
 Subject: [PATCH 4/5] pcie: t6050: pulse the N1 reset through the SMC as on

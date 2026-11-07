@@ -1,25 +1,23 @@
-# per build: warnings not in its baseline (base = #26 6d879ae plain; ci-base = #26 CHAINLOADING=1), file:line:col stripped
-c01: new: none; missing: none
-c02: new: none; missing: none
-c03: new: none; missing: none
-c04: new: none; missing: none
-c05: new: none; missing: none
-c06: new: >    src/kboot.c: warning: stack usage is 4256 bytes [-Wstack-usage=]; missing: < src/kboot.c: warning: stack usage is 4256 bytes [-Wstack-usage=]
-< warning: constant `MAX_CORES_PER_CLUSTERG15V14_8_3` is never used
-c07: new: none; missing: none
-c08: new: none; missing: none
-c09: new: none; missing: none
-c10: new: none; missing: none
-c11: new: none; missing: none
-c12: new: none; missing: none
-c13: new: > warning: constant `MAX_CORES_PER_CLUSTERG15V14_8_3` is never used  CC    build/minilzlib/rangedec.o; missing: < warning: constant `MAX_CORES_PER_CLUSTERG15V14_8_3` is never used
-wdt-standalone: new: none; missing: none
-ci-tip1: new: none; missing: none
-ci-tip2: new: none; missing: none
-ci-tip3: new: none; missing: none
-ci-tip4: new: none; missing: none
-ci-tip5: new: none; missing: none
-ci-wdt-standalone: new: none; missing: none
-ci-base0: new: none; missing: none
-base0: new: none; missing: none
-# c06/c13: the same warnings; -j8 output interleaved a warning with another line (see logs), no new warning text
+# per build: warning texts (file:line:col stripped, deduplicated) not in the baseline: base = #30 ad08bf5 plain, ci-base = #30 CHAINLOADING=1; base0 = integration/aurora c614476
+c01: no new warnings
+c02: no new warnings
+c03: no new warnings
+c04: no new warnings
+c05: no new warnings
+c06: no new warnings
+c07: no new warnings
+c08: no new warnings
+c09: no new warnings
+c10: no new warnings
+c11: no new warnings
+c12: no new warnings
+c13: no new warnings
+wdt-standalone: no new warnings
+ci-tip1: no new warnings
+ci-tip2: no new warnings
+ci-tip3: no new warnings
+ci-tip4: no new warnings
+ci-tip5: no new warnings
+ci-wdt-standalone: no new warnings
+ci-base0: no new warnings
+base0: no new warnings

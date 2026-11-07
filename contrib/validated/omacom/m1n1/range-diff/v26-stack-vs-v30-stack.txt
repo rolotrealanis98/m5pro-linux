@@ -1,0 +1,159 @@
+ 1:  47e8282 !  1:  ddd9d35 tests: build the T6050 paths that #26 adds
+    @@ Metadata
+     Author: Rolando Trevino <rolotrealanis@gmail.com>
+     
+      ## Commit message ##
+    -    tests: build the T6050 paths that #26 adds
+    +    tests: build the T6050 paths that #30 adds
+     
+    -    Three host tests compile production bodies that #26 extends for T6050,
+    +    Five host tests compile production bodies that #30 extends for T6050
+         and stop compiling or matching on its head:
+         - test_nvme_adoption and test_smp_handoff_gate: nvme_init() and
+           kboot_boot() now name T6050, and kboot_boot() calls dapf_init().
+           Define T6050 and stub dapf_init() beside the existing stubs.
+    +    - test_m3_defaults_optout: payload_run() names T6050 for the live ANS
+    +      session hand-off. Define it.
+    +    - test_universal_boot: the stage 1 config block now reads boot_spec and
+    +      kernel (an appended next stage takes only the proxy window). Declare
+    +      both, NULL, so the block runs as before.
+         - test_t8103_inherited_reservation ends its block at the T8140 heap
+           check, which is now "T8140 || T6050" with a comment line before it.
+           Match both forms.
+     
+    -    integration/aurora passes all three before and after; on #26's head
+    +    integration/aurora passes all five before and after; on #30's head
+         they fail without this.
+     
+         Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+     
+    + ## tests/python/test_m3_defaults_optout.py ##
+    +@@ tests/python/test_m3_defaults_optout.py: static const char *adt_getprop(void *a, int node, const char *name, u32 *len) {
+    + static void cpufreq_payload_boost(bool on) {}
+    + static void cpufreq_init(void) {}
+    + #define T8140 0x8140
+    ++#define T6050 0x6050
+    + #define SMP_TIMEOUT -2
+    + #define MAX_CPUS 4
+    + static int smp_start_secondaries(void) { return 0; }
+    +
+      ## tests/python/test_nvme_adoption.py ##
+     @@ tests/python/test_nvme_adoption.py: typedef int sart_dev_t;
+      #define USEC_PER_SEC 1000000
+    @@ tests/python/test_t8103_inherited_reservation.py: SOURCE = Path(os.environ.get("
+          block = text[start:end]
+          call = re.search(
+              r"    if \(fdt_add_mem_rsv\(dt, \(u64\)_base, image_end - \(u64\)_base\)\)\n"
+    +
+    + ## tests/python/test_universal_boot.py ##
+    +@@ tests/python/test_universal_boot.py: def test_embedded_target_applies_across_chip_generations(tmp_path):
+    + static unsigned chip_id;
+    + static bool stage1_config_applied;
+    + static char *chainload_spec;
+    ++static char *boot_spec;
+    ++static void *kernel;
+    + static const char *configured;
+    + static char stage1_esp_chosen[128];
+    + static char *chosen[MAX_CHOSEN_VARS];
+ 2:  f8ab2e1 =  2:  80e7953 smp: t6050: forward cores locked to a stage 1 base the image left
+ 3:  5a8f40d =  3:  0673e22 kboot: n1: fill the T6050 N1 hand-off in the DT
+ 4:  6c8497b =  4:  b2dfd87 pcie: t6050: train apcie0 port 0 (the N1) behind chosen.asahi,t6050-n1
+ 5:  3ac8c17 !  5:  a656c62 pcie: t6050: start ANS for the N1 training's storage checks (chosen.asahi,t6050-n1=3|4)
+    @@ Commit message
+     
+         Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+     
+    +    # Conflicts:
+    +    #       src/nvme.c
+    +
+      ## src/kboot_n1.c ##
+     @@
+       *    not up takes an SError.
+    @@ src/kboot_n1.c: int kboot_setup_n1(void *dt)
+              if (ret) {
+     
+      ## src/nvme.c ##
+    -@@ src/nvme.c: static bool nvme_initialized = false;
+    - static bool nvme_reboot_required;
+    - bool nvme_adopt_live_session = false;
+    +@@ src/nvme.c: bool nvme_adopt_live_session = false;
+      bool nvme_keep_running_for_linux = false;
+    + bool nvme_t6050_stop_coproc =
+    +     false; /* T6050: stop the coprocessor at shutdown (it does not restart) */
+     +static bool nvme_stop_requested;
+      static u8 nvme_die;
+      
+ 6:  c49ef5d =  6:  2ec2604 pcie: t6050: pulse the N1 reset through the SMC as on J813 (chosen.asahi,t6050-n1=2|4)
+ 7:  561df3a =  7:  26519fb pcie: t6050: handle a warm N1 and a live port 0 at entry (chosen.asahi,t6050-n1=2|4)
+ 8:  8906f3b !  8:  be49759 kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
+    @@ Commit message
+         coprocessor mailboxes at their native windows. dt_set_gpu() has no
+         T6050 case yet ("ADT: GPU: unsupported chip!").
+     
+    -    Add dt_set_gpu_t6050(), beside the T8140 fill. It runs only if the
+    -    gpu node is apple,agx-g17s and enabled in the device tree, and takes
+    +    Add dt_set_gpu_t6050(), beside the G17 fill that #30 adds for
+    +    apple,agx-t6050. dt_set_gpu() picks it when the gpu node is
+    +    apple,agx-g17s and keeps the G17 fill for every other T6050 gpu node.
+    +    It runs only if that node is enabled in the device tree, and takes
+         everything from the ADT of this boot:
+          - uat-handoff, uat-l2-pagetables, uat-pagetables, uat-ttbs: /arm-io/sgx
+            gfx-handoff, gfx-shared-l2-region, gfx-shared-region, gpu-region;
+    @@ Commit message
+         mailboxes and the regions published so far, and the boot goes on. No
+         GPU register is read or written.
+     
+    -    There is no chosen.* opt-in. As for T8140, the device tree that comes
+    -    with the kernel decides whether the GPU is used; the opt-ins
+    +    There is no chosen.* opt-in. As for T8140 and the G17 fill, the device
+    +    tree that comes with the kernel decides whether the GPU is used; the opt-ins
+         in this file guard GPU register access (the G15 identity probes and
+         power stand-ins), which this does not do.
+     
+    +    The two do not overlap: the J716s ADT's sgx has perf-state-table-count
+    +    2, where the G17 fill takes 4 (the J714c's), and the g17s driver keeps
+    +    its own operating points.
+    +
+         Tested on the J716s with the same fill on our stage 2 behind an opt-in
+         (E2b, firmware 27.3 26C5035r): the G17 driver probes, both InitData
+         are acknowledged and the DRM device registers; Vulkan and GL (on zink)
+    @@ src/kboot_gpu.c: disable:
+      int dt_set_gpu(void *dt)
+      {
+          if (chip_id == T8140)
+    -         return dt_set_gpu_t8140(dt);
+    +         return dt_set_gpu_g17(dt, &g17_t8140);
+    +-    if (chip_id == T6050)
+    ++    if (chip_id == T6050) {
+    ++        /*
+    ++         * Two kernel drivers, told apart by the gpu node: apple,agx-g17s adopts the GPU with its
+    ++         * firmware images and mailboxes (dt_set_gpu_t6050()); apple,agx-t6050 takes the G17 OPP
+    ++         * and UAT fill.
+    ++         */
+    ++        int gpu = fdt_path_offset(dt, "gpu");
+    ++        if (gpu >= 0 && !fdt_node_check_compatible(dt, gpu, "apple,agx-g17s"))
+    ++            return dt_set_gpu_t6050(dt);
+    +         return dt_set_gpu_g17(dt, &g17_t6050);
+    ++    }
+      
+    -+    if (chip_id == T6050)
+    -+        return dt_set_gpu_t6050(dt);
+    -+
+          bool has_cs_afr = false;
+          int (*calc_power)(u32 count, u32 table_count, const struct perf_state *core,
+    -                       const struct perf_state *sram, const struct aux_perf_states *cs, u32 *max_pwr,
+ 9:  b87cfab =  9:  2743732 firmware: add the 27.2 and 27.3 beta 1 stub iBoot strings
+10:  badcc4b = 10:  4ec7412 kboot: t6050: reserve the running coprocessors' __OS_LOG segments
+11:  922e6c1 ! 11:  1e911fe kboot: t6050: hand the internal display to the firmware-27 DCP driver
+    @@ Commit message
+         handoff marker: it expects the loader to describe the framebuffer, name
+         the DCP firmware and enable the display nodes, and it refuses a
+         firmware-compat it has no method table for at probe, before it touches
+    -    the DCP. integration/aurora does none of this for T6050.
+    +    the DCP. Neither integration/aurora nor #30 does any of this for
+    +    T6050.
+     
+         On every T6050 boot, read the internal display as iBoot left it and log
+         it: the DCP ASC's CPU control and status, the PROTECT of dart-dcp and
+12:  1e7b278 = 12:  256759b kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
+13:  aee8488 = 13:  6653bb2 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep

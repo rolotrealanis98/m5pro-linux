@@ -1,4 +1,4 @@
-From 8906f3b368768dfc78b4cf0684e77c98d07f8bd8 Mon Sep 17 00:00:00 2001
+From be49759ad5117d9e7bce942f4291ea699b7d021a Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 13:58:06 -0500
 Subject: [PATCH] kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
@@ -9,8 +9,10 @@ and the UAT set up. It needs that state as reserved memory, and the two
 coprocessor mailboxes at their native windows. dt_set_gpu() has no
 T6050 case yet ("ADT: GPU: unsupported chip!").
 
-Add dt_set_gpu_t6050(), beside the T8140 fill. It runs only if the
-gpu node is apple,agx-g17s and enabled in the device tree, and takes
+Add dt_set_gpu_t6050(), beside the G17 fill that #30 adds for
+apple,agx-t6050. dt_set_gpu() picks it when the gpu node is
+apple,agx-g17s and keeps the G17 fill for every other T6050 gpu node.
+It runs only if that node is enabled in the device tree, and takes
 everything from the ADT of this boot:
  - uat-handoff, uat-l2-pagetables, uat-pagetables, uat-ttbs: /arm-io/sgx
    gfx-handoff, gfx-shared-l2-region, gfx-shared-region, gpu-region;
@@ -29,10 +31,14 @@ last, through dt_set_resvmem(). Anything unexpected disables the gpu node, its
 mailboxes and the regions published so far, and the boot goes on. No
 GPU register is read or written.
 
-There is no chosen.* opt-in. As for T8140, the device tree that comes
-with the kernel decides whether the GPU is used; the opt-ins
+There is no chosen.* opt-in. As for T8140 and the G17 fill, the device
+tree that comes with the kernel decides whether the GPU is used; the opt-ins
 in this file guard GPU register access (the G15 identity probes and
 power stand-ins), which this does not do.
+
+The two do not overlap: the J716s ADT's sgx has perf-state-table-count
+2, where the G17 fill takes 4 (the J714c's), and the g17s driver keeps
+its own operating points.
 
 Tested on the J716s with the same fill on our stage 2 behind an opt-in
 (E2b, firmware 27.3 26C5035r): the G17 driver probes, both InitData
@@ -41,11 +47,11 @@ render, and Hyprland runs on the GPU.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
- src/kboot_gpu.c | 263 ++++++++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 263 insertions(+)
+ src/kboot_gpu.c | 271 +++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 270 insertions(+), 1 deletion(-)
 
 diff --git a/src/kboot_gpu.c b/src/kboot_gpu.c
-index 718d467..9375b95 100644
+index 3d8c12c..5bb0f25 100644
 --- a/src/kboot_gpu.c
 +++ b/src/kboot_gpu.c
 @@ -15,6 +15,7 @@
@@ -56,7 +62,7 @@ index 718d467..9375b95 100644
  
  #include "libfdt/libfdt.h"
  
-@@ -3074,11 +3075,273 @@ disable:
+@@ -3089,12 +3090,280 @@ disable:
      return 0;
  }
  
@@ -322,14 +328,22 @@ index 718d467..9375b95 100644
  int dt_set_gpu(void *dt)
  {
      if (chip_id == T8140)
-         return dt_set_gpu_t8140(dt);
+         return dt_set_gpu_g17(dt, &g17_t8140);
+-    if (chip_id == T6050)
++    if (chip_id == T6050) {
++        /*
++         * Two kernel drivers, told apart by the gpu node: apple,agx-g17s adopts the GPU with its
++         * firmware images and mailboxes (dt_set_gpu_t6050()); apple,agx-t6050 takes the G17 OPP
++         * and UAT fill.
++         */
++        int gpu = fdt_path_offset(dt, "gpu");
++        if (gpu >= 0 && !fdt_node_check_compatible(dt, gpu, "apple,agx-g17s"))
++            return dt_set_gpu_t6050(dt);
+         return dt_set_gpu_g17(dt, &g17_t6050);
++    }
  
-+    if (chip_id == T6050)
-+        return dt_set_gpu_t6050(dt);
-+
      bool has_cs_afr = false;
      int (*calc_power)(u32 count, u32 table_count, const struct perf_state *core,
-                       const struct perf_state *sram, const struct aux_perf_states *cs, u32 *max_pwr,
 -- 
 2.56.0
 
