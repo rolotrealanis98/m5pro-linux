@@ -1,7 +1,7 @@
-From 33298dd4b0407a2f2f020bb9e811f2f7bd0beeaf Mon Sep 17 00:00:00 2001
+From 29eab2785dd731f475c585b75f0a70a468e2d160 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:23:44 -0500
-Subject: [PATCH 01/11] soc: apple: rtkit: Wait up to 10 s for a T6050 ANS
+Subject: [PATCH 01/12] soc: apple: rtkit: Wait up to 10 s for a T6050 ANS
  handshake reply
 
 apple_rtkit_wait_for_completion() gives the coprocessor 1 s to answer.
@@ -25,7 +25,6 @@ the internal SSD with 10 s, on every boot since. On this tree:
 compile-tested.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
-Assisted-by: LLM Claude
 ---
  drivers/nvme/host/apple.c          | 10 ++++++++++
  drivers/soc/apple/rtkit-internal.h |  2 ++

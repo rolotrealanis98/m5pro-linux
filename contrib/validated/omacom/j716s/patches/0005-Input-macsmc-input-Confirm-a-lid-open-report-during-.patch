@@ -1,7 +1,7 @@
-From c46d0826fbca539b78efd6fda8e48508228e5695 Mon Sep 17 00:00:00 2001
+From 2c3c5ff5e762a63061da2c7ce063335d6faf8906 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:25:46 -0500
-Subject: [PATCH 05/11] Input: macsmc-input - Confirm a lid-open report during
+Subject: [PATCH 05/12] Input: macsmc-input - Confirm a lid-open report during
  system sleep
 
 On the J716s (MacBook Pro 16-inch, M5 Pro) closing the lid starts a
@@ -47,7 +47,6 @@ wakeup"). No spurious report came during that sleep, so the hold-back
 path has not run on hardware yet. On this tree: compile-tested.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
-Assisted-by: LLM Claude
 ---
  drivers/input/misc/macsmc-input.c | 84 +++++++++++++++++++++++++++++++
  1 file changed, 84 insertions(+)

@@ -1,7 +1,7 @@
-From d83c6a5527f46291fc4b8d7f9eb6d7a5cd1303df Mon Sep 17 00:00:00 2001
+From 0b895ca35ee15b9eb45ce18250e941200768e843 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:26:08 -0500
-Subject: [PATCH 06/11] dt-bindings: arm: apple: Add the MacBook Pro (16-inch,
+Subject: [PATCH 06/12] dt-bindings: arm: apple: Add the MacBook Pro (16-inch,
  M5 Pro)
 
 The 16-inch MacBook Pro with the M5 Pro (J716s, Mac17,8) is built on the
@@ -10,7 +10,6 @@ identify the SoC as T6050. Add it to the Apple platform binding as an
 M5 Pro T6050 board.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
-Assisted-by: LLM Claude
 ---
  Documentation/devicetree/bindings/arm/apple.yaml | 6 ++++++
  1 file changed, 6 insertions(+)

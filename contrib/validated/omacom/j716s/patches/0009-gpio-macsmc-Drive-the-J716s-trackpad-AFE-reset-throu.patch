@@ -1,7 +1,7 @@
-From 28f0a558895a535a1b2bc1304325bd9fa44570c5 Mon Sep 17 00:00:00 2001
+From d4c0f512cb8e7abec59e280d9495d911017012d4 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:39:43 -0500
-Subject: [PATCH 09/11] gpio: macsmc: Drive the J716s trackpad AFE reset
+Subject: [PATCH 09/12] gpio: macsmc: Drive the J716s trackpad AFE reset
  through pcIO
 
 The J716s (MacBook Pro 16-inch, M5 Pro) Apple Device Tree describes the
@@ -11,7 +11,6 @@ multi-touch function-afe-reset = smc-pmu pKW8('pcIO', 0x10000,
 the J716s the J714c's pcIO line table.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
-Assisted-by: LLM Claude
 ---
  drivers/gpio/gpio-macsmc.c | 6 ++++--
  1 file changed, 4 insertions(+), 2 deletions(-)

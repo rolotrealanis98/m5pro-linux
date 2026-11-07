@@ -1,7 +1,7 @@
-From 304e348ab548e706ebf286904e18f0ca89d0a5de Mon Sep 17 00:00:00 2001
+From ffa59d70cf29a3ad4ed30c953b6c7c7fa50e26e2 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:46:09 -0500
-Subject: [PATCH 11/11] arm64: configs: Add a J716s fragment
+Subject: [PATCH 11/12] arm64: configs: Add a J716s fragment
 
 Add j716s.config, the drivers on the J716s boot path built in, for a
 root file system that carries no modules: storage (ANS NVMe, SART,
@@ -15,7 +15,6 @@ this boot path needs them yet. Used as
 like the j813 fragments.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
-Assisted-by: LLM Claude
 ---
  arch/arm64/configs/j716s.config | 41 +++++++++++++++++++++++++++++++++
  1 file changed, 41 insertions(+)

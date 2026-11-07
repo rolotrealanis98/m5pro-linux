@@ -1,7 +1,7 @@
-From 409b87ee537f9fdcd35e1a5255db6bd71718de6a Mon Sep 17 00:00:00 2001
+From 9d9bf231386894110e283972260b3e0b359a7ace Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:25:36 -0500
-Subject: [PATCH 04/11] HID: dockchannel-hid: Settle 50 ms after releasing the
+Subject: [PATCH 04/12] HID: dockchannel-hid: Settle 50 ms after releasing the
  AFE reset
 
 Power method 2 with a host-driven AFE reset releases the line for a
@@ -20,7 +20,6 @@ the trackpad's multi-touch device come up on every boot. On this tree:
 compile-tested.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
-Assisted-by: LLM Claude
 ---
  drivers/hid/dockchannel-hid/dockchannel-hid.c | 24 ++++++++++++++-----
  1 file changed, 18 insertions(+), 6 deletions(-)

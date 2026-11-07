@@ -1,7 +1,7 @@
-From 04b821ea55684558dec3e3f202a6b0556c30c97a Mon Sep 17 00:00:00 2001
+From 89cbb3fa1fb2d666f15629dc09c7ff72d64e2f00 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:46:08 -0500
-Subject: [PATCH 10/11] arm64: dts: apple: Add J716s (MacBook Pro 16-inch, M5
+Subject: [PATCH 10/12] arm64: dts: apple: Add J716s (MacBook Pro 16-inch, M5
  Pro)
 
 Add the 16-inch MacBook Pro with the M5 Pro (J716s, Mac17,8), a T6050
@@ -40,7 +40,6 @@ the J716s ADT names as the same line; the pcIO path has not run on this
 board.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
-Assisted-by: LLM Claude
 ---
  arch/arm64/boot/dts/apple/Makefile        |   1 +
  arch/arm64/boot/dts/apple/t6050-j716s.dts | 140 ++++++++++++++++++++++

@@ -1,7 +1,7 @@
-From 063f6e5da5029dabefcd73ec580c329e738b2bf9 Mon Sep 17 00:00:00 2001
+From 54a8e95eb340c50d1f75e7ed8a3e620e1e73d0ef Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:25:18 -0500
-Subject: [PATCH 03/11] arm64: idle: T6050 idles in WFI even with idle=nop
+Subject: [PATCH 03/12] arm64: idle: T6050 idles in WFI even with idle=nop
 
 m1n1 appends "idle=nop arm64.nowfxt" to the command line on every chip
 whose Apple system registers are locked (M4 and later, T8140 aside), for
@@ -16,7 +16,10 @@ Keep WFI as the idle method on T6050 (MIDR parts 0x064 and 0x065, added
 to cputype.h). The switch is made in apple_wfi_quirk_init(), after the
 register-saving key is enabled and before the secondary CPUs start; the
 boot CPU spins until then, as it does today. Other chips are not
-changed.
+changed. This relies on idle=nop being in effect until that
+early_initcall: a loader that does not append it would let the boot
+CPU idle in WFI before the registers are saved, which is not changed
+here.
 
 Add apple_keep_idle_nop to keep idle=nop for comparisons and as a
 fallback that needs no new kernel.
@@ -31,7 +34,6 @@ sleeps on each of its 15 CPUs. On this tree: compile-tested.
 
 Link: https://github.com/betizzel/omarchy-m5/commit/a5df9e4df61b60dd6195e13a2a3a043d76b92c0f
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
-Assisted-by: LLM Claude
 ---
  .../admin-guide/kernel-parameters.txt         |  7 +++++
  arch/arm64/include/asm/cputype.h              |  4 +++

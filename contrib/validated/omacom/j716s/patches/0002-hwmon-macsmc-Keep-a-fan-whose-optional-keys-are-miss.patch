@@ -1,7 +1,7 @@
-From 3167697e0740d2700bc32d9f93c8f5dc792d6d2f Mon Sep 17 00:00:00 2001
+From 41ce7f1b850ff147a1d2fc2592798c2199eed05a Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:24:17 -0500
-Subject: [PATCH 02/11] hwmon: (macsmc) Keep a fan whose optional keys are
+Subject: [PATCH 02/12] hwmon: (macsmc) Keep a fan whose optional keys are
  missing
 
 macsmc_hwmon_create_fan() returns an error, dropping the whole fan, when
@@ -23,7 +23,6 @@ the override, and with it both fans report their speed, minimum
 come from, as without this change. On this tree: compile-tested.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
-Assisted-by: LLM Claude
 ---
  drivers/hwmon/macsmc-hwmon.c | 57 ++++++++++++++++++++++++------------
  1 file changed, 38 insertions(+), 19 deletions(-)
