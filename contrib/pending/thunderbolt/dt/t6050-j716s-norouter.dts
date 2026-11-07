@@ -1,0 +1,5 @@
+/* Daily J716s DT with the inherited ATC2 router switched off: the fallback */
+#include "t6050-j716s.dts"
+&acio2 {
+	status = "disabled";
+};

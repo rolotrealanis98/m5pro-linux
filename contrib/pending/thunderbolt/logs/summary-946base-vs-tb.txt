@@ -1,0 +1,66 @@
+nodes added (24):
+  + /pcie-tunnel-1
+  + /pcie-tunnel-1/iommu@2ac000000
+  + /pcie-tunnel-1/pcie@1c60000000
+  + /pcie-tunnel-1/pcie@1c60000000/pci@0,0
+  + /soc@200000000/acio@2a9ac0000
+  + /soc@200000000/acio@2a9ac0000/iommu@a80000
+  + /soc@200000000/acio@2a9ac0000/nhi@f00000
+  + /soc@200000000/acio@2a9ac0000/ports
+  + /soc@200000000/acio@2a9ac0000/ports/port@1
+  + /soc@200000000/acio@2a9ac0000/ports/port@1/endpoint
+  + /soc@200000000/acio@381ac0000/ports
+  + /soc@200000000/acio@381ac0000/ports/port@1
+  + /soc@200000000/acio@381ac0000/ports/port@1/endpoint
+  + /soc@200000000/mailbox@2a9108000
+  + /soc@200000000/pinctrl@290824000/acio1-lstx-pins
+  + /soc@200000000/power-management@280600000/power-controller@290
+  + /soc@200000000/power-management@280600000/power-controller@298
+  + /soc@200000000/power-management@280600000/power-controller@350
+  + /soc@200000000/power-management@280600000/power-controller@358
+  + /soc@200000000/power-management@280600000/power-controller@360
+  + /soc@200000000/spmi@28a188000/usb-pd@a/connector/ports/port@3
+  + /soc@200000000/spmi@28a188000/usb-pd@a/connector/ports/port@3/endpoint
+  + /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@3
+  + /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@3/endpoint
+nodes removed (0):
+properties changed in common nodes:
+  /aliases: atcphy2
+      was: -
+      now: atcphy2 = "/soc@200000000/phy@383000000";
+  /aliases: usb4-1-acio
+      was: -
+      now: usb4-1-acio = "/soc@200000000/acio@2a9ac0000";
+  /aliases: usb4-1-nhi
+      was: -
+      now: usb4-1-nhi = "/soc@200000000/acio@2a9ac0000/nhi@f00000";
+  /aliases: usb4-1-pcie
+      was: -
+      now: usb4-1-pcie = "/pcie-tunnel-1/pcie@1c60000000";
+  /aliases: usb4-1-pcie-adapter
+      was: -
+      now: usb4-1-pcie-adapter = "/soc@200000000/acio@2a9ac0000";
+  /aliases: usb4-2-acio
+      was: -
+      now: usb4-2-acio = "/soc@200000000/acio@381ac0000";
+  /aliases: usb4-2-nhi
+      was: -
+      now: usb4-2-nhi = "/soc@200000000/acio@381ac0000/nhi@f00000";
+  /aliases: usb4-2-pcie
+      was: -
+      now: usb4-2-pcie = "/pcie-tunnel-2/pcie@1c70000000";
+  /aliases: usb4-2-pcie-adapter
+      was: -
+      now: usb4-2-pcie-adapter = "/soc@200000000/acio@381ac0000";
+  /soc@200000000/pinctrl@290824000: gpio-reserved-ranges
+      was: -
+      now: gpio-reserved-ranges = <0x00 0x4f>, <0x50 0x01>, <0x52 0x03>;
+  /soc@200000000/pinctrl@290824000: status
+      was: status = "disabled";
+      now: status = "okay";
+  /soc@200000000/power-management@280600000/power-controller@248: status
+      was: status = "disabled";
+      now: status = "okay";
+  /soc@200000000/reset-controller@280620000: status
+      was: status = "disabled";
+      now: status = "okay";

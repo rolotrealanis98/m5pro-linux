@@ -1,0 +1,167 @@
+From 0eff819a6d96f3290fe9f2a4390df55939ec38ef Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Wed, 4 Nov 2026 12:21:55 -0500
+Subject: [PATCH 12/16] phy: apple: t6050: carry USB3 over a USB4 router's
+ tunnel
+
+In CIO mode the lanes carry USB4/TBT, and USB3 reaches DWC3 through
+the router's USB3 adapter. DWC3 was left on its dummy PIPE producer,
+so a USB3 tunnel came up with nothing on the host side.
+
+When DWC3 asks for USB3 in CIO mode, move its PIPE mux to the tunnel
+producer (0x21: PIPE mode 1, clock 2) under the PIPE lock, as the
+older Apple PHYs do in USB4 mode. A lock that is not acknowledged is
+not fatal, as for native USB3. On power-off the PIPE goes back to the
+dummy producer while the CIO PHY is left to the router.
+
+Developed with Claude Code.
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ drivers/phy/apple/atc-t6050-combo.h           | 38 +++++++++++++++--
+ drivers/phy/apple/atc-t6050-dp.c              |  1 +
+ .../apple/usb-t6050/apple_t6050_usb3_pipe.h   | 42 ++++++++++++++++++-
+ 3 files changed, 76 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/phy/apple/atc-t6050-combo.h b/drivers/phy/apple/atc-t6050-combo.h
+index c57779075ec0..185f71cd6e13 100644
+--- a/drivers/phy/apple/atc-t6050-combo.h
++++ b/drivers/phy/apple/atc-t6050-combo.h
+@@ -298,6 +298,34 @@ static int combo_usb2_reset(struct phy *phy)
+ 	return ret ? -EIO : 0;
+ }
+ 
++/* A tunnelled PIPE leaves the CIO PHY to the router: nothing to quiesce on the PHY side. */
++static int combo_pipe_keep(void *ctx)
++{
++	return 0;
++}
++
++/*
++ * In CIO mode the lanes carry USB4/TBT and USB3 reaches DWC3 through the router's USB3 adapter:
++ * move DWC3 from its dummy PIPE producer to the tunnel producer, as is done on the older PHYs.
++ */
++static int combo_pipe_tunnel(struct t6050_dp *dp)
++{
++	int ret;
++
++	lockdep_assert_held(&dp->lock);
++	if (dp->pipe_active)
++		return dp->pipe_tunnel ? 0 : -EBUSY;
++	ret = apple_t6050_usb3_pipe_tunnel(&dp->usb_io);
++	if (ret) {
++		combo_pipe_fault(dp, "USB3 tunnel PIPE switch", ret);
++		return -EIO;
++	}
++	dp->pipe_active = true;
++	dp->pipe_tunnel = true;
++	dev_info(dp->dev, "USB3 PIPE on the USB4 tunnel\n");
++	return 0;
++}
++
+ static int combo_usb3_mode(struct phy *phy, enum phy_mode mode, int submode)
+ {
+ 	struct t6050_dp *dp = phy_get_drvdata(phy);
+@@ -314,10 +342,8 @@ static int combo_usb3_mode(struct phy *phy, enum phy_mode mode, int submode)
+ 	 * uses its independent D+/D- PHY. Do not switch USB3 onto DP lanes. */
+ 	if (dp->combo_mode == COMBO_DP4 && dp->enabled)
+ 		return 0;
+-	/* In CIO the lanes carry USB4/TBT. DWC3 keeps its dummy PIPE until a
+-	 * USB3 tunnel hands PIPE to the router; native USB3 mode is 0 too. */
+ 	if (dp->combo_mode == COMBO_CIO && dp->cio_prepared)
+-		return 0;
++		return combo_pipe_tunnel(dp);
+ 	if (!dp->usb_prepared && !(dp->combo_mode == COMBO_DP2 && dp->enabled))
+ 		return -ENOLINK;
+ 	if (dp->pipe_active)
+@@ -347,7 +373,10 @@ static int combo_usb3_poweroff(struct phy *phy)
+ 	/* DWC3 calls power_off only after host/gadget shutdown and SUSPHY.
+ 	 * PIPE must select its dummy producer before the controller is reset. */
+ 	if (dp->pipe_active) {
+-		ret = apple_t6050_usb3_pipe_stop(&dp->usb_io, combo_quiesce, dp);
++		ret = apple_t6050_usb3_pipe_stop(&dp->usb_io,
++						 dp->pipe_tunnel ? combo_pipe_keep : combo_quiesce, dp);
++		if (!ret)
++			dp->pipe_tunnel = false;
+ 		if (!ret)
+ 			dp->pipe_active = false;
+ 	}
+@@ -491,3 +520,4 @@ static int combo_setup(struct platform_device *pdev, struct t6050_dp *dp)
+ 	}
+ 	return 0;
+ }
++
+diff --git a/drivers/phy/apple/atc-t6050-dp.c b/drivers/phy/apple/atc-t6050-dp.c
+index 57d0587cdaf2..3eadc358589f 100644
+--- a/drivers/phy/apple/atc-t6050-dp.c
++++ b/drivers/phy/apple/atc-t6050-dp.c
+@@ -73,6 +73,7 @@ struct atc_domain {
+ enum combo_mode { COMBO_SAFE, COMBO_USB, COMBO_DP4, COMBO_DP2, COMBO_CIO };
+ struct t6050_dp {
+ 	bool combo, usb_prepared, usb2_active, pipe_active, controller_active, cio_prepared;
++	bool pipe_tunnel;	/* the active PIPE is a USB4 router's USB3 tunnel */
+ 	enum combo_mode combo_mode;
+ 	enum typec_orientation orientation;
+ 	struct phy *combo_phy[3];
+diff --git a/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h b/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h
+index f5962152444b..30e462e41658 100644
+--- a/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h
++++ b/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h
+@@ -96,6 +96,46 @@ apple_t6050_usb3_pipe_switch(const struct apple_t6050_usb_io *io)
+     return result;
+ }
+ 
++/*
++ * Move a running DWC3 from the dummy producer (0x42) to a USB4 router's USB3 tunnel (0x21: PIPE mode 1,
++ * clock 2), once the tunnel is active. As for native USB3, the PIPE is locked only when DWC3 is out of
++ * reset, and a lock that is not acknowledged within 6 ms is not fatal.
++ * Returns 0, -2 if the PIPE is on another producer, or -7 if the mux did not read back the tunnel.
++ */
++static inline int
++apple_t6050_usb3_pipe_tunnel(const struct apple_t6050_usb_io *io)
++{
++    unsigned int mux;
++    int locked;
++
++    if (!io || !io->read || !io->write || !io->poll || !io->delay)
++        return -1;
++    mux = io->read(io->context, 44, 0x0c) & 0x73;
++    if (mux == 0x21)
++        return 0;
++    if (mux != 0x42)
++        return -2;
++    locked = io->read(io->context, 44, 0x1c) & 1;
++
++    apple_t6050_usb_mask(io, 44, 0x04, 0x0e, 0);
++    apple_t6050_usb_mask(io, 44, 0x00, 1, 1);
++    if (locked) {
++        apple_t6050_usb_mask(io, 44, 0x10, 1, 1);
++        io->poll(io->context, 44, 0x14, 1, 1, 6000);
++    }
++    apple_t6050_usb_mask(io, 44, 0x0c, 0x70, 0);
++    io->delay(io->context, 5);
++    apple_t6050_usb_mask(io, 44, 0x0c, 3, 1);
++    apple_t6050_usb_mask(io, 44, 0x0c, 0x70, 0x20);
++    apple_t6050_usb_mask(io, 44, 0x00, 1, 0);
++    apple_t6050_usb_mask(io, 44, 0x00, 4, 0);
++    if (locked) {
++        apple_t6050_usb_mask(io, 44, 0x10, 1, 0);
++        io->poll(io->context, 44, 0x14, 1, 0, 6000);
++    }
++    return (io->read(io->context, 44, 0x0c) & 0x73) == 0x21 ? 0 : -7;
++}
++
+ /* The native close() call quiesces the ACIO PHY while PIPE is locked,
+  * before selecting the dummy producer. The caller supplies that lifecycle
+  * operation; merely changing MUX is not a complete disconnect sequence.
+@@ -110,7 +150,7 @@ apple_t6050_usb3_pipe_stop(const struct apple_t6050_usb_io *io,
+     if (!io || !io->read || !io->write || !io->poll || !io->delay || !quiesce)
+         return -1;
+     mux = io->read(io->context, 44, 0x0c) & 0x73;
+-    if (mux != 0x10 && mux != 0x42)
++    if (mux != 0x10 && mux != 0x21 && mux != 0x42)
+         return -1;
+     apple_t6050_usb_mask(io, 44, 0x04, 0x0e, 0);
+     apple_t6050_usb_mask(io, 44, 0x00, 1, 1);
+-- 
+2.56.0
+

@@ -1,0 +1,409 @@
+From 4480d907f69ffbace0b8007aea93c0eb31b06b31 Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Tue, 3 Nov 2026 22:29:27 -0500
+Subject: [PATCH 05/16] phy: apple: t6050: add the CIO (USB4/Thunderbolt) mode
+
+The T6050 combo PHY rejects TYPEC_MODE_USB4 and the Thunderbolt alternate
+mode, so a USB4 dock that the PD controller has already entered USB4 with
+gets no link: the PHY is never configured and DWC3 cannot start.
+
+Add the CIO mode as a step recipe in the style of the USB ones:
+
+- the mode-independent power-up;
+- the common tunables, then the CIO set (AUS40CMN_SHM, AUSPLL_CORE,
+  CIO4PLL_CORE) and the CIO80 set (UC_REGS_CIO, LN0/LN1_RX_TOP_CIO,
+  LN0/LN1_RX_EQ_CIO), with no USB or DP lane masks;
+- the crossbar in CIO, where orientation only selects TOP +0x78 bit 0;
+- the sleep-control release of both lanes;
+- the firmware start, UC_TNBL_DONE and the ACIOPHY reset release, without
+  the PIPE BIST and the ATCPHY_CFG +0x8 orientation bit.
+
+The shutdown powers both transmitters and receivers down, shuts the common
+block down, stops the firmware and runs the usual sleep, clamp and reset
+sequence.
+
+USB2 runs beside the link, so the USB2 PHY is brought up as for USB. USB3
+arrives through a tunnel later; in CIO the USB3 PHY set_mode leaves DWC3
+on its dummy PIPE producer until a tunnel exists.
+
+The five CIO80 tunables are optional DT properties
+(apple,tunable-uc-regs-cio, -lane0/1-rx-top-cio, -lane0/1-rx-eq-cio); a
+missing one is skipped. On J716c only the RX_TOP pair is non-empty.
+
+Developed with Claude Code.
+
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ drivers/phy/apple/atc-t6050-combo.h           |  55 ++++-
+ drivers/phy/apple/atc-t6050-dp.c              |   7 +-
+ .../phy/apple/usb-t6050/apple_t6050_cio_phy.h | 189 ++++++++++++++++++
+ 3 files changed, 247 insertions(+), 4 deletions(-)
+ create mode 100644 drivers/phy/apple/usb-t6050/apple_t6050_cio_phy.h
+
+diff --git a/drivers/phy/apple/atc-t6050-combo.h b/drivers/phy/apple/atc-t6050-combo.h
+index 1da782c4f9de..c57779075ec0 100644
+--- a/drivers/phy/apple/atc-t6050-combo.h
++++ b/drivers/phy/apple/atc-t6050-combo.h
+@@ -54,6 +54,11 @@ static int combo_tunable(void *ctx, unsigned int bank, const char *name)
+ 		{8, 8, "tunable_AUSPLL_CORE"}, {5, 9, "tunable_AUS40CMN_SHM"},
+ 		{10, 10, "tunable_CIO4PLL_CORE"},
+ 	};
++	static const struct { u8 bank, index; const char *name; } cio[] = {
++		{3, 0, "tunable_UC_REGS_CIO_DFLT"}, {16, 1, "tunable_LN0_RX_TOP_CIO_DFLT"},
++		{25, 2, "tunable_LN1_RX_TOP_CIO_DFLT"}, {18, 3, "tunable_LN0_RX_EQ_CIO_DFLT"},
++		{27, 4, "tunable_LN1_RX_EQ_CIO_DFLT"},
++	};
+ 	struct t6050_dp *dp = ctx;
+ 
+ 	if (bank == 0 && !strcmp(name, "tunable_USB2PHY_DFLT")) {
+@@ -69,6 +74,12 @@ static int combo_tunable(void *ctx, unsigned int bank, const char *name)
+ 			apple_tunable_apply(dp->banks[bank], dp->tunables[common[i].index]);
+ 			return 0;
+ 		}
++	/* A missing CIO80 tunable is skipped. */
++	for (unsigned int i = 0; i < ARRAY_SIZE(cio); i++)
++		if (bank == cio[i].bank && !strcmp(name, cio[i].name)) {
++			apple_tunable_apply(dp->banks[bank], dp->cio_tunables[cio[i].index]);
++			return 0;
++		}
+ 	return -EINVAL;
+ }
+ 
+@@ -81,6 +92,10 @@ static int combo_quiesce(void *ctx)
+ 		ret = APPLE_T6050_USB_RUN(&dp->usb_platform, apple_t6050_usb3_shutdown);
+ 		if (!ret)
+ 			dp->usb_prepared = false;
++	} else if (dp->cio_prepared) {
++		ret = APPLE_T6050_USB_RUN(&dp->usb_platform, apple_t6050_cio_shutdown);
++		if (!ret)
++			dp->cio_prepared = false;
+ 	} else if (dp->enabled) {
+ 		/* Multifunction has a distinct native shutdown; never run the
+ 		 * USB-only analog sequence over live DisplayPort lane state. */
+@@ -158,6 +173,19 @@ static int combo_start(struct t6050_dp *dp, enum combo_mode mode)
+ 			APPLE_T6050_USB_RUN(&dp->usb_platform, apple_t6050_usb3_init_normal);
+ 		if (!ret)
+ 			dp->usb_prepared = true;
++	} else if (!ret && mode == COMBO_CIO) {
++		ktime_t start = ktime_get();
++
++		/* USB2 stays native beside a USB4/TBT link; USB3 comes tunnelled. */
++		ret = dp->reverse ?
++			APPLE_T6050_USB_RUN(&dp->usb_platform, apple_t6050_cio_init_reverse) :
++			APPLE_T6050_USB_RUN(&dp->usb_platform, apple_t6050_cio_init_normal);
++		if (!ret)
++			dp->cio_prepared = true;
++		dev_info(dp->dev, "CIO mode %s (%d), %s orientation, %lld ms\n",
++			 ret ? "failed" : "up: UC_TNBL_DONE", ret,
++			 dp->reverse ? "reverse" : "normal",
++			 ktime_ms_delta(ktime_get(), start));
+ 	} else if (!ret) {
+ 		dp->multifunction = mode == COMBO_DP2;
+ 		ret = atc_start(dp);
+@@ -201,6 +229,11 @@ static int combo_mux(struct t6050_dp *dp, struct typec_mux_state *state)
+ 		mode = COMBO_SAFE;
+ 	else if (state->mode == TYPEC_STATE_USB && !state->alt)
+ 		mode = COMBO_USB;
++	else if (!state->alt && state->mode == TYPEC_MODE_USB4)
++		mode = COMBO_CIO;
++	else if (state->alt && state->alt->svid == USB_TYPEC_TBT_SID &&
++		 state->mode == TYPEC_TBT_MODE)
++		mode = COMBO_CIO;
+ 	else if (state->alt && state->alt->svid == USB_TYPEC_DP_SID) {
+ 		switch (state->mode) {
+ 		case TYPEC_DP_STATE_C:
+@@ -215,7 +248,7 @@ static int combo_mux(struct t6050_dp *dp, struct typec_mux_state *state)
+ 	if (dp->faulted)
+ 		return -EIO;
+ 	if (mode == dp->combo_mode &&
+-	    (mode == COMBO_SAFE || dp->usb_prepared || dp->enabled))
++	    (mode == COMBO_SAFE || dp->usb_prepared || dp->cio_prepared || dp->enabled))
+ 		return 0;
+ 	if (mode != COMBO_SAFE && dp->orientation == TYPEC_ORIENTATION_NONE)
+ 		return -ENOLINK;
+@@ -235,7 +268,7 @@ static int combo_usb2_mode(struct phy *phy, enum phy_mode mode, int submode)
+ 		return -EIO;
+ 	if (mode != PHY_MODE_USB_HOST)
+ 		return -EOPNOTSUPP;
+-	if (!dp->usb_prepared && !dp->enabled)
++	if (!dp->usb_prepared && !dp->cio_prepared && !dp->enabled)
+ 		return -ENOLINK;
+ 	if (dp->usb2_active)
+ 		return 0;
+@@ -281,6 +314,10 @@ static int combo_usb3_mode(struct phy *phy, enum phy_mode mode, int submode)
+ 	 * uses its independent D+/D- PHY. Do not switch USB3 onto DP lanes. */
+ 	if (dp->combo_mode == COMBO_DP4 && dp->enabled)
+ 		return 0;
++	/* In CIO the lanes carry USB4/TBT. DWC3 keeps its dummy PIPE until a
++	 * USB3 tunnel hands PIPE to the router; native USB3 mode is 0 too. */
++	if (dp->combo_mode == COMBO_CIO && dp->cio_prepared)
++		return 0;
+ 	if (!dp->usb_prepared && !(dp->combo_mode == COMBO_DP2 && dp->enabled))
+ 		return -ENOLINK;
+ 	if (dp->pipe_active)
+@@ -390,6 +427,12 @@ static struct phy *combo_xlate(struct device *dev, const struct of_phandle_args
+ 
+ static int combo_setup(struct platform_device *pdev, struct t6050_dp *dp)
+ {
++	/* Same order as the cio[] table in combo_tunable(). */
++	static const struct { u8 bank; const char *name; } cio_tunables[] = {
++		{3, "apple,tunable-uc-regs-cio"}, {16, "apple,tunable-lane0-rx-top-cio"},
++		{25, "apple,tunable-lane1-rx-top-cio"}, {18, "apple,tunable-lane0-rx-eq-cio"},
++		{27, "apple,tunable-lane1-rx-eq-cio"},
++	};
+ 	static const struct { u8 bank; u32 minimum; const char *name; } extra[] = {
+ 		{0, 0x20, "usb2phy"}, {1, 0x24, "usb2-digital"}, {44, 0x48, "pipehandler"},
+ 	};
+@@ -417,6 +460,14 @@ static int combo_setup(struct platform_device *pdev, struct t6050_dp *dp)
+ 		"apple,tunable-pipe-default", &dp->resources[44]);
+ 	if (IS_ERR(dp->pipe_default))
+ 		return PTR_ERR(dp->pipe_default);
++	for (unsigned int i = 0; i < ARRAY_SIZE(cio_tunables); i++) {
++		struct apple_tunable *t = devm_apple_tunable_parse(dev, dev->of_node,
++			cio_tunables[i].name, &dp->resources[cio_tunables[i].bank]);
++
++		if (IS_ERR(t) && PTR_ERR(t) != -ENOENT)
++			return PTR_ERR(t);
++		dp->cio_tunables[i] = IS_ERR(t) ? NULL : t;
++	}
+ 	dp->usb_io = (struct apple_t6050_usb_io) {
+ 		.context = dp, .read = combo_read, .write = combo_write,
+ 		.poll = combo_poll, .delay = combo_delay,
+diff --git a/drivers/phy/apple/atc-t6050-dp.c b/drivers/phy/apple/atc-t6050-dp.c
+index eb74b1e50181..57d0587cdaf2 100644
+--- a/drivers/phy/apple/atc-t6050-dp.c
++++ b/drivers/phy/apple/atc-t6050-dp.c
+@@ -14,6 +14,7 @@
+ #include "usb-t6050/apple_t6050_usb_phy.h"
+ #include "usb-t6050/apple_t6050_usb3_pipe.h"
+ #include "usb-t6050/apple_t6050_usb2_reset.h"
++#include "usb-t6050/apple_t6050_cio_phy.h"
+ #include <linux/pm_domain.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/soc/apple/tunable.h>
+@@ -23,6 +24,7 @@
+ #include <linux/usb/typec_mux.h>
+ #include <linux/usb/typec_dp.h>
+ #include <linux/usb/typec_altmode.h>
++#include <linux/usb/typec_tbt.h>
+ 
+ enum atc_operation { ATC_MASK, ATC_TUNABLE, ATC_DELAY, ATC_POLL, ATC_POWER, ATC_FIRMWARE };
+ struct atc_op {
+@@ -68,9 +70,9 @@ struct atc_domain {
+ 	struct device *dev;
+ 	bool active;
+ };
+-enum combo_mode { COMBO_SAFE, COMBO_USB, COMBO_DP4, COMBO_DP2 };
++enum combo_mode { COMBO_SAFE, COMBO_USB, COMBO_DP4, COMBO_DP2, COMBO_CIO };
+ struct t6050_dp {
+-	bool combo, usb_prepared, usb2_active, pipe_active, controller_active;
++	bool combo, usb_prepared, usb2_active, pipe_active, controller_active, cio_prepared;
+ 	enum combo_mode combo_mode;
+ 	enum typec_orientation orientation;
+ 	struct phy *combo_phy[3];
+@@ -78,6 +80,7 @@ struct t6050_dp {
+ 	struct apple_t6050_usb_io usb_io;
+ 	struct apple_t6050_usb_platform usb_platform;
+ 	struct apple_tunable *usb2_default, *usb2_host, *pipe_default;
++	struct apple_tunable *cio_tunables[5]; /* optional; empty on J716c except RX_TOP */
+ 	struct device *dev;
+ 	struct mutex lock;
+ 	void __iomem *banks[45];
+diff --git a/drivers/phy/apple/usb-t6050/apple_t6050_cio_phy.h b/drivers/phy/apple/usb-t6050/apple_t6050_cio_phy.h
+new file mode 100644
+index 000000000000..4af28f8c2ccf
+--- /dev/null
++++ b/drivers/phy/apple/usb-t6050/apple_t6050_cio_phy.h
+@@ -0,0 +1,189 @@
++/* SPDX-License-Identifier: MIT */
++/* ACIO80 PHY CIO (USB4/Thunderbolt) mode.
++ *
++ * The bring-up runs the mode-independent power-up (the USB recipes' first
++ * block), the common and CIO/CIO80 tunables, the crossbar, the sleep-control
++ * release and the firmware start. CIO applies no DP or USB lane masks,
++ * no DP clock switch and no orientation bit in ATCPHY_CFG +0x8; orientation
++ * only selects ACIOPHY_TOP +0x78 bit 0. Both lanes are released.
++ * Spread-spectrum stays on.
++ */
++#ifndef APPLE_T6050_CIO_PHY_H
++#define APPLE_T6050_CIO_PHY_H
++#include "apple_t6050_usb_phy.h"
++
++/* The power-up and reset release, identical to the USB recipes. */
++#define APPLE_T6050_CIO_POWERUP \
++    { T6050_MASK, 39, 0x0, 0x1, 0x1, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_POLL, 39, 0x4, 0x1, 0x1, 1000, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 39, 0x0, 0x2, 0x2, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_POLL, 39, 0x4, 0x2, 0x2, 1000, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 39, 0x0, 0x4, 0x0, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_POWER, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 39, 0x2c, 0x1, 0x0, 0, 0 }, \
++    { T6050_POLL, 39, 0x4, 0x100, 0x0, 1000, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 39, 0x0, 0x8, 0x8, 0, 0 }
++
++/* The common tunables, then the CIO set and the CIO80 set. An absent CIO80
++ * tunable is skipped.
++ */
++#define APPLE_T6050_CIO_TUNABLES \
++    { T6050_TUNABLE, 41, 0x0, 0x0, 0x0, 0, "tunable_ATC0AXI2AF" }, \
++    { T6050_TUNABLE, 40, 0x0, 0x0, 0x0, 0, "tunable_ATC_FABRIC" }, \
++    { T6050_TUNABLE, 43, 0x0, 0x0, 0x0, 0, "tunable_ATC_COMMON_CFG" }, \
++    { T6050_TUNABLE, 42, 0x0, 0x0, 0x0, 0, "tunable_ATC0AXI2AF_LIOA" }, \
++    { T6050_TUNABLE, 20, 0x0, 0x0, 0x0, 0, "tunable_LN0_RX_CFG_TX_OF_RXCLK" }, \
++    { T6050_TUNABLE, 29, 0x0, 0x0, 0x0, 0, "tunable_LN1_RX_CFG_TX_OF_RXCLK" }, \
++    { T6050_TUNABLE, 18, 0x0, 0x0, 0x0, 0, "tunable_LN0_RX_EQ_DFLT" }, \
++    { T6050_TUNABLE, 27, 0x0, 0x0, 0x0, 0, "tunable_LN1_RX_EQ_DFLT" }, \
++    { T6050_TUNABLE, 5, 0x0, 0x0, 0x0, 0, "tunable_AUS40CMN_SHM" }, \
++    { T6050_TUNABLE, 8, 0x0, 0x0, 0x0, 0, "tunable_AUSPLL_CORE" }, \
++    { T6050_TUNABLE, 10, 0x0, 0x0, 0x0, 0, "tunable_CIO4PLL_CORE" }, \
++    { T6050_TUNABLE, 3, 0x0, 0x0, 0x0, 0, "tunable_UC_REGS_CIO_DFLT" }, \
++    { T6050_TUNABLE, 16, 0x0, 0x0, 0x0, 0, "tunable_LN0_RX_TOP_CIO_DFLT" }, \
++    { T6050_TUNABLE, 25, 0x0, 0x0, 0x0, 0, "tunable_LN1_RX_TOP_CIO_DFLT" }, \
++    { T6050_TUNABLE, 18, 0x0, 0x0, 0x0, 0, "tunable_LN0_RX_EQ_CIO_DFLT" }, \
++    { T6050_TUNABLE, 27, 0x0, 0x0, 0x0, 0, "tunable_LN1_RX_EQ_CIO_DFLT" }
++
++/* The crossbar: clear the lane selects, set the orientation bit (+0x78)
++ * and select CIO.
++ */
++#define APPLE_T6050_CIO_XBAR(reverse) \
++    { T6050_MASK, 2, 0x6c, 0xfc, 0x0, 0, 0 }, \
++    { T6050_MASK, 2, 0x78, 0x1f, (reverse), 0, 0 }, \
++    { T6050_MASK, 2, 0x6c, 0x3, 0x2, 0, 0 }
++
++/* Power a lane's receiver up, then release its transmitter overrides. */
++#define APPLE_T6050_CIO_LANE(l) \
++    { T6050_MASK, 2, 0x10, 0x10 << (l), 0x10 << (l), 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0x10, 0x40 << (l), 0x40 << (l), 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0x10, 0x1 << (l), 0x1 << (l), 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0x10, 0x4 << (l), 0x4 << (l), 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0xc, 0x400 << (l), 0x400 << (l), 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0xc, 0x1000 << (l), 0x1000 << (l), 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0xc, 0x40 << (l), 0x40 << (l), 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0xc, 0x100 << (l), 0x100 << (l), 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0xc, 0x4000 << (l), 0x0, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0xc, 0x10000 << (l), 0x10000 << (l), 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0x120, 0x40 << (l), 0x0, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0x120, 0x4 << (l), 0x0, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0x120, 0x400 << (l), 0x0, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }
++
++/* The sleep-control release: the common block's overrides, then both lanes. */
++#define APPLE_T6050_CIO_SLPCTRL \
++    { T6050_MASK, 2, 0xc, 0x2a, 0x0, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    APPLE_T6050_CIO_LANE(0), \
++    APPLE_T6050_CIO_LANE(1)
++
++/* Start the PHY firmware, wait for UC_TNBL_DONE and
++ * deassert the ACIOPHY reset. No PIPE BIST and no ATCPHY_CFG +0x8 write.
++ */
++#define APPLE_T6050_CIO_START \
++    { T6050_DELAY, 0, 0x0, 0x0, 0xa, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0xa, 0, 0 }, \
++    { T6050_MASK, 38, 0x40, 0x1, 0x1, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0xa, 0, 0 }, \
++    { T6050_FIRMWARE, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0xa, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1388, 0, 0 }, \
++    { T6050_POLL, 2, 0x260, 0x400, 0x400, 1000000, 0 }, \
++    { T6050_MASK, 39, 0x0, 0x10, 0x10, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x64, 0, 0 }
++
++static const struct apple_t6050_usb_step apple_t6050_cio_init_normal[] = {
++    APPLE_T6050_CIO_POWERUP,
++    APPLE_T6050_CIO_TUNABLES,
++    APPLE_T6050_CIO_XBAR(0x0),
++    APPLE_T6050_CIO_SLPCTRL,
++    APPLE_T6050_CIO_START,
++};
++
++static const struct apple_t6050_usb_step apple_t6050_cio_init_reverse[] = {
++    APPLE_T6050_CIO_POWERUP,
++    APPLE_T6050_CIO_TUNABLES,
++    APPLE_T6050_CIO_XBAR(0x1),
++    APPLE_T6050_CIO_SLPCTRL,
++    APPLE_T6050_CIO_START,
++};
++
++/* Power a lane's transmitter down. */
++#define APPLE_T6050_CIO_TX_DOWN(l) \
++    { T6050_MASK, 2, 0x120, 0x100 << (l), 0x100 << (l), 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0x120, 0x1 << (l), 0x0, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0x120, 0x10 << (l), 0x0, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }
++
++/* Power a lane's receiver down; CIO powers the receivers down, USB does not. */
++#define APPLE_T6050_CIO_RX_DOWN(l) \
++    { T6050_MASK, 2, 0xc, 0x4000 << (l), 0x4000 << (l), 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0xc, 0x40 << (l), 0x0, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0xc, 0x400 << (l), 0x0, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0x10, 0x1 << (l), 0x0, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }, \
++    { T6050_MASK, 2, 0x10, 0x10 << (l), 0x0, 0, 0 }, \
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 }
++
++/* The shutdown: both lanes down without the PIPE BIST, the firmware
++ * power-down, then the USB recipes' sleep, clamp and reset sequence.
++ */
++static const struct apple_t6050_usb_step apple_t6050_cio_shutdown[] = {
++    APPLE_T6050_CIO_TX_DOWN(0),
++    APPLE_T6050_CIO_TX_DOWN(1),
++    { T6050_MASK, 5, 0x0, 0x2, 0x0, 0, 0 },
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 },
++    { T6050_MASK, 2, 0xc, 0x10, 0x10, 0, 0 },
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 },
++    { T6050_MASK, 2, 0xc, 0x1, 0x0, 0, 0 },
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 },
++    { T6050_MASK, 2, 0xc, 0x4, 0x0, 0, 0 },
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 },
++    APPLE_T6050_CIO_RX_DOWN(0),
++    APPLE_T6050_CIO_RX_DOWN(1),
++    { T6050_DELAY, 0, 0x0, 0x0, 0xc8, 0, 0 },
++    { T6050_FIRMWARE, 0, 0x0, 0x0, 0x0, 0, 0 },
++    { T6050_POWER, 0, 0x0, 0x0, 0x0, 0, 0 },
++    { T6050_MASK, 39, 0x2c, 0x1, 0x1, 0, 0 },
++    { T6050_POLL, 39, 0x4, 0x100, 0x100, 1000, 0 },
++    { T6050_MASK, 39, 0x0, 0x10, 0x0, 0, 0 },
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 },
++    { T6050_MASK, 39, 0x0, 0x8, 0x0, 0, 0 },
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 },
++    { T6050_MASK, 39, 0x0, 0x4, 0x4, 0, 0 },
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 },
++    { T6050_MASK, 39, 0x0, 0x2, 0x0, 0, 0 },
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 },
++    { T6050_POLL, 39, 0x4, 0x2, 0x0, 1000, 0 },
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 },
++    { T6050_MASK, 39, 0x0, 0x1, 0x0, 0, 0 },
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 },
++    { T6050_POLL, 39, 0x4, 0x1, 0x0, 1000, 0 },
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 },
++    { T6050_MASK, 39, 0x8, 0x1, 0x0, 0, 0 },
++    { T6050_DELAY, 0, 0x0, 0x0, 0x1, 0, 0 },
++};
++#endif
+-- 
+2.56.0
+

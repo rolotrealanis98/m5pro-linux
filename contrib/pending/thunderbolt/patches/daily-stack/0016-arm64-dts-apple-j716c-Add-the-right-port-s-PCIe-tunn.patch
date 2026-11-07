@@ -1,0 +1,217 @@
+From e40662f37de41b0b0e9b1b629b7cfff6819de966 Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Wed, 4 Nov 2026 12:54:14 -0500
+Subject: [PATCH 16/16] arm64: dts: apple: j716c: Add the right port's PCIe
+ tunnel
+
+Describe the PCIe-C root port behind the right port's router and its
+DART, in a node the router points at with apple,pcie-tunnel and
+populates once it has enabled a PCIe tunnel, and the ATC2_PCIE power
+state they sit in, in t6050-max.dtsi. The router powers ATC2_PCIE with
+its other domains, so the port can be cold-initialized before its
+children are populated.
+
+Nothing initialises the DART, so like the router's it carries full error
+reporting and its two bypass streams, 253 and 255, on which the port
+issues its own writes, MSIs included; the board gives its tunables and
+the port's. Its container is not named usb4-pcie-tunnel-N, which would
+give it the fixed 64-stream topology of the older tunnel DARTs instead
+of the 256 streams it reports. The bridge's MSIs are vectors 192-223 of
+the window shared with the internal host.
+
+Developed with Claude Code.
+
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ arch/arm64/boot/dts/apple/t6050-j716c.dts |  58 ++++++++++++
+ arch/arm64/boot/dts/apple/t6050-max.dtsi  | 102 +++++++++++++++++++++-
+ 2 files changed, 159 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716c.dts b/arch/arm64/boot/dts/apple/t6050-j716c.dts
+index ab4ab9f4a2c9..a726cc6efc60 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716c.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716c.dts
+@@ -562,3 +562,61 @@ &acio2_nhi {
+ 			05 8a 09 01 00 0e 01 41 70 70 6c 65 2c 20 49 6e
+ 			63 2e 00 06 02 69 4f 53 00 00 00 00];
+ };
++
++/* ==== The right USB-C port's PCIe tunnel (ATC2): this board's tunables ==== */
++&apciec2_dart {
++	apple,tunable = <0x20c 0x80000121 0x80000121>,
++			<0x220 0xf0f 0xf0f>,
++			<0x224 0xffff 0x909>,
++			<0x300 0x1f31 0x1>,
++			<0x308 0x3ffffffc 0x10000000>,
++			<0x310 0x3ffffffc 0x3ffffffc>;
++};
++
++&apciec2 {
++	apple,tunable-debug = <0x1000 0x1 0x0>;
++	apple,tunable-rc = <0x78 0x7000 0x0>,
++			   <0x718 0x7c000 0x0>,
++			   <0x814 0xffffffff 0x2020f060>,
++			   <0x8bc 0x1 0x0>;
++	apple,tunable-fabric = <0x4 0x3f003f 0x240024>,
++			       <0x8 0x1 0x1>,
++			       <0xc 0x1 0x1>,
++			       <0x10 0x801f 0x4>,
++			       <0x18 0x1ff 0x1e0>,
++			       <0x1c 0x1 0x1>,
++			       <0x20 0x801f 0x4>,
++			       <0x28 0x1f 0x10>,
++			       <0x2c 0x801f 0x4>,
++			       <0x34 0x3f 0x20>,
++			       <0x38 0x801f 0x4>,
++			       <0x40 0x3f 0x20>,
++			       <0x44 0x801f 0x4>,
++			       <0x4c 0x10001 0x10001>,
++			       <0x50 0x1 0x1>,
++			       <0x54 0x1 0x1>,
++			       <0x58 0x801f 0x4>,
++			       <0x60 0x7f007f 0x450045>,
++			       <0x64 0x801f 0x4>,
++			       <0x6c 0x1f001f 0x100010>,
++			       <0x70 0xf1 0x1>,
++			       <0x74 0x801f 0x4>,
++			       <0x7c 0x801f 0x4>,
++			       <0x84 0x1 0x1>,
++			       <0x88 0x1 0x1>,
++			       <0x8c 0x801f 0x4>,
++			       <0x94 0x1 0x1>,
++			       <0x98 0x801f 0x4>,
++			       <0xa0 0x1 0x1>,
++			       <0xa4 0x801f 0x4>,
++			       <0xac 0x1 0x1>,
++			       <0xb0 0x1 0x1>,
++			       <0xb4 0x801f 0x4>,
++			       <0xbc 0x801f 0x4>,
++			       <0xc4 0x801f 0x4>;
++};
++
++&apciec2_port {
++	apple,tunable = <0x140 0x1 0x1>,
++			<0x2a0 0x7e 0xa>;
++};
+diff --git a/arch/arm64/boot/dts/apple/t6050-max.dtsi b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+index cc099ac6b31f..14c05a96068d 100644
+--- a/arch/arm64/boot/dts/apple/t6050-max.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+@@ -210,9 +210,11 @@ acio2: acio@381ac0000 {
+ 		reg-names = "rc", "sram", "pcie-adapter", "cpu", "router-ap-fw";
+ 		mboxes = <&acio2_mbox>;
+ 		resets = <&cio_reconfig0 2>;
++		/* ATC2_PCIE last: the PCIe tunnel root port, set up before it is populated */
+ 		power-domains = <&ps_atc2_cio>, <&ps_atc2_cio_pcie>,
+-				<&ps_atc2_cio_usb>, <&ps_atc2_cio_auss>;
++				<&ps_atc2_cio_usb>, <&ps_atc2_cio_auss>, <&ps_atc2_pcie>;
+ 		thunderbolt-switch;
++		apple,pcie-tunnel = <&acio2_pcie_tunnel>;
+ 		pinctrl-0 = <&acio2_lstx_pins>;
+ 		pinctrl-names = "lstx";
+ 		lstx-gpios = <&pinctrl_aop 81 GPIO_ACTIVE_HIGH>;
+@@ -303,3 +305,101 @@ acio2_nhi: nhi@f00000 {
+ 	};
+ };
+ 
++/*
++ * ATC2's PCIe tunnel: /arm-io/apciec2 and dart-apciec2, the PCIe-C root port behind the router's
++ * PCIe down adapter, and its DART. The router populates both once it has enabled a PCIe tunnel,
++ * after the kernel has cold-initialized the port: no boot loader sets it up, and it has no reset
++ * line of its own. Both sit in ATC2_PCIE, which the router powers with its own domains and the
++ * host keeps on once it is bound.
++ *
++ * The container is not a usb4-pcie-tunnel-N node, whose DART would get the fixed 64-stream
++ * topology of the earlier tunnel DARTs: this one is read like any T8110 DART. Nothing
++ * initialises it before Linux, so like the router's it carries every error reported and its
++ * bypass streams, 253 and 255, which carry the port's own writes (MSIs); the board gives its
++ * tunables, and the port's.
++ *
++ * MSIs use the bridge's 32-vector slice (192-223) of the window shared with the internal host.
++ */
++&pmgr0 {
++	/* With the ATC2 USB always-on clock gate, which has no state register of its own */
++	ps_atc2_pcie: power-controller@2f0 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x2f0 4>;
++		label = "atc2_pcie";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc2_common>, <&ps_atc2_usb_aon>;
++	};
++};
++
++/ {
++	acio2_pcie_tunnel: pcie-tunnel-2 {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++		nonposted-mmio;
++
++		apciec2_dart: iommu@384000000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0x3 0x84000000 0x0 0x20000>;
++			interrupts = <AIC_IRQ 0 1470 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_atc2_pcie>;
++			#iommu-cells = <1>;
++			apple,bypass-sids = <253 255>;
++			apple,full-error-reporting;
++			apple,ctc-flush;
++		};
++
++		apciec2: pcie@1c70000000 {
++			compatible = "apple,t6050-pciec";
++			device_type = "pci";
++			reg = <0x1c 0x70000000 0x0 0x10000000>,
++			      <0x3 0x84034000 0x0 0x4000>,
++			      <0x3 0x84020000 0x0 0x8000>,
++			      <0x3 0x84038000 0x0 0x4000>,
++			      <0x3 0x84060000 0x0 0x4000>,
++			      <0x3 0x8402c000 0x0 0x4000>,
++			      <0x3 0x84028000 0x0 0x4000>;
++			reg-names = "config", "rc", "port0", "fabric", "debug", "ltssm", "intr2axi";
++			/* The port's: link events and INTx */
++			interrupts = <AIC_IRQ 0 1469 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "port0";
++			power-domains = <&ps_atc2_pcie>;
++			/* No boot loader hands the port over: the kernel cold-initializes it. */
++			apple,pciec-kernel-init;
++
++			msi-controller;
++			msi-parent = <&apciec2>;
++			msi-ranges = <&aic AIC_IRQ 0 2016 IRQ_TYPE_EDGE_RISING 32>;
++			apple,msi-vector-base = <192>;
++
++			iommu-map = <0x0 &apciec2_dart 0x0 0x40>;
++			iommu-map-mask = <0x3f>;
++			linux,pci-domain = <3>;
++			bus-range = <0x0 0x7f>;
++			#address-cells = <3>;
++			#size-cells = <2>;
++			ranges = <0x43000000 0x10 0x0 0x10 0x0 0x2 0x0>,
++				 <0x02000000 0x0 0x00100000 0x12 0x00100000 0x0 0x3ff00000>,
++				 <0x42000000 0x0 0x40000000 0x12 0x40000000 0x0 0x40000000>;
++
++			apciec2_port: pci@0,0 {
++				device_type = "pci";
++				reg = <0x0 0x0 0x0 0x0 0x0>;
++				external-facing;
++
++				#address-cells = <3>;
++				#size-cells = <2>;
++				ranges;
++
++				interrupt-controller;
++				#interrupt-cells = <1>;
++				interrupt-map-mask = <0 0 0 7>;
++				interrupt-map = <0 0 0 1 &apciec2_port 0 0 0 0>,
++						<0 0 0 2 &apciec2_port 0 0 0 1>,
++						<0 0 0 3 &apciec2_port 0 0 0 2>,
++						<0 0 0 4 &apciec2_port 0 0 0 3>;
++			};
++		};
++	};
++};
+-- 
+2.56.0
+
