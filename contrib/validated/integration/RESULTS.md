@@ -1651,3 +1651,13 @@ fallback's error stage tells kernel/initramfs (30) from after-root (33) from aft
 recalibrated (first-pass <= 35 s, m1n1 reboot 36-54, Linux panic 55-74, apple_wdt 75-169, stage-1 wdt >= 170).
 Experiment running: omacom #30 session -> esp-put daily -> idle 5 min -> reboot, 3 rounds, then omacom -> plain reboot
 x3 (no writes); then the same without `n1` in the omacom payload if the first set reproduces.
+
+## RESTART-EXP round 1-2: omacom session -> daily, with a 5-minute idle before the reboot (2026-11-07 22:21 UTC)
+
+Two rounds of: boot the omacom #30 loader payload (primary, 73 s), esp-put the GPU daily from that session, idle 5 min
+with Wi-Fi traffic (280/280 pings), `systemctl reboot`. Both restores came back on the primary slot, pmu `300000`,
+75-76 s. The two restores from omacom sessions that fell back earlier today were rebooted within a second of the ESP
+write. So with a settle time the omacom session restarts cleanly; the write-to-reboot gap matters after all, at least
+for these sessions (esp-put's 5 s settle is not enough; 5 min is). The userspace stage marks work: `boot_stage` reads
+0x34 (network up) on every booted session. Round 3 and the no-write control did not run (the payload file had been moved
+by its agent); the control is re-queued with the review-fixed loader.
