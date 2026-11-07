@@ -1033,3 +1033,14 @@ mounted, network up, battery 96 %, SMC fine after m1n1's key writes, no revert, 
   different descriptor: the J716s `function-reset` is `pKW4` key `gP13` template 0x00800000, as on the J813.
 - First warm boot only; RUN-W2.md asks for a full power-off before a run, which an unattended run cannot do.
 
+### Result (DAILY-NEXT-T1, 2026-11-07 13:00 UTC, loop + A/B stage-1, nobody at the machine): **did not boot**
+
+Payload `daily-next-t1-20261107-01ece59a.bin`: kernel `7.3.0-g80bbf87ea430` (`j716s-series` + 0063 MTP haptic built in +
+0064 netfilter/nftables, policy routing, WireGuard, bridge/veth/overlay/fuse, all `=y`; `~/Work/agents/daily-next/`),
+the series DTB (same as the daily's), battery on, selftest on, prev = the WFI daily `dcec81ed`.
+The machine came back on `boot.bin.prev` with `boot-slot = fallback-after-failure`: the new kernel never fed the 150 s
+stage-1 watchdog, so it hung or panicked before `apple_wdt` probed (or never started). No console capture exists for that
+boot (no pstore backend, the stage-2 phram log is overwritten by the next boot), so the cause is unknown. **The A/B
+stage-1 recovered it unattended, as designed.** ESP restored to the daily. Next: bisect with two payloads (haptic only,
+netfilter only) and, when Rolando is at the machine, a panel video of the failing boot.
+
