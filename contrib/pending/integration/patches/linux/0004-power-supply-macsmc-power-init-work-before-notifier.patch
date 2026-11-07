@@ -1,3 +1,5 @@
+From: Rolando Trevino <122947376+rolotrealanis98@users.noreply.github.com>
+
 power: supply: macsmc-power: initialise work items before the notifier
 
 Probe initialised critical_work twice: once via devm_work_autocancel() and

@@ -1,3 +1,5 @@
+From: Rolando Trevino <122947376+rolotrealanis98@users.noreply.github.com>
+
 hwmon: (macsmc) keep a fan whose optional keys are missing
 
 macsmc_hwmon_create_fan() returned an error, dropping the whole fan, when
