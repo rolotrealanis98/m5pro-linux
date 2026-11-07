@@ -1311,3 +1311,13 @@ yet explained (not a data problem: the hash was verified before and after). Miti
 after `mv` and `sync`, unmount and remount the ESP before rebooting, and keep counting. Crash-log T1 was never retried,
 so its "does not boot" verdict is weaker than recorded.
 
+### Result (GPU E2a control, 2026-11-07 18:34-18:37 UTC, loop, nobody at the machine)
+
+Payload `e2a-ctl-20261107-e71fc225` (kernel `7.3.0-g3671d907d570` = series + Aurora #1012 + the 15 commits of the
+27.2+ port, DRM_ASAHI=y; DTB = daily + E1's disabled GPU nodes; m1n1 `n1-warm-gpu` at 0x410000 bytes; no
+`chosen.m5pro,gpu`): **primary slot on the first boot**, 18 CPUs, N1 adopted, wlan0 associated, self-test network OK.
+m1n1: `FDT: GPU: T6050: hand-off off (chosen.m5pro,gpu=unset), GPU nodes as the DT has them`. Kernel: no
+`2300000000.gpu` line, gpu/mailbox/pmgr_gfx nodes disabled, driver idle; `e2-readback.sh` verdict
+`CONTROL (no gpu var): gpu node disabled, driver idle = as designed`. The 0x410000 stage-2 image boots. **PASS.**
+Daily restored. E2b (hand-off on) is staged and waits for Rolando's go (one uncovered failure mode needs the power button).
+
