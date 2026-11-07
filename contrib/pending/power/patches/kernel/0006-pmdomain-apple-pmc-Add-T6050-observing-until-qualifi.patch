@@ -1,0 +1,241 @@
+From 17170bd9ad60d11c43fed4b0cb47115ebe349998 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:30:30 -0500
+Subject: [PATCH 06/13] pmdomain: apple: pmc: Add T6050, observing until
+ qualified
+
+The T6050 device tree describes its PMC as "apple,t6050-pmc", which no
+driver entry matches, so the PMC never probes and its CLPC child, which
+raises the DRAM (DCS) and fabric floors for CPU and GPU work, is never
+created.
+
+Add the T6050 layout: the T8142 one, with five agents (the ADT's
+voter-agent adds PMP1 as agent 4) and four rails (DCS, SOC, DISP and
+DISP2, ADT voter-rail-data). The ADT lists eight DCS voltage states, so
+the highest DCS state is 7. As on T6040, agents are enabled on DCS and
+SOC only.
+
+The word offsets within the PMC are inferred from T8142, not measured
+on T6050, and a write to the wrong word of a power manager can hang the
+SoC. Add an observation mode that reads and reports the enable, floor
+and state words, creates the debugfs status file and the child devices,
+and writes nothing: no static voter is enabled, no power domain is
+provided and floor updates fail with -EPERM. T6050 observes by default;
+the observe module parameter (pmc.observe=0 on the command line)
+switches it to driving the PMC once the observed words are confirmed.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/pmdomain/apple/pmc.c | 92 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 92 insertions(+)
+
+diff --git a/drivers/pmdomain/apple/pmc.c b/drivers/pmdomain/apple/pmc.c
+index 3765e9a775ff..df960091c381 100644
+--- a/drivers/pmdomain/apple/pmc.c
++++ b/drivers/pmdomain/apple/pmc.c
+@@ -37,6 +37,12 @@
+  * on their behalf through the AP's own agent, capped. This bounds the heat
+  * of the PMP's DCS vote, which follows GPU load.
+  *
++ * On a SoC whose layout is inferred rather than qualified the driver starts
++ * as an observer: it reads and reports the enable, floor and state words but
++ * writes none of them, provides no power domains and refuses every floor
++ * update from the CLPC. The observe module parameter overrides the SoC's
++ * default.
++ *
+  * Copyright The Asahi Linux Contributors
+  */
+ 
+@@ -45,6 +51,7 @@
+ #include <linux/io.h>
+ #include <linux/iopoll.h>
+ #include <linux/module.h>
++#include <linux/moduleparam.h>
+ #include <linux/of.h>
+ #include <linux/of_platform.h>
+ #include <linux/platform_device.h>
+@@ -68,6 +75,11 @@
+ /* How often a DCS limit re-reads the votes it stands in for. */
+ #define APPLE_PMC_DCS_POLL_MS	20
+ 
++static int observe = -1;
++module_param(observe, int, 0444);
++MODULE_PARM_DESC(observe,
++		 "1: read the PMC and never write it, 0: drive it, -1: the SoC's default (default)");
++
+ /**
+  * struct apple_pmc_hw - per-SoC layout of the PMC voter interface
+  * @agent_stride: distance between the floor words of consecutive agents
+@@ -88,6 +100,7 @@
+  *	in the "rails" region; 0 if the PMC has none
+  * @boost_enable: offset of the boost interface enable word in the "rails"
+  *	region; 0 if the PMC has none
++ * @observe: by default only read the PMC, see the observe module parameter
+  */
+ struct apple_pmc_hw {
+ 	u32 agent_stride;
+@@ -102,11 +115,14 @@ struct apple_pmc_hw {
+ 	bool has_pending;
+ 	u32 bwr_enable;
+ 	u32 boost_enable;
++	bool observe;
+ };
+ 
+ struct apple_pmc {
+ 	struct device *dev;
+ 	const struct apple_pmc_hw *hw;
++	/* Read only: no write reaches the PMC. */
++	bool observe;
+ 	void __iomem *voters;
+ 	void __iomem *rails;
+ 	/* Optional cluster enable control and status words (T8140). */
+@@ -194,6 +210,8 @@ static int apple_pmc_enable_write(struct apple_pmc *pmc, unsigned int rail)
+ 	u32 old = apple_pmc_enable_read(pmc, rail);
+ 	u32 val = pmc->enable[rail];
+ 
++	if (pmc->observe)
++		return -EPERM;
+ 	if (pmc->dcs_state && rail == pmc->hw->dcs_rail)
+ 		val = BIT(pmc->hw->ap_agent);
+ 	if (val == old)
+@@ -332,6 +350,8 @@ static int __apple_pmc_floor_update(struct apple_pmc *pmc, unsigned int agent,
+ 	u32 old, val;
+ 	int ret = 0;
+ 
++	if (pmc->observe)
++		return -EPERM;
+ 	if (pmc->hw->has_pending) {
+ 		ret = readl_poll_timeout_atomic(reg + 4, old, !(old & BIT(agent)), 1, 1000);
+ 		if (ret)
+@@ -425,6 +445,8 @@ static void apple_pmc_dcs_vote(struct apple_pmc *pmc)
+ 	unsigned int state = max(pmc->ap_dcs_vote, pmc->dcs_floor);
+ 	u32 old, val;
+ 
++	if (pmc->observe)
++		return;
+ 	if (pmc->dcs_state)
+ 		state = min_t(unsigned int,
+ 			      max(apple_pmc_dcs_demand(pmc), pmc->dcs_floor),
+@@ -1112,6 +1134,7 @@ static int apple_pmc_status_show(struct seq_file *s, void *unused)
+ 	struct apple_pmc_domain *dom;
+ 	unsigned int i;
+ 
++	seq_printf(s, "mode: %s\n", pmc->observe ? "observe" : "drive");
+ 	seq_printf(s, "static agents: %#x\n", pmc->static_agents);
+ 	for (i = 0; i < hw->agents; i++)
+ 		seq_printf(s, "agent%u floor: %#010x honoured: %#010x\n", i,
+@@ -1152,6 +1175,9 @@ static void apple_pmc_release(void *data)
+ 		list_del(&dom->list);
+ 		apple_pmc_domain_free(dom);
+ 	}
++	/* An observer wrote nothing and has nothing to give back. */
++	if (pmc->observe)
++		return;
+ 
+ 	/* The cooling device is gone by now; drop any limit it left. */
+ 	cancel_delayed_work_sync(&pmc->dcs_work);
+@@ -1179,6 +1205,44 @@ static void apple_pmc_release(void *data)
+ 	raw_spin_unlock_irqrestore(&pmc->lock, flags);
+ }
+ 
++/*
++ * Report what the boot loader left in the PMC, create the debugfs status file
++ * and the child devices, and write nothing: no static voter is enabled, no
++ * power domain is provided, and floor updates fail with -EPERM.
++ */
++static int apple_pmc_observe(struct apple_pmc *pmc)
++{
++	const struct apple_pmc_hw *hw = pmc->hw;
++	struct device *dev = pmc->dev;
++	struct device_node *child;
++	unsigned int i;
++	int ret;
++
++	dev_info(dev, "observation only: %u agents, %u rails, nothing is written\n",
++		 hw->agents, hw->rails);
++	for (i = 0; i < hw->rails; i++)
++		dev_info(dev, "rail%u enable %#010x\n", i, pmc->saved_enable[i]);
++	for (i = 0; i < hw->agents; i++)
++		dev_info(dev, "agent%u floor %#010x next %#010x honoured %#010x\n", i,
++			 readl(pmc->voters + i * hw->agent_stride),
++			 readl(pmc->voters + i * hw->agent_stride + 4),
++			 readl(pmc->rails + hw->agent_state + 4 * i));
++
++	for_each_available_child_of_node(dev->of_node, child)
++		if (of_property_present(child, "#power-domain-cells"))
++			dev_warn(dev, "%pOF: no power domain while observing\n", child);
++
++	pmc->debugfs = debugfs_create_dir(dev_name(dev), apple_pmc_debugfs_root);
++	debugfs_create_file("status", 0400, pmc->debugfs, pmc,
++			    &apple_pmc_status_fops);
++
++	ret = of_platform_populate(dev->of_node, NULL, NULL, dev);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to create child devices\n");
++
++	return 0;
++}
++
+ static int apple_pmc_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+@@ -1212,6 +1276,7 @@ static int apple_pmc_probe(struct platform_device *pdev)
+ 
+ 	pmc->dev = dev;
+ 	pmc->hw = of_device_get_match_data(dev);
++	pmc->observe = observe < 0 ? pmc->hw->observe : !!observe;
+ 	raw_spin_lock_init(&pmc->lock);
+ 	INIT_LIST_HEAD(&pmc->domains);
+ 
+@@ -1269,6 +1334,9 @@ static int apple_pmc_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return ret;
+ 
++	if (pmc->observe)
++		return apple_pmc_observe(pmc);
++
+ 	for (i = 0; i < pmc->hw->agents; i++) {
+ 		if (!(pmc->static_agents & BIT(i)))
+ 			continue;
+@@ -1373,6 +1441,29 @@ static const struct apple_pmc_hw apple_pmc_hw_t6040 = {
+ 	.ap_agent = 3,
+ };
+ 
++/*
++ * T6050 (M5 Pro/Max): the T8142 layout. The ADT puts the PMC in PMGR window
++ * 8 (0x286000000), with the floors at +0x700000 + agent * 0x4000 and the
++ * per-agent states and rail enables at +0x806000 and +0x808000, as T8142's
++ * +0x700000/+0x806000/+0x808000; the word offsets themselves are T8142's.
++ * Agents (ADT voter-agent): PMP 0, CLPC 1, GFX 2, AP 3, PMP1 4. Rails (ADT
++ * voter-rail-data): DCS, SOC, DISP and DISP2; the ADT lists eight DCS and
++ * four SOC voltage states. Agents are enabled on DCS and SOC only, as on
++ * T6040. Not yet qualified on hardware: observe by default.
++ */
++static const struct apple_pmc_hw apple_pmc_hw_t6050 = {
++	.agent_stride = 0x4000,
++	.agents = 5,
++	.rails = 4,
++	.agent_state = 0x0,
++	.rail_enable = 0x2000,
++	.dcs_rail = 0,
++	.dcs_max = 7,
++	.agent_rails = GENMASK(1, 0),
++	.ap_agent = 3,
++	.observe = true,
++};
++
+ /* T8152 uses the T8142 voter interface with its rails at 0x3029c6000. */
+ static const struct apple_pmc_hw apple_pmc_hw_t8152 = {
+ 	.agent_stride = 0x4000,
+@@ -1391,6 +1482,7 @@ static const struct of_device_id apple_pmc_of_match[] = {
+ 	{ .compatible = "apple,t8142-pmc", .data = &apple_pmc_hw_t8142 },
+ 	{ .compatible = "apple,t8152-pmc", .data = &apple_pmc_hw_t8152 },
+ 	{ .compatible = "apple,t6041-pmc", .data = &apple_pmc_hw_t6040 },
++	{ .compatible = "apple,t6050-pmc", .data = &apple_pmc_hw_t6050 },
+ 	{}
+ };
+ MODULE_DEVICE_TABLE(of, apple_pmc_of_match);
+-- 
+2.56.0
+

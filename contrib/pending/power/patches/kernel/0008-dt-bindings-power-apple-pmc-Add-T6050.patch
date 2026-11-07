@@ -1,0 +1,38 @@
+From 65065dcd28e17ec42c454111c6cf6df1066219f5 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:31:26 -0500
+Subject: [PATCH 08/13] dt-bindings: power: apple,pmc: Add T6050
+
+Add the T6050 (M5 Pro/Max) PMC and its CLPC. The PMC has the T8142
+voter interface with five agents and four rails; the CLPC has its own
+DCS and fabric ranges.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ Documentation/devicetree/bindings/power/apple,pmc.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/power/apple,pmc.yaml b/Documentation/devicetree/bindings/power/apple,pmc.yaml
+index 825d68ce5199..d31c262b9bf7 100644
+--- a/Documentation/devicetree/bindings/power/apple,pmc.yaml
++++ b/Documentation/devicetree/bindings/power/apple,pmc.yaml
+@@ -26,6 +26,7 @@ properties:
+   compatible:
+     enum:
+       - apple,t6041-pmc
++      - apple,t6050-pmc
+       - apple,t8132-pmc
+       - apple,t8140-pmc
+       - apple,t8142-pmc
+@@ -228,6 +229,7 @@ patternProperties:
+       compatible:
+         enum:
+           - apple,t6041-clpc
++          - apple,t6050-clpc
+           - apple,t8132-clpc
+           - apple,t8140-clpc
+           - apple,t8142-clpc
+-- 
+2.56.0
+

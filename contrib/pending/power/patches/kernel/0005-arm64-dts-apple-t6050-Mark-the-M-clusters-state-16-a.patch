@@ -1,0 +1,40 @@
+From 60635cdf5aa4db4a32d94289860de0f481a52379 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:29:20 -0500
+Subject: [PATCH 05/13] arm64: dts: apple: t6050: Mark the M clusters' state 16
+ as boost
+
+State 16 (4380 MHz) of the M clusters runs at the voltage of states 14
+and 15, and a J714s M cluster asked for it settled in state 15 (status
+register), so a cluster cannot be relied on to run there. Mark it
+turbo-mode: it is then offered with boost on, and the scheduler's
+capacity is no longer scaled to a frequency the cluster may decline.
+
+The P cluster's states 18-21 (4332-4608 MHz) are left as they are until
+it is known whether the cluster runs them.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-base.dtsi | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-base.dtsi b/arch/arm64/boot/dts/apple/t6050-base.dtsi
+index 1be5e14cb12f..6ee171b9a390 100644
+--- a/arch/arm64/boot/dts/apple/t6050-base.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-base.dtsi
+@@ -159,9 +159,11 @@ opp15 {
+ 			opp-hz = /bits/ 64 <4308000000>;
+ 			opp-level = <15>;
+ 		};
++		/* Boost: a J714s M cluster asked for it settled in state 15 */
+ 		opp16 {
+ 			opp-hz = /bits/ 64 <4380000000>;
+ 			opp-level = <16>;
++			turbo-mode;
+ 		};
+ 	};
+ 
+-- 
+2.56.0
+

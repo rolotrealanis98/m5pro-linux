@@ -1,0 +1,56 @@
+From 8081cf582cd6ab56b2df4d0817d98fe02a3f4985 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:35:00 -0500
+Subject: [PATCH 11/13] arm64: dts: apple: j716s: Keep the SoC die zone and
+ read the thermal pressure
+
+With discovered temperatures able to join the SoC die zone, the die0
+apple,soc-die-keys list no longer stops discovery: keep it, so that
+TCMb's discovered channel makes up the macsmc_soc_die thermal zone, the
+zone the M5 GPU thermal governor reads by name.
+
+Read the SMC's thermal pressure level, mTPL (si32 in the T6050 J714s
+key table), as on T6041; the driver ignores the key if this SMC lacks
+it.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 15 ++++++++-------
+ 1 file changed, 8 insertions(+), 7 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index a84cd9534c2c..7522bf515479 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -688,19 +688,20 @@ &pinctrl_ap {
+  *
+  * Discovery refuses to run once any temperature channel exists, so the
+  * shared temperature nodes go (their keys are discovered anyway: TH0x,
+- * TB0T, TCHP, TW0P), and so does the die0 apple,soc-die-keys list, whose
+- * "SoC die TCMb" channel would also count: with this driver the probe
+- * fails with -EINVAL otherwise. TCMb stays as a discovered channel; only
+- * the macsmc_soc_die thermal zone, which nothing in this DT uses, is lost.
+- * Drop the /delete-property/ once the driver has Aurora's b7891bd5f621
+- * ("hwmon: macsmc: Let discovered temperatures join the SoC die zone").
++ * TB0T, TCHP, TW0P). The die0 apple,soc-die-keys list stays: with
++ * discovery, TCMb's discovered channel makes up the macsmc_soc_die
++ * thermal zone, which the M5 GPU thermal governor reads by name.
++ *
++ * mTPL is the SMC's thermal pressure level (si32 in the J714s key table),
++ * read through thermal_pressure_level.
+  */
+ #include "hwmon-common.dtsi"
+ #include "hwmon-fan-dual.dtsi"
+ #include "hwmon-laptop.dtsi"
+ 
+ &smc_hwmon {
+-	/delete-property/ apple,soc-die-keys;
++	apple,thermal-pressure-key = "mTPL";
++
+ 	/delete-node/ temperature-TH0x;
+ 	/delete-node/ temperature-TB0T;
+ 	/delete-node/ temperature-TCHP;
+-- 
+2.56.0
+

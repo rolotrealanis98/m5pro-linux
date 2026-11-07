@@ -1,0 +1,173 @@
+From 9b6432572a645ef849fd56f1529ac9a722f0f2b0 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:46:32 -0500
+Subject: [PATCH] DRAFT: arm64: dts: apple: j716s: Add a thermal backstop
+
+Not for the daily and not for submission yet: a Linux thermal backstop
+on the SMC's SoC die maximum (TCMb) and the palm rest (Ts0P), throttling
+the three clusters through their cpufreq cooling devices.
+
+Thermal zones name a sensor by index, so the zone sensors are listed
+ahead of the shared temperature nodes and discovery is off. The trips
+are Linux operating limits, not Apple's: passive at 100 C, hot at 105 C,
+critical at 110 C on TCMb, passive at 45 C on the palm rest. The SMC
+keeps the fans in system mode. The zones need the step_wise governor:
+without an energy model the power allocator cannot throttle the
+clusters.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 119 +++++++++++++++++++++-
+ 1 file changed, 114 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 7522bf515479..1a541fa9eaae 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -20,6 +20,7 @@
+ /dts-v1/;
+ 
+ #include <dt-bindings/leds/common.h>
++#include <dt-bindings/thermal/thermal.h>
+ #include "t6050-max.dtsi"
+ 
+ / {
+@@ -695,6 +696,31 @@ &pinctrl_ap {
+  * mTPL is the SMC's thermal pressure level (si32 in the J714s key table),
+  * read through thermal_pressure_level.
+  */
++
++/*
++ * DRAFT, not for the daily: a Linux thermal backstop for the SoC and the
++ * palm rest. Thermal zones name a sensor by its index among the
++ * temperature-* nodes, which discovery does not keep stable, so the zone
++ * sensors are listed here, ahead of the shared nodes the includes below
++ * append, and discovery is off. The SoC die zone (apple,soc-die-keys)
++ * stays as the last channel. TCMb read 47.8 C at idle on the J716s; Ts0P is
++ * in the J714s key table but has not been read on this machine.
++ */
++&smc_hwmon {
++	#thermal-sensor-cells = <1>;
++	/delete-property/ apple,discover-temperatures;
++
++	temperature-TCMb {		/* 0 */
++		apple,key-id = "TCMb";
++		label = "SoC Die Max";
++	};
++
++	temperature-Ts0P {		/* 1 */
++		apple,key-id = "Ts0P";
++		label = "Palm Rest";
++	};
++};
++
+ #include "hwmon-common.dtsi"
+ #include "hwmon-fan-dual.dtsi"
+ #include "hwmon-laptop.dtsi"
+@@ -702,11 +728,6 @@ &pinctrl_ap {
+ &smc_hwmon {
+ 	apple,thermal-pressure-key = "mTPL";
+ 
+-	/delete-node/ temperature-TH0x;
+-	/delete-node/ temperature-TB0T;
+-	/delete-node/ temperature-TCHP;
+-	/delete-node/ temperature-TW0P;
+-
+ 	/*
+ 	 * The T6050 SMC spells the fan mode keys F0md/F1md (ui8, flags 0xd0),
+ 	 * not the F0Md/F1Md of hwmon-fan*.dtsi, as on the J775D. No
+@@ -792,3 +813,91 @@ tp-accel {
+  *   2 multi-touch   afe-reset      (0x10000, 0x11c0000)
+  */
+ /delete-node/ &smc_pcio;
++
++/*
++ * DRAFT thermal zones. These are Linux operating limits for a backstop, not
++ * Apple's limits: the SMC keeps the fans in system mode (F0md/F1md 0) and
++ * no zone drives them. Without an energy model (the T6050 OPPs have no
++ * opp-microwatt) the power allocator cannot throttle the clusters, so
++ * these zones need the step_wise governor (CONFIG_THERMAL_DEFAULT_GOV_STEP_WISE).
++ * The cpufreq cooling device of each cluster is its policy CPU's.
++ */
++&cpu0 {
++	#cooling-cells = <2>;
++};
++
++&cpu6 {
++	#cooling-cells = <2>;
++};
++
++&cpu12 {
++	#cooling-cells = <2>;
++};
++
++/ {
++	thermal-zones {
++		soc-die-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&smc_hwmon 0>;	/* TCMb */
++
++			trips {
++				soc_die_passive: soc-die-passive {
++					temperature = <100000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				soc-die-hot {
++					temperature = <105000>;
++					hysteresis = <2000>;
++					type = "hot";
++				};
++
++				soc-die-critical {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map-p {
++					trip = <&soc_die_passive>;
++					cooling-device = <&cpu12 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++
++				map-m0 {
++					trip = <&soc_die_passive>;
++					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++
++				map-m1 {
++					trip = <&soc_die_passive>;
++					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
++		};
++
++		palm-rest-thermal {
++			polling-delay-passive = <2000>;
++			polling-delay = <5000>;
++			thermal-sensors = <&smc_hwmon 1>;	/* Ts0P */
++
++			trips {
++				palm_rest_passive: palm-rest-passive {
++					temperature = <45000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++			};
++
++			cooling-maps {
++				map-p {
++					trip = <&palm_rest_passive>;
++					cooling-device = <&cpu12 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
++		};
++	};
++};
+-- 
+2.56.0
+

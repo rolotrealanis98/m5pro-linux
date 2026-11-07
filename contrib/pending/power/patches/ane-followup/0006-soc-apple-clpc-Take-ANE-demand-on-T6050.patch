@@ -1,0 +1,82 @@
+From 037ac85b75443d8a734e00794fa66eef85aacdbc Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:54:22 -0500
+Subject: [PATCH] soc: apple: clpc: Take ANE demand on T6050
+
+The staged ANE backend asks the CLPC for a memory and fabric floor while
+an EXECUTE runs, but only a T8140 CLPC is accepted as its provider.
+Accept the T6050 CLPC too, and give "apple,t6050-clpc" its own table:
+DCS 0-7 and fabric 0-3 (the ADT's eight DCS and four SOC voltage
+states), the T8142 DCS columns, T6040's three-sample busy streak, and
+GPU and ANE demand at the top of the map (DCS 7, fabric 3). The T6050
+ANE demand itself is not measured yet.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/soc/apple/clpc.c | 32 ++++++++++++++++++++++++++++++--
+ 1 file changed, 30 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/soc/apple/clpc.c b/drivers/soc/apple/clpc.c
+index fa94e1d52293..29f926ed1ca8 100644
+--- a/drivers/soc/apple/clpc.c
++++ b/drivers/soc/apple/clpc.c
+@@ -344,11 +344,15 @@ int apple_clpc_ane_get(struct device *dev, struct apple_clpc_ane **out)
+ 	if (!dev->of_node)
+ 		return 0;
+ 	np = of_parse_phandle(dev->of_node, "apple,clpc", 0);
+-	if (!np && !of_find_property(dev->of_node, "apple,clpc", NULL))
++	if (!np && !of_find_property(dev->of_node, "apple,clpc", NULL)) {
+ 		np = of_find_compatible_node(NULL, NULL, "apple,t8140-clpc");
++		if (!np)
++			np = of_find_compatible_node(NULL, NULL, "apple,t6050-clpc");
++	}
+ 	if (!np)
+ 		return 0;
+-	if (!of_device_is_compatible(np, "apple,t8140-clpc")) {
++	if (!of_device_is_compatible(np, "apple,t8140-clpc") &&
++	    !of_device_is_compatible(np, "apple,t6050-clpc")) {
+ 		of_node_put(np);
+ 		return 0;
+ 	}
+@@ -1183,6 +1187,29 @@ static const struct apple_clpc_hw apple_clpc_hw_t6040 = {
+ 	.gpu_input = true,
+ };
+ 
++/*
++ * T6050 (M5 Pro/Max): DCS states 0-7 on rail 0 and fabric states 0-3 on
++ * rail 1, from the eight DCS and four SOC voltage states in the ADT. The
++ * columns follow T8142, which has the same DCS range, with the fabric one
++ * state lower for its four states; a busy cluster asks for the top states
++ * at full speed. As on T6040, a cluster requests only after three busy
++ * samples in a row: eighteen cores give more short bursts of background
++ * work than the four to twelve of the other tables. The GPU driver reports
++ * its work in flight, which takes both rails to the top of the map, and so
++ * does ANE work. Provisional: neither the bandwidth nor the power of each
++ * state, nor the ANE's demand, has been measured on T6050.
++ */
++static const struct apple_clpc_hw apple_clpc_hw_t6050 = {
++	.rail = { [APPLE_CLPC_DCS] = 0, [APPLE_CLPC_SOC] = 1 },
++	.map = {
++		[APPLE_CLPC_DCS] = { 2, 4, 6, 7 },
++		[APPLE_CLPC_SOC] = { 0, 1, 2, 3 },
++	},
++	.sustain = 3,
++	.gpu_input = true,
++	.ane = { [APPLE_CLPC_DCS] = 7, [APPLE_CLPC_SOC] = 3 },
++};
++
+ /*
+  * T8142: DCS states 0-7 on rail 0, fabric states 0-4 on rail 1. The fabric
+  * state bounds CPU memory bandwidth: four P cores copy at ~40 GB/s with the
+@@ -1500,6 +1527,7 @@ static const struct of_device_id apple_clpc_of_match[] = {
+ 	{ .compatible = "apple,t8142-clpc", .data = &apple_clpc_hw_t8142 },
+ 	{ .compatible = "apple,t8152-clpc", .data = &apple_clpc_hw_t8152 },
+ 	{ .compatible = "apple,t6041-clpc", .data = &apple_clpc_hw_t6040 },
++	{ .compatible = "apple,t6050-clpc", .data = &apple_clpc_hw_t6050 },
+ 	{}
+ };
+ MODULE_DEVICE_TABLE(of, apple_clpc_of_match);
+-- 
+2.56.0
+

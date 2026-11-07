@@ -1,0 +1,50 @@
+From 667ffd56bba92ee69c953fbf1c3bb51b6fcff5ac Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:45:31 -0500
+Subject: [PATCH 12/13] pmdomain: apple: pmc: Describe every documented member
+
+W=1 builds warn that has_pending and five members of struct
+apple_pmc_domain are missing from their kernel-doc comments. Describe
+them.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/pmdomain/apple/pmc.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/pmdomain/apple/pmc.c b/drivers/pmdomain/apple/pmc.c
+index df960091c381..3be2a949ca93 100644
+--- a/drivers/pmdomain/apple/pmc.c
++++ b/drivers/pmdomain/apple/pmc.c
+@@ -96,6 +96,8 @@ MODULE_PARM_DESC(observe,
+  * @agent_rails: rails on which an agent is enabled; 0 for every rail
+  * @ap_agent: voter agent of the application processor, which a DCS limit
+  *	votes through
++ * @has_pending: the word after each agent's floor word has a pending bit
++ *	per agent, set until the PMC has taken a new floor
+  * @bwr_enable: offset of the bandwidth request (BWR) interface enable word
+  *	in the "rails" region; 0 if the PMC has none
+  * @boost_enable: offset of the boost interface enable word in the "rails"
+@@ -158,6 +160,10 @@ struct apple_pmc {
+ 
+ /**
+  * struct apple_pmc_domain - a power domain provided by the PMC
++ * @genpd: the generic power domain
++ * @pmc: the PMC providing it
++ * @np: its device tree node
++ * @list: entry in the PMC's list of domains
+  * @agent: dynamic voter agent the domain enables (not for a floor)
+  * @floor: the domain is a rail floor held through the AP's agent
+  * @rail: with @floor, the rail
+@@ -168,6 +174,7 @@ struct apple_pmc {
+  * @interface: the domain is a display pipe's BWR and boost interface enables
+  * @bwr_bit: with @interface, the bit in the BWR interface enable word
+  * @boost_bit: with @interface, the bit in the boost interface enable word
++ * @provider: the domain's power domain provider is registered
+  */
+ struct apple_pmc_domain {
+ 	struct generic_pm_domain genpd;
+-- 
+2.56.0
+

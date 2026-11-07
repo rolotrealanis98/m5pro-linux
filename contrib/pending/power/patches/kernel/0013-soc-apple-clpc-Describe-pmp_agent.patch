@@ -1,0 +1,29 @@
+From 0fdf38de2884246e7f0107d5bca152aef669cc3d Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:45:32 -0500
+Subject: [PATCH 13/13] soc: apple: clpc: Describe pmp_agent
+
+W=1 builds warn that pmp_agent is missing from the kernel-doc comment of
+struct apple_clpc_hw. Describe it.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/soc/apple/clpc.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/soc/apple/clpc.c b/drivers/soc/apple/clpc.c
+index 65495cac1e0e..fc29cdcd45f8 100644
+--- a/drivers/soc/apple/clpc.c
++++ b/drivers/soc/apple/clpc.c
+@@ -76,6 +76,7 @@ enum apple_clpc_rail {
+  *	counts as streaming, see apple_clpc_gpu_streaming(); 0 counts it at once
+  * @pmp_backoff: release that GPU floor while the PMP, voter agent
+  *	@pmp_agent, limits the DCS, see apple_clpc_gpu_limited()
++ * @pmp_agent: with @pmp_backoff, the PMP's voter agent
+  * @gpu_dense: submissions per sampling period that make light GPU work
+  *	dense, see apple_clpc_gpu_dense(); 0 for none
+  * @gpu_input: the GPU driver reports its work in flight through
+-- 
+2.56.0
+

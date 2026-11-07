@@ -1,0 +1,31 @@
+From b0700fabf2e3c579900c565fcf1eef9914fb1d4a Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:29:00 -0500
+Subject: [PATCH 03/13] dt-bindings: cpufreq: apple,cluster-cpufreq: Drop the
+ T8112 fallback for T6050
+
+The driver now matches "apple,t6050-cluster-cpufreq" itself, and the
+T6050 profile requires apple,firmware-managed-thermal, which the T8112
+fallback entry does not describe. Keep T6050 to its own compatible.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ .../devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml       | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml b/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
+index e45df27d8420..2a4d01f24fa6 100644
+--- a/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
++++ b/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
+@@ -46,7 +46,6 @@ properties:
+               - apple,t6030-cluster-cpufreq
+               - apple,t6031-cluster-cpufreq
+               - apple,t6041-cluster-cpufreq
+-              - apple,t6050-cluster-cpufreq
+               - apple,t8122-cluster-cpufreq
+           - const: apple,t8112-cluster-cpufreq
+ 
+-- 
+2.56.0
+

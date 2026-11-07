@@ -1,0 +1,32 @@
+From d8fa2da8fe5e74e5667b7f452511f1a657fcce20 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:31:26 -0500
+Subject: [PATCH 09/13] arm64: dts: apple: t6050: Give the CLPC its own
+ compatible
+
+The CLPC fell back to "apple,t6041-clpc", whose DCS 0-5 and fabric 0-2
+tables are short of T6050's DCS 0-7 and fabric 0-3. The driver now has a
+T6050 entry; drop the fallback.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-die0.dtsi | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-die0.dtsi b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+index fd2991f2cca9..c85c4526a143 100644
+--- a/arch/arm64/boot/dts/apple/t6050-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+@@ -280,7 +280,7 @@ pmc: power-management@286806000 {
+ 		apple,static-voters = <1 3>;
+ 
+ 		clpc: performance-controller@1 {
+-			compatible = "apple,t6050-clpc", "apple,t6041-clpc";
++			compatible = "apple,t6050-clpc";
+ 			reg = <1>;
+ 		};
+ 	};
+-- 
+2.56.0
+

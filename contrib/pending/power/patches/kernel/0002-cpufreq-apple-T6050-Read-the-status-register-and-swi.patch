@@ -1,0 +1,63 @@
+From bb1cac586d5db387efdf34d5851114849c0eff86 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:28:41 -0500
+Subject: [PATCH 02/13] cpufreq: apple: T6050: Read the status register and
+ switch from the scheduler
+
+The T6050 profile verifies each request against the command register and
+waits for it, so schedutil can no longer switch from the scheduler: every
+change goes through the sugov worker thread, a wakeup and a context switch
+per update on an otherwise idle system. Through the T8112 fallback the
+J716s (MacBook Pro 16-inch, M5 Pro) switched from the scheduler.
+
+Verify the scheduler's requests from a timer instead, as on T8140; the
+waited-for paths (the static governors, suspend) are unchanged.
+
+The status register has the T8112 layout: the current state is in bits
+9:5 and the target in bits 4:0, read on M cluster 0 of the J716s, and
+the T8112 fallback has reported all three clusters' frequency from it
+on every J716s boot since. Report the current state from it,
+so that cpuinfo_cur_freq shows the state the cluster runs at, which is
+lower than the request when the cluster declines a boost state.
+
+State 1 (300 MHz) is the lowest OPP of every cluster; refuse a level 0.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/cpufreq/apple-soc-cpufreq.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/cpufreq/apple-soc-cpufreq.c b/drivers/cpufreq/apple-soc-cpufreq.c
+index fb87ae6ae137..0ec4bcedd9cb 100644
+--- a/drivers/cpufreq/apple-soc-cpufreq.c
++++ b/drivers/cpufreq/apple-soc-cpufreq.c
+@@ -341,12 +341,24 @@ static const struct apple_soc_cpufreq_info soc_t8132_info = {
+ 	.ps1_shift = APPLE_DVFS_CMD_PS1_SHIFT,
+ };
+ 
+-/* Command-state readback, not a measurement of the clock frequency. */
++/*
++ * T6050: requests are verified against the command register's readback, as on
++ * T8142. The status register has the T8112 layout (current state in bits 9:5,
++ * target in bits 4:0, read on the J716s), so ->get() reports the state the
++ * cluster runs at, which differs from the request when the cluster declines
++ * a boost state. State 1 is the lowest OPP. Requests from the scheduler are
++ * verified by a timer, as on T8140, so schedutil keeps switching from the
++ * scheduler as it did through the T8112 fallback.
++ */
+ static const struct apple_soc_cpufreq_info soc_t6050_info = {
+ 	.verify_transition = true,
++	.lazy_verify = true,
+ 	.needs_firmware_thermal_control = true,
+ 	.transition_timeout_us = 2000,
++	.min_pstate = 1,
+ 	.max_pstate = 31,
++	.cur_pstate_mask = APPLE_DVFS_STATUS_CUR_PS_T8112,
++	.cur_pstate_shift = APPLE_DVFS_STATUS_CUR_PS_SHIFT_T8112,
+ 	.ps1_mask = APPLE_DVFS_CMD_PS1,
+ 	.ps1_shift = APPLE_DVFS_CMD_PS1_SHIFT,
+ };
+-- 
+2.56.0
+

@@ -1,0 +1,49 @@
+From 2b3f9dcb656e35925e226608d15d2aaff1804cb6 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:29:20 -0500
+Subject: [PATCH 04/13] arm64: dts: apple: j716s: Use the T6050 cpufreq profile
+
+The three cluster controllers carried the T8112 fallback so that the
+driver bound before it had a T6050 entry. It has one now, and the
+controllers' own nodes in t6050-dieX.dtsi already give the T6050
+compatible and apple,firmware-managed-thermal, which that entry needs.
+Drop the board override.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 18 ------------------
+ 1 file changed, 18 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 0b7ed533e3a5..a84cd9534c2c 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -721,24 +721,6 @@ fan-F1Ac {
+ 	};
+ };
+ 
+-/*
+- * The clusters' DVFS blocks have the T8112 layout (status +0x50: current
+- * p-state in bits 9:5, target in 4:0, measured on the J716s), which stock
+- * apple-soc-cpufreq drives through the T8112 compatible. Kept to this board
+- * until the T6050 entry of the j716c/t6050-platform branch is in.
+- */
+-&cpufreq_mc0 {
+-	compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+-};
+-
+-&cpufreq_mc1 {
+-	compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+-};
+-
+-&cpufreq_pc {
+-	compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+-};
+-
+ /* The die's CIO reconfiguration register; no consumer is enabled yet */
+ &cio_reconfig0 {
+ 	status = "okay";
+-- 
+2.56.0
+
