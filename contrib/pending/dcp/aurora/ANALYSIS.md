@@ -35,7 +35,7 @@ Line numbers below are for PICK unless prefixed.
 |---|---|---|
 | A previously retained live session blocks rebinding | `dcp.c:5969` (`dcp_session_retained`) | n/a |
 | `apple,firmware-compat` read as 3-5 u32 cells, formatted `a.b.c[.d[.e]]`, compared **byte-exact** with `"27.0.0"`. Not a major-version match: 27.0.1 and 27.2.0 also fail. `apple,firmware-version` is not consulted for T6050. A mismatch returns `DCP_FIRMWARE_UNKNOWN`, then `-ENODEV`, **silently** upstream; patch 0013 adds the `dev_err` | `dcp.c:4932-4951`, `:5980-5982` | m1n1 sets no property, so the read fails and the driver returns `-ENODEV` |
-| `apple,bw-scratch` must be present, or "Incompatible devicetree!" | `dcp.c:5993-5999` | unknown for the internal DCP (see 3.4) |
+| `apple,bw-scratch` must be present, or "Incompatible devicetree!" | `dcp.c:5993-5999` | PMC window + 0x20000 (`../BW-SCRATCH.md`) |
 | `memory-region-names = "framebuffer"` on the dcp node (sets `dfb_region_size`); `apple,clock-ids` count must equal the clocks (empty list, no clocks, is valid) | `dcp.c:5155-5200` | m1n1 sets none |
 | The DCP must be **running** (`CPU_CONTROL.RUN`): the driver adopts iBoot's session and never starts or stops the ASC (`adopt_live_session`, `apple_dcp_hw_t6050` at `dcp.c:7076`) | `dcp.c:5363-5373` | running: ADT `iop-dcp-nub running=1, pre-loaded=1`; m1n1 never starts its iBoot DCP client on an internal retina panel (`display.c:668` "already initialized"; `display_shutdown` is a no-op without it, `display.c:674-680`) |
 | The PIODMA child device and its DART domain; `disp-N` regs; firmware metadata; RTKit init then wake with no reset ("negotiating RTKit with the running DCP") | `dcp.c:5461-5590` | |
@@ -159,6 +159,8 @@ On `pipe-park-r2-atc` (`f7555558`), commit `eb13da2e` in the private clone `~/Wo
 Generates `dt/j716s-typec-fixed9.dts` and `dt/t6050-j716s-typec-fixed9.dtb` (per-unit: never publish) from fixed8. It adds the five nodes of 1.2 with phandles 0xd0-0xd4, all disabled, and reuses fixed8's PMC window node (phandle 0x12). The DTB compiled with Aurora's dtc. `status = "okay"` count is unchanged (1).
 
 `apple,bw-scratch` is left out on purpose. The bandwidth agent table (`/arm-io/pmgr bwr-agent`) gives DISP_INT BIRQ 0x96 (slot 1) vs DISP_EXT0 0x36 (slot 4, whose scratch Aurora put at PMC+0x2c000), with no derivable formula. Without it the driver refuses even a forced 27.0.0 compat ("Incompatible devicetree!"), which acts as a second interlock in front of stage C. Fill `BW_SCRATCH_OFFSET` once it is measured (a macOS hv trace of DISP_INT's bandwidth request).
+
+**Update 2026-11-07:** derived statically, `BW_SCRATCH_OFFSET = 0x20000` (PMC + 0x20000 + 0x4000 x the bwr-agent index byte: DISP_INT 0, DISP_EXT0 3 -> 0x2c000). See `../BW-SCRATCH.md`.
 
 ---
 

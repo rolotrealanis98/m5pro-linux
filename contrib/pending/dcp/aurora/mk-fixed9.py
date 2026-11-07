@@ -21,10 +21,16 @@ SRC = H/"Work/agents/trackpad-aurora/dt/j716s-typec-fixed8.dts"
 FIXED8_DTB = H/"Work/agents/trackpad-aurora/dt/t6050-j716s-typec-fixed8.dtb"
 OUT = H/"Work/agents/dcp-aurora/dt"
 DTC = "/Volumes/linux-cs/wt-aurora/scripts/dtc/dtc"
-# The DISP_INT bandwidth scratch offset inside the PMC window (dcpext0's DISP_EXT0 is 0x2c000).
-# Unknown: leave None. Without apple,bw-scratch the driver refuses the node ("Incompatible
-# devicetree!") even with a 27.0.0 compat, which is the intended interlock until it is measured.
-BW_SCRATCH_OFFSET = None
+if not pathlib.Path(DTC).exists():  # wt-aurora was cleaned away; any dtc >= 1.6 compiles this
+    DTC = "/opt/homebrew/bin/dtc"
+# The DISP_INT bandwidth scratch offset inside the PMC window 0x286700000 (static, macOS 27.0, 27.2
+# and 27.3 kernelcaches agree; see ../BW-SCRATCH.md): the display kext answers D003 with the
+# physical address of disp0's platform function function-bw_req_interrupt0 = <pmgr 'BIRQ' 0x96>;
+# ApplePMC::getBWRMemory finds 0x96 in /arm-io/pmgr bwr-agent (DISP_INT, index byte 0) and the
+# T6050 PMC returns 0x20000 + 0x4000 * index, on top of PMGR reg[8] + 0x700000 = 0x286700000.
+# DISP_EXT0 (index 3) gives 0x2c000, the value Aurora's dcpext0 uses. Set to None to drop the
+# property again (the driver then refuses the node: "Incompatible devicetree!").
+BW_SCRATCH_OFFSET = 0x20000
 sha = lambda b: hashlib.sha256(b).hexdigest()
 f8 = SRC.read_text()
 
