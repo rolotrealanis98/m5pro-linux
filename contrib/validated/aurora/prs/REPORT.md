@@ -149,3 +149,11 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
   hand-off for the firmware-27 DCP driver (on #37), #36 `m1n1.wdt=keep`. The #26-based form of this stack booted the
   J716s first pass (OMACOM-WDT-KEEP); the #30 rebase itself has not booted yet (payload
   `omacom-wdt-keep-20261107-3713d26f` queued, unattended OK).
+
+## 2026-11-08 ~01:00 UTC: kernel-side N1 training PRs (aurora-silicon/linux)
+
+- Driver half: https://github.com/aurora-silicon/linux/pull/1182 — base `j716c/t6050-pcie` (#937's branch): ed's ASPM strip + shutdown park, our binding commit,
+  ed's cold train, host tunables, DART binding, DART availability (2 commits), our warm-N1 reset and gP13 template.
+  Ed's six commits carry no Signed-off-by of his own (asked in the PR text).
+- DT half: https://github.com/aurora-silicon/linux/pull/1183 — base integration/aurora, stacked on #1167: ed's DART binding + the J716s DT.
+- Hardware section from K1/K2 (2026-11-07 21:27 UTC). Copies in `contrib/pending/wireless/pr-kernel-train/`.
