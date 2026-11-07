@@ -1,0 +1,60 @@
+# libinput quirks for the J716s (MacBook Pro 16-inch, M5 Pro) built-in trackpad.
+# Install: /etc/libinput/local-overrides.quirks (root:root 0644). Read when libinput opens the
+# device, i.e. the next time Hyprland starts. Check with:
+#   libinput quirks validate && libinput quirks list /dev/input/event1
+#
+# What the kernel reports (hid-magicmouse MTP path, kernel 7.3 j716s-series, libinput record 1.32.0):
+#   name "Apple MTP multi-touch", bus 0x19 (host), id 05ac:035a, 16 MT slots
+#   ABS_MT_POSITION_X  -7456..7976  resolution 98 u/mm -> 157.5 mm  (sensor dimension report)
+#   ABS_MT_POSITION_Y  -9283..163   resolution 98 u/mm ->  96.4 mm
+#   ABS_MT_TOUCH_MAJOR/MINOR 0..5000, no resolution (firmware contact size << 1)
+#   ABS_MT_WIDTH_MAJOR/MINOR 0..5000 (approach area << 1), ABS_MT_ORIENTATION -16384..16384
+#   ABS_MT_PRESSURE / ABS_PRESSURE 0..6000, resolution 1 (about grams), INPUT_PROP_PRESSUREPAD
+#   BTN_LEFT (click derived from summed pressure, haptic feedback), BTN_TOOL_FINGER..QUINTTAP,
+#   INPUT_PROP_POINTER + INPUT_PROP_BUTTONPAD, EV_FF FF_HAPTIC, MSC_SCAN
+#   Not reported: ABS_MT_TOOL_TYPE (no firmware palm flag on T6050), MSC_TIMESTAMP.
+#   udev: ID_INPUT_TOUCHPAD=1, ID_INPUT_WIDTH_MM=157, ID_INPUT_HEIGHT_MM=96, integration internal.
+#   macOS: the ADT multi-touch node carries no sensor size; the firmware's dimension report is
+#   the only source, and the kernel reads it at open.
+#
+# Without this file libinput already applies [Apple Laptop Touchpad (MTP)] from
+# /usr/share/libinput/50-system-apple.quirks (Asahi's values for the M1/M2 MTP trackpads, which go
+# through the same driver code and the same << 1 size scaling). This section pins those values to
+# this one device, corrects the size hint, and is the place to tune them after measuring.
+#
+# How libinput 1.32 uses each value on this device (src/evdev-mt-touchpad*.c):
+#   - INPUT_PROP_PRESSUREPAD makes libinput disable ABS_(MT_)PRESSURE (tp_init_pressurepad), so
+#     AttrPressureRange, AttrPalmPressureThreshold and AttrThumbPressureThreshold do nothing here
+#     and are deliberately not set. Pressure only drives the kernel's click and haptics.
+#   - Touch begin/end is decided by contact size (tp_unhover_size): a touch begins when
+#     major > hi and minor > lo (or the reverse) and ends when major or minor drops below lo.
+#   - Palm: a touch whose major or minor exceeds AttrPalmSizeThreshold is a palm until it lifts
+#     (tp_palm_detect_touch_size_triggered). This is the only palm signal on this pad besides
+#     disable-while-typing: edge palm zones are off for ModelAppleTouchpad
+#     (tp_init_palmdetect_edge) and the kernel sends no MT_TOOL_PALM.
+#   - Thumb: with no AttrThumbSizeThreshold, thumbs are found by position and speed only:
+#     a slow touch landing in the bottom 15 % (14.5 mm) of the pad is a thumb candidate, and one in
+#     the bottom 8 % (7.7 mm) is held as a thumb (evdev-mt-touchpad-thumb.c). Setting the size
+#     threshold makes the 8-15 % band require major > T and minor < 0.6 T, so a wrong value hides
+#     thumbs there; it stays off until measured (HOWTO.md, "Measure the thresholds").
+#   - All size values are raw ABS_MT_TOUCH_MAJOR/MINOR units (0..5000 on this pad).
+
+[J716s Apple MTP trackpad]
+MatchUdevType=touchpad
+MatchName=Apple MTP multi-touch
+MatchVendor=0x05AC
+MatchProduct=0x035A
+MatchDeviceTree=apple,j716s
+ModelAppleTouchpad=1
+# Physical size from the measured ranges (15432 / 98 x 9446 / 98 units). Only used if the kernel
+# ever stops reporting a resolution; the inherited 104x75 is an M1 13-inch value.
+AttrSizeHint=157x96
+# Begin a touch above 150, end it below 130 (of 0..5000). Inherited MTP-family value; check with
+# "libinput measure touch-size --touch-thresholds=150:130 --palm-threshold=1600 /dev/input/event1".
+AttrTouchSizeRange=150:130
+# Palm above 1600 (of 0..5000). Inherited MTP-family value. Lower it if resting palms move the
+# cursor, raise it if a flat fingertip or a resting thumb gets ignored.
+AttrPalmSizeThreshold=1600
+# Thumb size threshold: leave unset until measured. Candidate once measured: a value between the
+# largest moving-finger major and the smallest resting-thumb major.
+#AttrThumbSizeThreshold=1200

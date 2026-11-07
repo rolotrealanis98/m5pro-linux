@@ -1,0 +1,248 @@
+# J716s trackpad inventory, 2026-11-07, kernel 7.3.0 j716s-series a0f2f30c967b, libinput 1.32.0, Hyprland 0.57.1
+# Serial-like fields (HID Uniq) removed.
+
+## libinput record (device description)
+devices:
+- node: /dev/input/event1
+  evdev:
+    # Name: Apple MTP multi-touch
+    # ID: bus 0x0019 vendor 0x05ac product 0x035a version 0x0510
+    # Size in mm: 157x96
+    # Supported Events:
+    # Event type 0 (EV_SYN)
+    # Event type 1 (EV_KEY)
+    #   Event code 272 (BTN_LEFT)
+    #   Event code 325 (BTN_TOOL_FINGER)
+    #   Event code 328 (BTN_TOOL_QUINTTAP)
+    #   Event code 330 (BTN_TOUCH)
+    #   Event code 333 (BTN_TOOL_DOUBLETAP)
+    #   Event code 334 (BTN_TOOL_TRIPLETAP)
+    #   Event code 335 (BTN_TOOL_QUADTAP)
+    # Event type 3 (EV_ABS)
+    #   Event code 0 (ABS_X)
+    #       Value           0
+    #       Min         -7456
+    #       Max          7976
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution     98
+    #   Event code 1 (ABS_Y)
+    #       Value           0
+    #       Min         -9283
+    #       Max           163
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution     98
+    #   Event code 24 (ABS_PRESSURE)
+    #       Value           0
+    #       Min             0
+    #       Max          6000
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution      1
+    #   Event code 47 (ABS_MT_SLOT)
+    #       Value           0
+    #       Min             0
+    #       Max            15
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution      0
+    #   Event code 48 (ABS_MT_TOUCH_MAJOR)
+    #       Value           0
+    #       Min             0
+    #       Max          5000
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution      0
+    #   Event code 49 (ABS_MT_TOUCH_MINOR)
+    #       Value           0
+    #       Min             0
+    #       Max          5000
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution      0
+    #   Event code 50 (ABS_MT_WIDTH_MAJOR)
+    #       Value           0
+    #       Min             0
+    #       Max          5000
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution      0
+    #   Event code 51 (ABS_MT_WIDTH_MINOR)
+    #       Value           0
+    #       Min             0
+    #       Max          5000
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution      0
+    #   Event code 52 (ABS_MT_ORIENTATION)
+    #       Value           0
+    #       Min        -16384
+    #       Max         16384
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution      0
+    #   Event code 53 (ABS_MT_POSITION_X)
+    #       Value           0
+    #       Min         -7456
+    #       Max          7976
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution     98
+    #   Event code 54 (ABS_MT_POSITION_Y)
+    #       Value           0
+    #       Min         -9283
+    #       Max           163
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution     98
+    #   Event code 57 (ABS_MT_TRACKING_ID)
+    #       Value           0
+    #       Min             0
+    #       Max         65535
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution      0
+    #   Event code 58 (ABS_MT_PRESSURE)
+    #       Value           0
+    #       Min             0
+    #       Max          6000
+    #       Fuzz            0
+    #       Flat            0
+    #       Resolution      1
+    # Event type 4 (EV_MSC)
+    #   Event code 4 (MSC_SCAN)
+    # Event type 21 (EV_FF)
+    #   Event code 79 (FF_HAPTIC)
+    # Properties:
+    #    Property 0 (INPUT_PROP_POINTER)
+    #    Property 2 (INPUT_PROP_BUTTONPAD)
+    #    Property 7 (INPUT_PROP_PRESSUREPAD)
+    name: "Apple MTP multi-touch"
+    id: [25, 1452, 858, 1296]
+    codes:
+      0: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] # EV_SYN
+      1: [272, 325, 328, 330, 333, 334, 335] # EV_KEY
+      3: [0, 1, 24, 47, 48, 49, 50, 51, 52, 53, 54, 57, 58] # EV_ABS
+      4: [4] # EV_MSC
+      21: [79] # EV_FF
+    absinfo:
+      0: [-7456, 7976, 0, 0, 98]
+      1: [-9283, 163, 0, 0, 98]
+      24: [0, 6000, 0, 0, 1]
+      47: [0, 15, 0, 0, 0]
+      48: [0, 5000, 0, 0, 0]
+      49: [0, 5000, 0, 0, 0]
+      50: [0, 5000, 0, 0, 0]
+      51: [0, 5000, 0, 0, 0]
+      52: [-16384, 16384, 0, 0, 0]
+      53: [-7456, 7976, 0, 0, 98]
+      54: [-9283, 163, 0, 0, 98]
+      57: [0, 65535, 0, 0, 0]
+      58: [0, 6000, 0, 0, 1]
+    properties: [0, 2, 7]
+
+## udevadm info /dev/input/event1
+P: /devices/platform/soc@200000000/294b14000.fifo/294b30000.input/0019:05AC:035A.0002/input/input1/event1
+M: event1
+R: 1
+J: c13:65
+U: input
+D: c 13:65
+N: input/event1
+L: 0
+S: input/by-path/platform-294b30000.input-event-mouse
+E: DEVPATH=/devices/platform/soc@200000000/294b14000.fifo/294b30000.input/0019:05AC:035A.0002/input/input1/event1
+E: DEVNAME=/dev/input/event1
+E: MAJOR=13
+E: MINOR=65
+E: SUBSYSTEM=input
+E: USEC_INITIALIZED=1357400
+E: ID_INPUT=1
+E: ID_INPUT_TOUCHPAD=1
+E: ID_INPUT_WIDTH_MM=157
+E: ID_INPUT_HEIGHT_MM=96
+E: ID_BUS=platform
+E: ID_SERIAL=noserial
+E: ID_PATH=platform-294b30000.input
+E: ID_PATH_TAG=platform-294b30000_input
+E: ID_INTEGRATION=internal
+E: ID_INPUT_TOUCHPAD_INTEGRATION=internal
+E: LIBINPUT_DEVICE_GROUP=19/5ac/35a:294b30000.input.1 (multi-touch)
+E: DEVLINKS=/dev/input/by-path/platform-294b30000.input-event-mouse
+
+
+## libinput list-devices (touchpad entry, libinput defaults before any compositor config)
+Device:                  Apple MTP multi-touch
+Kernel:                  /dev/input/event1
+Id:                      host:05ac:035a
+Group:                   2
+Seat:                    seat0, default
+Size:                    157x96mm
+Capabilities:            pointer gesture
+Tap-to-click:            disabled
+Tap-and-drag:            enabled
+Tap button map:          left/right/middle
+Tap drag lock:           disabled
+Left-handed:             disabled
+Nat.scrolling:           enabled
+Middle emulation:        disabled
+Calibration:             n/a
+Scroll methods:          *two-finger edge 
+Scroll button:           n/a
+Scroll button lock:      n/a
+Click methods:           button-areas *clickfinger 
+Clickfinger button map:  left/right/middle
+Disable-w-typing:        enabled
+Disable-w-trackpointing: enabled
+Accel profiles:          flat *adaptive custom
+Rotation:                n/a
+Area rectangle:          n/a
+
+## libinput quirks list /dev/input/event1 (with /etc/libinput/local-overrides.quirks installed)
+ModelAppleTouchpad=1
+AttrSizeHint=157x96
+AttrPalmSizeThreshold=1600
+AttrTouchSizeRange=150:130
+
+## libinput init decisions (debug-events --verbose)
+  ... event1  - using size-based touch detection (150:130)
+  ... event1  - thumb: enabled thumb detection (area)
+-event1   DEVICE_ADDED                 Apple MTP multi-touch             seat0 default group1  cap:pg  size 157x96mm tap (dl off) left scroll-nat scroll-2fg-edge click-buttonareas-clickfinger dwt-on dwtp-on
+
+## hid-magicmouse parameters (built in, /sys/module/hid_magicmouse/parameters)
+emulate_3button=Y
+emulate_scroll_wheel=Y
+haptic_deep_gap_ms=15
+haptic_deep_keycode=0
+haptic_deep_pulses=1
+haptic_deep_release_threshold=350
+haptic_deep_softness=0
+haptic_deep_strength=0
+haptic_deep_threshold=500
+haptic_deep_waveform=Y
+haptic_press=N
+haptic_press_pulses=1
+haptic_press_threshold=120
+haptic_pulse_gap_ms=25
+haptic_release_pulses=1
+haptic_release_threshold=75
+haptic_softness=0
+haptic_strength=0
+report_undeciphered=N
+scroll_acceleration=N
+scroll_speed=32
+
+## Hyprland input section before the presets (~/.config/hypr/hyprland.lua)
+  input = {
+    kb_layout = "us",
+    repeat_rate = 40, repeat_delay = 600,      -- Omarchy defaults
+    follow_mouse = 1, sensitivity = 0,
+    touchpad = { natural_scroll = true, tap_to_click = true, clickfinger_behavior = true },
+  },
+93:hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
+94:hl.gesture({ fingers = 3, direction = "up", action = "special", workspace_name = "scratchpad" })
+95:hl.gesture({ fingers = 4, direction = "down", action = "fullscreen" })
+
+## Omarchy input defaults
+This install is Omarchy-style Lua config written for the M5 (no ~/.local/share/omarchy tree); the only touchpad settings are the input block above.
