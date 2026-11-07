@@ -56,3 +56,28 @@ Good: `pcie-t6050: ANS stopped (0x...): starting it`, `nvme: initialized`, `stor
 `storage after training: NVMe read identical`, `ANS stopped again for Linux`. Bad, self-recovering: `STOP: storage lost`.
 Risks: starting a stopped T6050 ANS from m1n1 (clean fail -> boot without N1; half-booted -> reset to daily); RTKit boot
 loops without timeout covered by the 150 s watchdog.
+
+## Round 2 (after W2/W2b): patch 0026, W2c and W2d
+
+* W2 proved 0025 (storage path fine, Linux on NVMe). W2b's `function-reset is not an SMC pKW4` was a 0023 bug: the ADT
+  descriptor is pKW4 `gP13` template 0x00800000 (the J813 descriptor), but 0023 compared `adt_getprop_copy()`'s return
+  (the length on success) with 0. Decoding and comparison: ANALYSIS.md section 7.
+* 0026 (`0026-pcie-t6050-pulse-the-N1-reset-through-the-SMC-as-on-.patch`, commit `9b9c8e1d`, author and Signed-off-by
+  Rolando, no other trailers): length check fixed; J813 pulse (0x00800000, 50 ms, 0x00800001, 50 ms, 100 ms before the
+  port reset); 1 s link-up wait with the SMC release; `n1=5` = J813 port order. `git am` of 0025+0026 on a fresh
+  `n1-handoff` gives the w2 tree (`4cd69475`).
+* Build (container): `m1n1-plain-n1-smc.bin` sha256 `a4cc59fd94f9abc896a1ea4dd0964bf0710f154290ff957b44f31aefa9127db4`,
+  0x400000, banner `v2.0.0-77-g9b9c8e1d`, 0 warnings; n1-train and n1-ans rebuild byte-identical (`d31e5248`,
+  `69730b19`). The first 0026 build was 0x410000 (rodata + relocations window overflowed by 8 bytes); two 0025 messages
+  were shortened, 0x28 bytes left, and `build.sh` now refuses an image that is not 0x400000.
+* Payloads: W2c `w2c-n1smc-20261107-d8bab230.bin` (`n1=4`, `d8bab230...`), W2d `w2d-n1smc-20261107-e46ceca4.bin`
+  (`n1=5`, `e46ceca4...`), both W1 byte-identical from 0x400000 except the `n1` line. `prep/mk-w2.py w2c|w2d`;
+  `prep/deploy-W2c.sh`, `prep/deploy-W2d.sh` from `gen-deploy-w2.py` (stdout is only "wrote ...", the script lands in
+  `prep/`).
+* `n1=4` reused (its meaning, ANS + SMC release, is unchanged; it now works). `n1=5` added for the J813 port order, so
+  W2c isolates the reset pulse and W2d the order.
+* 0x419600048 0x6e -> 0x6d/0x6c: ASC CPU_STATUS run/wait bits of the live ANS core, not a counter; expected and
+  correctly non-fatal.
+* New risk: m1n1 now talks to the SMC (RTKit wake, two key writes, quiesce) before Linux, untested on T6050 (Aura does
+  the same on J813). A hang is bounded by the 150 s watchdog; a macsmc problem in Linux would show as missing battery /
+  odd reboots, not a hang. RUN-W2.md asks for the macsmc check.
