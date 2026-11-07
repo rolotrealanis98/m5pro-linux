@@ -1,4 +1,4 @@
-From 48c410ff4f942f5313571c8f43230316c75e1301 Mon Sep 17 00:00:00 2001
+From 557cd0bc7838d71ec32d089a79e3486b315b0fb0 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Fri, 6 Nov 2026 12:11:36 +0100
 Subject: [PATCH 10/11] ASoC: apple: t8140_aop_audio: drain the J714c sense RX

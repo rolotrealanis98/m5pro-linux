@@ -1,4 +1,4 @@
-From 03a3ec16edc1f454f4952678e4e174d25e22fcdb Mon Sep 17 00:00:00 2001
+From 2a7a54d9a829a86bf7f55e4e7b655831ebb9de34 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Fri, 6 Nov 2026 08:26:03 +0100
 Subject: [PATCH 07/11] ASoC: apple: t8140_aop_audio: run the J714c speakers

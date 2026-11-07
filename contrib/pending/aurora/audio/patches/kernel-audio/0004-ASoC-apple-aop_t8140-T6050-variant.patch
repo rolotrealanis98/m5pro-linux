@@ -1,4 +1,4 @@
-From 5d5272407505caf94f97f34768c063f97adba9e1 Mon Sep 17 00:00:00 2001
+From 5f8a9860407d1e7f7220e8b9f9fd462aea4ac39e Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Thu, 5 Nov 2026 21:05:42 +0100
 Subject: [PATCH 04/11] ASoC: apple: aop_t8140: T6050 variant

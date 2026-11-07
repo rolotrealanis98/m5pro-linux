@@ -1,4 +1,4 @@
-From 93ad288a381a3689bb59c608de2cf2ac2fa1e0f7 Mon Sep 17 00:00:00 2001
+From 9c1fdb0b4f4b087f9a78f1d8121dc495a1a3e85d Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Thu, 5 Nov 2026 23:34:51 +0100
 Subject: [PATCH 03/11] soc: apple: aop: T6050 setup port and firmware DMA
@@ -45,14 +45,16 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  client, the T6050 entry sets placed_buffers and probe uses
  RtKit::new_with_placed_buffers_unacked(), so the other AOPs keep their
  RTKit flags; the T6050 comment describes the setup port it now uses.
- DT and j714c.config hunks are board/tree-specific and dropped.]
+ DT and j714c.config hunks are board/tree-specific and dropped.
+ Coherent's bus address is dma_address() in this tree, not dma_handle()
+ (build fix after the first Rust build; Assisted-by: LLM).]
 ---
  drivers/soc/apple/aop.rs       | 194 ++++++++++++++++++++++++++++++---
  rust/kernel/soc/apple/rtkit.rs |   7 ++
  2 files changed, 183 insertions(+), 18 deletions(-)
 
 diff --git a/drivers/soc/apple/aop.rs b/drivers/soc/apple/aop.rs
-index 20e78e2b542c..e38c0341c84b 100644
+index 20e78e2b542c..df960b05f5e5 100644
 --- a/drivers/soc/apple/aop.rs
 +++ b/drivers/soc/apple/aop.rs
 @@ -37,6 +37,7 @@
@@ -265,7 +267,7 @@ index 20e78e2b542c..e38c0341c84b 100644
      fn iova(&self) -> Result<usize> {
 -        unreachable!()
 +        Ok(match self {
-+            AopShmem::Host { mem } => mem.dma_handle() as usize,
++            AopShmem::Host { mem } => mem.dma_address() as usize,
 +            AopShmem::Firmware { iova, .. } => *iova,
 +        })
      }
@@ -295,7 +297,7 @@ index 20e78e2b542c..e38c0341c84b 100644
 +        // stops before the device is unbound, so the device is bound here.
 +        let bound_dev = unsafe { data.dev.as_bound() };
 +        let mem = Coherent::<u8>::zeroed_slice(bound_dev, size, GFP_KERNEL)?;
-+        dev_dbg!(data.dev, "RTKit buffer: {} bytes allocated at iova {:#x}", size, mem.dma_handle());
++        dev_dbg!(data.dev, "RTKit buffer: {} bytes allocated at iova {:#x}", size, mem.dma_address());
 +        Ok(AopShmem::Host { mem })
 +    }
 +
