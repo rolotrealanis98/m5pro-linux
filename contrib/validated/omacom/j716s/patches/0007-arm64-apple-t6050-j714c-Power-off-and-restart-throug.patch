@@ -1,7 +1,7 @@
-From 7bdb2440665f480ac372f5511fb0e4e58b7f9acc Mon Sep 17 00:00:00 2001
+From 35f6c2d35d0a123f6686632f93ebaecdd80d47f1 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Sat, 7 Nov 2026 18:45:04 +0100
-Subject: [PATCH 07/11] arm64: apple: t6050-j714c: Power off and restart
+Subject: [PATCH 07/12] arm64: apple: t6050-j714c: Power off and restart
  through the SMC
 
 Power-off from Omarchy halted with the boot logo on screen: nothing

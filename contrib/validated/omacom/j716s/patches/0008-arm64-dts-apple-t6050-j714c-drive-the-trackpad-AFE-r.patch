@@ -1,7 +1,7 @@
-From 7de760c35100a49c4d87ea67e0e632dd3cb7031f Mon Sep 17 00:00:00 2001
+From 6769e7b51d983f0f00b061ac780b21ee4407c0d8 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Sat, 7 Nov 2026 20:21:42 +0100
-Subject: [PATCH 08/11] arm64: dts: apple: t6050-j714c: drive the trackpad AFE
+Subject: [PATCH 08/12] arm64: dts: apple: t6050-j714c: drive the trackpad AFE
  reset line
 
 Left to the MTP firmware (apple,firmware-managed-reset), the J714c's

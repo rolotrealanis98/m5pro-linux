@@ -1,8 +1,8 @@
 Add the 16-inch MacBook Pro with the M5 Pro (J716s)
 
 Base: integration/aurora 6a08a08e5755 with #404 (9 commits, unchanged) underneath, then two of
-edimoldovan's commits from `edimoldovan/linux-aurora` `t6050-j714c`. The last 9 commits are this
-PR's; it can be rebased once those land.
+edimoldovan's commits from `edimoldovan/linux-aurora` `t6050-j714c`. The other 10 commits are this
+PR's (9 of ours and one of Dj's); it can be rebased once those land.
 
 What it does:
 - `soc: apple: rtkit`: the handshake timeout becomes per instance; nvme-apple gives the T6050 ANS
@@ -24,13 +24,17 @@ What it does:
   built-in panel, the serial console, the keyboard and trackpad (power method 2, AFE reset on SMC
   pcIO 28), the keyboard backlight, and the SMC sensors with the F0md/F1md fan keys.
 - `arm64: configs`: j716s.config, the boot-path drivers built in, like the j813 fragments.
+- `power: supply: macsmc-power` (Dj): the battery identity keys (BMDN, BMSN, BMDT) are read at
+  the key's size, not the buffer's. The J716s battery results below were taken with it in the
+  tree; the J716s has not been tested without it. It applies to this tree unchanged.
 
 Must land first (included here so the branch builds and can be tested):
 - #404 (edimoldovan): T6050 and J714c.
 - edimoldovan 38e75c9f1c07 "Power off and restart through the SMC": the t6050-smc.dtsi part.
 - edimoldovan 768d807c3cf9 "drive the trackpad AFE reset line": the pcIO line table in gpio-macsmc,
-  which the J716s entry extends. Rebased onto #404's t6050-j714c.dts; it needs its author's
-  Signed-off-by.
+  which the J716s entry extends. Rebased onto #404's t6050-j714c.dts. The original has no
+  Signed-off-by from its author: it needs his, or it should land first on its own and this PR
+  drops its copy.
 
 Depends on: omacom/m1n1#26 (T6050 CPU release, the NVMe register window, the MTP DAPF, nine I2C
 nodes). The J716s's ANS sits at the J714c's addresses, which #26's NVMe window check matches; #26
@@ -53,6 +57,9 @@ is in this tree:
   speakers in the J616s TDM format on top;
 - the display (his DCP work, 9ffa4ecf3cb3) and the GPU: on the J716s the 27.2+ InitData port boots
   the G17S firmware and renders.
+- m1n1: #26 has not been booted on a J716s; a chainloaded stage 2 with the kernel appended may also
+  need our stage-1 RVBAR forwarding (aurora-wip m1n1 bring-up, commit 3).
+- one shared J714c/J716s .dtsi for what the two board files have in common, once #404 has landed.
 
 ### Testing
 
@@ -69,7 +76,8 @@ omacom/m1n1#26). This branch has not been booted on the J716s.
   of the second bank, which the J716s ADT names as the same line: pass; through pcIO 28 as in this
   branch: not tested
 - kbd_backlight: pass
-- macsmc-ac online, macsmc-battery reporting charge (the AC adapter stayed in): pass
+- macsmc-ac online, macsmc-battery reporting charge (the AC adapter stayed in), with Dj's
+  identity-read change in the tree: pass
 - SMC fan, power, voltage and current sensors (fans 0 rpm at idle, min 1350, max 5349 and 5777 rpm):
   pass
 - the panel is card0-eDP-1: pass
@@ -85,11 +93,14 @@ omacom/m1n1#26). This branch has not been booted on the J716s.
 - `tools/aurora-ci/check-commits.py`: pass (blocking check); checkpatch notes as below
 - `tools/aurora-ci/compile-check.py --per-commit`, defconfig + asahi.config + j716s.config:
   pass, every commit builds, no new W=1 warnings (rtkit, nvme-apple, idle, cputype.h
-  users, dockchannel-hid, macsmc-hwmon, macsmc-input, gpio-macsmc)
-- `tools/aurora-ci/dt-check.py` against #404's head: pass; no new schema or binding problems apart from the NCO reference
-  clock without clock-frequency (as on the J714c); style: kernel comment indentation only
-- `make CHECK_DTBS=y apple/t6050-j716s.dtb`: the same NCO clock-frequency warning only; dtbs with W=1: no warnings
-- `scripts/checkpatch.pl --strict`: clean apart from the `Assisted-by` and `Co-Authored-By` forms, the MAINTAINERS
-  note for the two new files, and the missing author Signed-off-by on 768d807c3cf9
+  users, dockchannel-hid, macsmc-hwmon, macsmc-input, gpio-macsmc, macsmc-power)
+- `tools/aurora-ci/dt-check.py` against #404's head: pass; no new schema or binding problems apart
+  from the NCO reference clock without clock-frequency (as on the J714c); style: kernel comment
+  indentation only
+- `make CHECK_DTBS=y apple/t6050-j716s.dtb`: the same NCO clock-frequency warning only; dtbs with
+  W=1: no warnings
+- `scripts/checkpatch.pl --strict`: our commits are clean apart from the MAINTAINERS note for the
+  two new files; on the carried commits, the `Co-Authored-By` form, the missing author
+  Signed-off-by on 768d807c3cf9, and one alignment note in Dj's change (kept as written)
 - other T6050 boards: not tested (edimoldovan's two commits and the AFE settle change also reach the
   J714c)
