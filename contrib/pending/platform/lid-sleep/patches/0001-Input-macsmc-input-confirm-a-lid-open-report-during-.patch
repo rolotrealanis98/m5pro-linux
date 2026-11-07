@@ -1,0 +1,195 @@
+From 82a7d71d217e4084cd5fcf096b2f25afa5f93363 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 07:57:29 -0500
+Subject: [PATCH] Input: macsmc-input - confirm a lid-open report during system
+ sleep
+
+On the J716s (MacBook Pro 16-inch, M5 Pro) closing the lid starts a
+suspend through logind, and the system is awake again 0.7 s later. The
+SMC's own syslog shows the cause: about 230 ms after the close
+("SMC HID Event: 03 01 00") it reports the lid open ("03 00 01", event
+0x72030001, the same bytes as a real opening) while the lid stays shut,
+at the same moment as the trackpad coprocessor logs "Sending Cumulus
+Report to enter Dependent Mode" (Cumulus is the touch AFE). The driver
+takes the report at face value: it is in the sleep window, so it reports
+a hard wakeup, pm_system_wakeup() aborts the suspend or ends
+suspend-to-idle, and logind then reads "Lid opened".
+
+In the sleep window, between .prepare and .complete, check a lid-open
+report before passing it on. Read the SMC's lid key MSLD, the one probe
+reads the initial state from: if it says closed, the report is dropped.
+If it agrees but the sleep has run for lid_wake_settle_ms or less
+(default 2000 ms, 0 restores the old behaviour), the report does not
+wake the system either. A held-back report leaves SW_LID closed, and
+.complete reports MSLD again, so the switch matches the SMC after any
+wakeup. Each decision is logged with the event, the time into the sleep
+and MSLD, so a test can tell which check fired.
+
+The notifier runs in the SMC's RTKit worker and the SMC's replies are
+taken from the mailbox interrupt (recv_message_early), so reading a key
+there does not wait on the worker. The sleep time is taken from
+CLOCK_BOOTTIME, which includes the time suspend-to-idle spends with
+timekeeping suspended.
+
+What this does not fix: if MSLD agrees with the false report, the SMC
+already counts the lid as open, and the real opening that follows may
+send no event at all. The system then stays asleep until a key, a
+trackpad click or the power button wakes it, instead of waking at once.
+
+Not changed: lid-close reports, the power button, and any lid-open
+report outside the sleep window.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/input/misc/macsmc-input.c | 84 +++++++++++++++++++++++++++++++
+ 1 file changed, 84 insertions(+)
+
+diff --git a/drivers/input/misc/macsmc-input.c b/drivers/input/misc/macsmc-input.c
+index 853dfa73b7b8..56fe12165807 100644
+--- a/drivers/input/misc/macsmc-input.c
++++ b/drivers/input/misc/macsmc-input.c
+@@ -11,23 +11,37 @@
+ #include <linux/input.h>
+ #include <linux/mfd/core.h>
+ #include <linux/mfd/macsmc.h>
++#include <linux/ktime.h>
+ #include <linux/module.h>
++#include <linux/moduleparam.h>
++#include <linux/mutex.h>
+ #include <linux/reboot.h>
+ 
++static unsigned int lid_wake_settle_ms = 2000;
++module_param(lid_wake_settle_ms, uint, 0644);
++MODULE_PARM_DESC(lid_wake_settle_ms,
++		 "A lid-open report this many ms or less after system sleep starts does not wake the system (0 = always wake)");
++
+ /**
+  * struct macsmc_input
+  * @dev: Underlying struct device for the input sub-device
+  * @smc: Pointer to apple_smc struct of the mfd parent
+  * @input: Allocated input_dev; devres managed
+  * @nb: Notifier block used for incoming events from SMC (e.g. button pressed down)
++ * @lid_lock: Serialises lid reports with the system sleep callbacks
+  * @wakeup_mode: Set to true when system is suspended and power button events should wake it
++ * @lid_held: A lid-open report was not passed on during this system sleep
++ * @sleep_start: CLOCK_BOOTTIME at which this system sleep started
+  */
+ struct macsmc_input {
+ 	struct device *dev;
+ 	struct apple_smc *smc;
+ 	struct input_dev *input;
+ 	struct notifier_block nb;
++	struct mutex lid_lock; /* protects the three fields below */
+ 	bool wakeup_mode;
++	bool lid_held;
++	ktime_t sleep_start;
+ };
+ 
+ #define SMC_EV_BTN 0x7201
+@@ -79,10 +93,57 @@ static void macsmc_input_event_button(struct macsmc_input *smcin, unsigned long
+ 	}
+ }
+ 
++/*
++ * On the J716s the SMC has reported the lid open (event 0x72030001, the same
++ * bytes as a real opening) while the lid stayed shut, about 230 ms after the
++ * close that started the suspend and in step with the trackpad coprocessor
++ * moving its AFE to "Dependent Mode". Taken at face value, that report ends
++ * the suspend the close started. So in the sleep window an open report wakes
++ * the system only if the SMC's lid key agrees and the sleep has run for
++ * longer than lid_wake_settle_ms. Called with lid_lock held.
++ */
++static bool macsmc_input_lid_wake_ok(struct macsmc_input *smcin, unsigned long event)
++{
++	s64 ms = ktime_ms_delta(ktime_get_boottime(), smcin->sleep_start);
++	u8 closed;
++	int ret;
++
++	ret = apple_smc_read_u8(smcin->smc, SMC_KEY(MSLD), &closed);
++	if (ret < 0) {
++		dev_warn(smcin->dev, "lid open %08lx at +%lld ms in sleep, MSLD read failed: %d\n",
++			 event, ms, ret);
++		closed = 0;
++	}
++
++	if (closed) {
++		dev_info(smcin->dev, "lid open %08lx at +%lld ms in sleep, MSLD=%u: ignored\n",
++			 event, ms, closed);
++		return false;
++	}
++
++	if (lid_wake_settle_ms && ms <= lid_wake_settle_ms) {
++		dev_info(smcin->dev, "lid open %08lx at +%lld ms in sleep, MSLD=0, within %u ms: no wakeup\n",
++			 event, ms, lid_wake_settle_ms);
++		return false;
++	}
++
++	dev_info(smcin->dev, "lid open %08lx at +%lld ms in sleep, MSLD=0: wakeup\n", event, ms);
++	return true;
++}
++
+ static void macsmc_input_event_lid(struct macsmc_input *smcin, unsigned long event)
+ {
+ 	u8 lid_state = !!((event >> 8) & 0xff);
+ 
++	guard(mutex)(&smcin->lid_lock);
++
++	if (smcin->wakeup_mode && !lid_state &&
++	    !macsmc_input_lid_wake_ok(smcin, event)) {
++		/* SW_LID stays closed; complete() resynchronises it from MSLD. */
++		smcin->lid_held = true;
++		return;
++	}
++
+ 	pm_wakeup_dev_event(smcin->dev, 0, (smcin->wakeup_mode && !lid_state));
+ 	input_report_switch(smcin->input, SW_LID, lid_state);
+ 	input_sync(smcin->input);
+@@ -134,6 +195,10 @@ static int macsmc_input_probe(struct platform_device *pdev)
+ 	smcin->smc = smc;
+ 	platform_set_drvdata(pdev, smcin);
+ 
++	error = devm_mutex_init(&pdev->dev, &smcin->lid_lock);
++	if (error)
++		return error;
++
+ 	smcin->input = devm_input_allocate_device(&pdev->dev);
+ 	if (!smcin->input)
+ 		return -ENOMEM;
+@@ -205,6 +270,9 @@ static int macsmc_input_pm_prepare(struct device *dev)
+ {
+ 	struct macsmc_input *smcin = dev_get_drvdata(dev);
+ 
++	guard(mutex)(&smcin->lid_lock);
++	smcin->sleep_start = ktime_get_boottime();
++	smcin->lid_held = false;
+ 	smcin->wakeup_mode = true;
+ 	return 0;
+ }
+@@ -212,8 +280,24 @@ static int macsmc_input_pm_prepare(struct device *dev)
+ static void macsmc_input_pm_complete(struct device *dev)
+ {
+ 	struct macsmc_input *smcin = dev_get_drvdata(dev);
++	u8 closed;
++	int error;
+ 
++	guard(mutex)(&smcin->lid_lock);
+ 	smcin->wakeup_mode = false;
++	if (!smcin->lid_held)
++		return;
++	smcin->lid_held = false;
++
++	/* An open report was held back: report what the SMC says now. */
++	error = apple_smc_read_u8(smcin->smc, SMC_KEY(MSLD), &closed);
++	if (error < 0) {
++		dev_warn(dev, "Failed to read the lid state after sleep: %d\n", error);
++		return;
++	}
++	dev_info(dev, "lid after sleep: MSLD=%u\n", closed);
++	input_report_switch(smcin->input, SW_LID, !!closed);
++	input_sync(smcin->input);
+ }
+ 
+ static const struct dev_pm_ops macsmc_input_pm_ops = {
+-- 
+2.56.0
+
