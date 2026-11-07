@@ -1,0 +1,74 @@
+From acfb8489d60718c4b2610828db6a4fd2977a13cf Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 09:49:40 -0500
+Subject: [PATCH] PCI: apple: Keep T6050 adopted links out of ASPM
+
+On the J716s (MacBook Pro 16-inch, M5 Pro) a boot that brings the N1
+Wi-Fi/Bluetooth up on the adopted apcie0 port 0 froze about 30 s after
+login and the SoC watchdog reset the machine. The same boot with
+pcie_aspm=off stayed up, associated to a WPA2 network and passed traffic.
+edimoldovan saw the same on the J714c (a freeze 20-40 s after boot, user
+space first, then the whole SoC; clean with pcie_aspm=off or with the
+PCIe node disabled) and fixed it in his tree by stripping ASPM from the
+adopted root ports.
+
+Do that here: register the bus notifier that already strips L1 from
+cold-initialized tunnel root ports for adopt_link hosts too, and there
+treat L0s and L1 as unsupported on each root port when it is added, before
+the bus behind it is scanned. pcie_aspm_cap_init() then finds no common
+ASPM state on the link and leaves it alone, which is what pcie_aspm=off
+does for every link. The runtime PM reference the notifier takes for
+tunnel functions is not taken for adopted ones.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/pci/controller/pcie-apple.c | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/pci/controller/pcie-apple.c b/drivers/pci/controller/pcie-apple.c
+index 0a7d938ccc44..ddfdf70fc861 100644
+--- a/drivers/pci/controller/pcie-apple.c
++++ b/drivers/pci/controller/pcie-apple.c
+@@ -3377,6 +3377,14 @@ static int apple_pcie_tunnel_add_link(struct apple_pcie *pcie,
+  * the link idles in L1 wedges the root port: every later cold init leaves
+  * it unable to train, until the SoC is reset. The root port is added before
+  * the bus behind it is scanned, so ASPM never enables L1 on its link.
++ *
++ * On a host whose root ports the boot loader trained (adopt_link), take no
++ * runtime PM reference, but keep each root port's link out of both ASPM L0s
++ * and L1. On the J714c and the J716s the N1 Wi-Fi/Bluetooth behind such a
++ * port takes the whole SoC down 20-40 s after boot once ASPM may idle the
++ * link; with pcie_aspm=off the same boots stay up. With neither state
++ * supported on the root port, the ASPM core leaves the link's (disabled)
++ * ASPM control alone, as pcie_aspm=off does, for this link only.
+  */
+ static int apple_pcie_tunnel_pci_notify(struct notifier_block *nb,
+ 					unsigned long action, void *data)
+@@ -3388,6 +3396,14 @@ static int apple_pcie_tunnel_pci_notify(struct notifier_block *nb,
+ 	if (pci_host_bridge_priv(pci_find_host_bridge(pdev->bus)) != pcie)
+ 		return NOTIFY_DONE;
+ 
++	if (pcie->hw->adopt_link) {
++		if (action == BUS_NOTIFY_ADD_DEVICE &&
++		    pci_pcie_type(pdev) == PCI_EXP_TYPE_ROOT_PORT)
++			pcie_aspm_remove_cap(pdev, PCI_EXP_LNKCAP_ASPM_L0S |
++						   PCI_EXP_LNKCAP_ASPM_L1);
++		return NOTIFY_OK;
++	}
++
+ 	switch (action) {
+ 	case BUS_NOTIFY_ADD_DEVICE:
+ 		pm_runtime_get_noresume(&pdev->dev);
+@@ -3795,7 +3811,7 @@ static int apple_pcie_probe(struct platform_device *pdev)
+ 	}
+ 
+ 	/* Every function is added after this and removed before devres runs. */
+-	if (pcie->tunnel_cold_init) {
++	if (pcie->tunnel_cold_init || pcie->hw->adopt_link) {
+ 		pcie->tunnel_pci_nb.notifier_call = apple_pcie_tunnel_pci_notify;
+ 		ret = bus_register_notifier(&pci_bus_type, &pcie->tunnel_pci_nb);
+ 		if (ret)
+-- 
+2.56.0
+

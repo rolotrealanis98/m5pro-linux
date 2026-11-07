@@ -1,0 +1,327 @@
+From 06e6c66df5f4b5895a212112268f457d3dc99664 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 07:05:38 -0500
+Subject: [PATCH 3/4] pcie: t6050: start ANS for the N1 training's storage
+ checks (chosen.asahi,t6050-n1=3|4)
+
+On a boot chain whose chainloading stage-1 reads boot.bin from the ESP
+and then stops ANS (as the J716s A/B stage-1 does), the stage-2 m1n1
+finds ANS stopped, and the storage reference of the port-0 training
+refuses before any write ("STOP: ANS is not running (before)":
+/arm-io/ans reg[0] + 0x44, CPU control RUN bit 4, reads 0).
+
+With chosen.asahi,t6050-n1=3 (=4 with the SMC reset release of =2),
+stage-2 starts ANS with nvme_init(), reads NVMe block 1 (the GPT
+header), runs the =1/=2 training with storage live as designed, then
+requires the same storage registers and the same block read again, and
+stops ANS again with the new nvme_stop(). If storage is in doubt, it
+resets the SoC through the watchdog after 15 s instead of booting a
+kernel that could not mount its root. With ANS already running, =3/=4
+train as =1/=2, with the same fatal handling of a storage change.
+
+nvme_stop() is nvme_shutdown() without the post-M4 hand-off: on M4 and
+later nvme_shutdown() disables the controller but leaves ANS, its RTKit
+session and its SART-mapped buffers live for a later stage to adopt.
+Here nothing adopts them: Linux's nvme-apple boots a stopped ANS
+itself, and the buffers would sit in RAM that Linux sees as free while
+the firmware still owns them. nvme_stop() goes on to the M1-M3 teardown
+(RTKit sleep, ANS reset, SART and queues freed), which is what the
+tested J716s boots ran.
+
+rtkit_boot()'s HELLO and endpoint-map wait becomes settable (1 s by
+default, as before); the training sets 10 s around nvme_init(), as
+Linux waits for this ANS (it can take about 3 s to answer after a stop).
+
+=1 and =2 are unchanged.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ src/kboot_n1.c   | 16 ++++++----
+ src/nvme.c       | 20 ++++++++++++-
+ src/nvme.h       |  1 +
+ src/pcie_t6050.c | 76 +++++++++++++++++++++++++++++++++++++++++++++++-
+ src/pcie_t6050.h |  6 ++++
+ src/rtkit.c      | 12 ++++++--
+ src/rtkit.h      |  2 ++
+ 7 files changed, 123 insertions(+), 10 deletions(-)
+
+diff --git a/src/kboot_n1.c b/src/kboot_n1.c
+index 341d7e5..30ad019 100644
+--- a/src/kboot_n1.c
++++ b/src/kboot_n1.c
+@@ -22,8 +22,10 @@
+  *    not up takes an SError.
+  * The MAC addresses travel through the wifi0/bluetooth0 aliases (dt_set_mac_addresses()).
+  * With chosen.asahi,t6050-n1=1 in the payload variables, apcie0 port 0 is first trained from cold
+- * (pcie_t6050.c); =2 also releases the N1's reset through the SMC before the training. Without
+- * the variable nothing here trains a link, and a port that is not up stays disabled.
++ * (pcie_t6050.c); =2 also releases the N1's reset through the SMC before the training. =3 and =4
++ * are =1 and =2 with ANS started for the storage checks and stopped again after, for a stage-1 that
++ * leaves ANS stopped. Without the variable nothing here trains a link, and a port that is not up
++ * stays disabled.
+  */
+ 
+ #include "kboot_n1.h"
+@@ -270,10 +272,12 @@ int kboot_setup_n1(void *dt)
+     /* A port 0 training that stopped keeps port 0 down, even with a link up */
+     bool port0_failed = false;
+     const char *train = kboot_get_chosen("asahi,t6050-n1");
+-    if (train && (!strcmp(train, "1") || !strcmp(train, "2"))) {
+-        printf("n1: chosen.asahi,t6050-n1=%s: training apcie0 port 0%s\n", train,
+-               train[0] == '2' ? " after the SMC reset release" : "");
+-        int ret = pcie_t6050_n1_train(train[0] == '2');
++    int mode = train && train[0] >= '1' && train[0] <= '4' && !train[1] ? train[0] - '0' : 0;
++    if (mode) {
++        bool smc = mode == 2 || mode == 4;
++        printf("n1: chosen.asahi,t6050-n1=%s: training apcie0 port 0%s%s\n", train,
++               mode >= 3 ? " with ANS started" : "", smc ? " after the SMC reset release" : "");
++        int ret = mode >= 3 ? pcie_t6050_n1_train_ans(smc) : pcie_t6050_n1_train(smc);
+         if (ret == N1_STORAGE_LOST)
+             pcie_t6050_storage_lost("during the port 0 training");
+         if (ret) {
+diff --git a/src/nvme.c b/src/nvme.c
+index feb6bfc..0b32c00 100644
+--- a/src/nvme.c
++++ b/src/nvme.c
+@@ -135,6 +135,7 @@ static bool nvme_initialized = false;
+ static bool nvme_reboot_required;
+ bool nvme_adopt_live_session = false;
+ bool nvme_keep_running_for_linux = false;
++static bool nvme_stop_requested;
+ static u8 nvme_die;
+ 
+ static asc_dev_t *nvme_asc = NULL;
+@@ -697,7 +698,7 @@ bool nvme_shutdown(void)
+     if (nvme_type == NVME_T8132 && (adminq.failed || ioq.failed))
+         goto out_preserve;
+ 
+-    if (nvme_type == NVME_T8132 && nvme_keep_running_for_linux) {
++    if (nvme_type == NVME_T8132 && nvme_keep_running_for_linux && !nvme_stop_requested) {
+         u32 cc = read32(nvme_base + NVME_CC);
+         u32 csts = read32(nvme_base + NVME_CSTS);
+         u32 boot_status = read32(nvme_base + NVME_BOOT_STATUS);
+@@ -747,6 +748,9 @@ bool nvme_shutdown(void)
+     if (nvme_type == NVME_T8132) {
+         write64_lo_hi(nvme_base + NVME_IOQ_CMDS, 0);
+         write64_lo_hi(nvme_base + NVME_IOQ_CQES, 0);
++    }
++    /* nvme_stop() goes on below and stops ANS as on M1-M3 */
++    if (nvme_type == NVME_T8132 && !nvme_stop_requested) {
+ #if defined(CHAINLOADING) && !defined(ESP_STAGE2)
+         /* Stage 2 and U-Boot adopt this session without servicing its mailbox
+          * (only Linux takes RTKit ownership again), so stop the IOP pushing
+@@ -787,6 +791,20 @@ out_preserve:
+     return false;
+ }
+ 
++/*
++ * Stop ANS completely, on M4 and later too, where nvme_shutdown() leaves the RTKit session and its
++ * buffers live for a later stage to adopt. For a caller that booted a stopped ANS itself and hands
++ * it to an OS that boots it again: nothing of this session outlives the call, so no firmware-owned
++ * buffer is left in what the OS sees as free RAM.
++ */
++bool nvme_stop(void)
++{
++    nvme_stop_requested = true;
++    bool ret = nvme_shutdown();
++    nvme_stop_requested = false;
++    return ret;
++}
++
+ bool nvme_flush(u32 nsid)
+ {
+     struct nvme_command cmd;
+diff --git a/src/nvme.h b/src/nvme.h
+index 0afcd22..92a9214 100644
+--- a/src/nvme.h
++++ b/src/nvme.h
+@@ -9,6 +9,7 @@ bool nvme_init(void);
+ extern bool nvme_adopt_live_session;
+ extern bool nvme_keep_running_for_linux;
+ bool nvme_shutdown(void);
++bool nvme_stop(void);
+ bool nvme_has_live_post_m4_session(void);
+ 
+ bool nvme_flush(u32 nsid);
+diff --git a/src/pcie_t6050.c b/src/pcie_t6050.c
+index cb95140..7c757d7 100644
+--- a/src/pcie_t6050.c
++++ b/src/pcie_t6050.c
+@@ -18,11 +18,23 @@
+  *
+  * Only run when the payload sets chosen.asahi,t6050-n1=1 (or =2 with the SMC release):
+  * unmeasured on J716s.
++ *
++ * =3 (=4 with the SMC release) is for a boot chain whose chainloading stage-1 reads the ESP and
++ * then stops ANS, so this stage finds it stopped and the check above refuses.
++ * pcie_t6050_n1_train_ans() starts ANS with nvme_init() and reads a block, trains as =1/=2 with
++ * storage live, then requires the same register state and the same block, and stops ANS again
++ * with nvme_stop() (also on M4 and later), so Linux gets ANS as that stage-1 left it and no RTKit
++ * buffer of this session stays live. If storage is in doubt, Linux could not mount its root, so
++ * this resets the SoC through the watchdog instead and iBoot counts a failed boot. With ANS
++ * already running, =3/=4 train as =1/=2.
+  */
+ 
+ #include "pcie_t6050.h"
+ #include "adt.h"
++#include "malloc.h"
++#include "nvme.h"
+ #include "pmgr.h"
++#include "rtkit.h"
+ #include "smc.h"
+ #include "string.h"
+ #include "tunables.h"
+@@ -302,6 +314,7 @@ static const char *const storage_ps[] = {"APCIE_ST0", "APCIE_ST1",     "FAB6_SOC
+                                          "ANS",       "APCIE_SYS_ST0", "APCIE_SYS_ST1"};
+ static u64 storage_addr[ST_COUNT];
+ static u32 storage_ref[ST_COUNT];
++static bool storage_have_ref;
+ #define NVME_BOOT_STATUS_OK 0xde71ce55
+ 
+ static int storage_find(void)
+@@ -347,8 +360,10 @@ static int storage_check(const char *tag, bool reference)
+ 
+     for (int i = 0; i < ST_COUNT; i++)
+         cur[i] = read32(storage_addr[i]);
+-    if (reference)
++    if (reference) {
+         memcpy(storage_ref, cur, sizeof(cur));
++        storage_have_ref = true;
++    }
+     for (int i = 0; i < ST_COUNT && !reference; i++) {
+         if (cur[i] == storage_ref[i])
+             continue;
+@@ -672,3 +687,62 @@ void pcie_t6050_storage_lost(const char *why)
+     while (true)
+         ;
+ }
++
++#define ANS_RUNNING() (read32(storage_addr[ST_ANS_CTRL]) & BIT(4))
++
++/* Stop the ANS this file started; it must really stop, as it was when we came */
++static void ans_stop(void)
++{
++    if (!nvme_stop())
++        pcie_t6050_storage_lost("nvme_stop failed");
++    if (ANS_RUNNING())
++        pcie_t6050_storage_lost("ANS still running after nvme_stop");
++    printf("pcie-t6050: ANS stopped again for Linux\n");
++}
++
++int pcie_t6050_n1_train_ans(bool smc_release)
++{
++    const u32 nsid = 1, lba = 1; /* the GPT header of the 4 KiB-block namespace */
++
++    TRY(storage_find());
++    if (ANS_RUNNING()) {
++        printf("pcie-t6050: ANS already running: training as =1/=2\n");
++        return pcie_t6050_n1_train(smc_release);
++    }
++
++    printf("pcie-t6050: ANS stopped (0x%x): starting it\n", read32(storage_addr[ST_ANS_CTRL]));
++    rtkit_set_boot_timeout(10 * USEC_PER_SEC); /* ANS can take ~3 s to answer after a stop */
++    bool up = nvme_init();
++    rtkit_set_boot_timeout(0);
++    if (!up) {
++        if (ANS_RUNNING())
++            pcie_t6050_storage_lost("nvme_init failed, ANS left running");
++        FAIL("nvme_init failed, ANS stopped as before: not training\n");
++    }
++
++    u8 *blk = memalign(SZ_16K, 2 * SZ_4K);
++    if (!blk || !nvme_read(nsid, lba, blk)) {
++        free(blk);
++        ans_stop();
++        FAIL("NVMe read before the training failed: not training\n");
++    }
++    printf("pcie-t6050: NVMe block %u read (%s)\n", lba,
++           memcmp(blk, "EFI PART", 8) ? "no GPT signature" : "GPT header");
++
++    int ret = pcie_t6050_n1_train(smc_release);
++
++    /* Whatever the outcome: the same storage registers, the same block, read through ANS */
++    if (ret == N1_STORAGE_LOST)
++        pcie_t6050_storage_lost("during the port 0 training");
++    if (storage_have_ref && storage_check("after training", false))
++        pcie_t6050_storage_lost("registers");
++    if (!nvme_read(nsid, lba, blk + SZ_4K))
++        pcie_t6050_storage_lost("read failed");
++    if (memcmp(blk, blk + SZ_4K, SZ_4K))
++        pcie_t6050_storage_lost("block differs");
++    free(blk);
++    printf("pcie-t6050: storage after training: NVMe read identical\n");
++
++    ans_stop();
++    return ret;
++}
+diff --git a/src/pcie_t6050.h b/src/pcie_t6050.h
+index 53643ec..de72939 100644
+--- a/src/pcie_t6050.h
++++ b/src/pcie_t6050.h
+@@ -14,6 +14,12 @@
+  */
+ int pcie_t6050_n1_train(bool smc_release);
+ 
++/*
++ * The same with ANS started for the storage checks and stopped again after, if it was stopped
++ * (chosen.asahi,t6050-n1=3|4); with ANS running, the same as pcie_t6050_n1_train().
++ */
++int pcie_t6050_n1_train_ans(bool smc_release);
++
+ /* Storage is in doubt and Linux could not mount its root: reset, so iBoot counts a failed boot */
+ void __attribute__((noreturn)) pcie_t6050_storage_lost(const char *why);
+ 
+diff --git a/src/rtkit.c b/src/rtkit.c
+index 570a1e5..d10d74e 100644
+--- a/src/rtkit.c
++++ b/src/rtkit.c
+@@ -602,6 +602,14 @@ static bool rtkit_wait_for_power(rtkit_dev_t *rtk, enum rtkit_power_state *state
+     return true;
+ }
+ 
++/* rtkit_boot()'s wait for HELLO and for each endpoint-map message */
++static u64 rtkit_boot_timeout = USEC_PER_SEC;
++
++void rtkit_set_boot_timeout(u64 us)
++{
++    rtkit_boot_timeout = us ? us : USEC_PER_SEC;
++}
++
+ static bool rtkit_boot_internal(rtkit_dev_t *rtk, u32 timeout_usec)
+ {
+     struct asc_message msg;
+@@ -617,7 +625,7 @@ static bool rtkit_boot_internal(rtkit_dev_t *rtk, u32 timeout_usec)
+         return false;
+     }
+ 
+-    if (!asc_recv_timeout(rtk->asc, &msg, USEC_PER_SEC)) {
++    if (!asc_recv_timeout(rtk->asc, &msg, rtkit_boot_timeout)) {
+         rtkit_printf("did not receive HELLO\n");
+         return false;
+     }
+@@ -664,7 +672,7 @@ static bool rtkit_boot_internal(rtkit_dev_t *rtk, u32 timeout_usec)
+     bool has_oslog = false;
+     bool got_epmap = false;
+     while (!got_epmap) {
+-        if (!asc_recv_timeout(rtk->asc, &msg, USEC_PER_SEC)) {
++        if (!asc_recv_timeout(rtk->asc, &msg, rtkit_boot_timeout)) {
+             rtkit_printf("couldn't receive message while waiting for endpoint map\n");
+             return false;
+         }
+diff --git a/src/rtkit.h b/src/rtkit.h
+index 29ca859..f4c6940 100644
+--- a/src/rtkit.h
++++ b/src/rtkit.h
+@@ -34,6 +34,8 @@ bool rtkit_has_owned_buffers(const rtkit_dev_t *rtk);
+ bool rtkit_start_ep(rtkit_dev_t *rtk, u8 ep);
+ bool rtkit_boot(rtkit_dev_t *rtk);
+ bool rtkit_boot_timed(rtkit_dev_t *rtk, u32 timeout_usec);
++/* rtkit_boot()'s HELLO and endpoint-map wait in microseconds; 0 restores the 1 s default */
++void rtkit_set_boot_timeout(u64 us);
+ u32 rtkit_get_timeout(rtkit_dev_t *rtk);
+ 
+ bool rtkit_can_recv(rtkit_dev_t *rtk);
+-- 
+2.56.0
+
