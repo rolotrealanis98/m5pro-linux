@@ -1601,3 +1601,23 @@ was the power T1 boot, which followed the 0x00 fallback after the #26 session); 
 K2, stage C, camera I1) and their restores were clean. Hypothesis to test: state the omacom stage 2 leaves behind (USB
 host prep, DAPF coverage, ANS handling) survives the warm restart and trips the next boot's early Linux. Consequence: the
 power T1 "failure" is not proven to be the power patches; T1 is being re-run after a clean daily boot.
+
+## POWER-T1 retest: the power kernel boots and observes (2026-11-07 22:12 UTC) — PASS
+
+Same payload `power-t1-20261107-c15b58cd.bin` (kernel `7.3.0-g1d276f9e36c7`), booted after a plain reboot into the GPU
+daily (primary, pmu `300030`). Primary slot first pass, 75 s to SSH, Wi-Fi up. So the earlier T1 failure was the
+"reset after an omacom-loader session" case, not the power patches.
+
+- cpufreq: `apple-cpufreq` on all three policies, min 300000, max 4308000 / 4308000 / 4608000, boost 4380000 listed on
+  the M clusters (boost off), no sugov threads (fast switching kept), latency 400 µs. `cur(hw)` reads the real state.
+- PMC: `observation only: 5 agents, 4 rails, nothing is written`; rail0-3 enable 0x00000000 (so the boot loader enables
+  no voter, as predicted: DRAM and fabric run at the firmware floors today), agent0 (PMP) floor 0x15, agents 1-4 floor 0;
+  debugfs status `mode: observe`, `dcs limit: state 0 of 7`. CLPC: `voter agent 1 is not enabled on rail 0/1` (expected
+  in observe mode). All words well-formed for the T8142 layout (T2 desk check passes: no 0xffffffff, floors one nibble).
+- Thermal: `macsmc_soc_die: hottest of TCMb`.
+- Not measured this run: the 60 s idle floor and the load test (the first run's numbers were taken on the fallback
+  kernel); to be captured on the next power boot. T3 (`pmc.observe=0`, floors written) stays attended.
+- The restore of the GPU daily afterwards came back on `fallback-after-failure` pmu `300100` (error stage 0x00, counted
+  restart) even with `esp-put.sh`: third 0x00/0x30 fallback today; the sessions whose restart got counted were the two
+  omacom-loader sessions and this power-kernel session, while the daily, K1/K2, stage C and camera sessions restarted
+  cleanly. Root-cause agent has all three data points.
