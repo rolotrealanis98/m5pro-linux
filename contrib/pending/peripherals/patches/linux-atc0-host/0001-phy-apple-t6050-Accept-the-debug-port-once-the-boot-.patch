@@ -1,0 +1,64 @@
+From 9cec4b18310d8434f46e1bb15cddd05d9bc78dcf Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:39:31 -0500
+Subject: [PATCH 1/2] phy: apple: t6050: Accept the debug port once the boot
+ link is released
+
+Port 0 is refused because the boot loader's USB debug link runs on it.
+A board that no longer uses that link (the J716s once its tether moves
+to Wi-Fi) can mark the PHY apple,boot-link-released and use port 0 as a
+normal Type-C port; nothing else in the driver depends on the index.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ .../devicetree/bindings/phy/apple,t6050-dp-phy.yaml  | 12 ++++++++++--
+ drivers/phy/apple/atc-t6050-dp.c                     |  9 +++++++--
+ 2 files changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml b/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml
+index 8cbfe94b62ec..2ee132559556 100644
+--- a/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml
++++ b/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml
+@@ -38,8 +38,16 @@ properties:
+ 
+   apple,port-index:
+     $ref: /schemas/types.yaml#/definitions/uint32
+-    enum: [1, 2, 3, 4, 5]
+-    description: Type-C port; the debug port (0) is excluded
++    enum: [0, 1, 2, 3, 4, 5]
++    description:
++      Type-C port. Port 0 carries the boot loader's debug link and is
++      accepted only with apple,boot-link-released.
++
++  apple,boot-link-released:
++    type: boolean
++    description:
++      The boot loader does not use port 0 for its debug link on this board,
++      so the OS may own its PHY.
+ 
+   apple,guest-port-reserved:
+     type: boolean
+diff --git a/drivers/phy/apple/atc-t6050-dp.c b/drivers/phy/apple/atc-t6050-dp.c
+index eb74b1e50181..b14fd164e164 100644
+--- a/drivers/phy/apple/atc-t6050-dp.c
++++ b/drivers/phy/apple/atc-t6050-dp.c
+@@ -638,9 +638,14 @@ static int t6050_dp_probe(struct platform_device *pdev)
+ 	dp->combo = of_device_is_compatible(dev->of_node, "apple,t6050-combo-phy");
+ 	if (dp->combo) {
+ 		u32 port;
+-		/* Every Type-C port but 0, the debug port that carries the boot link. */
++		/*
++		 * Every Type-C port but 0, the debug port that carries the boot
++		 * link, unless the board says the boot loader has let it go.
++		 */
+ 		if (of_property_read_u32(dev->of_node, "apple,port-index", &port) ||
+-		    port < 1 || port > 5 ||
++		    (port == 0 &&
++		     !of_property_present(dev->of_node, "apple,boot-link-released")) ||
++		    port > 5 ||
+ 		    !of_property_present(dev->of_node, "apple,guest-port-reserved") ||
+ 		    !of_property_present(dev->of_node, "mode-switch"))
+ 			return -EINVAL;
+-- 
+2.56.0
+

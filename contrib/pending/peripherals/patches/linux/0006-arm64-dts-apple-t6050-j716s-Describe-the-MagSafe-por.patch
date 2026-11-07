@@ -1,0 +1,43 @@
+From e024e3740dc9a97a1ab28dd85f1cd17847e20bef Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:38:16 -0500
+Subject: [PATCH 6/7] arm64: dts: apple: t6050-j716s: Describe the MagSafe port
+ controller
+
+hpm5 on nub-spmi-a0 is the MagSafe port's SN201202x. Describe it without
+a connector, as J614/J616 do, so the charger's attach state and power
+contract are visible through the typec class.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 73bfdbc24146..e31727033391 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -397,6 +397,20 @@ typec1_ss: endpoint {
+ 	};
+ };
+ 
++/*
++ * The MagSafe port's controller: [ADT] nub-spmi-a0/hpm5, an SN201202x at
++ * SID 0x08 with port-type 17 and no transports (power only). Polled, like
++ * hpm1 and hpm2. No connector: the port carries no USB data, so it only
++ * reports the charger's attach state and power contract (typec class and
++ * its tps6598x-source-psy supply), as on J614/J616.
++ */
++&nub_spmi_a0 {
++	hpm5: usb-pd@8 {
++		compatible = "apple,sn201202x";
++		reg = <0x8 SPMI_USID>;			/* [ADT] hpm5 reg[0] = 0x08 */
++	};
++};
++
+ &usb_drd1 {
+ 	port {
+ 		usb_drd1_hs: endpoint {
+-- 
+2.56.0
+

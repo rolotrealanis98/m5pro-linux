@@ -1,0 +1,65 @@
+From c229ad1d739a79c74a7d14cbb279d89cccac62cf Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:37:22 -0500
+Subject: [PATCH 4/7] arm64: dts: apple: t6050-j716s: Describe the boot NOR and
+ its NVRAM partition
+
+Enable the QSPI controller with the boot NOR on chip select 0 and its
+nvram partition from the ADT (spinor/anvram: 0xc0000 bytes at 0x700000,
+smaller than the 1 MiB of the M4 boards). spi-apple-qspi exposes the
+flash read-only on boards outside its qualified write list, so this
+gives userspace a read-only /dev/mtd for the NVRAM; writes need a J716s
+entry in that list once the part's JEDEC ID and block protection are
+known.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 32 +++++++++++++++++++++++
+ 1 file changed, 32 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index da9c343e4fef..b2da39b8d7af 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -766,6 +766,38 @@ &cpufreq_pc {
+ 	compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+ };
+ 
++/*
++ * The boot NOR on the QSPI controller ([ADT] /arm-io/qspi/spinor, chip
++ * select 0). [ADT] spinor/anvram: the nvram partition, 0xc0000 bytes at
++ * 0x700000. iBoot (firmware, from 0x20000) and syscfg (0x6dc000 and
++ * 0x6e0000) lie outside it and are not described. spi-apple-qspi keeps
++ * the flash read-only unless the board is in its qualified list and root
++ * opts in at runtime; the J716s is not in that list.
++ */
++&qspi {
++	status = "okay";
++
++	flash@0 {
++		compatible = "jedec,spi-nor";
++		reg = <0>;
++		/* Conservative until the part and its input clock are confirmed */
++		spi-max-frequency = <10000000>;
++		spi-rx-bus-width = <1>;
++		spi-tx-bus-width = <1>;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			nvram: partition@700000 {
++				label = "nvram";
++				reg = <0x700000 0xc0000>;
++			};
++		};
++	};
++};
++
+ /* The die's CIO reconfiguration register; no consumer is enabled yet */
+ &cio_reconfig0 {
+ 	status = "okay";
+-- 
+2.56.0
+

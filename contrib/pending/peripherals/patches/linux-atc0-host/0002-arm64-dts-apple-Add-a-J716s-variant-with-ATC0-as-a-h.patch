@@ -1,0 +1,243 @@
+From cd659144d0ffc5fe6c3bb1ee2b0df7e8bb4185c3 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:45:30 -0500
+Subject: [PATCH 2/2] arm64: dts: apple: Add a J716s variant with ATC0 as a
+ host port
+
+t6050-j716s.dts keeps the left-back port (ATC0) as the boot loader's
+USB gadget tether. Add t6050-j716s-atc0-host.dts for a boot loader that
+no longer uses that link: it replaces the gadget with ATC0's combo PHY,
+its dwc3 in OTG mode, both DARTs, the four power states and the hpm0
+connector graph, as for ATC1. The addresses are ATC1's less 0x8000000,
+which is what the ADT shows for every ATC0 block; usb-drd0's ADT
+tunables match usb-drd1's.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/Makefile            |   1 +
+ .../boot/dts/apple/t6050-j716s-atc0-host.dts  | 201 ++++++++++++++++++
+ 2 files changed, 202 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/apple/t6050-j716s-atc0-host.dts
+
+diff --git a/arch/arm64/boot/dts/apple/Makefile b/arch/arm64/boot/dts/apple/Makefile
+index d996f319a7c9..8f672548c1f5 100644
+--- a/arch/arm64/boot/dts/apple/Makefile
++++ b/arch/arm64/boot/dts/apple/Makefile
+@@ -100,6 +100,7 @@ dtb-$(CONFIG_ARCH_APPLE) += t6040-j616s-tether.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6041-j616c.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j716c.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s.dtb
++dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s-atc0-host.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j775d.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t8112-j413.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t8112-j415.dtb
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s-atc0-host.dts b/arch/arm64/boot/dts/apple/t6050-j716s-atc0-host.dts
+new file mode 100644
+index 000000000000..7c732e61784b
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6050-j716s-atc0-host.dts
+@@ -0,0 +1,201 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * MacBook Pro (16-inch, M5 Pro, 2026), with the left-back port (ATC0) as a
++ * normal USB host/device Type-C port instead of the boot loader's USB
++ * gadget tether. Use only with a boot loader that no longer drives a debug
++ * link on ATC0.
++ *
++ * Every address is ATC1's (t6050-dieX.dtsi) less 0x8000000, which is what
++ * the J716s ADT shows for atc-phy0, acio-phy-cpu0, usb-drd0 and dart-usb0;
++ * the interrupts and power states are the ADT's. usb-drd0's ADT tunables
++ * are identical to usb-drd1's. The PHY's tunables are filled in by the boot
++ * loader, which finds the node by its core window.
++ *
++ * Copyright The Asahi Linux Contributors
++ */
++
++#include "t6050-j716s.dts"
++
++/ {
++	model = "Apple MacBook Pro (16-inch, M5 Pro, 2026), ATC0 host";
++};
++
++/delete-node/ &dwc3_0;
++/delete-node/ &dwc3_0_dart_0;
++/delete-node/ &dwc3_0_dart_1;
++
++&pmgr0 {
++	/* [ADT] ATC0_COMMON, gate 55 */
++	ps_atc0_common: power-controller@208 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x208 4>;
++		label = "atc0_common";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++	};
++};
++
++&pmgr2 {
++	/* [ADT] ATC0_USB_AON, ATC0_USB (usb-drd0, gate 261), ATC0_PHYMXWRAP */
++	ps_atc0_usb_aon: power-controller@148 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x148 4>;
++		label = "atc0_usb_aon";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++	};
++
++	ps_atc0_usb: power-controller@150 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x150 4>;
++		label = "atc0_usb";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc0_common>, <&ps_atc0_usb_aon>;
++	};
++
++	ps_atc0_phymxwrap: power-controller@158 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x158 4>;
++		label = "atc0_phymxwrap";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc0_common>, <&ps_atc0_usb_aon>;
++	};
++};
++
++&die0 {
++	/* [ADT] /arm-io/acio-phy-cpu0 reg[0] 0xa3148000, interrupts 841-844 */
++	atc0_phy_mbox: mailbox@2a3148000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x2 0xa3148000 0x0 0x4000>;
++		interrupts = <AIC_IRQ 0 841 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 842 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 843 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 844 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty", "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++	};
++
++	atc0_phy: phy@2a3000000 {
++		compatible = "apple,t6050-combo-phy";
++		reg = <0x2 0xa3000000 0x0 0x2c000>,
++		      <0x2 0xa2a90000 0x0 0x4000>,
++		      <0x2 0xa2800000 0x0 0x4000>,
++		      <0x2 0xa3200000 0x0 0x4000>,
++		      <0x2 0xa3244000 0x0 0x4000>,
++		      <0x2 0xa0000000 0x0 0x8000>,
++		      <0x2 0xa0020000 0x0 0x4000>,
++		      <0x2 0xa3250000 0x0 0x4000>,
++		      <0x2 0xa3140000 0x0 0x4000>,
++		      <0x2 0xa30c0000 0x0 0x10000>,
++		      <0x2 0xa2a84000 0x0 0x4000>;
++		reg-names = "core", "usb2phy", "usb2-digital", "reset", "fabric", "axi2af", "lioa",
++			    "common-cfg", "usb-control", "firmware-data", "pipehandler";
++		#phy-cells = <1>;
++		#reset-cells = <1>;
++		apple,port-index = <0>;
++		apple,boot-link-released;
++		apple,guest-port-reserved;
++		mode-switch;
++		orientation-switch;
++		mboxes = <&atc0_phy_mbox>;
++		power-domains = <&ps_atc0_usb_aon>, <&ps_atc0_common>, <&ps_atc0_phymxwrap>,
++				<&ps_atc0_usb>;
++		power-domain-names = "usb-aon", "common", "wrapper", "usb";
++
++		port {
++			atc0_phy_typec: endpoint {
++				remote-endpoint = <&typec0_ss>;
++			};
++		};
++	};
++
++	/* [ADT] /arm-io/usb-drd0: reg[0] 0xa2280000, reg[1] 0xa2200000, interrupt 1419 */
++	usb_drd0: usb@2a2280000 {
++		compatible = "apple,t6050-dwc3", "apple,t8103-dwc3";
++		reg = <0x2 0xa2280000 0x0 0xcd00>,
++		      <0x2 0xa228cd00 0x0 0x4b00>,
++		      <0x2 0xa2200000 0x0 0x4000>;
++		reg-names = "dwc3-core", "dwc3-apple", "drd-cfg";
++		interrupts = <AIC_IRQ 0 1419 IRQ_TYPE_LEVEL_HIGH>;
++		dr_mode = "otg";
++		usb-role-switch;
++		role-switch-default-mode = "host";
++		iommus = <&usb_drd0_dart_0 0>, <&usb_drd0_dart_1 1>;
++		power-domains = <&ps_atc0_usb>;
++		resets = <&atc0_phy 0>;
++		phys = <&atc0_phy PHY_TYPE_USB2>, <&atc0_phy PHY_TYPE_USB3>;
++		phy-names = "usb2-phy", "usb3-phy";
++		apple,tunable-gbl-default = <0x64 0x2 0x0>, <0x10 0xfff80000 0x00680000>;
++		apple,tunable-gbl-host = <0x4 0x0001ef00 0x00002f00>, <0x1c 0x00000100 0x0>,
++			<0x2c 0x000a07ff 0x000800c8>, <0x100 0x02000100 0x02000100>,
++			<0x504 0x00001000 0x0>, <0x528 0xff0000ff 0x06000006>,
++			<0x52c 0xff0000ff 0x08000008>, <0x580 0xffffffff 0x6f000006>,
++			<0x584 0xffffffff 0x00060000>;
++		apple,tunable-dbg = <0x0 0x8 0x8>;
++		apple,tunable-cfg-host = <0x20 0xff 0x1b>;
++		apple,tunable-link = <0x10 0xff000000 0xff000000>, <0x20 0x7ff00000 0x4e900000>,
++			<0x24 0x001f8000 0x000b8000>, <0x60 0x0003ffff 0x00000600>;
++		apple,tunable-cio = <0x20 0x00ff0000 0x001e0000>;
++
++		port {
++			usb_drd0_hs: endpoint {
++				remote-endpoint = <&typec0_hs>;
++			};
++		};
++	};
++
++	/* [ADT] /arm-io/dart-usb0 reg[0] 0xa2f00000, reg[1] 0xa2f80000, interrupt 1423 */
++	usb_drd0_dart_0: iommu@2a2f00000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x2 0xa2f00000 0x0 0xc000>;
++		interrupts = <AIC_IRQ 0 1423 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_atc0_usb>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++	};
++
++	usb_drd0_dart_1: iommu@2a2f80000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x2 0xa2f80000 0x0 0xc000>;
++		interrupts = <AIC_IRQ 0 1423 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_atc0_usb>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++	};
++};
++
++/* Left-back port: [ADT] nub-spmi-a0/hpm0, reg[0] 0x0c, port-location "left-back" */
++&nub_spmi_a0 {
++	hpm0: usb-pd@c {
++		compatible = "apple,sn201202x";
++		reg = <0xc SPMI_USID>;
++
++		typec0: connector {
++			compatible = "usb-c-connector";
++			label = "USB-C Left-back";
++			power-role = "dual";
++			data-role = "dual";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					typec0_hs: endpoint {
++						remote-endpoint = <&usb_drd0_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++					typec0_ss: endpoint {
++						remote-endpoint = <&atc0_phy_typec>;
++					};
++				};
++			};
++		};
++	};
++};
+-- 
+2.56.0
+

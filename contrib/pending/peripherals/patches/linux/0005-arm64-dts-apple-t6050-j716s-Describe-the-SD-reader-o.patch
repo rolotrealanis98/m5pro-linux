@@ -1,0 +1,132 @@
+From cde1b501c468c287bf579fc3466420c35c054c67 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:38:01 -0500
+Subject: [PATCH 5/7] arm64: dts: apple: t6050-j716s: Describe the SD reader on
+ PCIe port 1
+
+The J716s SD reader is a GL9755 on apcie0 port 1 behind its own DART
+(dart-apcie1), powered by the SMC pcIO line 0x19. Describe the port's
+registers and interrupt, its DART and the reader, all disabled: like
+the N1's port, the boot loader has to power and train the link and then
+enable the root port and the DART.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 79 ++++++++++++++++++++---
+ 1 file changed, 69 insertions(+), 10 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index b2da39b8d7af..73bfdbc24146 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -167,6 +167,18 @@ dwc3_0_dart_1: iommu@2a2f80000 {
+ 		#iommu-cells = <1>;
+ 	};
+ 
++	/*
++	 * [ADT] /arm-io/dart-apcie1: PCIe port 1's (the SD reader), reg[0]
++	 * 0x211000000, interrupt 1532. Disabled until the loader trains port 1.
++	 */
++	dart_apcie1: iommu@411000000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x4 0x11000000 0x0 0x20000>;
++		interrupts = <AIC_IRQ 0 1532 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		status = "disabled";
++	};
++
+ 	/*
+ 	 * [ADT] /arm-io/nub-spmi-a1: reg[0] 0x8a1a8000 (+0x200000000), gen 4, the
+ 	 * HPM bus of the right-hand port (hpm2). J716c uses nub-spmi-a2 instead;
+@@ -194,10 +206,9 @@ ps_fpwm0: power-controller@2a8 {
+ };
+ 
+ /*
+- * PCIe port 0: the N1 (Wi-Fi and Bluetooth). Port 1 is the SD reader
+- * ([ADT] apcie0/pci-bridge1/pcie-sdreader), not described. The loader must
+- * train port 0 and then enable port00 and dart_apcie0; until it does, both
+- * stay disabled. m1n1 does not do this today.
++ * PCIe port 0: the N1 (Wi-Fi and Bluetooth); port 1: the SD reader ([ADT]
++ * apcie0/pci-bridge1/pcie-sdreader). The loader must train a port and then
++ * enable its root port node and DART; until it does, both stay disabled.
+  * [ADT] /arm-io/apcie0 reg[0] 0x1cb0000000, reg[1] 0x414000000 (rc),
+  * reg[16] 0x410028000 (port0), reg[18] 0x417010000 (phy0), reg[19]
+  * 0x410024000 (intr2axi0), interrupts[0] 1523: identical to J716c.
+@@ -207,13 +218,24 @@ &pcie0 {
+ 	      <0x4 0x14000000 0x0 0x4000>,
+ 	      <0x4 0x10028000 0x0 0x8000>,
+ 	      <0x4 0x17010000 0x0 0x4000>,
+-	      <0x4 0x10024000 0x0 0x4000>;
+-	reg-names = "config", "rc", "port0", "phy0", "intr2axi0";
+-	interrupts = <AIC_IRQ 0 1523 IRQ_TYPE_LEVEL_HIGH>;
+-	interrupt-names = "port0";
++	      <0x4 0x10024000 0x0 0x4000>,
++	      <0x4 0x11028000 0x0 0x8000>,
++	      <0x4 0x17014000 0x0 0x4000>,
++	      <0x4 0x11024000 0x0 0x4000>;
++	reg-names = "config", "rc", "port0", "phy0", "intr2axi0",
++		    "port1", "phy1", "intr2axi1";
++	/* [ADT] apcie0 interrupts[0] and [1] */
++	interrupts = <AIC_IRQ 0 1523 IRQ_TYPE_LEVEL_HIGH>,
++		     <AIC_IRQ 0 1531 IRQ_TYPE_LEVEL_HIGH>;
++	interrupt-names = "port0", "port1";
+ 
+-	/* The N1's three functions are on DART streams 1-3 [J716C] */
+-	iommu-map = <0x100 &dart_apcie0 1 3>;
++	/*
++	 * The N1's three functions are on DART streams 1-3 [J716C]; the SD
++	 * reader on dart-apcie1 stream 1 ([ADT] mapper-apcie1, as the N1's
++	 * mappers without a reg).
++	 */
++	iommu-map = <0x100 &dart_apcie0 1 3>,
++		    <0x200 &dart_apcie1 1 1>;
+ 	bus-range = <0 4>;
+ 
+ 	port00: pci@0,0 {
+@@ -265,6 +287,43 @@ n1_beta: bluetooth@0,2 {
+ 			local-bd-address = [00 00 00 00 00 00];
+ 		};
+ 	};
++
++	/*
++	 * The SD reader: a Genesys Logic GL9755 ([ADT] pcie-sdreader gl9755-*
++	 * properties), Gen1 ([ADT] pci-bridge1 maximum-link-speed 1), PERST#
++	 * AP GPIO 81 and CLKREQ# GPIO 77 ([ADT] function-perst, -clkreq). Its
++	 * supply is the SMC's pcIO line 0x19 ([ADT] function-sd_pwr_en
++	 * pKW8('pcIO', 0x0, 0x190000), the gP19 of T604x), which the loader
++	 * must raise before it trains the port. The card-detect and
++	 * write-protect polarities are those of the J614/J616 reader ([ADT]
++	 * card-detect-polarity 1, write-protect-polarity 1).
++	 */
++	port01: pci@1,0 {
++		device_type = "pci";
++		reg = <0x800 0 0 0 0>;
++		bus-range = <2 2>;
++		apple,link-trained-by-bootloader;
++		status = "disabled";
++
++		#address-cells = <3>;
++		#size-cells = <2>;
++		ranges;
++
++		interrupt-controller;
++		#interrupt-cells = <1>;
++		interrupt-map-mask = <0 0 0 7>;
++		interrupt-map = <0 0 0 1 &port01 0 0 0 0>,
++				<0 0 0 2 &port01 0 0 0 1>,
++				<0 0 0 3 &port01 0 0 0 2>,
++				<0 0 0 4 &port01 0 0 0 3>;
++
++		sdhci0: mmc@0,0 {
++			compatible = "pci17a0,9755";
++			reg = <0x20000 0 0 0 0>;
++			cd-inverted;
++			wp-inverted;
++		};
++	};
+ };
+ 
+ /*
+-- 
+2.56.0
+

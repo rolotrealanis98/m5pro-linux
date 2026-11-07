@@ -1,0 +1,35 @@
+From 2638595e65cfd693b8a387ce156a3d6b6145ac48 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:37:07 -0500
+Subject: [PATCH 3/7] arm64: configs: j716s: Build in the AOP sensors and the
+ PCI SD host
+
+The AOP sensor drivers and sdhci-pci are modules in the merged config,
+and the J716s root installs modules only from an explicit list. Build
+them in.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/configs/j716s.config | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index d011225f5d69..29ecb90871bd 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -224,3 +224,12 @@ CONFIG_BRIDGE_NETFILTER=y
+ CONFIG_FUSE_FS=y
+ CONFIG_OVERLAY_FS=y
+ CONFIG_VETH=y
++
++# The AOP's sensor services (ambient light, lid angle, accelerometer and
++# gyroscope) as IIO devices, and the SD reader (GL9755 on PCIe port 1, once
++# the boot loader trains that port). Built in: the root carries modules only
++# for an explicit list.
++CONFIG_IIO_AOP_SENSOR_ALS=y
++CONFIG_IIO_AOP_SENSOR_LAS=y
++CONFIG_IIO_AOP_SENSOR_MOTION=y
++CONFIG_MMC_SDHCI_PCI=y
+-- 
+2.56.0
+

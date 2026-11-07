@@ -1,0 +1,162 @@
+From fccb3eabd04bb4d9409374cbd39e8d86ab66b58e Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:47:49 -0500
+Subject: [PATCH] kboot: t6050: copy the AOP motion calibration from the ADT
+
+The T6050 AOP's accelerometer and gyroscope report only after the OS has
+sent them the machine's calibration packets, which the ADT holds under
+/arm-io/aop/iop-aop-nub/{accel,gyro}. When the DT's apple,t6050-aop node
+is enabled, copy them into its accel and gyro children as the
+apple,range-intrinsic-cal, apple,nominal-extrinsic-cal and
+apple,range-extrinsic-cal properties of the apple,aop-motion binding,
+as aurora-silicon/aura does on T6040, T6041 and T8132.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ Makefile        |  2 +-
+ src/kboot.c     |  3 ++
+ src/kboot_aop.c | 81 +++++++++++++++++++++++++++++++++++++++++++++++++
+ src/kboot_aop.h |  9 ++++++
+ 4 files changed, 94 insertions(+), 1 deletion(-)
+ create mode 100644 src/kboot_aop.c
+ create mode 100644 src/kboot_aop.h
+
+diff --git a/Makefile b/Makefile
+index 5ce7a36d..cc9c0b58 100644
+--- a/Makefile
++++ b/Makefile
+@@ -164,7 +164,7 @@ OBJECTS := \
+ 	iodev.o \
+ 	iova.o \
+ 	isp.o \
+-	kboot.o kboot_atc.o kboot_n1.o \
++	kboot.o kboot_aop.o kboot_atc.o kboot_n1.o \
+ 	kboot_t6020_compat.o \
+ 	main.o \
+ 	mitigations.o \
+diff --git a/src/kboot.c b/src/kboot.c
+index 2ec46164..028f81c2 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -14,6 +14,7 @@
+ #include "iodev.h"
+ #include "isp.h"
+ #include "kboot_atc.h"
++#include "kboot_aop.h"
+ #include "kboot_n1.h"
+ #include "malloc.h"
+ #include "mcc.h"
+@@ -2909,6 +2910,8 @@ int kboot_prepare_dt(void *fdt)
+         return -1;
+     if (kboot_setup_n1(dt))
+         return -1;
++    if (kboot_setup_aop(dt))
++        return -1;
+     if (dt_set_uboot())
+         return -1;
+     if (kboot_setup_atc(dt))
+diff --git a/src/kboot_aop.c b/src/kboot_aop.c
+new file mode 100644
+index 00000000..43d767ae
+--- /dev/null
++++ b/src/kboot_aop.c
+@@ -0,0 +1,81 @@
++/* SPDX-License-Identifier: MIT */
++/*
++ * The T6050 AOP's accelerometer and gyroscope report only once the OS has sent them the
++ * machine's three calibration packets. They are in the ADT services
++ * /arm-io/aop/iop-aop-nub/{accel,gyro} as <service>-range-intr-cal, -nominal-extr-cal and
++ * -range-extr-cal. If the DT's apple,t6050-aop node is enabled, copy each of them into the
++ * apple,range-intrinsic-cal, apple,nominal-extrinsic-cal and apple,range-extrinsic-cal property of
++ * that node's child of the same name (binding apple,aop-motion.yaml). A missing service, child
++ * or property is skipped. This follows aurora-silicon/aura dt_set_aop_motion_cal() (T6040, T6041,
++ * T8132).
++ */
++
++#include "kboot_aop.h"
++#include "adt.h"
++#include "kboot.h"
++#include "string.h"
++#include "utils.h"
++
++#include "libfdt/libfdt.h"
++
++static void aop_motion_cal(void *dt, const char *path)
++{
++    static const char *const services[] = {"accel", "gyro"};
++    static const char *const props[][2] = {
++        {"range-intr-cal", "apple,range-intrinsic-cal"},
++        {"nominal-extr-cal", "apple,nominal-extrinsic-cal"},
++        {"range-extr-cal", "apple,range-extrinsic-cal"},
++    };
++
++    for (size_t i = 0; i < ARRAY_SIZE(services); i++) {
++        char adt_path[64], name[32];
++
++        snprintf(adt_path, sizeof(adt_path), "/arm-io/aop/iop-aop-nub/%s", services[i]);
++        int anode = adt_path_offset(adt, adt_path);
++        int aop = fdt_path_offset(dt, path);
++        int node = aop < 0 ? aop : fdt_subnode_offset(dt, aop, services[i]);
++        if (anode < 0 || node < 0)
++            continue;
++
++        int copied = 0;
++        for (size_t j = 0; j < ARRAY_SIZE(props); j++) {
++            u32 len = 0;
++
++            snprintf(name, sizeof(name), "%s-%s", services[i], props[j][0]);
++            const void *val = adt_getprop(adt, anode, name, &len);
++            if (!val || !len)
++                continue;
++            /* Each write can move the node: find it again for the next one. */
++            aop = fdt_path_offset(dt, path);
++            node = aop < 0 ? aop : fdt_subnode_offset(dt, aop, services[i]);
++            if (node < 0 || fdt_setprop(dt, node, props[j][1], val, len)) {
++                printf("FDT: %s/%s: cannot set %s\n", path, services[i], props[j][1]);
++                continue;
++            }
++            copied++;
++        }
++        printf("FDT: %s/%s: %d of %d calibration properties\n", path, services[i], copied,
++               (int)ARRAY_SIZE(props));
++    }
++}
++
++int kboot_setup_aop(void *dt)
++{
++    char path[64];
++    int node = fdt_node_offset_by_compatible(dt, -1, "apple,t6050-aop");
++
++    if (node < 0)
++        return 0;
++
++    const char *status = fdt_getprop(dt, node, "status", NULL);
++    if (status && strcmp(status, "okay") && strcmp(status, "ok"))
++        return 0;
++
++    if (fdt_get_path(dt, node, path, sizeof(path))) {
++        printf("FDT: AOP node path too long\n");
++        return 0;
++    }
++
++    aop_motion_cal(dt, path);
++    return 0;
++}
+diff --git a/src/kboot_aop.h b/src/kboot_aop.h
+new file mode 100644
+index 00000000..3b50c758
+--- /dev/null
++++ b/src/kboot_aop.h
+@@ -0,0 +1,9 @@
++/* SPDX-License-Identifier: MIT */
++
++#ifndef KBOOT_AOP_H
++#define KBOOT_AOP_H
++
++/* T6050 AOP motion sensors: copy their calibration from the ADT, see kboot_aop.c */
++int kboot_setup_aop(void *dt);
++
++#endif
+-- 
+2.56.0
+

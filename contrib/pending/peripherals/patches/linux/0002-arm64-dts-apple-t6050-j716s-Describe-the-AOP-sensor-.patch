@@ -1,0 +1,59 @@
+From bfd2b9e124cf834132a0bcf10f8c8cd13802dbc7 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:36:55 -0500
+Subject: [PATCH 2/7] arm64: dts: apple: t6050-j716s: Describe the AOP sensor
+ services
+
+The J716s AOP announces als, las, accel and gyro on its AFK endpoints
+(seen on the daily kernel: endpoints 0x29, 0x28, 0x24 and 0x25). Add the
+matching children so the AOP driver binds the IIO sensor drivers to
+them. The ambient light sensor is a VD6286 (the M1/M2 Pro part), whose
+calibration comes from apple/aop-als-cal.bin; the motion calibration is
+filled in by the boot loader from the ADT.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 27 +++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 0b7ed533e3a5..da9c343e4fef 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -544,6 +544,33 @@ &aop {
+ 	mboxes = <&aop_mbox>, <&aop_setup_mbox>;
+ 	mbox-names = "mbox", "setup";
+ 	status = "okay";
++
++	/*
++	 * The AOP's sensor services. The firmware announces als (AFK endpoint
++	 * 0x29), las (0x28), accel (0x24) and gyro (0x25); the AOP driver
++	 * registers each announced service on the child of the same name.
++	 * [ADT] iop-aop-nub/als: device_type als, harmony-db-version 3; the
++	 * part is a VD6286 (macOS AppleSPUVD6286), whose per-unit calibration
++	 * the ALS driver loads as apple/aop-als-cal.bin. The accelerometer and
++	 * gyroscope calibration properties are copied from the ADT by the boot
++	 * loader.
++	 */
++	aop_als: als {
++		compatible = "apple,t6050-aop-als", "apple,aop-als";
++	};
++
++	aop_las: las {
++		compatible = "apple,t6050-aop-las", "apple,aop-las";
++	};
++
++	aop_accel: accel {
++		compatible = "apple,t6050-aop-accel", "apple,aop-accel";
++		label = "accel-base";
++	};
++
++	aop_gyro: gyro {
++		compatible = "apple,t6050-aop-gyro", "apple,aop-gyro";
++	};
+ };
+ 
+ /*
+-- 
+2.56.0
+

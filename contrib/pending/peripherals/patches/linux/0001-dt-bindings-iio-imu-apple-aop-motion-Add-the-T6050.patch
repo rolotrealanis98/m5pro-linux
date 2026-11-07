@@ -1,0 +1,35 @@
+From 2c71200ed6f75f9c9a50fe149b55b18faed0dd8a Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:36:44 -0500
+Subject: [PATCH 1/7] dt-bindings: iio: imu: apple,aop-motion: Add the T6050
+
+The M5 Pro AOP firmware (J716s) announces accel and gyro services on
+AFK endpoints 0x24 and 0x25, and its ADT carries their calibration
+packets under /arm-io/aop/iop-aop-nub/{accel,gyro}, as on T6041.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ Documentation/devicetree/bindings/iio/imu/apple,aop-motion.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/iio/imu/apple,aop-motion.yaml b/Documentation/devicetree/bindings/iio/imu/apple,aop-motion.yaml
+index e358c89ab18a..497282e0957c 100644
+--- a/Documentation/devicetree/bindings/iio/imu/apple,aop-motion.yaml
++++ b/Documentation/devicetree/bindings/iio/imu/apple,aop-motion.yaml
+@@ -26,11 +26,13 @@ properties:
+       - items:
+           - enum:
+               - apple,t6041-aop-accel
++              - apple,t6050-aop-accel
+               - apple,t8132-aop-accel
+           - const: apple,aop-accel
+       - items:
+           - enum:
+               - apple,t6041-aop-gyro
++              - apple,t6050-aop-gyro
+               - apple,t8132-aop-gyro
+           - const: apple,aop-gyro
+ 
+-- 
+2.56.0
+
