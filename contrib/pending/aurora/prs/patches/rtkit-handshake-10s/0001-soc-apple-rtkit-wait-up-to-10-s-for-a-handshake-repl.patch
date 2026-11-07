@@ -1,0 +1,36 @@
+From f285da2ec9a19cc45e82f0eaeb15d4b6d758e6b4 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Fri, 6 Nov 2026 16:51:54 -0500
+Subject: [PATCH] soc: apple: rtkit: wait up to 10 s for a handshake reply
+
+apple_rtkit_wait_for_completion() gives the co-processor 1 s to answer.
+On the T6050 (J716s, MacBook Pro 16-inch M5 Pro) the ANS firmware that
+iBoot hands over sometimes needs about 3 s to answer the power-state and
+endpoint-map handshake. With 1 s, nvme-apple fails with "ANS did not
+boot" / "Reset failure status: -62" and the root device never appears,
+although a later rebind of the same firmware succeeds.
+
+Wait up to 10 s. A firmware that answers in time is not slowed down;
+only a dead co-processor is reported later.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/soc/apple/rtkit.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/soc/apple/rtkit.c b/drivers/soc/apple/rtkit.c
+index 536ba515f826..6e7e1a1a9559 100644
+--- a/drivers/soc/apple/rtkit.c
++++ b/drivers/soc/apple/rtkit.c
+@@ -1529,7 +1529,7 @@ static int apple_rtkit_wait_for_completion(struct completion *c)
+ 	long t;
+ 
+ 	t = wait_for_completion_interruptible_timeout(c,
+-						      msecs_to_jiffies(1000));
++						      msecs_to_jiffies(10000));
+ 	if (t < 0)
+ 		return t;
+ 	else if (t == 0)
+-- 
+2.56.0
+

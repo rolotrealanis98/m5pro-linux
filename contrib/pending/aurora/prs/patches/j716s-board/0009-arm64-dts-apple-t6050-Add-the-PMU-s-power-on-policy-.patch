@@ -1,0 +1,58 @@
+From 90ddb41ce3ee97c40440389fc3884bd6140088cd Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 01:36:02 -0800
+Subject: [PATCH 09/17] arm64: dts: apple: t6050: Add the PMU's power-on policy
+ cell
+
+The PMU's info-pm_setting byte (0x2001, as on T6030) holds the power-on
+policy: bit 0 keeps the machine off when power returns after a loss, bit 5
+keeps it off when power is connected. Hand it to the SMC reboot node as the
+pm_setting cell so macsmc-reboot's ac_power_mode can read and set it.
+Written 0x03 ("always") from Linux on the Studio, a wall-power cycle after
+a Linux shutdown powered it on by itself.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ arch/arm64/boot/dts/apple/t6050-die0.dtsi | 14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-die0.dtsi b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+index 768ec932f7b8..86eaef24e98f 100644
+--- a/arch/arm64/boot/dts/apple/t6050-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+@@ -102,13 +102,16 @@ smc_hwmon: hwmon {
+ 			apple,soc-die-keys = "TCMb";
+ 		};
+ 
+-		/* The PMU's legacy scratchpad (info-leg_scrpad 0xf800) cells, as on T6040. */
++		/*
++		 * The PMU's legacy scratchpad (info-leg_scrpad 0xf800) cells, as on T6040, and its
++		 * power-on policy byte (info-pm_setting 0x2001, as on T6030) for ac_power_mode.
++		 */
+ 		smc_reboot: reboot {
+ 			compatible = "apple,smc-reboot";
+ 			nvmem-cells = <&shutdown_flag>, <&boot_stage>,
+-				      <&boot_error_count>, <&panic_count>;
++				      <&boot_error_count>, <&panic_count>, <&pm_setting>;
+ 			nvmem-cell-names = "shutdown_flag", "boot_stage",
+-					   "boot_error_count", "panic_count";
++					   "boot_error_count", "panic_count", "pm_setting";
+ 		};
+ 
+ 		/*
+@@ -217,6 +220,11 @@ nvmem-layout {
+ 				#address-cells = <1>;
+ 				#size-cells = <1>;
+ 
++				/* ADT info-pm_setting: bit 0 no restore, bit 5 no power-on at connect */
++				pm_setting: pm-setting@2001 {
++					reg = <0x2001 1>;
++				};
++
+ 				rtc_offset: rtc-offset@2100 {
+ 					reg = <0x2100 6>;	/* ADT info-clock_offset */
+ 				};
+-- 
+2.56.0
+

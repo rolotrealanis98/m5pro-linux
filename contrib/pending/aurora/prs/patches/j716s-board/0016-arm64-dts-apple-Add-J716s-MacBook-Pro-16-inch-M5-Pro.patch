@@ -1,0 +1,508 @@
+From dad82c4a876159bfc78b1a6450f30f618f043619 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Fri, 6 Nov 2026 20:58:38 -0500
+Subject: [PATCH 16/17] arm64: dts: apple: Add J716s (MacBook Pro 16-inch, M5
+ Pro)
+
+The J716s is the M5 Pro MacBook Pro 16-inch: one T6050 die, as the
+J716c (M5 Max), and the same SoC description (t6050-max.dtsi). This board
+file starts from t6050-j716c.dts and carries what the J716s ADT shows to
+differ or what has been brought up on it:
+
+- the N1 on PCIe port 0 with this board's platform ID (board-id 0x0c);
+- the keyboard backlight (FPWM0) and its power state, and the ATC0
+  gadget the USB tether runs on, which t6050-die0.dtsi does not describe;
+- the left-front Type-C port (ATC1): the SN201202x hpm1 on nub-spmi-a0
+  and the connector graph into dwc3 and the combo PHY. USB3 works there
+  with the PHY tunables the loader fills from the ADT;
+- the trackpad's AFE reset on SMC GPIO gp1c (active low), the same line
+  as the pcIO output J716c uses, for which this tree has no driver; the
+  pcIO node is deleted;
+- "apple,internal-panel" on the boot framebuffer, so simpledrm reports
+  an eDP connector;
+- the T8112 DVFS fallback on the three cluster nodes (see the comment),
+  and the CIO reconfiguration register enabled;
+- ATC3's USB chain, nub-spmi-a2 and the SMC sensors disabled.
+
+The resulting DTB matches the one the J716s has been booting (the
+J716c-derived DTB, decompiled and edited by hand), apart from the SMC and
+CIO reset compatibles, now matched by their drivers, and an ANS power
+state that nothing references since the T6050 NVMe driver adopts the
+running ANS.
+
+Tested on J716s: NVMe root, keyboard and trackpad, USB3 on the
+left-front port, SMC, 18 CPUs, simpledrm on the internal panel.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/Makefile        |   1 +
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 445 ++++++++++++++++++++++
+ 2 files changed, 446 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/apple/t6050-j716s.dts
+
+diff --git a/arch/arm64/boot/dts/apple/Makefile b/arch/arm64/boot/dts/apple/Makefile
+index 3329fbb0899a..d996f319a7c9 100644
+--- a/arch/arm64/boot/dts/apple/Makefile
++++ b/arch/arm64/boot/dts/apple/Makefile
+@@ -99,6 +99,7 @@ dtb-$(CONFIG_ARCH_APPLE) += t6040-j616s.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6040-j616s-tether.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6041-j616c.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j716c.dtb
++dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j775d.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t8112-j413.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t8112-j415.dtb
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+new file mode 100644
+index 000000000000..bdf1a9d9e1c4
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -0,0 +1,445 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * MacBook Pro (16-inch, M5 Pro, 2026)
++ *
++ * target-type: J716s (Mac17,8)
++ *
++ * One T6050 die. The runtime ADT lists all 18 CPUs (cpu0-17) in the order
++ * t6050-max.dtsi uses, so its CPU list applies unchanged; the boot loader
++ * removes any core it did not start. Like t6050-j716c.dts, this file only
++ * enables and configures what has been brought up; the SoC's other blocks
++ * stay disabled.
++ *
++ * Tags in the comments: [ADT] the J716s runtime ADT, [J716C] as
++ * t6050-j716c.dts because the J716s ADT shows the same value, [OURS] the
++ * m5pro-linux J716s tree, [INFER] inferred, not measured.
++ *
++ * Copyright The Asahi Linux Contributors
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/leds/common.h>
++#include "t6050-max.dtsi"
++
++/ {
++	/*
++	 * [ADT] /product sub-product-type "Mac17,8",
++	 * product-name "MacBook Pro (16-inch, M5 Pro)"
++	 */
++	compatible = "apple,j716s", "apple,t6050", "apple,arm-platform";
++	model = "Apple MacBook Pro (16-inch, M5 Pro, 2026)";
++	chassis-type = "laptop";
++
++	aliases {
++		serial0 = &dockchannel;			/* [J716C] */
++		/* The loader fills the N1's factory addresses through these [J716C] */
++		wifi0 = &n1_alpha;
++		bluetooth0 = &n1_beta;
++		/*
++		 * m1n1 dt_set_ipd() fills the layout from the ADT keyboard node
++		 * [OURS t6050-j716s.dts:21-25]
++		 */
++		keyboard = &keyboard;
++	};
++
++	chosen {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++		/* Normally replaced by the loader */
++		bootargs = "maxcpus=1";
++
++		framebuffer0: framebuffer@0 {
++			compatible = "apple,simple-framebuffer", "simple-framebuffer";
++			reg = <0 0 0 0>; /* To be filled by the loader */
++			/* Format properties will be added by the loader */
++			/* simpledrm reports an eDP connector for the built-in panel */
++			apple,internal-panel;
++			status = "disabled";
++		};
++	};
++
++	/*
++	 * Keyboard backlight. [ADT] /arm-io/pwm0/kbd-backlight: channel 0,
++	 * default-hz 25000 -> period 40000 ns. [OURS t6050-j716s.dts:35-46]
++	 */
++	led-controller {
++		compatible = "pwm-leds";
++
++		led-0 {
++			pwms = <&fpwm0 0 40000>;
++			label = "kbd_backlight";
++			function = LED_FUNCTION_KBD_BACKLIGHT;
++			color = <LED_COLOR_ID_WHITE>;
++			max-brightness = <255>;
++			default-state = "keep";
++		};
++	};
++};
++
++/*
++ * Blocks t6050-die0.dtsi does not describe yet (candidates for that file):
++ * the keyboard backlight PWM, the ATC0 gadget this board's tether runs on,
++ * and the third HPM SPMI bus.
++ */
++&die0 {
++	/* [ADT] /arm-io/pwm0 reg 0x505040000 +0x4000, clock-gate FPWM0 [OURS t6050.dtsi:303-315] */
++	fpwm0: pwm@505040000 {
++		compatible = "apple,t6050-fpwm", "apple,s5l-fpwm";
++		reg = <0x5 0x05040000 0x0 0x4000>;
++		power-domains = <&ps_fpwm0>;
++		clocks = <&clkref>;
++		#pwm-cells = <2>;
++	};
++
++	/*
++	 * ATC0 (left-back, the MagSafe side; [ADT] usb-drd0 port-number 1, hpm0
++	 * port-location "left-back"). The combo PHY driver refuses port 0, and this
++	 * port carries the USB tether, so it stays a device-mode controller on the
++	 * PHY state m1n1's usb_phy_bringup() leaves. [OURS t6050-storage-net.dtsi:50-88]
++	 * [ADT] /arm-io/usb-drd0 reg[0] 0x2a2280000, interrupts[0] 1419;
++	 * /arm-io/dart-usb0 reg[0] 0x2a2f00000, reg[1] 0x2a2f80000, interrupt 1423.
++	 */
++	dwc3_0: usb@2a2280000 {
++		compatible = "snps,dwc3";
++		reg = <0x2 0xa2280000 0x0 0xcd00>;
++		interrupts = <AIC_IRQ 0 1419 IRQ_TYPE_LEVEL_HIGH>;
++		dr_mode = "peripheral";
++		maximum-speed = "high-speed";
++		iommus = <&dwc3_0_dart_0 0>, <&dwc3_0_dart_1 1>;
++		snps,usb2-gadget-lpm-disable;
++		snps,dis_u2_susphy_quirk;
++		snps,dis_u3_susphy_quirk;
++		snps,dis_enblslpm_quirk;
++	};
++
++	dwc3_0_dart_0: iommu@2a2f00000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x2 0xa2f00000 0x0 0xc000>;
++		interrupts = <AIC_IRQ 0 1423 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++	};
++
++	dwc3_0_dart_1: iommu@2a2f80000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x2 0xa2f80000 0x0 0xc000>;
++		interrupts = <AIC_IRQ 0 1423 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++	};
++
++	/*
++	 * [ADT] /arm-io/nub-spmi-a1: reg[0] 0x8a1a8000 (+0x200000000), gen 4, the
++	 * HPM bus of the right-hand port (hpm2). J716c uses nub-spmi-a2 instead;
++	 * this board has no a2. Polled, like a0.
++	 */
++	nub_spmi_a1: spmi@28a1a8000 {
++		compatible = "apple,t6050-spmi", "apple,t8142-spmi";
++		reg = <0x2 0x8a1a8000 0x0 0x4000>;
++		#address-cells = <2>;
++		#size-cells = <0>;
++		status = "disabled";
++	};
++};
++
++/*
++ * [ADT] pmgr device FPWM0, group 1 + 0x2a8 [OURS t6050-pmgr.dtsi:952-959];
++ * parent SIO left undescribed as for ps_i2c1/2
++ */
++&pmgr1 {
++	ps_fpwm0: power-controller@2a8 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x2a8 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "fpwm0";
++	};
++};
++
++/*
++ * PCIe port 0: the N1 (Wi-Fi and Bluetooth). Port 1 is the SD reader
++ * ([ADT] apcie0/pci-bridge1/pcie-sdreader), not described. The loader must
++ * train port 0 and then enable port00 and dart_apcie0; until it does, both
++ * stay disabled. m1n1 does not do this today.
++ * [ADT] /arm-io/apcie0 reg[0] 0x1cb0000000, reg[1] 0x414000000 (rc),
++ * reg[16] 0x410028000 (port0), reg[18] 0x417010000 (phy0), reg[19]
++ * 0x410024000 (intr2axi0), interrupts[0] 1523: identical to J716c.
++ */
++&pcie0 {
++	reg = <0x1c 0xb0000000 0x0 0x10000000>,
++	      <0x4 0x14000000 0x0 0x4000>,
++	      <0x4 0x10028000 0x0 0x8000>,
++	      <0x4 0x17010000 0x0 0x4000>,
++	      <0x4 0x10024000 0x0 0x4000>;
++	reg-names = "config", "rc", "port0", "phy0", "intr2axi0";
++	interrupts = <AIC_IRQ 0 1523 IRQ_TYPE_LEVEL_HIGH>;
++	interrupt-names = "port0";
++
++	/* The N1's three functions are on DART streams 1-3 [J716C] */
++	iommu-map = <0x100 &dart_apcie0 1 3>;
++	bus-range = <0 4>;
++
++	port00: pci@0,0 {
++		device_type = "pci";
++		reg = <0x0 0 0 0 0>;
++		bus-range = <1 1>;
++		apple,link-trained-by-bootloader;
++		/* PERST#: [ADT] pci-bridge0 function-perst = GPIO 80 */
++		reset-gpios = <&pinctrl_ap 80 GPIO_ACTIVE_LOW>;
++		status = "disabled";
++
++		#address-cells = <3>;
++		#size-cells = <2>;
++		ranges;
++
++		interrupt-controller;
++		#interrupt-cells = <1>;
++		interrupt-map-mask = <0 0 0 7>;
++		interrupt-map = <0 0 0 1 &port00 0 0 0 0>,
++				<0 0 0 2 &port00 0 0 0 1>,
++				<0 0 0 3 &port00 0 0 0 2>,
++				<0 0 0 4 &port00 0 0 0 3>;
++
++		/*
++		 * platform ID = (board << 16) | chip: [ADT] /chosen board-id = 0x0c,
++		 * chip 0x6050 (binding apple,centauri.yaml: chip in bits 15..0,
++		 * board in 30..16). The FTAB is personalised for each unit; its name
++		 * follows J716c's scheme [INFER].
++		 */
++		n1_control: control@0,0 {
++			compatible = "pci106b,1900";
++			reg = <0x10000 0x0 0x0 0x0 0x0>;
++			firmware-name = "apple/centauri/j716s-ftab.bin";
++			apple,centauri-platform-id = <0x000c6050>;
++			apple,centauri-protocol = <27>;
++		};
++
++		/* [ADT] apcie0/pci-bridge0/centauri-alpha (fn 1) */
++		n1_alpha: wifi@0,1 {
++			compatible = "pci106b,1902";
++			reg = <0x10100 0x0 0x0 0x0 0x0>;
++			local-mac-address = [00 00 00 00 00 00];
++		};
++
++		/* [ADT] apcie0/pci-bridge0/centauri-beta (fn 2) */
++		n1_beta: bluetooth@0,2 {
++			compatible = "pci106b,1903";
++			reg = <0x10200 0x0 0x0 0x0 0x0>;
++			local-bd-address = [00 00 00 00 00 00];
++		};
++	};
++};
++
++/*
++ * Type-C. [ADT] port map:
++ *   ATC0 usb-drd0 port 1 left-back  hpm0 nub-spmi-a0 SID 0x0c  (tether, dwc3_0 above)
++ *   ATC1 usb-drd1 port 2 left-front hpm1 nub-spmi-a0 SID 0x0a
++ *   ATC2 usb-drd2 port 3 right      hpm2 nub-spmi-a1 SID 0x0c
++ *   MagSafe                          hpm5 nub-spmi-a0 SID 0x08
++ *            (port-type 17, not a USB-C connector)
++ * There is no usb-drd3 in this ADT, so ATC3's USB chain stays off.
++ */
++&atc3_phy_mbox {
++	status = "disabled";
++};
++
++&atc3_phy {
++	status = "disabled";
++};
++
++&usb_drd3 {
++	status = "disabled";
++};
++
++&usb_drd3_dart_0 {
++	status = "disabled";
++};
++
++&usb_drd3_dart_1 {
++	status = "disabled";
++};
++
++&nub_spmi_a2 {
++	status = "disabled";			/* [ADT] this board has no nub-spmi-a2 */
++};
++
++/*
++ * Left-front port (ATC1): SN201202x hpm1, polled (no interrupts property),
++ * the connector graph into dwc3 (USB2) and the combo PHY (SuperSpeed).
++ * Node shape from t8142-j813-usb.dtsi. USB3 works on this port with the
++ * PHY tunables the loader fills from the ADT (m1n1 kboot_atc).
++ */
++&nub_spmi_a0 {
++	hpm1: usb-pd@a {
++		compatible = "apple,sn201202x";
++		reg = <0xa SPMI_USID>;			/* [ADT] hpm1 reg[0] = 0x0a */
++
++		typec1: connector {
++			compatible = "usb-c-connector";
++			label = "USB-C Left-front";	/* [ADT] hpm1 port-location */
++			power-role = "dual";
++			data-role = "dual";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					typec1_hs: endpoint {
++						remote-endpoint = <&usb_drd1_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++					typec1_ss: endpoint {
++						remote-endpoint = <&atc1_phy_typec>;
++					};
++				};
++			};
++		};
++	};
++};
++
++&usb_drd1 {
++	port {
++		usb_drd1_hs: endpoint {
++			remote-endpoint = <&typec1_hs>;
++		};
++	};
++};
++
++&atc1_phy {
++	port {
++		atc1_phy_typec: endpoint {
++			remote-endpoint = <&typec1_ss>;
++		};
++	};
++};
++
++/*
++ * The right port (ATC2: hpm2 on nub_spmi_a1, SID 0x0c) is not brought up;
++ * it shares ATC2 with the dcpext0 DisplayPort route.
++ */
++
++/*
++ * Audio is not brought up: 6x sn012776 on i2c1/i2c3 and cs42l84 on i2c2 [ADT];
++ * i2c3 is not in the dtsi yet
++ */
++&i2c1 {
++	status = "disabled";
++};
++
++&i2c2 {
++	status = "disabled";
++};
++
++/*
++ * Pin 112 takes an SError when read (J716c finding, same SoC), so only the
++ * pins named here are exposed: 80 (PCIe port 0's PERST#, [ADT] pci-bridge0
++ * function-perst GPIO 80).
++ */
++&pinctrl_ap {
++	gpio-reserved-ranges = <0 80>, <81 140>;
++};
++
++/*
++ * SMC sensors stay off until the fan keys are checked on this machine: the
++ * T6050 SMC spells the fan mode keys F0md/F1md (ui8) rather than the F0Md
++ * of hwmon-fan-dual.dtsi [OURS], and F0Mn/F0Mx/F0Tg have not been re-probed
++ * on the J716s.
++ */
++&smc_hwmon {
++	status = "disabled";
++};
++
++/*
++ * The clusters' DVFS blocks have the T8112 layout (status +0x50: current
++ * p-state in bits 9:5, target in 4:0, measured on the J716s), which stock
++ * apple-soc-cpufreq drives through the T8112 compatible. Kept to this board
++ * until the T6050 entry of the j716c/t6050-platform branch is in.
++ */
++&cpufreq_mc0 {
++	compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
++};
++
++&cpufreq_mc1 {
++	compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
++};
++
++&cpufreq_pc {
++	compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
++};
++
++/* The die's CIO reconfiguration register; no consumer is enabled yet */
++&cio_reconfig0 {
++	status = "okay";
++};
++
++/*
++ * The console on the USB debug link drains only while a host reads it
++ * [J716C]. On this board the tether is ATC0's gadget; keep earlycon=efifb.
++ */
++&dockchannel {
++	apple,tx-never-wait;
++	status = "okay";
++};
++
++/*
++ * Keyboard and trackpad: the HID transport on the MTP's DockChannel FIFO
++ * [J716C], with MTP firmware AppleMTPFirmwareMac-6320.86.1.
++ */
++&mtp_dockchannel {
++	mtp_hid: input@8000 {
++		compatible = "apple,dockchannel-hid";
++		reg = <0x8000 0x1000>, <0xc000 0x1000>,
++		      <0x0 0x1000>, <0x4000 0x1000>;
++		reg-names = "config", "data", "rmt-config", "rmt-data";
++		iommus = <&mtp_dart 0>;
++		interrupt-parent = <&mtp_dockchannel>;
++		interrupts = <2 IRQ_TYPE_LEVEL_HIGH>,
++			     <3 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "tx", "rx";
++		apple,fifo-size = <0x800>;	/* [ADT] dockchannel-mtp fifo-size 2048 [OURS] */
++		apple,helper-cpu = <&mtp>;
++		/*
++		 * The AFE reset: [ADT] multi-touch function-afe-reset is the SMC pcIO
++		 * output (0x10000, 0x11c0000), as on J716c, but this tree has no
++		 * apple,smc-pcio-gpio driver. The same line is SMC GPIO gp1c, active
++		 * low, which gpio-macsmc drives ("Touch MT ready" on 3 of 3 boots).
++		 */
++		apple,afe-reset-gpios = <&smc_gpio_low 28 GPIO_ACTIVE_LOW>;
++
++		multi-touch {
++			apple,power-method = <2>;	/* [OURS] 6320.x accepts only method 2 */
++			/* [OURS t6050-j716s.dts:79] */
++			firmware-name = "apple/tpmtfw-j716s.bin";
++		};
++
++		keyboard: keyboard {
++			hid-country-code = <0>;		/* filled by m1n1 [OURS] */
++			apple,keyboard-layout-id = <0>;
++		};
++
++		stm {
++		};
++
++		/* [ADT] mtp-transport children actuator and tp-accel; optional */
++		actuator {
++		};
++
++		tp-accel {
++		};
++	};
++};
++
++/*
++ * No driver here handles the SMC pcIO outputs (apple,smc-pcio-gpio), and the
++ * AFE reset above uses gp1c instead, so the node goes. Its J716s templates
++ * [ADT], pKW8('pcIO', lo, hi) as (hi << 32) | lo, are identical to J716c's:
++ *   0 dp2hdmi-gpio0 dp2hdmi_pwr_en (0x0, 0x1a0000)
++ *   1 dp2hdmi-gpio0 hdmi_pwr_en    (0x800000, 0xf0000)
++ *   2 multi-touch   afe-reset      (0x10000, 0x11c0000)
++ */
++/delete-node/ &smc_pcio;
+-- 
+2.56.0
+

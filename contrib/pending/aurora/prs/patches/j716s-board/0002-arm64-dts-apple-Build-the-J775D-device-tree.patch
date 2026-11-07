@@ -1,0 +1,30 @@
+From 1c1773895833f22c7ca707d6305509c574460af4 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 11:59:40 -0800
+Subject: [PATCH 02/17] arm64: dts: apple: Build the J775D device tree
+
+Build t6050-j775d.dtb, the Mac Studio with the M5 Ultra (J775D, T6050),
+with the other Apple device trees.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ arch/arm64/boot/dts/apple/Makefile | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/boot/dts/apple/Makefile b/arch/arm64/boot/dts/apple/Makefile
+index 52b15f4bdb8c..b86a642f419c 100644
+--- a/arch/arm64/boot/dts/apple/Makefile
++++ b/arch/arm64/boot/dts/apple/Makefile
+@@ -98,6 +98,7 @@ dtb-$(CONFIG_ARCH_APPLE) += t6040-j614s.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6040-j616s.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6040-j616s-tether.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6041-j616c.dtb
++dtb-$(CONFIG_ARCH_APPLE) += t6050-j775d.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t8112-j413.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t8112-j415.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t8112-j473.dtb
+-- 
+2.56.0
+
