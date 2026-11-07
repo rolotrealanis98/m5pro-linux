@@ -815,3 +815,23 @@ SError. dmesg: `Apple: preserving registers across WFI` and `Apple: idling in WF
 - Not yet: the 1 h soak and the per-CPU register check (T1 soak), `apple_keep_idle_nop` A/B (T2), promotion to the daily
   with `kvm-arm.wfi_trap_policy=trap` in BASE (T4 in `wfi-idle/REPORT.md`).
 
+### Result (R3-AUDIO-B3, 2026-11-07 10:13 UTC, self-revert loop + A/B stage-1, nobody at the machine)
+
+Payload `audio-b3-20261107-28509219.bin`: kernel `7.3.0-g030e2113e26b` (`j716s-audio-tdm`: the B2 audio kernel +
+`audio/tdm/patches/0001` Ed's LW1 sense alignment + `0002` keep the AOP speaker service alive until the back-end's
+hw_free), the spk DTB with `apple,deferred-shutdown` on all six amps, battery on, `speaker_max_db=-40`, `m5.selftest=1`,
+prev = the daily `275d84ec`.
+
+- **Boot and gates:** primary slot, both cards, speakersafetyd active at 1.88 s (udev rule fix), `Speaker volumes unlocked`
+  and `ceiling -40 dB` at 1.887 s, Amp Gain 10, `apple,deferred-shutdown` present on all six codec nodes.
+- **Tone (2 s, 1 kHz, -40 dBFS, six channels):** the stop-time faults are gone and `Speaker Switch` off is quiet. A burst
+  of `bad TDM clock` remains at **stream start**: 5 faults (0038 x2, 003a x2, 0039, 003c, 003d) 150-270 ms after the daemon
+  saw the stream open (152.907 s -> 153.152-153.171 s), none at the end (~154.9 s). B2 had 20 lines over stop and
+  switch-off. GPIO 106 (shared amp IRQ) count 1032. Logs: `/boot/r1-logs/audio-b3-20261107/` (private).
+- **Reboot after the tone: clean** (23 s to the next boot, PMU boot-error count 0, primary slot), so the B2 reboot stall
+  did not reproduce on this kernel. systemd owns no runtime watchdog (`RuntimeWatchdogUSec=0`, reboot watchdog 10 min).
+- **Then:** the next boot of the same payload had no network inside 90 s; `m5-selftest` restored the daily and rebooted
+  (the loop guard's one revert). Cause under review from its saved log (USB hub enumeration is the suspect; the same first-
+  attempt failure was seen once on HWMON-T1 and recovered there).
+- Next: 0003 for the start-time burst (agent), then B4.
+
