@@ -48,5 +48,5 @@ echo 3 > /proc/sys/vm/drop_caches
 if [ "${ESP_RW:-0}" = 1 ]; then mount "$DEV" "$ESP"; else mount -o ro "$DEV" "$ESP"; fi
 got=$(sha256sum "$D/$NAME" | cut -d' ' -f1)   # cold read through the block layer
 [ "$got" = "$SHA" ] || { echo "esp-put: $NAME reads back as $got after the remount: do not reboot"; exit 1; }
-sleep "${ESP_SETTLE:-5}"
+sleep "${ESP_SETTLE:-60}"
 echo "esp-put: $NAME = ${SHA%"${SHA#????????}"} flushed, remounted $( [ "${ESP_RW:-0}" = 1 ] && echo rw || echo ro ), unsafe_shutdowns=$(unsafe)"
