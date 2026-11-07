@@ -1424,3 +1424,13 @@ GPU is warming up its clocks; no throttling signs), zero GPU kernel errors over 
 Full on the charger. The GPU kernel `7.3.0-g3671d907d570` is being promoted to the daily (daily twin of E2b being
 built; the GPU session becomes the automatic default when the aurora card exists).
 
+
+## GPU DAILY promotion (2026-11-07 20:35 UTC)
+
+The GPU kernel is the daily. `boot.bin` = `e2b-daily-20261107-fd4b3b9e.bin` (kernel `7.3.0-g3671d907d570` = the 87-patch series + Aurora #1012 + the 27.2+ InitData port, m1n1 `n1-warm-gpu`, battery, `n1=4`, `gpu=1`, no `m5.selftest`), `boot.bin.prev` = the E2b test twin `3f2fec04` (same kernel with the self-test; falls back to a GPU kernel too, because the previous daily `4feff24c` has no aurora driver and the Hyprland launcher would then start the software session, which is the intended behaviour either way).
+
+- Written with the remount procedure; first boot on the primary slot, 76 s to SSH, 18 CPUs, Wi-Fi connected, Bluetooth, haptic, 2 sound cards, battery.
+- `GPU firmware: 27.3 (26C5035r), G17S`, `M5 firmware opening records retired`, `[drm] Initialized aurora 1.0.0`, `renderD128` present; both getty@tty2 and the user session units active.
+- Preceded by the 25-minute Hyprland-on-GPU soak on the same kernel (zink over Borealis, glmark2 clean, 0 GPU errors; see "GPU soak" above).
+- Desktop: `~rolo/.local/bin/hypr-session` now starts the GPU session by itself when a `/sys/class/drm/card*/device/driver` resolves to `aurora` and `/opt/mesa-aurora` exists (software session otherwise, or when `/etc/hypr-gpu-disable` exists; `/run/hypr-gpu` forces it for one boot; a GPU session that dies within 30 s is replaced by the software session). Mesa variables come from `/etc/mesa-aurora/session.env` and are exported to Hyprland, the user manager and the D-Bus activation environment. Not yet seen live: a full desktop login on this kernel (next attended boot).
+- Rollback: `put` the previous daily `daily-wifi-20261107-4feff24c.bin` back as `boot.bin` (kept in `~/Work/agents/next-daily/payloads/private/`).
