@@ -1,0 +1,7 @@
+69730b19d6debb6cd4d20e0c3a833b1467a58ec8fccf56d1312ff82db6398fc8  build/m1n1-plain-n1-ans.bin
+d31e5248fed273fdb4fd81cdb08bd007f82fc0df7e953e6ffb75434ba6a3deae  build/m1n1-plain-n1-train.bin
+d7d60631e0ab43e7f100284e5de7870cc13fff5f34ff6207ca8d5a2995e3cc07  0025-pcie-t6050-start-ANS-for-the-N1-training-s-storage-c.patch
+14dfdd0b790346ea0d17ce470a45e5e9474797df3bbb7c6f98c63c1bc7898832  prep/mk-w2.py
+d8cc42dfdda0b282c56d14398f4759d6860379f4e96dbd2fc759319770687df6  prep/gen-deploy-w2.py
+6323446f08698e7ede22a07fb5828227cacd2067d05518eaf89ccdad1f2429c1  prep/deploy-W2.sh
+2dedddda0ae91e45696b6fd0f4917dfb1a5d96ae835ea77244e8ba42296daccb  w2-n1ans-20261107-2dedddda.bin
