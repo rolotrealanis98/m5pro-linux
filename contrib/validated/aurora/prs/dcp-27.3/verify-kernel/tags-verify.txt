@@ -1,0 +1,89 @@
+27.0: 41 entries, 41 distinct tags, missing in 27.0 dispatch: none; groups {'up': 16, 'ap': 25}
+27.2: 41 entries, 41 distinct tags, missing in 27.2 dispatch: none; groups {'up': 16, 'ap': 25}
+27.3: 41 entries, 41 distinct tags, missing in 27.3 dispatch: none; groups {'up': 16, 'ap': 25}
+
+== 27.0 -> 27.2
+dcpep_late_init_signal                        A000 -> A000         up  same handler (exact) [fp shared by ['A000', 'A003', 'A004', 'A005', 'A006', 'A007', 'A008', 'A009', 'A010', 'A013', 'A016', 'A392', 'A503', 'A541']]
+dcpep_setup_video_limits                      A027 -> A027         up  body changed, opcode similarity 1.00; best match A002
+iomfbep_a131_pmu_service_matched              A136 -> A136         up  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A522', 'A535', 'A538', 'A539']]
+iomfbep_a132_backlight_service_matched        A137 -> A137         up  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A522', 'A535', 'A538', 'A539']]
+dcpep_set_create_dfb                          A389 -> A390 (moved) up  body changed, opcode similarity 1.00; best match A390
+iomfbep_a358_vi_set_temperature_hint          A390 -> A391 (moved) up  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A522', 'A535', 'A538', 'A539']]
+dcpep_start_signal                            A401 -> A451 (moved) ap  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A522', 'A535', 'A538', 'A539']]
+dcpep_swap_start                              A406 -> A456 (moved) ap  same handler (exact) [fp shared by ['A113', 'A456', 'A498', 'A521', 'A534']]
+dcpep_swap_submit                             A408 -> A458 (moved) ap  same handler (exact)
+dcpep_set_display_device                      A411 -> A461 (moved) ap  same handler (exact) [fp shared by ['A100', 'A108', 'A112', 'A370', 'A371', 'A380', 'A461', 'A466', 'A467', 'A475', 'A476', 'A478', 'A481', 'A483', 'A484', 'A485', 'A489', 'A506', 'A507', 'A508', 'A509', 'A510', 'A511', 'A518']]
+dcpep_is_main_display                         A412 -> A462 (moved) ap  same handler (exact) [fp shared by ['A001', 'A014', 'A015', 'A018', 'A019', 'A022', 'A023', 'A026', 'A028', 'A029', 'A030', 'A034', 'A035', 'A039', 'A040', 'A041', 'A042', 'A116', 'A360', 'A381', 'A395', 'A398', 'A401', 'A462', 'A501', 'A502', 'A504']]
+dcpep_set_digital_out_mode                    A413 -> A463 (moved) ap  same handler (exact) [fp shared by ['A102', 'A352', 'A376', 'A460', 'A463', 'A464', 'A468', 'A474', 'A477', 'A486', 'A487', 'A490', 'A513', 'A523', 'A527']]
+iomfbep_set_matrix                            A423 -> A473 (moved) ap  same handler (exact) [fp shared by ['A472', 'A473']]
+iomfbep_get_color_remap_mode                  A427 -> A477 (moved) ap  same handler (exact) [fp shared by ['A102', 'A352', 'A376', 'A460', 'A463', 'A464', 'A468', 'A474', 'A477', 'A486', 'A487', 'A490', 'A513', 'A523', 'A527']]
+dcpep_set_parameter_dcp                       A450 -> A500 (moved) ap  same handler (exact)
+dcpep_create_default_fb                       A454 -> A504 (moved) ap  same handler (exact) [fp shared by ['A001', 'A014', 'A015', 'A018', 'A019', 'A022', 'A023', 'A026', 'A028', 'A029', 'A030', 'A034', 'A035', 'A039', 'A040', 'A041', 'A042', 'A116', 'A360', 'A381', 'A395', 'A398', 'A401', 'A462', 'A501', 'A502', 'A504']]
+dcpep_get_dfb_compression_info                A037 -> A037         up  same handler (exact) [fp shared by ['A011', 'A012', 'A021', 'A032', 'A037', 'A044']]
+dcpep_get_dfb_info                            A036 -> A036         up  same handler (exact)
+dcpep_get_dfb_layout                          A103 -> A103         up  same handler (exact)
+dcpep_get_dfb_state                           A453 -> A503 (moved) ap  same handler (exact) [fp shared by ['A000', 'A003', 'A004', 'A005', 'A006', 'A007', 'A008', 'A009', 'A010', 'A013', 'A016', 'A392', 'A503', 'A541']]
+dcpep_set_dfb_dimensions                      A104 -> A104         up  same handler (exact) [fp shared by ['A104', 'A515', 'A526']]
+dcpep_commit_dfb_info                         A105 -> A105         up  body changed, opcode similarity 1.00; best match A105
+dcpep_dfb_query                               A035 -> A035         up  same handler (exact) [fp shared by ['A001', 'A014', 'A015', 'A018', 'A019', 'A022', 'A023', 'A026', 'A028', 'A029', 'A030', 'A034', 'A035', 'A039', 'A040', 'A041', 'A042', 'A116', 'A360', 'A381', 'A395', 'A398', 'A401', 'A462', 'A501', 'A502', 'A504']]
+dcpep_dfb_ready_query                         A384 -> A385 (moved) up  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A522', 'A535', 'A538', 'A539']]
+dcpep_pipe_query_353                          A353 -> A353         up  same handler (exact)
+dcpep_pipe_set_352                            A352 -> A352         up  same handler (exact) [fp shared by ['A102', 'A352', 'A376', 'A460', 'A463', 'A464', 'A468', 'A474', 'A477', 'A486', 'A487', 'A490', 'A513', 'A523', 'A527']]
+dcpep_pipe_cfg_415                            A415 -> A465 (moved) ap  same handler (exact) [fp shared by ['A121', 'A124', 'A125', 'A372', 'A373', 'A454', 'A465', 'A493', 'A496', 'A497']]
+dcpep_pipe_cfg_031                            A033 -> A033         up  same handler (exact)
+dcpep_pipe_cfg_414                            A414 -> A464 (moved) ap  same handler (exact) [fp shared by ['A102', 'A352', 'A376', 'A460', 'A463', 'A464', 'A468', 'A474', 'A477', 'A486', 'A487', 'A490', 'A513', 'A523', 'A527']]
+dcpep_pipe_query_478                          A489 -> A539 (moved) ap  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A522', 'A535', 'A538', 'A539']]
+dcpep_pipe_query_474                          A485 -> A535 (moved) ap  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A522', 'A535', 'A538', 'A539']]
+dcpep_pipe_set_476                            A487 -> A537 (moved) ap  same handler (exact) [fp shared by ['A130', 'A131', 'A362', 'A363', 'A366', 'A388', 'A396', 'A469', 'A537']]
+iomfbep_set_brightness_correction             A428 -> A478 (moved) ap  same handler (exact) [fp shared by ['A100', 'A108', 'A112', 'A370', 'A371', 'A380', 'A461', 'A466', 'A467', 'A475', 'A476', 'A478', 'A481', 'A483', 'A484', 'A485', 'A489', 'A506', 'A507', 'A508', 'A509', 'A510', 'A511', 'A518']]
+dcpep_enable_disable_video_power_savings      A458 -> A508 (moved) ap  same handler (exact) [fp shared by ['A100', 'A108', 'A112', 'A370', 'A371', 'A380', 'A461', 'A466', 'A467', 'A475', 'A476', 'A478', 'A481', 'A483', 'A484', 'A485', 'A489', 'A506', 'A507', 'A508', 'A509', 'A510', 'A511', 'A518']]
+dcpep_first_client_open                       A466 -> A516 (moved) ap  body changed, opcode similarity 1.00; best match A453
+iomfbep_last_client_close                     A467 -> A517 (moved) ap  same handler (exact)
+dcpep_set_display_refresh_properties          A475 -> A525 (moved) ap  same handler (exact)
+dcpep_flush_supports_power                    A478 -> A528 (moved) ap  same handler (exact) [fp shared by ['A519', 'A528', 'A540']]
+iomfbep_abort_swaps_dcp                       A479 -> A529 (moved) ap  same handler (exact)
+dcpep_set_power_state                         A484 -> A534 (moved) ap  same handler (exact) [fp shared by ['A113', 'A456', 'A498', 'A521', 'A534']]
+dcpep_register_dfb_surface                    A483 -> A533 (moved) ap  same handler (exact)
+
+== 27.2 -> 27.3
+dcpep_late_init_signal                        A000 -> A000         up  same handler (exact) [fp shared by ['A000', 'A003', 'A004', 'A005', 'A006', 'A007', 'A008', 'A009', 'A010', 'A013', 'A016', 'A392', 'A503', 'A542']]
+dcpep_setup_video_limits                      A027 -> A027         up  body changed, opcode similarity 1.00; best match A002
+iomfbep_a131_pmu_service_matched              A136 -> A136         up  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A523', 'A536', 'A539', 'A540']]
+iomfbep_a132_backlight_service_matched        A137 -> A137         up  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A523', 'A536', 'A539', 'A540']]
+dcpep_set_create_dfb                          A390 -> A390         up  body changed, opcode similarity 1.00; best match A390
+iomfbep_a358_vi_set_temperature_hint          A391 -> A391         up  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A523', 'A536', 'A539', 'A540']]
+dcpep_start_signal                            A451 -> A451         ap  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A523', 'A536', 'A539', 'A540']]
+dcpep_swap_start                              A456 -> A456         ap  same handler (exact) [fp shared by ['A113', 'A456', 'A498', 'A522', 'A535']]
+dcpep_swap_submit                             A458 -> A458         ap  body changed, opcode similarity 0.98; best match A459
+dcpep_set_display_device                      A461 -> A461         ap  same handler (exact) [fp shared by ['A100', 'A108', 'A112', 'A370', 'A371', 'A380', 'A461', 'A466', 'A467', 'A475', 'A476', 'A478', 'A481', 'A483', 'A484', 'A485', 'A489', 'A506', 'A507', 'A508', 'A509', 'A510', 'A511', 'A518']]
+dcpep_is_main_display                         A462 -> A462         ap  same handler (exact) [fp shared by ['A001', 'A014', 'A015', 'A018', 'A019', 'A022', 'A023', 'A026', 'A028', 'A029', 'A030', 'A034', 'A035', 'A039', 'A040', 'A041', 'A042', 'A116', 'A360', 'A381', 'A395', 'A398', 'A401', 'A462', 'A501', 'A502', 'A504']]
+dcpep_set_digital_out_mode                    A463 -> A463         ap  same handler (exact) [fp shared by ['A102', 'A352', 'A376', 'A460', 'A463', 'A464', 'A468', 'A474', 'A477', 'A486', 'A487', 'A490', 'A513', 'A524', 'A528']]
+iomfbep_set_matrix                            A473 -> A473         ap  same handler (exact) [fp shared by ['A472', 'A473']]
+iomfbep_get_color_remap_mode                  A477 -> A477         ap  same handler (exact) [fp shared by ['A102', 'A352', 'A376', 'A460', 'A463', 'A464', 'A468', 'A474', 'A477', 'A486', 'A487', 'A490', 'A513', 'A524', 'A528']]
+dcpep_set_parameter_dcp                       A500 -> A500         ap  same handler (exact)
+dcpep_create_default_fb                       A504 -> A504         ap  same handler (exact) [fp shared by ['A001', 'A014', 'A015', 'A018', 'A019', 'A022', 'A023', 'A026', 'A028', 'A029', 'A030', 'A034', 'A035', 'A039', 'A040', 'A041', 'A042', 'A116', 'A360', 'A381', 'A395', 'A398', 'A401', 'A462', 'A501', 'A502', 'A504']]
+dcpep_get_dfb_compression_info                A037 -> A037         up  same handler (exact) [fp shared by ['A011', 'A012', 'A021', 'A032', 'A037', 'A044']]
+dcpep_get_dfb_info                            A036 -> A036         up  same handler (exact)
+dcpep_get_dfb_layout                          A103 -> A103         up  same handler (exact)
+dcpep_get_dfb_state                           A503 -> A503         ap  same handler (exact) [fp shared by ['A000', 'A003', 'A004', 'A005', 'A006', 'A007', 'A008', 'A009', 'A010', 'A013', 'A016', 'A392', 'A503', 'A542']]
+dcpep_set_dfb_dimensions                      A104 -> A104         up  same handler (exact) [fp shared by ['A104', 'A515', 'A527']]
+dcpep_commit_dfb_info                         A105 -> A105         up  body changed, opcode similarity 1.00; best match A105
+dcpep_dfb_query                               A035 -> A035         up  same handler (exact) [fp shared by ['A001', 'A014', 'A015', 'A018', 'A019', 'A022', 'A023', 'A026', 'A028', 'A029', 'A030', 'A034', 'A035', 'A039', 'A040', 'A041', 'A042', 'A116', 'A360', 'A381', 'A395', 'A398', 'A401', 'A462', 'A501', 'A502', 'A504']]
+dcpep_dfb_ready_query                         A385 -> A385         up  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A523', 'A536', 'A539', 'A540']]
+dcpep_pipe_query_353                          A353 -> A353         up  same handler (exact)
+dcpep_pipe_set_352                            A352 -> A352         up  same handler (exact) [fp shared by ['A102', 'A352', 'A376', 'A460', 'A463', 'A464', 'A468', 'A474', 'A477', 'A486', 'A487', 'A490', 'A513', 'A524', 'A528']]
+dcpep_pipe_cfg_415                            A465 -> A465         ap  same handler (exact) [fp shared by ['A121', 'A124', 'A125', 'A372', 'A373', 'A454', 'A465', 'A493', 'A496', 'A497']]
+dcpep_pipe_cfg_031                            A033 -> A033         up  same handler (exact)
+dcpep_pipe_cfg_414                            A464 -> A464         ap  same handler (exact) [fp shared by ['A102', 'A352', 'A376', 'A460', 'A463', 'A464', 'A468', 'A474', 'A477', 'A486', 'A487', 'A490', 'A513', 'A524', 'A528']]
+dcpep_pipe_query_478                          A539 -> A540 (moved) ap  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A523', 'A536', 'A539', 'A540']]
+dcpep_pipe_query_474                          A535 -> A536 (moved) ap  same handler (exact) [fp shared by ['A106', 'A107', 'A109', 'A115', 'A133', 'A135', 'A136', 'A137', 'A350', 'A351', 'A356', 'A358', 'A369', 'A379', 'A384', 'A385', 'A386', 'A387', 'A391', 'A393', 'A400', 'A451', 'A455', 'A523', 'A536', 'A539', 'A540']]
+dcpep_pipe_set_476                            A537 -> A538 (moved) ap  same handler (exact) [fp shared by ['A130', 'A131', 'A362', 'A363', 'A366', 'A388', 'A396', 'A469', 'A538']]
+iomfbep_set_brightness_correction             A478 -> A478         ap  same handler (exact) [fp shared by ['A100', 'A108', 'A112', 'A370', 'A371', 'A380', 'A461', 'A466', 'A467', 'A475', 'A476', 'A478', 'A481', 'A483', 'A484', 'A485', 'A489', 'A506', 'A507', 'A508', 'A509', 'A510', 'A511', 'A518']]
+dcpep_enable_disable_video_power_savings      A508 -> A508         ap  same handler (exact) [fp shared by ['A100', 'A108', 'A112', 'A370', 'A371', 'A380', 'A461', 'A466', 'A467', 'A475', 'A476', 'A478', 'A481', 'A483', 'A484', 'A485', 'A489', 'A506', 'A507', 'A508', 'A509', 'A510', 'A511', 'A518']]
+dcpep_first_client_open                       A516 -> A516         ap  body changed, opcode similarity 1.00; best match A453
+iomfbep_last_client_close                     A517 -> A517         ap  same handler (exact)
+dcpep_set_display_refresh_properties          A525 -> A526 (moved) ap  same handler (exact)
+dcpep_flush_supports_power                    A528 -> A529 (moved) ap  same handler (exact) [fp shared by ['A519', 'A529', 'A541']]
+iomfbep_abort_swaps_dcp                       A529 -> A530 (moved) ap  same handler (exact)
+dcpep_set_power_state                         A534 -> A535 (moved) ap  same handler (exact) [fp shared by ['A113', 'A456', 'A498', 'A522', 'A535']]
+dcpep_register_dfb_surface                    A533 -> A534 (moved) ap  same handler (exact)

@@ -1,0 +1,6 @@
+== 96a21fd81383
+Homebrew clang version 23.1.4
+25 objects ok, 0 warnings
+== b1615e3fca90
+Homebrew clang version 23.1.4
+25 objects ok, 0 warnings

@@ -1,0 +1,26 @@
+Homebrew clang version 23.1.4
+afk: ok, 0 warnings, 0 errors
+connector: ok, 0 warnings, 0 errors
+apple_drv: ok, 0 warnings, 0 errors
+dcp-180hz: ok, 0 warnings, 0 errors
+dcp-fabric: ok, 0 warnings, 0 errors
+dcp: ok, 0 warnings, 0 errors
+dcp-hdmi: ok, 0 warnings, 0 errors
+dcp_backlight: ok, 0 warnings, 0 errors
+dptxep: ok, 0 warnings, 0 errors
+dcpext_drm: ok, 0 warnings, 0 errors
+ibootep: ok, 0 warnings, 0 errors
+dcpext_scanout: ok, 0 warnings, 0 errors
+iomfb_v12_3: ok, 0 warnings, 0 errors
+iomfb: ok, 0 warnings, 0 errors
+iomfb_v13_3: ok, 0 warnings, 0 errors
+iomfb_h17p: ok, 0 warnings, 0 errors
+iomfb_v14_7_tpl: ok, 0 warnings, 0 errors
+iomfb_v14_7: ok, 0 warnings, 0 errors
+iomfb_v26_6: ok, 0 warnings, 0 errors
+iomfb_v27: ok, 0 warnings, 0 errors
+iomfb_v26_6_desktop: ok, 0 warnings, 0 errors
+j613_dcp_activate: ok, 0 warnings, 0 errors
+systemep: ok, 0 warnings, 0 errors
+parser: ok, 0 warnings, 0 errors
+plane: ok, 0 warnings, 0 errors

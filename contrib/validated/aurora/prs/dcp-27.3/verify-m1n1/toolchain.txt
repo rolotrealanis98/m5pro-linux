@@ -1,0 +1,9 @@
+clang version 21.1.8 (Fedora 21.1.8-6.fc43)
+LLD 21.1.8 (compatible with GNU linkers)
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+cargo 1.99.1 (5f94df478 2026-08-27)
+GNU Make 4.4.1
+clang-21.1.8-6.fc43.aarch64
+lld-21.1.8-6.fc43.aarch64
+llvm-21.1.8-6.fc43.aarch64
+make-4.4.1-11.fc43.aarch64

@@ -1,0 +1,9 @@
+# Switch emulator re-run (gpu-27.3/tools/switchemu2.py) on the three DCP firmware builds, 2026-11-07.
+# up = UnifiedPipeline lookup, ap = IOMobileFramebufferAP lookup; tags A000-A999 and D000-D999 run.
+j716s-fw_Firmware_dcp.ap: 94 tags; A: 94; output byte-identical to agent G's: yes
+j716s-fw_Firmware_dcp.up: 135 tags; A: 135; output byte-identical to agent G's: yes
+macos-27.0-26A428.ap: 93 tags; A: 93; output byte-identical to agent G's: yes
+macos-27.0-26A428.up: 133 tags; A: 133; output byte-identical to agent G's: yes
+macos-27.2-26B123.ap: 93 tags; A: 93; output byte-identical to agent G's: yes
+macos-27.2-26B123.up: 135 tags; A: 135; output byte-identical to agent G's: yes
+# D callbacks (movz/movk tag scan): 27.2 120 (D000-D603), 27.3 120, same set
