@@ -121,7 +121,7 @@ it, so no iBoot carve-out is involved.
 
 ### 2.3 Firmware
 
-`ftab.bin` (31131284 B, sha256 8bf9ff3f...) is a valid FTAB: `rkosftab`, 83 entries (`rkos`, `rkol`,
+`ftab.bin` (about 31 MB) is a valid FTAB: `rkosftab`, 83 entries (`rkos`, `rkol`,
 `aciw`, `acib`, `acim`, `bt*`, `w*`, `2ftb`, `ccaf`, ...). The header words at 0x08-0x1f are all
 zero. No entry is a ticket, and the only `IM4M` bytes are inside the `rkos` image. The three
 `centauri.j716sap{,.dev,.insecure}.im4m` are separate 7772-byte IM4M manifests. So either:

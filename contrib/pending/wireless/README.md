@@ -82,7 +82,7 @@ match the hardware you actually have, then stage the files:
 git clone --depth 1 https://gitlab.com/kernel-firmware/linux-firmware.git /tmp/lf
 git clone --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/wens/wireless-regdb.git /tmp/regdb
 ~/Work/agents/wireless/scripts/stage-wireless-fw.sh /tmp/lf /tmp/regdb
-# -> /Users/rolo/Work/agents/wireless/fw-staging (= CONFIG_EXTRA_FIRMWARE_DIR); already staged once here
+# -> ~/Work/agents/wireless/fw-staging (= CONFIG_EXTRA_FIRMWARE_DIR); already staged once here
 ```
 
 A file missing from the list fails the build, so you cannot ship an image

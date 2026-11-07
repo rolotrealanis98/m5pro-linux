@@ -11,8 +11,8 @@ ESP rules (what stays where, the self-revert contract): ESP-POLICY.md next to th
   mk-daily.py --out DIR --label audio-a --dtb audio   # audio DTB (its kernel is picked for you)
   mk-daily.py --out DIR --label p --battery           # drop the macsmc_power blacklist (attended only)
   mk-daily.py --out DIR --label x --extra "foo=1 bar=2"
-  mk-daily.py --out DIR --daily --deploy-plan --host root@10.0.0.9   # build, then print the ESP swap
-  mk-daily.py --deploy-plan --payload DIR/NAME.bin --host root@10.0.0.9   # plan for a built payload
+  mk-daily.py --out DIR --daily --deploy-plan --host root@<linux-ip>   # build, then print the ESP swap
+  mk-daily.py --deploy-plan --payload DIR/NAME.bin --host root@<linux-ip>   # plan for a built payload
   mk-daily.py --list                                  # ingredient table with file/hash status
 
 Layout (identical to mk-r3.py, the R3-SERIES recipe):

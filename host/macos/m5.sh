@@ -137,7 +137,7 @@ with open(log, "ab") as f:
         print(f"\n[device gone: {ex}]")
 PYEOF
     ;;
-reboot) sudo /Users/rolo/Work/macvdmtool/macvdmtool reboot 2>&1 | tail -2 ;;
+reboot) sudo "$HOME/Work/macvdmtool/macvdmtool" reboot 2>&1 | tail -2 ;;
 autoboot)
     echo "autoboot: watching for stage-1 m1n1 (device $(m1n1_dev)); Ctrl-C stops"
     while :; do

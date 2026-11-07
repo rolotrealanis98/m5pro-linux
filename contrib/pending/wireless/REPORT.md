@@ -189,7 +189,7 @@ BT_INTEL UHID UINPUT`.
 `configs/omarchy-wireless-embed-fw.config` is optional:
 `CONFIG_EXTRA_FIRMWARE` for MT7921 Wi-Fi+BT, RTL8761BU and
 regulatory.db{,.p7s}, about 1.5 MB, from
-`EXTRA_FIRMWARE_DIR=/Users/rolo/Work/agents/wireless/fw-staging`, which
+`EXTRA_FIRMWARE_DIR=~/Work/agents/wireless/fw-staging`, which
 `scripts/stage-wireless-fw.sh` fills.
 
 **Checks done:** every symbol exists in this tree, except `RTW88_8811CU`,

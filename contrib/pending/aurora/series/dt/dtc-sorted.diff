@@ -1,5 +1,5 @@
---- /private/tmp/claude-501/-Users-rolo-Documents-GitHub/19de95f5-8b2b-5988-b9e9-331f62bc639f/scratchpad/b.dts	2026-11-06 21:08:55
-+++ /private/tmp/claude-501/-Users-rolo-Documents-GitHub/19de95f5-8b2b-5988-b9e9-331f62bc639f/scratchpad/a.dts	2026-11-06 21:08:55
+--- /tmp/b.dts	2026-11-06 21:08:55
++++ /tmp/a.dts	2026-11-06 21:08:55
 @@ -632,7 +632,7 @@
  			reg-names = "irq";
  

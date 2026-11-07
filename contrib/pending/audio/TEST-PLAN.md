@@ -4,7 +4,7 @@
 Do not start while another agent owns reboots. Everything runs from the Mac Studio over the SSH bridge, as in the
 trackpad plan:
 
-    B="/Users/rolo/Work/m1n1/.venv/bin/python /Users/rolo/Work/eem-vm/eem-vm.py --keep"
+    B="~/Work/m1n1/.venv/bin/python ~/Work/eem-vm/eem-vm.py --keep"
 
 ## Hard safety rules (all stages)
 1. Never pass `snd_soc_macaudio.please_blow_up_my_speakers` before stage B2, never with a value >= 2, never in a
