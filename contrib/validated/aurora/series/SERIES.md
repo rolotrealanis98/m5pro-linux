@@ -174,7 +174,7 @@ make LLVM=1 ARCH=arm64 O=/Volumes/linux-cs/wt-j716s-out -j12 Image.gz dtbs
     ~/Work/agents/aurora-kernel/t6050-j716s-typec-fixed8-notun-edp.dtb
 ```
 
-The payload recipe is unchanged (`contrib/validated/aurora/tools/mk-r3.py` (retired, see git history) layout, R3-V bootargs, m1n1
+The payload recipe is unchanged (`contrib/pending/aurora/tools/mk-r3.py` (retired, see git history) layout, R3-V bootargs, m1n1
 `pipepark-atc` with 0020/0021); only the kernel tree and the DTB come from here. No `reorder-cpus.py`, no
 hand edits.
 

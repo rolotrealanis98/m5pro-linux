@@ -713,7 +713,7 @@ series DT, m1n1 `pipepark-atc` `28b26ebc`, `initramfs-selftest`) with the `macsm
 **Promotion:** `daily-20261107-ce3f10af.bin` = the same ingredients, `--daily --battery --force` (self-test flag
 off, battery on) installed as `boot.bin`; `boot.bin.prev` stays R2-B `5091e1fe`; the ESP was pruned to four
 payloads (`boot.bin`, `boot.bin.prev`, `boot.bin.known-good`, `boot.bin.b2`). The verification reboot of the new
-daily is recorded in `aurora/STATE.md`.
+daily is recorded in `contrib/validated/aurora/STATE.md`.
 
 ### Result (R3-AUDIO-A2 and R3-AUDIO-B2, 2026-11-07 09:27-09:45 UTC, self-revert loop + A/B stage-1; Rolando near the machine for the sound)
 
@@ -867,7 +867,7 @@ Kernel `7.3.0-gf080637018df` (series + `wfi-idle` 0001/0002: WFI override, PM_DE
 
 ### Result (W0, 2026-11-07 11:44 UTC, self-revert loop + A/B stage-1, Rolando nearby)
 
-Payload `w0-n1dt-20261107-24276a09.bin` (`n1-wifi/prep/RUN-W0.md`): the daily's series kernel and DTB, m1n1 `n1-dt`
+Payload `w0-n1dt-20261107-24276a09.bin` (`contrib/pending/wireless/aurora-n1/prep/RUN-W0.md`): the daily's series kernel and DTB, m1n1 `n1-dt`
 (the daily's m1n1 + 0022 N1 DT fill-in + the dart-pmp0 dapf line), the selftest initramfs carrying the FTAB (private), battery
 on, `m5.selftest=1`, prev = the daily `275d84ec`. Root prepared first (`W0-ROOT-PREP.sh`: FTAB at
 `/usr/lib/firmware/apple/centauri/j716s-ftab.bin`, digest matches the Studio copy; iwd, iw, wireless-regdb, bluez
@@ -882,7 +882,7 @@ provide it, or a panel video). Next: W1 (`RUN-W1.md`, attended: m1n1 trains apci
 
 ### Result (W1, 2026-11-07 11:50 UTC, attended: Rolando at the machine)
 
-Payload `w1-n1train-20261107-3c0a1eff.bin` (`n1-wifi/prep/RUN-W1.md`): W0 plus m1n1 `n1-train` (0020-0023) and
+Payload `w1-n1train-20261107-3c0a1eff.bin` (`contrib/pending/wireless/aurora-n1/prep/RUN-W1.md`): W0 plus m1n1 `n1-train` (0020-0023) and
 `chosen.m5pro,n1=1`. **Boots, no revert, no NVMe disturbance; the training was refused by its own guard.** The stage-2 log
 (read on the running system through `phram`: the kernel's reserved-memory `flash@...` nodes carry `compatible = "phram"`
 with labels `m1n1_stage2.log` and `adt`, so `modprobe phram` with no parameters exposes them as `/dev/mtd0` and `/dev/mtd1`;

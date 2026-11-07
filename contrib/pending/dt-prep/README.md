@@ -20,7 +20,7 @@ Each patch applies alone on the base (`git apply --check`) and all four apply in
 | `hwmon.dtb` | `ab62af9bd48ffd0835e68ee0a2f78a695d1498e3a4c1e0d65ece9373065e25c6` | `hwmon.vs-base.txt` |
 | `stack-right-port+hwmon.dtb` | `594f2a9f0e0d09ceca4b3fd3e9bd5360f3116d0c3f351cccf3ea0ac82a142bbc` | `stack.vs-base.txt` |
 
-`*.decompiled.dts` next to each. Diffs by the series' `tools/compare-dt.sh` (phandles resolved): exactly the
+`*.decompiled.dts` next to each. Diffs by the series' `contrib/validated/aurora/series/tools/compare-dt.sh` (phandles resolved): exactly the
 intended nodes and properties, nothing else. Built with the tree's dtc, `W=1`: one warning, from the base
 (`t6050-die0.dtsi:102` `smc_gpio_low: gpio@67700000` has a unit address and no `reg`; patch 0055).
 
