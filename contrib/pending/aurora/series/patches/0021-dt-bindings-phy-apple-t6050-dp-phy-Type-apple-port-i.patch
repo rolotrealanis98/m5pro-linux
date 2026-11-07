@@ -1,0 +1,30 @@
+From 0dea19eaeb25f567fa25f0948854b964e4a64723 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 17:06:32 -0800
+Subject: [PATCH 21/58] dt-bindings: phy: apple,t6050-dp-phy: Type
+ apple,port-index as uint32
+
+apple,port-index has an enum but no type, so dtschema cannot decode the
+cell and every combo PHY node fails with "b'\x00\x00\x00\x02' is not one
+of [1, 2]" and a core-schema type error, whatever port it names. Give it
+the uint32 type.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml b/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml
+index b055369faf9f..fdc2e6046170 100644
+--- a/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml
++++ b/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml
+@@ -37,6 +37,7 @@ properties:
+     const: 1
+ 
+   apple,port-index:
++    $ref: /schemas/types.yaml#/definitions/uint32
+     enum: [1, 2]
+     description: Native Type-C port; the debug/proxy port is excluded
+ 

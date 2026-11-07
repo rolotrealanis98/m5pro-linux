@@ -1,0 +1,326 @@
+From 352311e216bbc8f26b9671726b9888b68567c73e Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Tue, 3 Nov 2026 20:22:02 -0500
+Subject: [PATCH 10/58] arm64: dts: apple: Add J716c (MacBook Pro 16-inch, M5
+ Max)
+
+Add t6050-max.dtsi, the one-die M5 Max: die 0 of the T6050, with six
+cores in each cluster, 18 in all, and the MTP, so far described for this
+part only. Add the J716c board on it.
+
+Described so far: the CPUs, AIC, NVMe, the SMC, the boot framebuffer,
+the DockChannel console and the keyboard and trackpad (MTP). The GPU,
+video decoder and memory cache controllers are not described for the
+Max yet; the internal PCIe host, USB-C, I2C, the SMC sensors and
+pinctrl_ap stay disabled until each is brought up on this board.
+
+Developed with Claude Code.
+
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ arch/arm64/boot/dts/apple/Makefile        |   1 +
+ arch/arm64/boot/dts/apple/t6050-j716c.dts | 159 ++++++++++++++++++++++
+ arch/arm64/boot/dts/apple/t6050-max.dtsi  | 116 ++++++++++++++++
+ 3 files changed, 276 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/apple/t6050-j716c.dts
+ create mode 100644 arch/arm64/boot/dts/apple/t6050-max.dtsi
+
+diff --git a/arch/arm64/boot/dts/apple/Makefile b/arch/arm64/boot/dts/apple/Makefile
+index b86a642f419c..3329fbb0899a 100644
+--- a/arch/arm64/boot/dts/apple/Makefile
++++ b/arch/arm64/boot/dts/apple/Makefile
+@@ -98,6 +98,7 @@ dtb-$(CONFIG_ARCH_APPLE) += t6040-j614s.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6040-j616s.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6040-j616s-tether.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6041-j616c.dtb
++dtb-$(CONFIG_ARCH_APPLE) += t6050-j716c.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j775d.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t8112-j413.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t8112-j415.dtb
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716c.dts b/arch/arm64/boot/dts/apple/t6050-j716c.dts
+new file mode 100644
+index 000000000000..86297af1c310
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6050-j716c.dts
+@@ -0,0 +1,159 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * MacBook Pro (16-inch, M5 Max, 2026)
++ *
++ * target-type: J716c
++ *
++ * The M5 Max is one T6050 die, die 0 (t6050-max.dtsi). This file enables
++ * and configures what has been brought up on this board; the SoC's other
++ * ports and buses stay disabled until each is described for it.
++ *
++ * Copyright The Asahi Linux Contributors
++ */
++
++/dts-v1/;
++
++#include "t6050-max.dtsi"
++
++/ {
++	compatible = "apple,j716c", "apple,t6050", "apple,arm-platform";
++	model = "Apple MacBook Pro (16-inch, M5 Max, 2026)";
++	chassis-type = "laptop";
++
++	aliases {
++		serial0 = &dockchannel;
++	};
++
++	chosen {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++		/* Normally replaced by the loader */
++		bootargs = "maxcpus=1";
++
++		framebuffer0: framebuffer@0 {
++			compatible = "apple,simple-framebuffer", "simple-framebuffer";
++			reg = <0 0 0 0>; /* To be filled by the loader */
++			/* Format properties will be added by the loader */
++			status = "disabled";
++		};
++	};
++};
++
++/* The internal PCIe host: none of its ports is described yet */
++&pcie0 {
++	status = "disabled";
++};
++
++/* ATC1, ATC3 and the PD controller buses nub-spmi-a0 and -a2: not yet described for this board */
++&nub_spmi_a0 {
++	status = "disabled";
++};
++
++&nub_spmi_a2 {
++	status = "disabled";
++};
++
++&atc1_phy_mbox {
++	status = "disabled";
++};
++
++&atc1_phy {
++	status = "disabled";
++};
++
++&usb_drd1 {
++	status = "disabled";
++};
++
++&usb_drd1_dart_0 {
++	status = "disabled";
++};
++
++&usb_drd1_dart_1 {
++	status = "disabled";
++};
++
++&atc3_phy_mbox {
++	status = "disabled";
++};
++
++&atc3_phy {
++	status = "disabled";
++};
++
++&usb_drd3 {
++	status = "disabled";
++};
++
++&usb_drd3_dart_0 {
++	status = "disabled";
++};
++
++&usb_drd3_dart_1 {
++	status = "disabled";
++};
++
++&i2c1 {
++	status = "disabled";
++};
++
++&i2c2 {
++	status = "disabled";
++};
++
++/*
++ * Reading pin 112's register (0x29c0001c0) takes an SError at probe; nothing in
++ * this file names a pin yet.
++ */
++&pinctrl_ap {
++	status = "disabled";
++};
++
++/* This board's SMC fan and power keys are not yet checked */
++&smc_hwmon {
++	status = "disabled";
++};
++
++/*
++ * The console is on the USB debug link, which drains only while a host reads
++ * it; the machine also boots with nothing attached there.
++ */
++&dockchannel {
++	apple,tx-never-wait;
++	status = "okay";
++};
++
++/* The keyboard and trackpad: the HID transport on the MTP's DockChannel FIFO */
++&mtp_dockchannel {
++	mtp_hid: input@8000 {
++		compatible = "apple,dockchannel-hid";
++		reg = <0x8000 0x1000>, <0xc000 0x1000>,
++		      <0x0 0x1000>, <0x4000 0x1000>;
++		reg-names = "config", "data", "rmt-config", "rmt-data";
++		iommus = <&mtp_dart 0>;
++		interrupt-parent = <&mtp_dockchannel>;
++		interrupts = <2 IRQ_TYPE_LEVEL_HIGH>,
++			     <3 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "tx", "rx";
++		apple,fifo-size = <0x800>;
++		apple,helper-cpu = <&mtp>;
++		apple,afe-reset-gpios = <&smc_pcio 2 GPIO_ACTIVE_HIGH>;
++
++		multi-touch {
++			apple,power-method = <2>;
++			firmware-name = "apple/tpmtfw-j716c.bin";
++		};
++
++		keyboard {
++		};
++
++		stm {
++		};
++	};
++};
++
++/* This board's PCIO outputs, the trackpad AFE reset (2) among them */
++&smc_pcio {
++	apple,output-commands = /bits/ 64 <0x001a000000000000 0x000f000000800000 0x011c000000010000>;
++};
+diff --git a/arch/arm64/boot/dts/apple/t6050-max.dtsi b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+new file mode 100644
+index 000000000000..487288170c9a
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+@@ -0,0 +1,116 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Apple T6050 "M5 Max" SoC: one die
++ *
++ * Die 0 alone: t6050-die0.dtsi and one instance of the per-die template
++ * (t6050-dieX.dtsi), then the blocks described so far for this part only.
++ *
++ * Copyright The Asahi Linux Contributors
++ */
++
++#include <dt-bindings/interrupt-controller/apple-aic.h>
++#include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/phy/phy.h>
++#include <dt-bindings/spmi/spmi.h>
++
++#include "multi-die-cpp.h"
++
++#include "t6050-base.dtsi"
++
++/ {
++	/*
++	 * Six cores in each cluster. The sixth of each comes after the others, so that the
++	 * first fifteen CPUs are numbered as on a part with five cores in each cluster.
++	 */
++	cpus {
++		T6050_M_CPU(cpu0, 40000, cpufreq_mc0);
++		T6050_M_CPU(cpu1, 40001, cpufreq_mc0);
++		T6050_M_CPU(cpu2, 40002, cpufreq_mc0);
++		T6050_M_CPU(cpu3, 40003, cpufreq_mc0);
++		T6050_M_CPU(cpu4, 40004, cpufreq_mc0);
++		T6050_M_CPU(cpu6, 40100, cpufreq_mc1);
++		T6050_M_CPU(cpu7, 40101, cpufreq_mc1);
++		T6050_M_CPU(cpu8, 40102, cpufreq_mc1);
++		T6050_M_CPU(cpu9, 40103, cpufreq_mc1);
++		T6050_M_CPU(cpu10, 40104, cpufreq_mc1);
++		T6050_P_CPU(cpu12, 10200, cpufreq_pc);
++		T6050_P_CPU(cpu13, 10201, cpufreq_pc);
++		T6050_P_CPU(cpu14, 10202, cpufreq_pc);
++		T6050_P_CPU(cpu15, 10203, cpufreq_pc);
++		T6050_P_CPU(cpu16, 10204, cpufreq_pc);
++
++		/* The sixth core of each cluster */
++		T6050_M_CPU(cpu5, 40005, cpufreq_mc0);
++		T6050_M_CPU(cpu11, 40105, cpufreq_mc1);
++		T6050_P_CPU(cpu17, 10205, cpufreq_pc);
++	};
++};
++
++#define DIE
++#define DIE_NO 0
++#define DIE_UNIT_PREFIX
++#define DIE_ATC1 atc1
++#define SOC_NODE die0
++
++#include "t6050-dieX.dtsi"
++#include "t6050-die0.dtsi"
++
++#undef DIE
++#undef DIE_NO
++#undef DIE_UNIT_PREFIX
++#undef DIE_ATC1
++#undef SOC_NODE
++
++/*
++ * The MTP coprocessor (the keyboard and trackpad's), which iBoot leaves running with its
++ * firmware, behind its DART, and the DockChannel FIFO its HID transport uses; the board adds
++ * that transport. From the ADT: /arm-io/mtp reg[0] 0x294600000 (the ASC, its v4 mailbox at
++ * +0x8000; interrupts [677, 676, 679, 678]: 676..679 in send-empty, send-not-empty, recv-empty,
++ * recv-not-empty order), dart-mtp 0x294800000 (interrupt 659, SID 0, vm-base 0x100_00004000),
++ * dockchannel-mtp 0x294b14000 for its interrupts (660) and 0x294b28000.. for the FIFOs.
++ */
++&die0 {
++	mtp_mbox: mailbox@294608000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x2 0x94608000 0x0 0x4000>;
++		interrupts = <AIC_IRQ 0 676 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 677 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 678 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 679 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++	};
++
++	mtp_dart: iommu@294800000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x2 0x94800000 0x0 0xc000>;
++		interrupts = <AIC_IRQ 0 659 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++	};
++
++	mtp: mtp@294600000 {
++		compatible = "apple,t6050-mtp", "apple,mtp", "apple,rtk-helper-asc4";
++		reg = <0x2 0x94600000 0x0 0x4000>,
++		      <0x2 0x94c00000 0x0 0xc4000>;
++		reg-names = "asc", "sram";
++		mboxes = <&mtp_mbox>;
++		iommus = <&mtp_dart 0>;
++		#helper-cells = <0>;
++	};
++
++	mtp_dockchannel: fifo@294b14000 {
++		compatible = "apple,t6050-dockchannel", "apple,dockchannel";
++		reg = <0x2 0x94b14000 0x0 0x1000>;
++		reg-names = "irq";
++		interrupts = <AIC_IRQ 0 660 IRQ_TYPE_LEVEL_HIGH>;
++		ranges = <0 0x2 0x94b28000 0x10000>;
++		nonposted-mmio;
++		#address-cells = <1>;
++		#size-cells = <1>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++};

@@ -1,0 +1,2859 @@
+From 17453d8f164c0235ef7cc361b4ba1117878ef726 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 11:59:40 -0800
+Subject: [PATCH 01/58] arm64: dts: apple: Add the J775D (Mac Studio, M5 Ultra)
+ device trees
+
+Add the T6050 SoC in its two-die M5 Ultra form, and the Mac Studio board
+that uses it: the device tree for Linux running on the hardware, as the
+boot loader hands it over (the loader fills the tunables and calibration
+the nodes name).
+
+Every T6050 is made of the same die, so the SoC description is split as
+for the M3 Max and Ultra (t6031-base, -die0, -dieX):
+
+- t6050-base.dtsi: the nodes common to every size, die 0's bus and the
+  CPU node template;
+- t6050-die0.dtsi: the blocks used on die 0 only, among them the
+  interrupt controller that serves both dies;
+- t6050-dieX.dtsi: the per-die template, included once for each die,
+  with each die's blocks at the die stride and its interrupts on its
+  own die of the AIC;
+- t6050-ultra.dtsi: the two dies, their CPUs (five cores in each
+  cluster) and the blocks so far described for the two-die part only:
+  the video decoders, the memory cache controllers, the display
+  subsystem, die 1's ATC0 and its DisplayPort PHY;
+- t6050-j775d.dts: the board, its USB-C ports and their PD controllers,
+  the HDMI port, PCIe, audio, the boot NOR and the fans.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+[erik: dropped references to private files from a comment]
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ arch/arm64/boot/dts/apple/t6050-base.dtsi  |  292 ++++++
+ arch/arm64/boot/dts/apple/t6050-die0.dtsi  | 1006 ++++++++++++++++++++
+ arch/arm64/boot/dts/apple/t6050-dieX.dtsi  |  283 ++++++
+ arch/arm64/boot/dts/apple/t6050-j775d.dts  |  701 ++++++++++++++
+ arch/arm64/boot/dts/apple/t6050-ultra.dtsi |  502 ++++++++++
+ 5 files changed, 2784 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/apple/t6050-base.dtsi
+ create mode 100644 arch/arm64/boot/dts/apple/t6050-die0.dtsi
+ create mode 100644 arch/arm64/boot/dts/apple/t6050-dieX.dtsi
+ create mode 100644 arch/arm64/boot/dts/apple/t6050-j775d.dts
+ create mode 100644 arch/arm64/boot/dts/apple/t6050-ultra.dtsi
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-base.dtsi b/arch/arm64/boot/dts/apple/t6050-base.dtsi
+new file mode 100644
+index 000000000000..1be5e14cb12f
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6050-base.dtsi
+@@ -0,0 +1,292 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Nodes common to every Apple T6050 (M5 Max, M5 Ultra) SoC
++ *
++ * A T6050 is one or two identical dies: t6050-max.dtsi describes the
++ * one-die part and t6050-ultra.dtsi the two-die one. Each includes this
++ * file, t6050-die0.dtsi (the blocks used on die 0 only) and, once per die,
++ * the per-die template t6050-dieX.dtsi. Die 0's MMIO window is
++ * 0x2_00000000 and die 1's 0x42_00000000 (die stride 0x40_00000000); each
++ * die has its own simple-bus, which the boot loader looks up by unit
++ * address. Unit addresses are CPU physical addresses. The boot loader
++ * starts the secondary CPUs and fills in their release addresses, the
++ * memory node and its own reservations.
++ *
++ * A smaller (binned) one-die part can build on t6050-max.dtsi, as
++ * t6034.dtsi does on t6031.dtsi: the boot loader removes the CPU nodes of
++ * the cores a part lacks.
++ *
++ * Copyright The Asahi Linux Contributors
++ */
++
++/*
++ * The per-die template's addressing: before each inclusion of
++ * t6050-dieX.dtsi, the including file defines
++ *  DIE		the label suffix (empty for die 0, _die1 for die 1),
++ *  DIE_NO	the die number (the AIC's die cell),
++ *  DIE_UNIT_PREFIX	the die's MMIO offset as a unit-address prefix
++ *		(empty for die 0, 4 for die 1),
++ *  DIE_ATC1	the port name of the die's ATC1 (die d's ATCn is port 4d + n),
++ *  SOC_NODE	the die's bus.
++ * DIE_UNIT() and DIE_HI() then give a die-0 address on that die.
++ */
++#define DIE_UNIT(addr)		__concat(DIE_UNIT_PREFIX, addr)
++#define DIE_HI(hi)		((hi) + 0x40 * DIE_NO)
++#define DIE_ATC1_LABEL(suffix)	__stringify(__concat(DIE_ATC1, suffix))
++
++/*
++ * CPU nodes. Die d, cluster c, core n has MPIDR Aff2 4 for the two M-tier
++ * (apple,sawtooth) clusters and 1 for the P-tier (apple,everest) cluster,
++ * Aff1 0x10 * d + c and Aff0 n; the unit address is the MPIDR. Labels
++ * number the cores 18 * d + 6 * c + n. The boot loader removes the nodes of
++ * the cores it did not start.
++ */
++#define T6050_CPU(label, mpidr, type, opp, cluster)		\
++	label: cpu@mpidr {					\
++		compatible = type;				\
++		device_type = "cpu";				\
++		reg = <0x0 0x ## mpidr>;			\
++		enable-method = "spin-table";			\
++		operating-points-v2 = <&opp>;			\
++		performance-domains = <&cluster>;		\
++		cpu-release-addr = <0 0>; /* to be filled by the loader */ \
++	}
++
++#define T6050_M_CPU(label, mpidr, cluster) \
++	T6050_CPU(label, mpidr, "apple,sawtooth", mcluster_opp, cluster)
++#define T6050_P_CPU(label, mpidr, cluster) \
++	T6050_CPU(label, mpidr, "apple,everest", pcluster_opp, cluster)
++
++/ {
++	compatible = "apple,t6050", "apple,arm-platform";
++	#address-cells = <2>;
++	#size-cells = <2>;
++	interrupt-parent = <&aic>;
++
++	/* The boot loader replaces reg with the usable RAM. */
++	memory@10000000000 {
++		device_type = "memory";
++		reg = <0x100 0x0 0x0 0x0>;
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++		/* The boot loader adds its own reservations. */
++	};
++
++	/* The size's file lists its CPUs (T6050_M_CPU, T6050_P_CPU). */
++	cpus {
++		#address-cells = <2>;
++		#size-cells = <0>;
++	};
++
++	/*
++	 * CPU OPPs, from the ADT: /arm-io/pmgr acc-clusters maps clusters 0, 1 and 2 of each die to
++	 * voltage-states 22, 23 and 5, and their -sram tables give the frequencies (kHz). 22 and 23
++	 * list the same frequencies, so the two M clusters share one table. Levels are DVFS command
++	 * states: state 1 is 300 MHz and state k the table's (k-1)-th entry from state 2, as on T8142
++	 * (measured on J775D: every state's clock from a dependent-add chain). iBoot leaves M cluster
++	 * 0 of each die in state 6 (2652 MHz), the other clusters in state 2.
++	 *
++	 * Bring-up: the clusters' controllers (t6050-dieX.dtsi) assert apple,firmware-managed-thermal,
++	 * which the T6050 profile requires, before that ownership is qualified on this boot chain (no
++	 * Linux PMP driver runs; the SMC drives the fans). A qualification settles it: an all-core
++	 * load at the top states, watching TCMb, the fans and the measured clock.
++	 */
++	mcluster_opp: opp-table-mcluster {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		opp01 {
++			opp-hz = /bits/ 64 <300000000>;
++			opp-level = <1>;
++		};
++		opp02 {
++			opp-hz = /bits/ 64 <1344000000>;
++			opp-level = <2>;
++		};
++		opp03 {
++			opp-hz = /bits/ 64 <1644000000>;
++			opp-level = <3>;
++		};
++		opp04 {
++			opp-hz = /bits/ 64 <1992000000>;
++			opp-level = <4>;
++		};
++		opp05 {
++			opp-hz = /bits/ 64 <2304000000>;
++			opp-level = <5>;
++		};
++		opp06 {
++			opp-hz = /bits/ 64 <2652000000>;
++			opp-level = <6>;
++		};
++		opp07 {
++			opp-hz = /bits/ 64 <2964000000>;
++			opp-level = <7>;
++		};
++		opp08 {
++			opp-hz = /bits/ 64 <3240000000>;
++			opp-level = <8>;
++		};
++		opp09 {
++			opp-hz = /bits/ 64 <3504000000>;
++			opp-level = <9>;
++		};
++		opp10 {
++			opp-hz = /bits/ 64 <3696000000>;
++			opp-level = <10>;
++		};
++		opp11 {
++			opp-hz = /bits/ 64 <3876000000>;
++			opp-level = <11>;
++		};
++		opp12 {
++			opp-hz = /bits/ 64 <4044000000>;
++			opp-level = <12>;
++		};
++		opp13 {
++			opp-hz = /bits/ 64 <4176000000>;
++			opp-level = <13>;
++		};
++		opp14 {
++			opp-hz = /bits/ 64 <4284000000>;
++			opp-level = <14>;
++		};
++		opp15 {
++			opp-hz = /bits/ 64 <4308000000>;
++			opp-level = <15>;
++		};
++		opp16 {
++			opp-hz = /bits/ 64 <4380000000>;
++			opp-level = <16>;
++		};
++	};
++
++	pcluster_opp: opp-table-pcluster {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		opp01 {
++			opp-hz = /bits/ 64 <300000000>;
++			opp-level = <1>;
++		};
++		opp02 {
++			opp-hz = /bits/ 64 <1308000000>;
++			opp-level = <2>;
++		};
++		opp03 {
++			opp-hz = /bits/ 64 <1620000000>;
++			opp-level = <3>;
++		};
++		opp04 {
++			opp-hz = /bits/ 64 <1980000000>;
++			opp-level = <4>;
++		};
++		opp05 {
++			opp-hz = /bits/ 64 <2292000000>;
++			opp-level = <5>;
++		};
++		opp06 {
++			opp-hz = /bits/ 64 <2580000000>;
++			opp-level = <6>;
++		};
++		opp07 {
++			opp-hz = /bits/ 64 <2880000000>;
++			opp-level = <7>;
++		};
++		opp08 {
++			opp-hz = /bits/ 64 <3180000000>;
++			opp-level = <8>;
++		};
++		opp09 {
++			opp-hz = /bits/ 64 <3432000000>;
++			opp-level = <9>;
++		};
++		opp10 {
++			opp-hz = /bits/ 64 <3648000000>;
++			opp-level = <10>;
++		};
++		opp11 {
++			opp-hz = /bits/ 64 <3828000000>;
++			opp-level = <11>;
++		};
++		opp12 {
++			opp-hz = /bits/ 64 <3984000000>;
++			opp-level = <12>;
++		};
++		opp13 {
++			opp-hz = /bits/ 64 <4104000000>;
++			opp-level = <13>;
++		};
++		opp14 {
++			opp-hz = /bits/ 64 <4188000000>;
++			opp-level = <14>;
++		};
++		opp15 {
++			opp-hz = /bits/ 64 <4236000000>;
++			opp-level = <15>;
++		};
++		opp16 {
++			opp-hz = /bits/ 64 <4284000000>;
++			opp-level = <16>;
++		};
++		opp17 {
++			opp-hz = /bits/ 64 <4308000000>;
++			opp-level = <17>;
++		};
++		opp18 {
++			opp-hz = /bits/ 64 <4332000000>;
++			opp-level = <18>;
++		};
++		opp19 {
++			opp-hz = /bits/ 64 <4428000000>;
++			opp-level = <19>;
++		};
++		opp20 {
++			opp-hz = /bits/ 64 <4512000000>;
++			opp-level = <20>;
++		};
++		opp21 {
++			opp-hz = /bits/ 64 <4608000000>;
++			opp-level = <21>;
++		};
++	};
++
++	/* The 24 MHz reference clock of the watchdog */
++	clkref: clock-ref {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <24000000>;
++		clock-output-names = "clkref";
++	};
++
++	/* The QSPI controller's input: ADT /arm-io/qspi clock-ids 440, /arm-io clock-frequencies[440 - 256] */
++	clk_405m: clock-405m {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <405000000>;
++		clock-output-names = "clk_405m";
++	};
++
++	timer {
++		compatible = "arm,armv8-timer";
++		interrupt-parent = <&aic>;
++		interrupt-names = "phys", "virt", "hyp-phys", "hyp-virt";
++		interrupts = <AIC_FIQ 0 AIC_TMR_GUEST_PHYS IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_FIQ 0 AIC_TMR_GUEST_VIRT IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_FIQ 0 AIC_TMR_HV_PHYS IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_FIQ 0 AIC_TMR_HV_VIRT IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	/* Die 0 MMIO */
++	die0: soc@200000000 {
++		compatible = "simple-bus";
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges = <0x2 0x0 0x2 0x0 0x3 0xc0000000>;
++		nonposted-mmio;
++	};
++};
+diff --git a/arch/arm64/boot/dts/apple/t6050-die0.dtsi b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+new file mode 100644
+index 000000000000..768ec932f7b8
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+@@ -0,0 +1,1006 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Nodes of the Apple T6050 (M5 Max, M5 Ultra) used on die 0 only: the
++ * interrupt controller, which serves every die, and the blocks a two-die
++ * part runs from die 0 (the SMC, storage, PCIe, the SPMI buses, the AOP,
++ * the boot NOR) or so far describes there only (ATC2 and ATC3, the I2C
++ * buses).
++ *
++ * Copyright The Asahi Linux Contributors
++ */
++
++&die0 {
++	/* One AIC3 for every die, 3104 interrupts each */
++	aic: interrupt-controller@280400000 {
++		compatible = "apple,t6050-aic3", "apple,t8122-aic3";
++		interrupt-controller;
++		#interrupt-cells = <4>;
++		reg = <0x2 0x80400000 0x0 0x1cc000>,
++		      <0x2 0x80440000 0x0 0x4000>;
++		reg-names = "core", "event";
++	};
++
++	/*
++	 * DockChannel channel 1, the one the USB debug link carries.
++	 * Its FIFO raises no interrupt on receive, so it is drained in
++	 * software.
++	 */
++	dockchannel: serial@288e3c000 {
++		compatible = "apple,dockchannel-uart";
++		reg = <0x2 0x88e3c000 0x0 0x30>,
++		      <0x2 0x88e38000 0x0 0x8>,
++		      <0x2 0x88e0c000 0x0 0x18>;
++		reg-names = "data", "config", "irq";
++		interrupts = <AIC_IRQ 0 360 IRQ_TYPE_LEVEL_HIGH>;
++		apple,channel = <1>;
++		apple,sw-drain;
++		status = "disabled";
++	};
++
++	wdt: watchdog@28836c000 {
++		compatible = "apple,t6050-wdt", "apple,t8103-wdt";
++		reg = <0x2 0x8836c000 0x0 0x4000>;
++		clocks = <&clkref>;
++		interrupts = <AIC_IRQ 0 721 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	/*
++	 * /arm-io/smc: reg[0] 0x8c600000 +0x88000 (the ASC; the SMC driver maps none of it), its mailbox
++	 * the ASC v4 block at +0x8000 as on ANS. ADT interrupts [900, 899, 902, 901]: 899..902 in the
++	 * send-empty, send-not-empty, recv-empty, recv-not-empty order. iop-smc-nub region-base
++	 * 0x28de00000 +0x140000 is already a CPU address: the SRAM its RTKit buffers and key replies use.
++	 * iBoot leaves the firmware (t6050smc) running.
++	 */
++	smc_mbox: mailbox@28c608000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x2 0x8c608000 0x0 0x4000>;
++		interrupts = <AIC_IRQ 0 899 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 900 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 901 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 902 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++	};
++
++	/*
++	 * The AOP's GPIO controller (ADT /arm-io/aop-gpio0, gpio,t8101, 85 pins). The AOP keeps
++	 * interrupt groups 0-3; the AP's are 4-6 (supported-int-groups), AIC 572-574. Like T8132's, the block has slots
++	 * that fault when read, so it is matched as T8132's (no register cache read-back).
++	 * Pin 15 (force-dpfu) is never requested.
++	 */
++	pinctrl_aop: pinctrl@290824000 {
++		compatible = "apple,t6050-pinctrl", "apple,t8132-pinctrl";
++		reg = <0x2 0x90824000 0x0 0x4000>;
++		gpio-controller;
++		#gpio-cells = <2>;
++		gpio-ranges = <&pinctrl_aop 0 0 85>;
++		apple,npins = <85>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 572 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 573 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 574 IRQ_TYPE_LEVEL_HIGH>;
++		apple,irq-group-base = <4>;
++		/* Enabled by the board, or by Aura with a display engine whose hotplug input it has */
++		status = "disabled";
++	};
++
++	smc: smc@28c600000 {
++		compatible = "apple,t6050-smc";
++		reg = <0x2 0x8c600000 0x0 0x4000>,
++		      <0x2 0x8de00000 0x0 0x140000>;
++		reg-names = "smc", "sram";
++		mboxes = <&smc_mbox>;
++
++		/* T8142's key discovery (every readable T* float key); boards add their fan and power keys. */
++		smc_hwmon: hwmon {
++			compatible = "apple,smc-hwmon";
++			apple,discover-temperatures;
++			/* macsmc_soc_die: the SoC hotspot the SMC computes (TCMb, 47.8 C at idle) */
++			apple,soc-die-keys = "TCMb";
++		};
++
++		/* The PMU's legacy scratchpad (info-leg_scrpad 0xf800) cells, as on T6040. */
++		smc_reboot: reboot {
++			compatible = "apple,smc-reboot";
++			nvmem-cells = <&shutdown_flag>, <&boot_stage>,
++				      <&boot_error_count>, <&panic_count>;
++			nvmem-cell-names = "shutdown_flag", "boot_stage",
++					   "boot_error_count", "panic_count";
++		};
++
++		/*
++		 * The SMC's pcIO power outputs: the board lists its lines (apple,output-commands) as
++		 * pKW8('pcIO', lo, hi) templates, (hi << 32) | lo, with the level in bits 15:0.
++		 */
++		smc_pcio: gpio {
++			compatible = "apple,smc-pcio-gpio";
++			gpio-controller;
++			#gpio-cells = <2>;
++		};
++
++		/* ADT info-clock_offset [0x2100, 6]: M1-style 32768 Hz ticks, as on T6040. */
++		smc_rtc: rtc {
++			compatible = "apple,smc-rtc";
++			nvmem-cells = <&rtc_offset>;
++			nvmem-cell-names = "rtc_offset";
++		};
++	};
++
++	/*
++	 * The storage SART. The boot loader's entries (outside the
++	 * kernel's memory) stay in place.
++	 */
++	ans_sart: iommu@41dc50000 {
++		compatible = "apple,t6050-sart";
++		reg = <0x4 0x1dc50000 0x0 0xc000>;
++	};
++
++	ans_mbox: mailbox@419608000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x4 0x19608000 0x0 0x4000>;
++		interrupts = <AIC_IRQ 0 1347 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 1348 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 1349 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 1350 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++	};
++
++	/*
++	 * The boot loader leaves ANS running with the controller shut
++	 * down. Its power stays with the firmware, and post-M4 ANS is
++	 * never reset through PMGR, so the node names no power domain
++	 * and no reset.
++	 */
++	nvme: nvme@45dcc0000 {
++		compatible = "apple,t6050-nvme-ans2";
++		reg = <0x4 0x5dcc0000 0x0 0x10000>,
++		      <0x4 0x19600000 0x0 0x4000>,
++		      <0x4 0x1dcc0000 0x0 0x60000>;
++		reg-names = "nvme", "ans", "nvmmu";
++		interrupts = <AIC_IRQ 0 2338 IRQ_TYPE_LEVEL_HIGH>;
++		mboxes = <&ans_mbox>;
++		apple,sart = <&ans_sart>;
++	};
++
++	/* The DARTs of PCIe ports 2 and 3 */
++	dart_apcie2: iommu@412000000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x4 0x12000000 0x0 0x20000>;
++		interrupts = <AIC_IRQ 0 1540 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		status = "disabled";
++	};
++
++	/*
++	 * /arm-io/dart-apcie0: apcie port 0's, which carries the N1 (its mappers Control, Alpha and
++	 * Beta on streams 1, 2 and 3). Disabled, like port 0, until the bootloader trains that port.
++	 */
++	dart_apcie0: iommu@410000000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x4 0x10000000 0x0 0x20000>;
++		interrupts = <AIC_IRQ 0 1524 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		status = "disabled";
++	};
++
++	dart_apcie3: iommu@413000000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x4 0x13000000 0x0 0x20000>;
++		interrupts = <AIC_IRQ 0 1548 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		status = "disabled";
++	};
++
++	/*
++	 * /arm-io/nub-spmi0: reg[0] 0x8a014000 +0x4000, generation 4 (no IRQ: the driver refuses one).
++	 * No power-domains: NUB_SPMI0 is critical and on (Aura talks to the PMU here every boot), and
++	 * binding the pwrstate driver would write the PS register at probe.
++	 */
++	nub_spmi0: spmi@28a014000 {
++		compatible = "apple,t6050-spmi", "apple,t8142-spmi";
++		reg = <0x2 0x8a014000 0x0 0x4000>;
++		#address-cells = <2>;
++		#size-cells = <0>;
++
++		/* spmi-abbeyL1, is-primary: USID 0xe. Read-only use: cells, never a whole-device read. */
++		pmu: pmic@e {
++			compatible = "apple,abbey-pmic", "apple,spmi-nvmem";
++			reg = <0xe SPMI_USID>;
++
++			nvmem-layout {
++				compatible = "fixed-layout";
++				#address-cells = <1>;
++				#size-cells = <1>;
++
++				rtc_offset: rtc-offset@2100 {
++					reg = <0x2100 6>;	/* ADT info-clock_offset */
++				};
++
++				/* Abbey conventions (0xf802 is the counter Aura clears). */
++				boot_stage: boot-stage@f801 {
++					reg = <0xf801 1>;
++				};
++
++				boot_error_count: boot-error-count@f802,0 {
++					reg = <0xf802 1>;
++					bits = <0 4>;
++				};
++
++				panic_count: panic-count@f802,4 {
++					reg = <0xf802 1>;
++					bits = <4 4>;
++				};
++
++				shutdown_flag: shutdown-flag@f80f,3 {
++					reg = <0xf80f 1>;
++					bits = <3 1>;
++				};
++			};
++		};
++	};
++
++	/*
++	 * The PMC voter interface (die 0): agent a's floor word at "voters" + 0x4000 * a, with a
++	 * pending word after it, and the honoured floors and rail enable words at "rails". Both lie
++	 * inside dcpext0's PMC metadata range, which the DCP driver only hands to its firmware. Agents
++	 * (ADT voter-agent): PMP 0, CLPC 1, GFX 2, AP 3, PMP1 4. The boot loader enables none on any
++	 * rail; CLPC and AP become static voters. The PMP and GFX agents stay as the boot left them.
++	 */
++	pmc: power-management@286806000 {
++		compatible = "apple,t6050-pmc";
++		reg = <0x2 0x86806000 0x0 0x3000>,
++		      <0x2 0x86700000 0x0 0x14000>;
++		reg-names = "rails", "voters";
++		#address-cells = <1>;
++		#size-cells = <0>;
++		apple,static-voters = <1 3>;
++
++		clpc: performance-controller@1 {
++			compatible = "apple,t6050-clpc", "apple,t6041-clpc";
++			reg = <1>;
++		};
++	};
++
++	/*
++	 * PMGR block 0 + 0x20000 (/arm-io/pmgr reg[0] 0x280600000 + 0x20000): the page of die 0's
++	 * CIO reconfiguration register (+0x60, request BIT(2n), busy BIT(2n + 1)), the routers'
++	 * CIOn_RECONFIG_V operations (ADT 601-604). Outside the 16 KiB pmgr0 maps.
++	 */
++	cio_reconfig0: reset-controller@280620000 {
++		compatible = "apple,t6050-cio-reset";
++		reg = <0x2 0x80620000 0x0 0x4000>;
++		#reset-cells = <1>;
++		status = "disabled";
++	};
++
++	/* /arm-io/acio-phy-cpu2 reg[0]: the PHY firmware's mailbox (it runs, pre-loaded by iBoot) */
++	atc2_phy_mbox: mailbox@383148000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x3 0x83148000 0x0 0x4000>;
++		interrupts = <AIC_IRQ 0 861 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 862 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 863 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 864 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty", "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++		status = "disabled";
++	};
++
++	/* /arm-io/atc-phy2 regs [2] [0] usb-drd2[4] [39] [40] [41] [42] [43] [38] [37] usb-drd2[3] */
++	atc2_phy: phy@383000000 {
++		compatible = "apple,t6050-combo-phy";
++		reg = <0x3 0x83000000 0x0 0x2c000>,
++		      <0x3 0x82a90000 0x0 0x4000>,
++		      <0x3 0x82800000 0x0 0x4000>,
++		      <0x3 0x83200000 0x0 0x4000>,
++		      <0x3 0x83244000 0x0 0x4000>,
++		      <0x3 0x80000000 0x0 0x8000>,
++		      <0x3 0x80020000 0x0 0x4000>,
++		      <0x3 0x83250000 0x0 0x4000>,
++		      <0x3 0x83140000 0x0 0x4000>,
++		      <0x3 0x830c0000 0x0 0x10000>,
++		      <0x3 0x82a84000 0x0 0x4000>;
++		reg-names = "core", "usb2phy", "usb2-digital", "reset", "fabric", "axi2af", "lioa",
++			    "common-cfg", "usb-control", "firmware-data", "pipehandler";
++		#phy-cells = <1>;
++		#reset-cells = <1>;
++		apple,port-index = <2>;
++		/* The binding's name for "no other owner"; nothing else drives this port here. */
++		apple,guest-port-reserved;
++		mode-switch;
++		orientation-switch;
++		mboxes = <&atc2_phy_mbox>;
++		power-domains = <&ps_atc2_usb_aon>, <&ps_atc2_common>, <&ps_atc2_phymxwrap>,
++				<&ps_atc2_usb>;
++		power-domain-names = "usb-aon", "common", "wrapper", "usb";
++		status = "disabled";
++	};
++
++	/* /arm-io/atc2-dpxbar */
++	atc2_xbar: mux@38324c000 {
++		compatible = "apple,t6050-display-crossbar", "apple,t8142-display-crossbar";
++		reg = <0x3 0x8324c000 0x0 0x4000>;
++		#mux-control-cells = <1>;
++		power-domains = <&ps_atc2_usb_aon>, <&ps_atc2_common>;
++		power-domain-names = "usb-aon", "common";
++		status = "disabled";
++	};
++
++	/*
++	 * /arm-io/nub-spmi-a0: reg[0] 0x8a188000, generation 4, a bus of the USB-C PD controllers
++	 * (HPMs, the board's). They are polled (no interrupts), so the bus needs none either.
++	 */
++	nub_spmi_a0: spmi@28a188000 {
++		compatible = "apple,t6050-spmi", "apple,t8142-spmi";
++		reg = <0x2 0x8a188000 0x0 0x4000>;
++		#address-cells = <2>;
++		#size-cells = <0>;
++	};
++
++	/*
++	 * ATC2's usb-drd2 and dart-usb2, for USB beside DisplayPort on ATC2. Disabled, like atc2_phy
++	 * and its domains: dcpext0's display handoff or the board enables them.
++	 */
++	/* /arm-io/usb-drd2: reg[0] (core and Apple regions), reg[1] (drd-cfg), interrupt 1483; ATC1's tunables */
++	usb_drd2: usb@382280000 {
++		compatible = "apple,t6050-dwc3", "apple,t8103-dwc3";
++		reg = <0x3 0x82280000 0x0 0xcd00>,
++		      <0x3 0x8228cd00 0x0 0x4b00>,
++		      <0x3 0x82200000 0x0 0x4000>;
++		reg-names = "dwc3-core", "dwc3-apple", "drd-cfg";
++		interrupts = <AIC_IRQ 0 1483 IRQ_TYPE_LEVEL_HIGH>;
++		dr_mode = "otg";
++		usb-role-switch;
++		role-switch-default-mode = "host";
++		iommus = <&usb_drd2_dart_0 0>, <&usb_drd2_dart_1 1>;
++		power-domains = <&ps_atc2_usb>;
++		resets = <&atc2_phy 0>;
++		phys = <&atc2_phy PHY_TYPE_USB2>, <&atc2_phy PHY_TYPE_USB3>;
++		phy-names = "usb2-phy", "usb3-phy";
++		apple,tunable-gbl-default = <0x64 0x2 0x0>, <0x10 0xfff80000 0x00680000>;
++		apple,tunable-gbl-host = <0x4 0x0001ef00 0x00002f00>, <0x1c 0x00000100 0x0>,
++			<0x2c 0x000a07ff 0x000800c8>, <0x100 0x02000100 0x02000100>,
++			<0x504 0x00001000 0x0>, <0x528 0xff0000ff 0x06000006>,
++			<0x52c 0xff0000ff 0x08000008>, <0x580 0xffffffff 0x6f000006>,
++			<0x584 0xffffffff 0x00060000>;
++		apple,tunable-dbg = <0x0 0x8 0x8>;
++		apple,tunable-cfg-host = <0x20 0xff 0x1b>;
++		apple,tunable-link = <0x10 0xff000000 0xff000000>, <0x20 0x7ff00000 0x4e900000>,
++			<0x24 0x001f8000 0x000b8000>, <0x60 0x0003ffff 0x00000600>;
++		apple,tunable-cio = <0x20 0x00ff0000 0x001e0000>;
++		/* USB beside DisplayPort: enabled with atc2_phy. */
++		status = "disabled";
++	};
++
++	/* /arm-io/dart-usb2 reg[0] and reg[1], interrupt 1487; vm-base 0x10000004000 +0xffff0000 */
++	usb_drd2_dart_0: iommu@382f00000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x3 0x82f00000 0x0 0xc000>;
++		interrupts = <AIC_IRQ 0 1487 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_atc2_usb>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++		status = "disabled";
++	};
++
++	usb_drd2_dart_1: iommu@382f80000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x3 0x82f80000 0x0 0xc000>;
++		interrupts = <AIC_IRQ 0 1487 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_atc2_usb>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++		status = "disabled";
++	};
++
++	/*
++	 * ATC3: its combo PHY, usb-drd3 and dart-usb3, as ATC1's (ADT /arm-io/atc-phy3,
++	 * acio-phy-cpu3, usb-drd3, dart-usb3), and its USB4/Thunderbolt router.
++	 */
++	/*
++	 * ATC3's USB4/Thunderbolt router (/arm-io/acio3: rid 3, compatible acio,v2): the router
++	 * coprocessor's mailbox, /arm-io/acio-cpu3 reg[0]. Its ADT interrupts
++	 * are [868, 867, 870, 869]: send-empty is index 1 and recv-not-empty index 2, as for the
++	 * PHY mailboxes. Disabled until the router driver is in.
++	 */
++	usb4_3_mbox: mailbox@389108000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x3 0x89108000 0x0 0x4000>;
++		interrupts = <AIC_IRQ 0 867 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 868 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 869 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 870 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty", "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++		status = "disabled";
++	};
++
++	/*
++	 * /arm-io/acio3 reg[1..3] (RC 0x389ac0000, HBW and LBW fabric: one 0xc000 window),
++	 * the coprocessor's data SRAM (iop-acio3-nub segment __DATA at 0x389080000, firmware
++	 * address 0x10000000, 0x26000) and its MxWrap wrapper (acio-cpu3 reg[1]); the 16 MiB
++	 * window at 0x389000000 holds the children. Power: power-gates [122, 85, 120, 121] in
++	 * the order the coprocessor's start powers them. The loader fills apple,tunable-rc
++	 * (top, HBW and LBW tables) through the usb4-3-acio alias.
++	 */
++	usb4_3_acio: cio@389ac0000 {
++		compatible = "apple,t6050-usb4-acio";
++		reg = <0x3 0x89ac0000 0x0 0xc000>,
++		      <0x3 0x89080000 0x0 0x26000>,
++		      <0x3 0x89100000 0x0 0x4000>;
++		reg-names = "rc", "sram", "cpu";
++		mboxes = <&usb4_3_mbox>;
++		resets = <&cio_reconfig0 3>;
++		power-domains = <&ps_atc3_cio>, <&ps_atc3_cio_pcie>, <&ps_atc3_cio_usb>,
++				<&ps_atc3_cio_auss>;
++		thunderbolt-switch;
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges = <0x0 0x3 0x89000000 0x1000000>;
++		nonposted-mmio;
++		status = "disabled";
++
++		/*
++		 * /arm-io/dart-acio3 reg[0] (0x389a80000), interrupt 1702, sid-count 28, page-size
++		 * 16384. The loader fills apple,tunable (dart-tunables-instance-0, 22 records).
++		 */
++		usb4_3_dart: iommu@a80000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0xa80000 0xc000>;
++			interrupt-parent = <&aic>;
++			interrupts = <AIC_IRQ 0 1702 IRQ_TYPE_LEVEL_HIGH>;
++			#iommu-cells = <5>;
++		};
++
++		/*
++		 * /arm-io/acio3 reg[0] (0x389f00000). Its ADT interrupts list RX rings 1687-1698,
++		 * then TX 1675-1686 (ring indices number TX first), then 1704, which is not a
++		 * ring. Streams: TX 0-11, RX 16-27 (dart-acio3 sid), each in the DART's vm-base
++		 * 0x10000000000 + vm-size 0x30000000000. The loader fills apple,tunable-nhi
++		 * (hi_up/hi_dn merge and fw_int_ctl_management tables) and the DROM through the
++		 * usb4-3-nhi alias.
++		 */
++		usb4_3_nhi: nhi@f00000 {
++			compatible = "apple,t6050-usb4-nhi";
++			reg = <0xf00000 0x100000>;
++			reg-names = "nhi";
++			interrupt-parent = <&aic>;
++			interrupts = <AIC_IRQ 0 1675 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1676 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1677 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1678 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1679 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1680 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1681 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1682 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1683 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1684 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1685 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1686 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1687 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1688 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1689 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1690 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1691 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1692 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1693 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1694 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1695 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1696 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1697 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1698 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "txring0", "txring1", "txring2", "txring3",
++					  "txring4", "txring5", "txring6", "txring7",
++					  "txring8", "txring9", "txring10", "txring11",
++					  "rxring0", "rxring1", "rxring2", "rxring3",
++					  "rxring4", "rxring5", "rxring6", "rxring7",
++					  "rxring8", "rxring9", "rxring10", "rxring11";
++			iommus = <&usb4_3_dart 0 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 1 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 2 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 3 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 4 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 5 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 6 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 7 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 8 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 9 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 10 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 11 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 16 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 17 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 18 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 19 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 20 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 21 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 22 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 23 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 24 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 25 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 26 0x100 0x0 0x300 0x0>,
++				 <&usb4_3_dart 27 0x100 0x0 0x300 0x0>;
++			/* To be filled by the loader */
++			apple,thunderbolt-drom = [00];
++		};
++	};
++
++	/* /arm-io/acio-phy-cpu3 reg[0]: the PHY firmware's mailbox */
++	atc3_phy_mbox: mailbox@38b148000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x3 0x8b148000 0x0 0x4000>;
++		interrupts = <AIC_IRQ 0 871 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 872 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 873 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 874 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty", "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++	};
++
++	/* /arm-io/atc-phy3 regs [2] [0] usb-drd3[4] [39] [40] [41] [42] [43] [38] [37] usb-drd3[3] */
++	atc3_phy: phy@38b000000 {
++		compatible = "apple,t6050-combo-phy";
++		reg = <0x3 0x8b000000 0x0 0x2c000>,
++		      <0x3 0x8aa90000 0x0 0x4000>,
++		      <0x3 0x8a800000 0x0 0x4000>,
++		      <0x3 0x8b200000 0x0 0x4000>,
++		      <0x3 0x8b244000 0x0 0x4000>,
++		      <0x3 0x88000000 0x0 0x8000>,
++		      <0x3 0x88020000 0x0 0x4000>,
++		      <0x3 0x8b250000 0x0 0x4000>,
++		      <0x3 0x8b140000 0x0 0x4000>,
++		      <0x3 0x8b0c0000 0x0 0x10000>,
++		      <0x3 0x8aa84000 0x0 0x4000>;
++		reg-names = "core", "usb2phy", "usb2-digital", "reset", "fabric", "axi2af", "lioa",
++			    "common-cfg", "usb-control", "firmware-data", "pipehandler";
++		#phy-cells = <1>;
++		#reset-cells = <1>;
++		apple,port-index = <3>;
++		apple,guest-port-reserved;
++		mode-switch;
++		orientation-switch;
++		mboxes = <&atc3_phy_mbox>;
++		power-domains = <&ps_atc3_usb_aon>, <&ps_atc3_common>, <&ps_atc3_phymxwrap>,
++				<&ps_atc3_usb>;
++		power-domain-names = "usb-aon", "common", "wrapper", "usb";
++	};
++
++	/* /arm-io/usb-drd3: reg[0] (core and Apple regions), reg[1] (drd-cfg), interrupt 1515; ATC1's tunables */
++	usb_drd3: usb@38a280000 {
++		compatible = "apple,t6050-dwc3", "apple,t8103-dwc3";
++		reg = <0x3 0x8a280000 0x0 0xcd00>,
++		      <0x3 0x8a28cd00 0x0 0x4b00>,
++		      <0x3 0x8a200000 0x0 0x4000>;
++		reg-names = "dwc3-core", "dwc3-apple", "drd-cfg";
++		interrupts = <AIC_IRQ 0 1515 IRQ_TYPE_LEVEL_HIGH>;
++		dr_mode = "otg";
++		usb-role-switch;
++		role-switch-default-mode = "host";
++		iommus = <&usb_drd3_dart_0 0>, <&usb_drd3_dart_1 1>;
++		power-domains = <&ps_atc3_usb>;
++		resets = <&atc3_phy 0>;
++		phys = <&atc3_phy PHY_TYPE_USB2>, <&atc3_phy PHY_TYPE_USB3>;
++		phy-names = "usb2-phy", "usb3-phy";
++		apple,tunable-gbl-default = <0x64 0x2 0x0>, <0x10 0xfff80000 0x00680000>;
++		apple,tunable-gbl-host = <0x4 0x0001ef00 0x00002f00>, <0x1c 0x00000100 0x0>,
++			<0x2c 0x000a07ff 0x000800c8>, <0x100 0x02000100 0x02000100>,
++			<0x504 0x00001000 0x0>, <0x528 0xff0000ff 0x06000006>,
++			<0x52c 0xff0000ff 0x08000008>, <0x580 0xffffffff 0x6f000006>,
++			<0x584 0xffffffff 0x00060000>;
++		apple,tunable-dbg = <0x0 0x8 0x8>;
++		apple,tunable-cfg-host = <0x20 0xff 0x1b>;
++		apple,tunable-link = <0x10 0xff000000 0xff000000>, <0x20 0x7ff00000 0x4e900000>,
++			<0x24 0x001f8000 0x000b8000>, <0x60 0x0003ffff 0x00000600>;
++		apple,tunable-cio = <0x20 0x00ff0000 0x001e0000>;
++	};
++
++	/* /arm-io/dart-usb3 reg[0] and reg[1], interrupt 1519; vm-base 0x10000004000 +0xffff0000 */
++	usb_drd3_dart_0: iommu@38af00000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x3 0x8af00000 0x0 0xc000>;
++		interrupts = <AIC_IRQ 0 1519 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_atc3_usb>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++	};
++
++	usb_drd3_dart_1: iommu@38af80000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x3 0x8af80000 0x0 0xc000>;
++		interrupts = <AIC_IRQ 0 1519 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_atc3_usb>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++	};
++
++	/*
++	 * /arm-io/nub-spmi-a2: reg[0] 0x8a1c8000, generation 4, on die 0 like nub-spmi-a0, also for
++	 * the HPMs of ports on die 1. Its HPMs are polled, as a0's are.
++	 */
++	nub_spmi_a2: spmi@28a1c8000 {
++		compatible = "apple,t6050-spmi", "apple,t8142-spmi";
++		reg = <0x2 0x8a1c8000 0x0 0x4000>;
++		#address-cells = <2>;
++		#size-cells = <0>;
++	};
++
++	/*
++	 * The AOP's audio path: the AP GPIO block, the I2C1/I2C2 buses and their power states (in
++	 * pmgr1, below), and the AOP with its mailbox, dart-aop and the ADMAC its audio streams use.
++	 * From the ADT (arm-io ranges +0x200000000). The AOP, its mailbox, dart-aop and the ADMAC are disabled:
++	 * iBoot leaves the AOP halted on locked dart-aop tables, and Aura enables them only when its
++	 * checks of that state pass (chosen.aurora,t6050-aop=1).
++	 */
++	pinctrl_ap: pinctrl@29c000000 {
++		compatible = "apple,t6050-pinctrl", "apple,t8103-pinctrl";
++		reg = <0x2 0x9c000000 0x0 0x44000>;
++		gpio-controller;
++		#gpio-cells = <2>;
++		gpio-ranges = <&pinctrl_ap 0 0 221>;
++		apple,npins = <221>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 486 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 487 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 488 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 489 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 490 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 491 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 492 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	i2c1: i2c@505014000 {
++		compatible = "apple,t6050-i2c", "apple,t8103-i2c";
++		reg = <0x5 0x05014000 0x0 0x4000>;
++		clocks = <&clkref>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 1376 IRQ_TYPE_LEVEL_HIGH>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++		power-domains = <&ps_i2c1>;
++	};
++
++	i2c2: i2c@505018000 {
++		compatible = "apple,t6050-i2c", "apple,t8103-i2c";
++		reg = <0x5 0x05018000 0x0 0x4000>;
++		clocks = <&clkref>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 1377 IRQ_TYPE_LEVEL_HIGH>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++		power-domains = <&ps_i2c2>;
++	};
++
++	/*
++	 * The boot NOR (ADT /arm-io/qspi, "qspi,qspimc"): P at 0x305118000 and C at P + 0x800,
++	 * each 0x4000 in the ADT; one resource for their union. Interrupt 1373, clock id 440
++	 * (/arm-io clock-frequencies[184], 405 MHz). spi-apple-qspi's T8140 policy: data
++	 * reads anywhere, programs and erases only inside the nvram partition.
++	 */
++	qspi: spi@505118000 {
++		compatible = "apple,t6050-qspi", "apple,t8140-qspi";
++		reg = <0x5 0x05118000 0x0 0x4800>;
++		clocks = <&clk_405m>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 1373 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_qspi>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++		status = "disabled";
++	};
++
++	/* The ASC v4 mailbox at the AOP ASC + 0x8000; ADT interrupts 578..581 in mailbox order */
++	aop_mbox: mailbox@290608000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x2 0x90608000 0x0 0x4000>;
++		interrupts = <AIC_IRQ 0 578 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 579 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 580 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 581 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++		status = "disabled";
++	};
++
++	/*
++	 * dart-aop: streams 0 (AOP), 3, 8 (admac-base-ns), 10 and 16 are the AP's; 1, 9 and 11 are
++	 * exclave streams. iBoot leaves its tables locked on the ADT's l1-tt roots: each consumer
++	 * binds one stream and the locked-DART path publishes into its free slots.
++	 */
++	aop_dart: iommu@290fc0000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x2 0x90fc0000 0x0 0xc000>;
++		#iommu-cells = <1>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 616 IRQ_TYPE_LEVEL_HIGH>;
++		status = "disabled";
++	};
++
++	/* ADT admac-base-ns: 13 TX and 13 RX channels; the AOP firmware owns its fabric */
++	admac_base_ns: dma-controller@293800000 {
++		compatible = "apple,t6050-admac", "apple,t8140-admac";
++		reg = <0x2 0x93800000 0x0 0x34000>;
++		dma-channels = <13>;
++		interrupts-extended = <&aic AIC_IRQ 0 637 IRQ_TYPE_LEVEL_HIGH>,
++				      <0>, <0>, <0>;
++		#dma-cells = <1>;
++		iommus = <&aop_dart 8>;
++		apple,dma-range = <0x110 0x00000000 0x0 0x10000000>;
++		status = "disabled";
++	};
++
++	/*
++	 * The AOP: its SRAM window (ADT reg[2]) and its ASC (reg[0]). Its firmware is loaded and
++	 * left halted by iBoot. Booted as on T8152, over the RTKit mailbox alone: the ADT's
++	 * aop-exclave-mailbox (the setup port T8140 and T8142 boot through) is exclave-assigned
++	 * here and takes an SError from the AP.
++	 */
++	aop: aop@290c00000 {
++		compatible = "apple,t6050-aop", "apple,t8152-aop";
++		reg = <0x2 0x90c00000 0x0 0x1e0000>,
++		      <0x2 0x90600000 0x0 0x4000>;
++		reg-names = "mmio", "asc";
++		mboxes = <&aop_mbox>;
++		mbox-names = "mbox";
++		iommus = <&aop_dart 0>;
++		apple,dma-range = <0x110 0x0 0x10 0x0>;
++		status = "disabled";
++
++		/*
++		 * ADT iop-audio-controller: cout/cin (the jack) on base-ns TX2/RX2, spkr on TX0 with
++		 * the amp's V/I sense on RX0 (Linux channel 2N for TX N, 2N+1 for RX N).
++		 */
++		aop_audio: audio {
++			compatible = "apple,t6050-aop-audio";
++			dmas = <&admac_base_ns 4>, <&admac_base_ns 5>,
++			       <&admac_base_ns 0>, <&admac_base_ns 1>;
++			dma-names = "cout", "cin", "spkr", "sense";
++			#sound-dai-cells = <1>;
++		};
++	};
++};
++
++/*
++ * The Type-C chains of ATC2 and ATC3 and the routers' shared AUSS, all disabled where the board
++ * or the display handoff enables them (ATC2's: what dcpext0 references, its PHY's mailbox and
++ * power domains). Addresses from the ADT (arm-io ranges +0x200000000).
++ */
++&pmgr0 {
++	ps_atc2_common: power-controller@238 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x238 4>;
++		label = "atc2_common";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		status = "disabled";
++	};
++
++	/* ATC3_COMMON, ADT gate 62. Its parent FAB5_SOC (+0x1f0) is critical: always on. */
++	ps_atc3_common: power-controller@240 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x240 4>;
++		label = "atc3_common";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++	};
++
++	/*
++	 * AUSS, ADT gate 63 (+0x248), parent FAB5_SOC: the shared parent of die 0's
++	 * router CIO_AUSS domains. Its other users are not described, so Linux never
++	 * turns it off under them.
++	 */
++	ps_auss: power-controller@248 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x248 4>;
++		label = "auss";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		apple,always-on;
++		status = "disabled";
++	};
++
++	/*
++	 * ATC3's USB4 router (/arm-io/acio3 power-gates [122, 85, 120, 121]):
++	 * ATC3_CIO gate 85 (+0x2f8, parent 62), ATC3_CIO_PCIE 120 (+0x410) and ATC3_CIO_USB
++	 * 121 (+0x418, parent 85), ATC3_CIO_AUSS 122 (+0x420, parents 85 and 63). Its
++	 * clock-gate 604, CIO3_RECONFIG_V, has no power state: it is cio_reconfig0's reset 3.
++	 */
++	ps_atc3_cio: power-controller@2f8 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x2f8 4>;
++		label = "atc3_cio";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc3_common>;
++		status = "disabled";
++	};
++
++	ps_atc3_cio_pcie: power-controller@410 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x410 4>;
++		label = "atc3_cio_pcie";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc3_cio>;
++		status = "disabled";
++	};
++
++	ps_atc3_cio_usb: power-controller@418 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x418 4>;
++		label = "atc3_cio_usb";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc3_cio>;
++		status = "disabled";
++	};
++
++	ps_atc3_cio_auss: power-controller@420 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x420 4>;
++		label = "atc3_cio_auss";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc3_cio>, <&ps_auss>;
++		status = "disabled";
++	};
++};
++
++&pmgr1 {
++	ps_i2c1: power-controller@2c8 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x2c8 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "i2c1";
++	};
++
++	ps_i2c2: power-controller@2d0 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x2d0 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "i2c2";
++	};
++
++	/*
++	 * The boot NOR's controller: ADT pmgr devices SPI_P (id 199, +0x308) and
++	 * QSPI (id 208, +0x350, /arm-io/qspi clock-gates), group 1. SPI_P's parent
++	 * SIO (184) is left undescribed, as for the I2C states above.
++	 */
++	ps_spi_p: power-controller@308 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x308 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "spi_p";
++	};
++
++	ps_qspi: power-controller@350 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x350 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "qspi";
++		power-domains = <&ps_spi_p>;
++	};
++};
++
++&pmgr2 {
++	ps_atc2_usb_aon: power-controller@178 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x178 4>;
++		label = "atc2_usb_aon";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		status = "disabled";
++	};
++
++	ps_atc2_phymxwrap: power-controller@188 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x188 4>;
++		label = "atc2_phymxwrap";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc2_common>, <&ps_atc2_usb_aon>;
++		status = "disabled";
++	};
++
++	/* usb-drd2's clock gate; the PHY's USB2 banks need it too */
++	ps_atc2_usb: power-controller@180 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x180 4>;
++		label = "atc2_usb";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc2_common>, <&ps_atc2_usb_aon>;
++		status = "disabled";
++	};
++
++	/* ATC3: ADT gates 269, 270 (usb-drd3) and 271 */
++	ps_atc3_usb_aon: power-controller@190 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x190 4>;
++		label = "atc3_usb_aon";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++	};
++
++	ps_atc3_usb: power-controller@198 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x198 4>;
++		label = "atc3_usb";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc3_common>, <&ps_atc3_usb_aon>;
++	};
++
++	ps_atc3_phymxwrap: power-controller@1a0 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x1a0 4>;
++		label = "atc3_phymxwrap";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc3_common>, <&ps_atc3_usb_aon>;
++	};
++};
++
++/*
++ * DisplayPort out through ATC2: die 0's dcpext0 route (crossbar index 0, typec-dptx-phys 2).
++ * The board links the route to its connector.
++ */
++&dcpext0 {
++	apple,connector-type = "USB-C";
++	apple,dptx-die = <0>;
++	apple,typec-dptx-phys = <2>;
++	apple,typec-mux-indices = <0>;
++	phys = <&atc2_phy 6>;
++	phy-names = "typec0";
++	mux-controls = <&atc2_xbar 0>;
++	mux-control-names = "typec0";
++
++	typec-routes {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		route@0 {
++			reg = <0>;
++			mode-switch;
++		};
++	};
++};
++
++/ {
++	/*
++	 * The internal PCIe host (apcie). The boot loader powers and trains the links of the
++	 * ports the board uses and keeps power, clocks, the PHYs and PERST; Linux owns the
++	 * routing, MSI and the DARTs. The board names those ports: their registers and
++	 * interrupts (config and rc, then each port's portN, phyN and intr2axiN), its
++	 * iommu-map and bus-range, and a node per port. One MSI domain for all ports: vectors
++	 * 64-127.
++	 */
++	pcie0: pcie@1cb0000000 {
++		compatible = "apple,t6050-pcie";
++		device_type = "pci";
++		nonposted-mmio;
++
++		msi-controller;
++		msi-parent = <&pcie0>;
++		msi-ranges = <&aic AIC_IRQ 0 1888 IRQ_TYPE_EDGE_RISING 64>;
++		apple,msi-vector-base = <64>;
++
++		iommu-map-mask = <0xffff>;
++		dma-coherent;
++		linux,pci-domain = <0>;
++		#address-cells = <3>;
++		#size-cells = <2>;
++		ranges = <0x02000000 0x0 0x80000000 0xb 0x80000000 0x0 0x40000000>,
++			 <0x43000000 0xb 0xc0000000 0xb 0xc0000000 0x0 0x20000000>;
++	};
++};
+diff --git a/arch/arm64/boot/dts/apple/t6050-dieX.dtsi b/arch/arm64/boot/dts/apple/t6050-dieX.dtsi
+new file mode 100644
+index 000000000000..94e9def5533f
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6050-dieX.dtsi
+@@ -0,0 +1,283 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Nodes present on every die of the Apple T6050 (M5 Max, M5 Ultra),
++ * included once per die (see t6050-base.dtsi for the macros it uses).
++ * Each block is die 0's at the die stride; its interrupts are die 0's
++ * numbers on its own die of the AIC.
++ *
++ * Copyright The Asahi Linux Contributors
++ */
++
++&SOC_NODE {
++	/*
++	 * The clusters' DVFS command apertures: /arm-io/pmgr reg 16, 26 and 36 (0x12e8 each, the driver uses
++	 * the first 0x1000), at the die stride on die 1 (not in pmgr's reg list). apple,firmware-managed-thermal:
++	 * see the CPU OPP tables.
++	 */
++	DIE_NODE(cpufreq_mc0): performance-controller@DIE_UNIT(210e20000) {
++		compatible = "apple,t6050-cluster-cpufreq";
++		reg = <DIE_HI(0x2) 0x10e20000 0x0 0x1000>;
++		#performance-domain-cells = <0>;
++		apple,firmware-managed-thermal;
++	};
++
++	DIE_NODE(cpufreq_mc1): performance-controller@DIE_UNIT(211e20000) {
++		compatible = "apple,t6050-cluster-cpufreq";
++		reg = <DIE_HI(0x2) 0x11e20000 0x0 0x1000>;
++		#performance-domain-cells = <0>;
++		apple,firmware-managed-thermal;
++	};
++
++	DIE_NODE(cpufreq_pc): performance-controller@DIE_UNIT(212e20000) {
++		compatible = "apple,t6050-cluster-cpufreq";
++		reg = <DIE_HI(0x2) 0x12e20000 0x0 0x1000>;
++		#performance-domain-cells = <0>;
++		apple,firmware-managed-thermal;
++	};
++
++	/*
++	 * The PMGR groups G0, G1 (ADT /arm-io/pmgr reg[0] and reg[1]) and G2 that hold the
++	 * described power states. PMGR offsets from tools/aura's pmgr_adt2dt.py over the ADT; die
++	 * 1's records are die 0's at the same offsets (ADT gate IDs +0x10000000).
++	 */
++	DIE_NODE(pmgr0): power-management@DIE_UNIT(280600000) {
++		compatible = "apple,t6050-pmgr", "apple,t8103-pmgr", "syscon", "simple-mfd";
++		reg = <DIE_HI(0x2) 0x80600000 0x0 0x4000>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		/* ATC1_COMMON, ADT gate 56 */
++		DIE_NODE(ps_atc1_common): power-controller@210 {
++			compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++			reg = <0x210 4>;
++			label = DIE_ATC1_LABEL(_common);
++			#power-domain-cells = <0>;
++			#reset-cells = <0>;
++		};
++	};
++
++	DIE_NODE(pmgr1): power-management@DIE_UNIT(280900000) {
++		compatible = "apple,t6050-pmgr", "apple,t8103-pmgr", "syscon", "simple-mfd";
++		reg = <DIE_HI(0x2) 0x80900000 0x0 0x4000>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++	};
++
++	DIE_NODE(pmgr2): power-management@DIE_UNIT(288300000) {
++		compatible = "apple,t6050-pmgr", "apple,t8103-pmgr", "syscon", "simple-mfd";
++		reg = <DIE_HI(0x2) 0x88300000 0x0 0xc000>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		/* ATC1: ADT gates 263, 264 (usb-drd1) and 265 */
++		DIE_NODE(ps_atc1_usb_aon): power-controller@160 {
++			compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++			reg = <0x160 4>;
++			label = DIE_ATC1_LABEL(_usb_aon);
++			#power-domain-cells = <0>;
++			#reset-cells = <0>;
++		};
++
++		/* usb-drd1's clock gate (its DARTs' too); the PHY's USB2 banks need it as well */
++		DIE_NODE(ps_atc1_usb): power-controller@168 {
++			compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++			reg = <0x168 4>;
++			label = DIE_ATC1_LABEL(_usb);
++			#power-domain-cells = <0>;
++			#reset-cells = <0>;
++			power-domains = <&DIE_NODE(ps_atc1_common)>, <&DIE_NODE(ps_atc1_usb_aon)>;
++		};
++
++		DIE_NODE(ps_atc1_phymxwrap): power-controller@170 {
++			compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++			reg = <0x170 4>;
++			label = DIE_ATC1_LABEL(_phymxwrap);
++			#power-domain-cells = <0>;
++			#reset-cells = <0>;
++			power-domains = <&DIE_NODE(ps_atc1_common)>, <&DIE_NODE(ps_atc1_usb_aon)>;
++		};
++	};
++
++	/*
++	 * dcpext0, the die's first external display engine, as iBoot leaves it: powered, its ASC
++	 * running, both DARTs locked (PROTECT 0xff / 0xb9) on its own four-level tables, DCP SID 23,
++	 * scanout SID 0 and PIODMA SID 16. From the ADT (/arm-io/dcpext0, dispext0, dart-dcpext0,
++	 * dart-dispext0; die 1's are dcpext4 and its DARTs; arm-io ranges +0x200000000). No
++	 * power-domains: the blocks run with auto-enable, and the pwrstate driver would write PS at
++	 * probe. All disabled here: Aura enables them only when its checks of that state pass and it
++	 * has reserved vram.
++	 */
++	DIE_NODE(dart_dcpext0): iommu@DIE_UNIT(2b2340000) {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <DIE_HI(0x2) 0xb2340000 0x0 0x20000>;
++		/* dart-dcpext0 and dart-dispext0 share ADT interrupt 1070 */
++		interrupts = <AIC_IRQ DIE_NO 1070 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		/* ADT vm-base 1 TiB, vm-size 3 TiB */
++		apple,dma-range = <0x100 0x0 0x300 0x0>;
++		status = "disabled";
++	};
++
++	DIE_NODE(dart_dispext0): iommu@DIE_UNIT(2b2300000) {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		/* reg[0] only; the ADT's second bank (0xb2314000) and shared 0x803f0000 are not ours */
++		reg = <DIE_HI(0x2) 0xb2300000 0x0 0xc000>;
++		interrupts = <AIC_IRQ DIE_NO 1070 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x0 0x300 0x0>;
++		status = "disabled";
++	};
++
++	/* The ASC v4 mailbox at dcpext0 + 0x8000; ADT interrupts 1123..1126 in mailbox order */
++	DIE_NODE(dcpext0_mbox): mailbox@DIE_UNIT(2b2e08000) {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <DIE_HI(0x2) 0xb2e08000 0x0 0x4000>;
++		interrupts = <AIC_IRQ DIE_NO 1123 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ DIE_NO 1124 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ DIE_NO 1125 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ DIE_NO 1126 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++		status = "disabled";
++	};
++
++	/* dispext0 reg[4]: the PMC metadata the bandwidth scratch lives in */
++	DIE_NODE(dcpext0_pmc): pmc-metadata@DIE_UNIT(286700000) {
++		reg = <DIE_HI(0x2) 0x86700000 0x0 0x114000>;
++		#apple,bw-scratch-cells = <3>;
++		status = "disabled";
++	};
++
++	DIE_NODE(dcpext0): dcp@DIE_UNIT(2b2e00000) {
++		compatible = "apple,t6050-dcpext", "apple,dcpext";
++		reg = <DIE_HI(0x2) 0xb2e00000 0x0 0x4000>,
++		      <DIE_HI(0x2) 0xb0000000 0x0 0x4000000>,
++		      <DIE_HI(0x2) 0xb2240000 0x0 0x10000>,
++		      <DIE_HI(0x2) 0xb23ac000 0x0 0x4000>,
++		      <DIE_HI(0x2) 0xb2800000 0x0 0x800000>,
++		      <DIE_HI(0x2) 0x86700000 0x0 0x114000>,
++		      <DIE_HI(0x2) 0xb2850000 0x0 0x4000>;
++		reg-names = "coproc", "disp-0", "disp-1", "disp-2", "disp-3", "disp-4", "iop-vbar";
++		mboxes = <&DIE_NODE(dcpext0_mbox)>;
++		mbox-names = "mbox";
++		iommus = <&DIE_NODE(dart_dcpext0) 23>;
++		/* The bandwidth request (BIRQ 0x36) on the die's PMC */
++		apple,bw-scratch = <&DIE_NODE(dcpext0_pmc) 0 5 0x2c000>;
++		/*
++		 * The die-local index, as for the M2 Ultra's die-1 dcpext0 (t602x-dieX.dtsi):
++		 * crossbar ufp endpoint 0 on its die. The ADT's firmware-facing external-index
++		 * of die 1's is 5.
++		 */
++		apple,dcp-index = <1>;
++		/* dcpext has no firmware clocks (an empty list) */
++		apple,clock-ids;
++		/*
++		 * apple,firmware-version/-compat come from Aura's handoff: the stub's firmware,
++		 * 27.0 or 27.2, whose IOMFB method IDs differ (iomfb_v27.c).
++		 */
++		status = "disabled";
++
++		piodma {
++			iommus = <&DIE_NODE(dart_dispext0) 16>;
++		};
++	};
++
++	/*
++	 * ATC1, USB data: its combo PHY, usb-drd1 and dart-usb1 (ADT /arm-io/atc-phy1,
++	 * acio-phy-cpu1, usb-drd1, dart-usb1; die 1's are atc-phy5, acio-phy-cpu5, usb-drd5 and
++	 * dart-usb5).
++	 */
++	/* /arm-io/acio-phy-cpu1 reg[0]: the PHY firmware's mailbox (it runs, pre-loaded by iBoot) */
++	DIE_NODE(atc1_phy_mbox): mailbox@DIE_UNIT(2ab148000) {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <DIE_HI(0x2) 0xab148000 0x0 0x4000>;
++		interrupts = <AIC_IRQ DIE_NO 851 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ DIE_NO 852 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ DIE_NO 853 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ DIE_NO 854 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty", "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++	};
++
++	/* /arm-io/atc-phy1 regs [2] [0] usb-drd1[4] [39] [40] [41] [42] [43] [38] [37] usb-drd1[3] */
++	DIE_NODE(atc1_phy): phy@DIE_UNIT(2ab000000) {
++		compatible = "apple,t6050-combo-phy";
++		reg = <DIE_HI(0x2) 0xab000000 0x0 0x2c000>,
++		      <DIE_HI(0x2) 0xaaa90000 0x0 0x4000>,
++		      <DIE_HI(0x2) 0xaa800000 0x0 0x4000>,
++		      <DIE_HI(0x2) 0xab200000 0x0 0x4000>,
++		      <DIE_HI(0x2) 0xab244000 0x0 0x4000>,
++		      <DIE_HI(0x2) 0xa8000000 0x0 0x8000>,
++		      <DIE_HI(0x2) 0xa8020000 0x0 0x4000>,
++		      <DIE_HI(0x2) 0xab250000 0x0 0x4000>,
++		      <DIE_HI(0x2) 0xab140000 0x0 0x4000>,
++		      <DIE_HI(0x2) 0xab0c0000 0x0 0x10000>,
++		      <DIE_HI(0x2) 0xaaa84000 0x0 0x4000>;
++		reg-names = "core", "usb2phy", "usb2-digital", "reset", "fabric", "axi2af", "lioa",
++			    "common-cfg", "usb-control", "firmware-data", "pipehandler";
++		#phy-cells = <1>;
++		#reset-cells = <1>;
++		apple,port-index = <(4 * DIE_NO + 1)>;
++		/* The binding's name for "no other owner"; nothing else drives this port here. */
++		apple,guest-port-reserved;
++		mode-switch;
++		orientation-switch;
++		mboxes = <&DIE_NODE(atc1_phy_mbox)>;
++		power-domains = <&DIE_NODE(ps_atc1_usb_aon)>, <&DIE_NODE(ps_atc1_common)>,
++				<&DIE_NODE(ps_atc1_phymxwrap)>, <&DIE_NODE(ps_atc1_usb)>;
++		power-domain-names = "usb-aon", "common", "wrapper", "usb";
++	};
++
++	/*
++	 * /arm-io/usb-drd1: reg[0] (core and Apple regions), reg[1] (drd-cfg), interrupt 1451. The
++	 * tunables are its ADT tables (DRD_USB31_GBL_DEFAULT with GCTL.PWRDNSCALE = 0xd, as on
++	 * T6040; GBL_HOST, DBG, CFG_HOST, LINK_REGS, CIO_REGS); PIPE_HANDLER goes to the PHY.
++	 */
++	DIE_NODE(usb_drd1): usb@DIE_UNIT(2aa280000) {
++		compatible = "apple,t6050-dwc3", "apple,t8103-dwc3";
++		reg = <DIE_HI(0x2) 0xaa280000 0x0 0xcd00>,
++		      <DIE_HI(0x2) 0xaa28cd00 0x0 0x4b00>,
++		      <DIE_HI(0x2) 0xaa200000 0x0 0x4000>;
++		reg-names = "dwc3-core", "dwc3-apple", "drd-cfg";
++		interrupts = <AIC_IRQ DIE_NO 1451 IRQ_TYPE_LEVEL_HIGH>;
++		dr_mode = "otg";
++		usb-role-switch;
++		role-switch-default-mode = "host";
++		iommus = <&DIE_NODE(usb_drd1_dart_0) 0>, <&DIE_NODE(usb_drd1_dart_1) 1>;
++		power-domains = <&DIE_NODE(ps_atc1_usb)>;
++		resets = <&DIE_NODE(atc1_phy) 0>;
++		phys = <&DIE_NODE(atc1_phy) PHY_TYPE_USB2>, <&DIE_NODE(atc1_phy) PHY_TYPE_USB3>;
++		phy-names = "usb2-phy", "usb3-phy";
++		apple,tunable-gbl-default = <0x64 0x2 0x0>, <0x10 0xfff80000 0x00680000>;
++		apple,tunable-gbl-host = <0x4 0x0001ef00 0x00002f00>, <0x1c 0x00000100 0x0>,
++			<0x2c 0x000a07ff 0x000800c8>, <0x100 0x02000100 0x02000100>,
++			<0x504 0x00001000 0x0>, <0x528 0xff0000ff 0x06000006>,
++			<0x52c 0xff0000ff 0x08000008>, <0x580 0xffffffff 0x6f000006>,
++			<0x584 0xffffffff 0x00060000>;
++		apple,tunable-dbg = <0x0 0x8 0x8>;
++		apple,tunable-cfg-host = <0x20 0xff 0x1b>;
++		apple,tunable-link = <0x10 0xff000000 0xff000000>, <0x20 0x7ff00000 0x4e900000>,
++			<0x24 0x001f8000 0x000b8000>, <0x60 0x0003ffff 0x00000600>;
++		apple,tunable-cio = <0x20 0x00ff0000 0x001e0000>;
++	};
++
++	/* /arm-io/dart-usb1 reg[0] and reg[1], interrupt 1455; vm-base 0x10000004000 +0xffff0000 */
++	DIE_NODE(usb_drd1_dart_0): iommu@DIE_UNIT(2aaf00000) {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <DIE_HI(0x2) 0xaaf00000 0x0 0xc000>;
++		interrupts = <AIC_IRQ DIE_NO 1455 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&DIE_NODE(ps_atc1_usb)>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++	};
++
++	DIE_NODE(usb_drd1_dart_1): iommu@DIE_UNIT(2aaf80000) {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <DIE_HI(0x2) 0xaaf80000 0x0 0xc000>;
++		interrupts = <AIC_IRQ DIE_NO 1455 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&DIE_NODE(ps_atc1_usb)>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++	};
++};
+diff --git a/arch/arm64/boot/dts/apple/t6050-j775d.dts b/arch/arm64/boot/dts/apple/t6050-j775d.dts
+new file mode 100644
+index 000000000000..5c0b238dc096
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6050-j775d.dts
+@@ -0,0 +1,701 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Mac Studio (M5 Ultra, 2026)
++ *
++ * target-type: J775D
++ *
++ * Copyright The Asahi Linux Contributors
++ */
++
++/dts-v1/;
++
++#include "t6050-ultra.dtsi"
++
++/ {
++	compatible = "apple,j775d", "apple,t6050", "apple,arm-platform";
++	model = "Apple Mac Studio (M5 Ultra, 2026)";
++	chassis-type = "desktop";
++
++	aliases {
++		serial0 = &dockchannel;
++		/* the boot loader fills in the MAC address through this alias */
++		ethernet0 = &ethernet0;
++		/* kboot fills the N1's factory addresses from /chosen through these */
++		wifi0 = &n1_alpha;
++		bluetooth0 = &n1_beta;
++		/* Aura's kboot_setup_atc() fills this PHY's tunables from /arm-io/atc-phy2. */
++		atcphy2 = &atc2_phy;
++		/* The same fills /arm-io/atc-phy1's (rear USB-C port 2, USB data). */
++		atcphy1 = &atc1_phy;
++		/* And rear port 4's and the front ports' (die 1), while their chains wait for the PHY. */
++		atcphy3 = &atc3_phy;
++		atcphy4 = &atc4_phy;
++		atcphy5 = &atc1_phy_die1;
++		/* Aura's ACIO tunable copy fills rear port 4's router (/arm-io/acio3) through these. */
++		usb4-3-acio = &usb4_3_acio;
++		usb4-3-nhi = &usb4_3_nhi;
++		/* asahi-bless and the boot loader's dt_set_nvram find the partition by this alias */
++		nvram = &nvram;
++	};
++
++	/*
++	 * No stdout-path: the boot loader passes the console on the command
++	 * line when it wants one.
++	 */
++	chosen {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++		/*
++		 * Normally replaced by the loader. With no console= named,
++		 * NULL_TTY_DEFAULT_CONSOLE makes the console ttynull.
++		 */
++		bootargs = "maxcpus=1 rdinit=/init";
++	};
++
++	/*
++	 * The jack (CS42L84) and the speaker (SN012776) through the AOP's audio services. The card waits
++	 * for its CPU component, the AOP audio node, which exists only after Aura's AOP handoff.
++	 */
++	sound {
++		compatible = "apple,j775d-macaudio", "apple,macaudio";
++		model = "Mac Studio J775D";
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		dai-link@0 {
++			reg = <0>;
++			link-name = "Headphone Jack";
++
++			cpu {
++				sound-dai = <&aop_audio 0>;
++			};
++
++			codec {
++				sound-dai = <&jack_codec>;
++			};
++		};
++
++		dai-link@1 {
++			reg = <1>;
++			link-name = "Speaker";
++
++			cpu {
++				sound-dai = <&aop_audio 3>;
++			};
++
++			codec {
++				sound-dai = <&speaker_amp>;
++			};
++		};
++	};
++};
++
++/*
++ * PCIe ports 2 (the onboard 10 Gb Ethernet) and 3 (the rear USB-A xHCI). The boot loader
++ * powers and trains both links; it disables a port, and its DART, whose link did not come up.
++ *
++ * Port 0 carries the N1 (Wi-Fi and Bluetooth), described disabled until the boot loader trains
++ * it (pci@0,0 below).
++ */
++&pcie0 {
++	reg = <0x1c 0xb0000000 0x0 0x10000000>,
++	      <0x4 0x14000000 0x0 0x4000>,
++	      <0x4 0x12028000 0x0 0x8000>,
++	      <0x4 0x17018000 0x0 0x4000>,
++	      <0x4 0x12024000 0x0 0x4000>,
++	      <0x4 0x13028000 0x0 0x8000>,
++	      <0x4 0x1701c000 0x0 0x4000>,
++	      <0x4 0x13024000 0x0 0x4000>,
++	      <0x4 0x10028000 0x0 0x8000>,
++	      <0x4 0x17010000 0x0 0x4000>,
++	      <0x4 0x10024000 0x0 0x4000>;
++	reg-names = "config", "rc", "port2", "phy2", "intr2axi2",
++		    "port3", "phy3", "intr2axi3",
++		    "port0", "phy0", "intr2axi0";
++	interrupts = <AIC_IRQ 0 1539 IRQ_TYPE_LEVEL_HIGH>,
++		     <AIC_IRQ 0 1547 IRQ_TYPE_LEVEL_HIGH>,
++		     <AIC_IRQ 0 1523 IRQ_TYPE_LEVEL_HIGH>;
++	interrupt-names = "port2", "port3", "port0";
++
++	/*
++	 * The boot loader numbers port 2's secondary bus 1 and port 3's 2;
++	 * port 0's is 3 until a boot loader that trains it renumbers all three
++	 * in the PCI core's order. The N1's three functions are on DART
++	 * streams 1-3.
++	 */
++	iommu-map = <0x100 &dart_apcie2 1 1>,
++		    <0x200 &dart_apcie3 1 1>,
++		    <0x300 &dart_apcie0 1 3>;
++	bus-range = <0 3>;
++
++	port02: pci@2,0 {
++		device_type = "pci";
++		reg = <0x1000 0 0 0 0>;
++		bus-range = <1 1>;
++		apple,link-trained-by-bootloader;
++
++		#address-cells = <3>;
++		#size-cells = <2>;
++		ranges;
++
++		interrupt-controller;
++		#interrupt-cells = <1>;
++		interrupt-map-mask = <0 0 0 7>;
++		interrupt-map = <0 0 0 1 &port02 0 0 0 0>,
++				<0 0 0 2 &port02 0 0 0 1>,
++				<0 0 0 3 &port02 0 0 0 2>,
++				<0 0 0 4 &port02 0 0 0 3>;
++
++		/* The RTL8127A keeps no MAC address of its own */
++		ethernet0: ethernet@0,0 {
++			reg = <0x10000 0x0 0x0 0x0 0x0>;
++			/* To be filled by the loader */
++			local-mac-address = [00 00 00 00 00 00];
++		};
++	};
++
++	port03: pci@3,0 {
++		device_type = "pci";
++		reg = <0x1800 0 0 0 0>;
++		bus-range = <2 2>;
++		apple,link-trained-by-bootloader;
++
++		#address-cells = <3>;
++		#size-cells = <2>;
++		ranges;
++
++		interrupt-controller;
++		#interrupt-cells = <1>;
++		interrupt-map-mask = <0 0 0 7>;
++		interrupt-map = <0 0 0 1 &port03 0 0 0 0>,
++				<0 0 0 2 &port03 0 0 0 1>,
++				<0 0 0 3 &port03 0 0 0 2>,
++				<0 0 0 4 &port03 0 0 0 3>;
++	};
++
++	/*
++	 * The N1 Wi-Fi/Bluetooth (106b:1900, its ROM), trained by the bootloader after the SMC
++	 * releases its reset. Its driver boots the firmware and has this port reset after the ROM
++	 * stage; Control, Alpha (Wi-Fi) and Beta (Bluetooth) then answer at functions 0-2.
++	 * Disabled with its DART: a bootloader that trains the port enables both and renumbers the
++	 * buses here (bus-range, reg, iommu-map) to the PCI core's order, port 0 first.
++	 */
++	port00: pci@0,0 {
++		device_type = "pci";
++		reg = <0x0 0 0 0 0>;
++		bus-range = <3 3>;
++		apple,link-trained-by-bootloader;
++		/*
++		 * Its PERST# (pci-bridge0 function-perst): /arm-io/gpio0 pin 0x50, pad
++		 * register 0x140 of pinctrl_ap, which owns the pad (and exposes it: see
++		 * its gpio-reserved-ranges below). Driven only by the root-port reset after
++		 * the N1's ROM stage.
++		 */
++		reset-gpios = <&pinctrl_ap 80 GPIO_ACTIVE_LOW>;
++		status = "disabled";
++
++		#address-cells = <3>;
++		#size-cells = <2>;
++		ranges;
++
++		interrupt-controller;
++		#interrupt-cells = <1>;
++		interrupt-map-mask = <0 0 0 7>;
++		interrupt-map = <0 0 0 1 &port00 0 0 0 0>,
++				<0 0 0 2 &port00 0 0 0 1>,
++				<0 0 0 3 &port00 0 0 0 2>,
++				<0 0 0 4 &port00 0 0 0 3>;
++
++		/* The firmware: the chip's image with this board's ticket; platform ID is
++		 * (board 0x12 << 16) | chip 0x6050 */
++		n1_control: control@0,0 {
++			compatible = "pci106b,1900";
++			reg = <0x30000 0x0 0x0 0x0 0x0>;
++			firmware-name = "apple/centauri/j775d-ftab.bin";
++			apple,centauri-platform-id = <0x00126050>;
++			apple,centauri-protocol = <27>;
++		};
++
++		n1_alpha: wifi@0,1 {
++			compatible = "pci106b,1902";
++			reg = <0x30100 0x0 0x0 0x0 0x0>;
++			local-mac-address = [00 00 00 00 00 00];
++		};
++
++		n1_beta: bluetooth@0,2 {
++			compatible = "pci106b,1903";
++			reg = <0x30200 0x0 0x0 0x0 0x0>;
++			local-bd-address = [00 00 00 00 00 00];
++		};
++	};
++};
++
++/* The pins this board's nodes name, and no others */
++&pinctrl_ap {
++	/*
++	 * Every pin reads cleanly, but only
++	 * the pins a node in this file names are exposed: 80 (PCIe port 0's PERST#, ADT
++	 * pci-bridge0 function-perst), 106 (amp IRQ), 107 (amp shutdown), 134 (jack IRQ)
++	 * and 139 (jack codec reset), from the ADT's audio-speaker and audio-codec-output.
++	 * A reserved line cannot be requested (gpiolib answers -EINVAL), so a node that
++	 * names a new pin of pinctrl_ap opens it here too.
++	 */
++	gpio-reserved-ranges = <0 80>, <81 25>, <108 26>, <135 4>, <140 81>;
++};
++
++&i2c1 {
++	/*
++	 * ADT speaker-config: playback slot 0, amp gain 20, V sense in slot 0 and I sense
++	 * in slot 2. The firmware's speaker frame is 250 BCLKs of 12 MHz (ADT
++	 * iop-audio-controller/audio-speaker), which the amp's ratio detection rejects.
++	 */
++	speaker_amp: codec@38 {
++		compatible = "ti,sn012776", "ti,tas2764";
++		reg = <0x38>;
++		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
++		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
++		#sound-dai-cells = <0>;
++		ti,imon-slot-no = <2>;
++		ti,vmon-slot-no = <0>;
++		ti,bclk-ratio = <250>;
++	};
++};
++
++&i2c2 {
++	jack_codec: codec@4b {
++		compatible = "cirrus,cs42l84";
++		reg = <0x4b>;
++		reset-gpios = <&pinctrl_ap 139 GPIO_ACTIVE_HIGH>;
++		interrupts-extended = <&pinctrl_ap 134 IRQ_TYPE_LEVEL_LOW>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "Jack";
++	};
++};
++
++/*
++ * The console is on the USB debug link, which drains only while a host reads
++ * it; the machine also boots with nothing attached there.
++ */
++&dockchannel {
++	apple,tx-never-wait;
++	status = "okay";
++};
++
++&dart_apcie2 {
++	status = "okay";
++};
++
++&dart_apcie3 {
++	status = "okay";
++};
++
++/*
++ * The Studio's DC input. PSTR and PDTR read 0 on the Studio; PD0R is its DC input (36.5 W at an
++ * idle desktop).
++ */
++&smc_hwmon {
++	power-PD0R {
++		apple,key-id = "PD0R";
++		label = "DC Input Power";
++	};
++};
++
++#include "hwmon-fan-dual.dtsi"
++
++/*
++ * The Studio's SMC has F0Ac/F0Mn/F0Mx/F0Tg and F1*, but its mode keys are F0md/F1md (ui8, flags 0xd0:
++ * readable, writable, a function key), not the F0Md/F1Md the dtsi names; with the dtsi's names fan
++ * creation failed on the missing key. With the real keys the fans can be set by the kernel's
++ * thermal policy (the M5 GPU governor, through macsmc_hwmon_fans_request()). No
++ * apple,fan-manual-control: userspace still only reads them.
++ */
++&smc_hwmon {
++	fan-F0Ac {
++		apple,fan-mode = "F0md";
++	};
++
++	fan-F1Ac {
++		apple,fan-mode = "F1md";
++	};
++};
++
++/*
++ * The boot NOR's NVRAM: the loader fills the partition from ADT /arm-io/qspi/spinor/anvram reg
++ * (0x700000, 0xc0000 here), 12 banks of 64 KiB (/chosen nvram-bank-count, nvram-bank-size). The
++ * flash is spinor's CS0 (its reg's first cell; the second is 0x19, 25), clocked as on T8140's
++ * J700. Only this partition is exposed (no MTD_PARTITIONED_MASTER), so the rest of the boot NOR
++ * has no device node, and the controller's T8140 policy admits programs and erases only inside
++ * this partition.
++ */
++&qspi {
++	status = "okay";
++
++	flash@0 {
++		compatible = "jedec,spi-nor";
++		reg = <0>;
++		spi-max-frequency = <25000000>;
++		/* Single-wire, as on T8132's J713: no quad-enable status write at probe */
++		spi-rx-bus-width = <1>;
++		spi-tx-bus-width = <1>;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			nvram: partition@700000 {
++				label = "nvram";
++				/* To be filled by the loader */
++				reg = <0x0 0x0>;
++				status = "disabled";
++			};
++		};
++	};
++};
++
++/*
++ * The HDMI converter's two power outputs (ADT dp2hdmi-gpio1): line 0 hdmi_pwr_en ('pcIO',
++ * 0x800000, 0xf0000), line 1 dp2hdmi_pwr_en ('pcIO', 0x0, 0x1a0000). Nothing drives them until
++ * the HDMI output does.
++ */
++&smc_pcio {
++	apple,output-commands = /bits/ 64 <0x000f000000800000 0x001a000000000000>;
++};
++
++/*
++ * The USB-C ports: rear ports 1-4 on ATC0-3 of die 0, front ports 5 and 6 on ATC0 and ATC1 of
++ * die 1. The HPMs of the rear ports are on nub-spmi-a0, those of the front ports on nub-spmi-a2.
++ */
++&nub_spmi_a0 {
++	/*
++	 * /arm-io/nub-spmi-a0/hpm0: SN201202x (ACE3), SPMI address 0xc, port-number 1 (back-right).
++	 * Reserved: rear port 1 carries the DFU cable, the host's VDM reboot path and the
++	 * debug console (KIS) through usb-drd0; a probe wakes the controller and sets its
++	 * power state even when polled. No ATC0, usb-drd0 or dart-usb0 node either.
++	 */
++	hpm0: usb-pd@c {
++		compatible = "apple,sn201202x";
++		reg = <0xc SPMI_USID>;
++		status = "disabled";
++	};
++
++	/* /arm-io/nub-spmi-a0/hpm1: SN201202x (ACE3), SPMI address 0xa, port-number 2 */
++	hpm1: usb-pd@a {
++		compatible = "apple,sn201202x";
++		reg = <0xa SPMI_USID>;
++
++		connector {
++			compatible = "usb-c-connector";
++			label = "USB-C Back-right-middle";
++			power-role = "dual";
++			data-role = "host";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					hpm1_hs: endpoint {
++						remote-endpoint = <&usb_drd1_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++					hpm1_ss: endpoint {
++						remote-endpoint = <&atc1_phy_ep>;
++					};
++				};
++			};
++		};
++	};
++
++	/* /arm-io/nub-spmi-a0/hpm2: SN201202x (ACE3), SPMI address 8, port-number 3 */
++	hpm2: usb-pd@8 {
++		compatible = "apple,sn201202x";
++		reg = <0x8 SPMI_USID>;
++		status = "disabled";
++
++		connector {
++			compatible = "usb-c-connector";
++			label = "USB-C Back-left-middle";
++			power-role = "dual";
++			data-role = "dual";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					hpm2_hs: endpoint {
++						remote-endpoint = <&usb_drd2_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++					hpm2_ss: endpoint {
++						remote-endpoint = <&atc2_phy_ep>;
++					};
++				};
++
++				port@2 {
++					reg = <2>;
++					hpm2_dp: endpoint {
++						remote-endpoint = <&dcpext0_typec>;
++					};
++				};
++			};
++		};
++	};
++
++	/* /arm-io/nub-spmi-a0/hpm3: SN201202x (ACE3), SPMI address 6, port-number 4 */
++	hpm3: usb-pd@6 {
++		compatible = "apple,sn201202x";
++		reg = <0x6 SPMI_USID>;
++
++		connector {
++			compatible = "usb-c-connector";
++			label = "USB-C Back-left";
++			power-role = "dual";
++			data-role = "host";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					hpm3_hs: endpoint {
++						remote-endpoint = <&usb_drd3_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++					hpm3_ss: endpoint {
++						remote-endpoint = <&atc3_phy_ep>;
++					};
++				};
++
++				/* The USB4 router (usb4_3_acio), the PD driver's thunderbolt-switch */
++				port@2 {
++					reg = <2>;
++					hpm3_tbt: endpoint {
++						remote-endpoint = <&usb4_3_ep>;
++					};
++				};
++			};
++		};
++	};
++};
++
++&nub_spmi_a2 {
++	/* /arm-io/nub-spmi-a2/hpm4: SN201202x (ACE3), SPMI address 0xc, port-number 5 */
++	hpm4: usb-pd@c {
++		compatible = "apple,sn201202x";
++		reg = <0xc SPMI_USID>;
++
++		connector {
++			compatible = "usb-c-connector";
++			label = "USB-C Front-right";
++			power-role = "dual";
++			data-role = "host";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					hpm4_hs: endpoint {
++						remote-endpoint = <&usb_drd4_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++					hpm4_ss: endpoint {
++						remote-endpoint = <&atc4_phy_ep>;
++					};
++				};
++			};
++		};
++	};
++
++	/* /arm-io/nub-spmi-a2/hpm5: SN201202x (ACE3), SPMI address 0xa, port-number 6 */
++	hpm5: usb-pd@a {
++		compatible = "apple,sn201202x";
++		reg = <0xa SPMI_USID>;
++
++		connector {
++			compatible = "usb-c-connector";
++			label = "USB-C Front-left";
++			power-role = "dual";
++			data-role = "host";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					hpm5_hs: endpoint {
++						remote-endpoint = <&usb_drd5_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++					hpm5_ss: endpoint {
++						remote-endpoint = <&atc5_phy_ep>;
++					};
++				};
++			};
++		};
++	};
++};
++
++/*
++ * Rear USB-C port 2 (HPM1, "back-right-middle"), USB data: ATC1's combo PHY, usb-drd1 and
++ * dart-usb1.
++ */
++&atc1_phy {
++	port {
++		atc1_phy_ep: endpoint {
++			remote-endpoint = <&hpm1_ss>;
++		};
++	};
++};
++
++&usb_drd1 {
++	port {
++		usb_drd1_hs: endpoint {
++			remote-endpoint = <&hpm1_hs>;
++		};
++	};
++};
++
++/*
++ * Rear USB-C port 3 (HPM2, "back-left-middle", the display port): DisplayPort out from dcpext0
++ * through ATC2, and USB beside it (usb-drd2, dart-usb2). The chain stays disabled: Aura's T6050
++ * display handoff enables what dcpext0 references (phys, mux-controls, the PHY's mailbox and
++ * power domains, the typec route's HPM and its SPMI bus).
++ */
++&atc2_phy {
++	port {
++		atc2_phy_ep: endpoint {
++			remote-endpoint = <&hpm2_ss>;
++		};
++	};
++};
++
++&usb_drd2 {
++	port {
++		usb_drd2_hs: endpoint {
++			remote-endpoint = <&hpm2_hs>;
++		};
++	};
++};
++
++&dcpext0 {
++	typec-routes {
++		route@0 {
++			port {
++				dcpext0_typec: endpoint {
++					remote-endpoint = <&hpm2_dp>;
++				};
++			};
++		};
++	};
++};
++
++/* Rear USB-C port 4 (HPM3, "back-left"): ATC3, and its USB4/Thunderbolt router */
++&atc3_phy {
++	port {
++		atc3_phy_ep: endpoint {
++			remote-endpoint = <&hpm3_ss>;
++		};
++	};
++};
++
++&usb_drd3 {
++	port {
++		usb_drd3_hs: endpoint {
++			remote-endpoint = <&hpm3_hs>;
++		};
++	};
++};
++
++&usb4_3_acio {
++	ports {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		port@1 {
++			reg = <1>;
++			usb4_3_ep: endpoint {
++				remote-endpoint = <&hpm3_tbt>;
++			};
++		};
++	};
++};
++
++/* Front USB-C port 5 (HPM4, "front-right"): die 1's ATC0 */
++&atc4_phy {
++	port {
++		atc4_phy_ep: endpoint {
++			remote-endpoint = <&hpm4_ss>;
++		};
++	};
++};
++
++&usb_drd4 {
++	port {
++		usb_drd4_hs: endpoint {
++			remote-endpoint = <&hpm4_hs>;
++		};
++	};
++};
++
++/* Front USB-C port 6 (HPM5, "front-left"): die 1's ATC1 */
++&atc1_phy_die1 {
++	port {
++		atc5_phy_ep: endpoint {
++			remote-endpoint = <&hpm5_ss>;
++		};
++	};
++};
++
++&usb_drd1_die1 {
++	port {
++		usb_drd5_hs: endpoint {
++			remote-endpoint = <&hpm5_hs>;
++		};
++	};
++};
++
++/*
++ * The HDMI port: dcpext4, die 1's dcpext0, through its fixed route (die 1's display crossbar,
++ * ufp endpoint 0, to lpdptx-phy1, dfp endpoint 4). Aura's T6050 handoff enables it with dcpext0
++ * when the engine passes the same checks. No output yet: the HDMI PHY, its converter's power and
++ * hotplug come with their drivers.
++ */
++&dcpext0_die1 {
++	apple,connector-type = "HDMI-A";
++	apple,dptx-die = <1>;
++	apple,dptx-phy = <4>;
++	/*
++	 * The fixed HDMI route: the PHY (its source select picks this engine: the crossbar has no
++	 * registers), the converter's hotplug output (AOP GPIO 14, active high) and its two power
++	 * enables (the SMC's pcIO pins 15 and 26).
++	 */
++	phys = <&lpdptx_phy1>;
++	phy-names = "dp-phy";
++	hdmi-hpd-gpios = <&pinctrl_aop 14 GPIO_ACTIVE_HIGH>;
++	hdmi-pwren-gpios = <&smc_pcio 0 GPIO_ACTIVE_HIGH>;
++	dp2hdmi-pwren-gpios = <&smc_pcio 1 GPIO_ACTIVE_HIGH>;
++};
+diff --git a/arch/arm64/boot/dts/apple/t6050-ultra.dtsi b/arch/arm64/boot/dts/apple/t6050-ultra.dtsi
+new file mode 100644
+index 000000000000..fae5621266fb
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6050-ultra.dtsi
+@@ -0,0 +1,502 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Apple T6050 "M5 Ultra" SoC: two dies
++ *
++ * Die 0 and die 1 each get the per-die template (t6050-dieX.dtsi); the
++ * blocks used from die 0 only are in t6050-die0.dtsi. The video decoders,
++ * the memory cache controllers and the display subsystem are so far
++ * described for the two-die part only, as are die 1's ATC0 port and its
++ * DisplayPort PHY.
++ *
++ * Copyright The Asahi Linux Contributors
++ */
++
++#include <dt-bindings/interrupt-controller/apple-aic.h>
++#include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/phy/phy.h>
++#include <dt-bindings/spmi/spmi.h>
++
++#include "multi-die-cpp.h"
++
++#include "t6050-base.dtsi"
++
++/ {
++	/*
++	 * Five cores in each cluster, die 0's first, so that nr_cpus= brings the CPUs up in that
++	 * order.
++	 */
++	cpus {
++		T6050_M_CPU(cpu0, 40000, cpufreq_mc0);
++		T6050_M_CPU(cpu1, 40001, cpufreq_mc0);
++		T6050_M_CPU(cpu2, 40002, cpufreq_mc0);
++		T6050_M_CPU(cpu3, 40003, cpufreq_mc0);
++		T6050_M_CPU(cpu4, 40004, cpufreq_mc0);
++		T6050_M_CPU(cpu6, 40100, cpufreq_mc1);
++		T6050_M_CPU(cpu7, 40101, cpufreq_mc1);
++		T6050_M_CPU(cpu8, 40102, cpufreq_mc1);
++		T6050_M_CPU(cpu9, 40103, cpufreq_mc1);
++		T6050_M_CPU(cpu10, 40104, cpufreq_mc1);
++		T6050_P_CPU(cpu12, 10200, cpufreq_pc);
++		T6050_P_CPU(cpu13, 10201, cpufreq_pc);
++		T6050_P_CPU(cpu14, 10202, cpufreq_pc);
++		T6050_P_CPU(cpu15, 10203, cpufreq_pc);
++		T6050_P_CPU(cpu16, 10204, cpufreq_pc);
++		T6050_M_CPU(cpu18, 41000, cpufreq_mc0_die1);
++		T6050_M_CPU(cpu19, 41001, cpufreq_mc0_die1);
++		T6050_M_CPU(cpu20, 41002, cpufreq_mc0_die1);
++		T6050_M_CPU(cpu21, 41003, cpufreq_mc0_die1);
++		T6050_M_CPU(cpu22, 41004, cpufreq_mc0_die1);
++		T6050_M_CPU(cpu24, 41100, cpufreq_mc1_die1);
++		T6050_M_CPU(cpu25, 41101, cpufreq_mc1_die1);
++		T6050_M_CPU(cpu26, 41102, cpufreq_mc1_die1);
++		T6050_M_CPU(cpu27, 41103, cpufreq_mc1_die1);
++		T6050_M_CPU(cpu28, 41104, cpufreq_mc1_die1);
++		T6050_P_CPU(cpu30, 11200, cpufreq_pc_die1);
++		T6050_P_CPU(cpu31, 11201, cpufreq_pc_die1);
++		T6050_P_CPU(cpu32, 11202, cpufreq_pc_die1);
++		T6050_P_CPU(cpu33, 11203, cpufreq_pc_die1);
++		T6050_P_CPU(cpu34, 11204, cpufreq_pc_die1);
++	};
++
++	/* Die 1 MMIO. The boot loader needs each die's bus. */
++	die1: soc@4200000000 {
++		compatible = "simple-bus";
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges = <0x42 0x0 0x42 0x0 0x3 0xc0000000>;
++		nonposted-mmio;
++	};
++};
++
++#define DIE
++#define DIE_NO 0
++#define DIE_UNIT_PREFIX
++#define DIE_ATC1 atc1
++#define SOC_NODE die0
++
++#include "t6050-dieX.dtsi"
++#include "t6050-die0.dtsi"
++
++#undef DIE
++#undef DIE_NO
++#undef DIE_UNIT_PREFIX
++#undef DIE_ATC1
++#undef SOC_NODE
++
++#define DIE _die1
++#define DIE_NO 1
++#define DIE_UNIT_PREFIX 4
++#define DIE_ATC1 atc5
++#define SOC_NODE die1
++
++#include "t6050-dieX.dtsi"
++
++#undef DIE
++#undef DIE_NO
++#undef DIE_UNIT_PREFIX
++#undef DIE_ATC1
++#undef SOC_NODE
++
++/*
++ * Die 1's ATC0, as its ATC1 (ADT /arm-io/atc-phy4, acio-phy-cpu4, usb-drd4, dart-usb4). Die 0's
++ * ATC0 is not described: it carries the DFU and debug link (usb-drd0), which stays the boot
++ * loader's.
++ */
++&pmgr0_die1 {
++	/* die 1 ATC0_COMMON (gate 55) */
++	ps_atc4_common: power-controller@208 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x208 4>;
++		label = "atc4_common";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++	};
++};
++
++&pmgr2_die1 {
++	/* die 1 ATC0: gates 260, 261, 262 */
++	ps_atc4_usb_aon: power-controller@148 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x148 4>;
++		label = "atc4_usb_aon";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++	};
++
++	ps_atc4_usb: power-controller@150 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x150 4>;
++		label = "atc4_usb";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc4_common>, <&ps_atc4_usb_aon>;
++	};
++
++	ps_atc4_phymxwrap: power-controller@158 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x158 4>;
++		label = "atc4_phymxwrap";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc4_common>, <&ps_atc4_usb_aon>;
++	};
++};
++
++/*
++ * Die 1's DisplayPort PHY (ADT /arm-io/lpdptx-phy1, dptx-phy,t6050) and its power gate (DPTX_PHY
++ * at 0x3f8 of die 1's G1 PMGR group, no parent domains).
++ */
++&pmgr1_die1 {
++	ps_dptx_phy_die1: power-controller@3f8 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x3f8 4>;
++		label = "die1_dptx_phy";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++	};
++};
++
++&die1 {
++	/* /arm-io/acio-phy-cpu4 reg[0]: the PHY firmware's mailbox */
++	atc4_phy_mbox: mailbox@42a3148000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x42 0xa3148000 0x0 0x4000>;
++		interrupts = <AIC_IRQ 1 841 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1 842 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1 843 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 1 844 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty", "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++	};
++
++	/* /arm-io/atc-phy4 regs [2] [0] usb-drd4[4] [39] [40] [41] [42] [43] [38] [37] usb-drd4[3] */
++	atc4_phy: phy@42a3000000 {
++		compatible = "apple,t6050-combo-phy";
++		reg = <0x42 0xa3000000 0x0 0x2c000>,
++		      <0x42 0xa2a90000 0x0 0x4000>,
++		      <0x42 0xa2800000 0x0 0x4000>,
++		      <0x42 0xa3200000 0x0 0x4000>,
++		      <0x42 0xa3244000 0x0 0x4000>,
++		      <0x42 0xa0000000 0x0 0x8000>,
++		      <0x42 0xa0020000 0x0 0x4000>,
++		      <0x42 0xa3250000 0x0 0x4000>,
++		      <0x42 0xa3140000 0x0 0x4000>,
++		      <0x42 0xa30c0000 0x0 0x10000>,
++		      <0x42 0xa2a84000 0x0 0x4000>;
++		reg-names = "core", "usb2phy", "usb2-digital", "reset", "fabric", "axi2af", "lioa",
++			    "common-cfg", "usb-control", "firmware-data", "pipehandler";
++		#phy-cells = <1>;
++		#reset-cells = <1>;
++		apple,port-index = <4>;
++		apple,guest-port-reserved;
++		mode-switch;
++		orientation-switch;
++		mboxes = <&atc4_phy_mbox>;
++		power-domains = <&ps_atc4_usb_aon>, <&ps_atc4_common>, <&ps_atc4_phymxwrap>,
++				<&ps_atc4_usb>;
++		power-domain-names = "usb-aon", "common", "wrapper", "usb";
++	};
++
++	/* /arm-io/usb-drd4: reg[0] (core and Apple regions), reg[1] (drd-cfg), interrupt 4523; ATC1's tunables */
++	usb_drd4: usb@42a2280000 {
++		compatible = "apple,t6050-dwc3", "apple,t8103-dwc3";
++		reg = <0x42 0xa2280000 0x0 0xcd00>,
++		      <0x42 0xa228cd00 0x0 0x4b00>,
++		      <0x42 0xa2200000 0x0 0x4000>;
++		reg-names = "dwc3-core", "dwc3-apple", "drd-cfg";
++		interrupts = <AIC_IRQ 1 1419 IRQ_TYPE_LEVEL_HIGH>;
++		dr_mode = "otg";
++		usb-role-switch;
++		role-switch-default-mode = "host";
++		iommus = <&usb_drd4_dart_0 0>, <&usb_drd4_dart_1 1>;
++		power-domains = <&ps_atc4_usb>;
++		resets = <&atc4_phy 0>;
++		phys = <&atc4_phy PHY_TYPE_USB2>, <&atc4_phy PHY_TYPE_USB3>;
++		phy-names = "usb2-phy", "usb3-phy";
++		apple,tunable-gbl-default = <0x64 0x2 0x0>, <0x10 0xfff80000 0x00680000>;
++		apple,tunable-gbl-host = <0x4 0x0001ef00 0x00002f00>, <0x1c 0x00000100 0x0>,
++			<0x2c 0x000a07ff 0x000800c8>, <0x100 0x02000100 0x02000100>,
++			<0x504 0x00001000 0x0>, <0x528 0xff0000ff 0x06000006>,
++			<0x52c 0xff0000ff 0x08000008>, <0x580 0xffffffff 0x6f000006>,
++			<0x584 0xffffffff 0x00060000>;
++		apple,tunable-dbg = <0x0 0x8 0x8>;
++		apple,tunable-cfg-host = <0x20 0xff 0x1b>;
++		apple,tunable-link = <0x10 0xff000000 0xff000000>, <0x20 0x7ff00000 0x4e900000>,
++			<0x24 0x001f8000 0x000b8000>, <0x60 0x0003ffff 0x00000600>;
++		apple,tunable-cio = <0x20 0x00ff0000 0x001e0000>;
++	};
++
++	/* /arm-io/dart-usb4 reg[0] and reg[1], interrupt 4527; vm-base 0x10000004000 +0xffff0000 */
++	usb_drd4_dart_0: iommu@42a2f00000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x42 0xa2f00000 0x0 0xc000>;
++		interrupts = <AIC_IRQ 1 1423 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_atc4_usb>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++	};
++
++	usb_drd4_dart_1: iommu@42a2f80000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x42 0xa2f80000 0x0 0xc000>;
++		interrupts = <AIC_IRQ 1 1423 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_atc4_usb>;
++		#iommu-cells = <1>;
++		apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++	};
++
++	/*
++	 * The PLL core calibration is the ADT node's DCOCFG, DTCVREG, DTCCAL, DCDADJ and DLFCFG
++	 * (RODCOROLEAKCOMP is absent there), with its pclkdrv-select. Disabled: Aura enables it with
++	 * the display engine it hands off. The power gate stays enabled (with no consumer it stays
++	 * off).
++	 */
++	lpdptx_phy1: phy@429c200000 {
++		compatible = "apple,t6050-dptx-phy";
++		reg = <0x42 0x9c200000 0x0 0x4000>,
++		      <0x42 0x9c240000 0x0 0x10000>;
++		reg-names = "core", "dptx";
++		power-domains = <&ps_dptx_phy_die1>;
++		#phy-cells = <0>;
++		#reset-cells = <0>;
++		apple,pll-dcocfg = <3>;
++		apple,pll-dtcvreg = <15>;
++		apple,pll-dtccal = <2>;
++		apple,pll-dcdadj = <16>;
++		apple,pll-dlfcfg = <3>;
++		apple,pclkdrv-select = <1>;
++		/* dcpext4's route: the die-1 crossbar's ufp endpoint 0 (source select 1) */
++		apple,ufp-endpoint = <0>;
++		/* Aura enables it with dcpext4. */
++		status = "disabled";
++	};
++};
++
++/ {
++	/*
++	 * Die 0's video decoder (ADT /arm-io/avd0, avd-version 4, the T8142 generation): reg[0]
++	 * 0x2308000000 + 0x1404000 through arm-io's ranges, windows in the T8142/T6041 layout (CM3 code
++	 * and SRAM 0x14000 each at +0x1080000, mailbox +0x10a8000, decode control +0x1100000); ADT
++	 * interrupts 2417, 2418 (die 0 IRQs 2417, 2418). dart-avd0 at +0x1020000,
++	 * interrupt 2424 (die 0 2424), SIDs 0-2 (mapper, piodma, adsbuf). Power: the clock
++	 * gates AVD_SYS_V and AVD_SOC_DART have no PS register; both hang off AVD_SYS (PMGR block
++	 * 0x2380600000 + 0x1d8, also the ARST reset), whose parent FAB1_SOC (+0x1b0) is critical.
++	 */
++	soc@2308000000 {
++		compatible = "simple-bus";
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges = <0x23 0x08000000 0x23 0x08000000 0x0 0x1404000>,
++			 <0x23 0x80600000 0x23 0x80600000 0x0 0xc000>;
++		nonposted-mmio;
++
++		pmgr4: power-management@2380600000 {
++			compatible = "apple,t6050-pmgr", "apple,t8103-pmgr", "syscon", "simple-mfd";
++			reg = <0x23 0x80600000 0x0 0xc000>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			ps_fab1_soc: power-controller@1b0 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x1b0 4>;
++				label = "fab1_soc";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				apple,always-on;
++			};
++
++			ps_avd_sys: power-controller@1d8 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x1d8 4>;
++				label = "avd_sys";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				power-domains = <&ps_fab1_soc>;
++			};
++		};
++
++		avd: avd@2309080000 {
++			compatible = "apple,t6050-avd", "apple,t8142-avd";
++			reg = <0x23 0x09080000 0x0 0x14000>,
++			      <0x23 0x09094000 0x0 0x14000>,
++			      <0x23 0x090a8000 0x0 0x4000>,
++			      <0x23 0x09100000 0x0 0x10000>;
++			reg-names = "code", "sram", "mbox", "ctrl";
++			interrupts = <AIC_IRQ 0 2417 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 2418 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_avd_sys>;
++			resets = <&ps_avd_sys>;
++			iommus = <&avd_dart 0>, <&avd_dart 1>, <&avd_dart 2>;
++		};
++
++		avd_dart: iommu@2309020000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0x23 0x09020000 0x0 0x20000>;
++			#iommu-cells = <1>;
++			interrupts = <AIC_IRQ 0 2424 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_avd_sys>;
++		};
++	};
++
++	/*
++	 * Die 1's video decoder (ADT /arm-io/avd1, avd-version 4, the T8142 generation): reg[0]
++	 * 0x6308000000 + 0x1404000 through arm-io's ranges, windows in the T8142/T6041 layout (CM3 code
++	 * and SRAM 0x14000 each at +0x1080000, mailbox +0x10a8000, decode control +0x1100000); ADT
++	 * interrupts 5521, 5522 (die 1 IRQs 2417, 2418). dart-avd1 at +0x1020000,
++	 * interrupt 5528 (die 1 2424), SIDs 0-2 (mapper, piodma, adsbuf). Power: the clock
++	 * gates AVD_SYS_V and AVD_SOC_DART have no PS register; both hang off AVD_SYS (PMGR block
++	 * 0x6380600000 + 0x1d8, also the ARST reset), whose parent FAB1_SOC (+0x1b0) is critical.
++	 */
++	soc@6308000000 {
++		compatible = "simple-bus";
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges = <0x63 0x08000000 0x63 0x08000000 0x0 0x1404000>,
++			 <0x63 0x80600000 0x63 0x80600000 0x0 0xc000>;
++		nonposted-mmio;
++
++		pmgr4_die1: power-management@6380600000 {
++			compatible = "apple,t6050-pmgr", "apple,t8103-pmgr", "syscon", "simple-mfd";
++			reg = <0x63 0x80600000 0x0 0xc000>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			ps_fab1_soc_die1: power-controller@1b0 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x1b0 4>;
++				label = "fab1_soc_die1";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				apple,always-on;
++			};
++
++			ps_avd_sys_die1: power-controller@1d8 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x1d8 4>;
++				label = "avd_sys_die1";
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				power-domains = <&ps_fab1_soc_die1>;
++			};
++		};
++
++		avd_die1: avd@6309080000 {
++			compatible = "apple,t6050-avd", "apple,t8142-avd";
++			reg = <0x63 0x09080000 0x0 0x14000>,
++			      <0x63 0x09094000 0x0 0x14000>,
++			      <0x63 0x090a8000 0x0 0x4000>,
++			      <0x63 0x09100000 0x0 0x10000>;
++			reg-names = "code", "sram", "mbox", "ctrl";
++			interrupts = <AIC_IRQ 1 2417 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 1 2418 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_avd_sys_die1>;
++			resets = <&ps_avd_sys_die1>;
++			iommus = <&avd_dart_die1 0>, <&avd_dart_die1 1>, <&avd_dart_die1 2>;
++		};
++
++		avd_dart_die1: iommu@6309020000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0x63 0x09020000 0x0 0x20000>;
++			#iommu-cells = <1>;
++			interrupts = <AIC_IRQ 1 2424 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_avd_sys_die1>;
++		};
++	};
++
++	/*
++	 * The DRM master: scanout buffers map through dart-dispext0 SID 0. Aura enables it with
++	 * dcpext0, and appends each other engine's display DART (SID 0) as it hands that engine
++	 * off: dcpext4's for the HDMI port. A disabled DART listed here would leave it no IOMMU.
++	 */
++	display: display-subsystem {
++		compatible = "apple,display-subsystem";
++		iommus = <&dart_dispext0 0>;
++		status = "disabled";
++	};
++
++	/*
++	 * The memory cache controllers: eight AMCCs of four planes on each die (ADT /arm-io/mcc:
++	 * amcc-count 8, dcs-count-per-amcc 4, die-enable-mask 3, AMCC a of die d at 0x2220000000 +
++	 * d * 0x4000000000 + a * 0x2000000 through arm-io's ranges), one 16 KiB block per plane.
++	 * The boot loader leaves every plane's ways enabled and powered with allocation disabled, so
++	 * the system level cache holds no data until apple-mcc allows it.
++	 */
++	soc@2220000000 {
++		compatible = "simple-bus";
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges = <0x22 0x20000000 0x22 0x20000000 0x0 0x10000000>,
++			 <0x62 0x20000000 0x62 0x20000000 0x0 0x10000000>;
++		nonposted-mmio;
++
++		mcc: memory-controller@2220000000 {
++			compatible = "apple,t6050-mcc";
++			reg = <0x22 0x20000000 0x0 0x4000>,
++			      <0x22 0x20040000 0x0 0x4000>,
++			      <0x22 0x20080000 0x0 0x4000>,
++			      <0x22 0x200c0000 0x0 0x4000>,
++			      <0x22 0x22000000 0x0 0x4000>,
++			      <0x22 0x22040000 0x0 0x4000>,
++			      <0x22 0x22080000 0x0 0x4000>,
++			      <0x22 0x220c0000 0x0 0x4000>,
++			      <0x22 0x24000000 0x0 0x4000>,
++			      <0x22 0x24040000 0x0 0x4000>,
++			      <0x22 0x24080000 0x0 0x4000>,
++			      <0x22 0x240c0000 0x0 0x4000>,
++			      <0x22 0x26000000 0x0 0x4000>,
++			      <0x22 0x26040000 0x0 0x4000>,
++			      <0x22 0x26080000 0x0 0x4000>,
++			      <0x22 0x260c0000 0x0 0x4000>,
++			      <0x22 0x28000000 0x0 0x4000>,
++			      <0x22 0x28040000 0x0 0x4000>,
++			      <0x22 0x28080000 0x0 0x4000>,
++			      <0x22 0x280c0000 0x0 0x4000>,
++			      <0x22 0x2a000000 0x0 0x4000>,
++			      <0x22 0x2a040000 0x0 0x4000>,
++			      <0x22 0x2a080000 0x0 0x4000>,
++			      <0x22 0x2a0c0000 0x0 0x4000>,
++			      <0x22 0x2c000000 0x0 0x4000>,
++			      <0x22 0x2c040000 0x0 0x4000>,
++			      <0x22 0x2c080000 0x0 0x4000>,
++			      <0x22 0x2c0c0000 0x0 0x4000>,
++			      <0x22 0x2e000000 0x0 0x4000>,
++			      <0x22 0x2e040000 0x0 0x4000>,
++			      <0x22 0x2e080000 0x0 0x4000>,
++			      <0x22 0x2e0c0000 0x0 0x4000>,
++			      <0x62 0x20000000 0x0 0x4000>,
++			      <0x62 0x20040000 0x0 0x4000>,
++			      <0x62 0x20080000 0x0 0x4000>,
++			      <0x62 0x200c0000 0x0 0x4000>,
++			      <0x62 0x22000000 0x0 0x4000>,
++			      <0x62 0x22040000 0x0 0x4000>,
++			      <0x62 0x22080000 0x0 0x4000>,
++			      <0x62 0x220c0000 0x0 0x4000>,
++			      <0x62 0x24000000 0x0 0x4000>,
++			      <0x62 0x24040000 0x0 0x4000>,
++			      <0x62 0x24080000 0x0 0x4000>,
++			      <0x62 0x240c0000 0x0 0x4000>,
++			      <0x62 0x26000000 0x0 0x4000>,
++			      <0x62 0x26040000 0x0 0x4000>,
++			      <0x62 0x26080000 0x0 0x4000>,
++			      <0x62 0x260c0000 0x0 0x4000>,
++			      <0x62 0x28000000 0x0 0x4000>,
++			      <0x62 0x28040000 0x0 0x4000>,
++			      <0x62 0x28080000 0x0 0x4000>,
++			      <0x62 0x280c0000 0x0 0x4000>,
++			      <0x62 0x2a000000 0x0 0x4000>,
++			      <0x62 0x2a040000 0x0 0x4000>,
++			      <0x62 0x2a080000 0x0 0x4000>,
++			      <0x62 0x2a0c0000 0x0 0x4000>,
++			      <0x62 0x2c000000 0x0 0x4000>,
++			      <0x62 0x2c040000 0x0 0x4000>,
++			      <0x62 0x2c080000 0x0 0x4000>,
++			      <0x62 0x2c0c0000 0x0 0x4000>,
++			      <0x62 0x2e000000 0x0 0x4000>,
++			      <0x62 0x2e040000 0x0 0x4000>,
++			      <0x62 0x2e080000 0x0 0x4000>,
++			      <0x62 0x2e0c0000 0x0 0x4000>;
++			apple,boot-dma-devices = <&display>;
++		};
++	};
++};

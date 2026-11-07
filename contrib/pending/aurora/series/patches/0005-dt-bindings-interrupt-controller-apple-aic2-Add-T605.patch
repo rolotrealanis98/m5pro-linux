@@ -1,0 +1,36 @@
+From c848d12e18c72eaed666e279264848749a7d976d Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 16:24:39 -0800
+Subject: [PATCH 05/58] dt-bindings: interrupt-controller: apple,aic2: Add
+ T6050
+
+T6050's AIC3 is the T8122 one with two dies, so it takes the T8122 fallback
+and, like T6031's, four interrupt cells (the second is the die).
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ .../devicetree/bindings/interrupt-controller/apple,aic2.yaml    | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/interrupt-controller/apple,aic2.yaml b/Documentation/devicetree/bindings/interrupt-controller/apple,aic2.yaml
+index f8ea935999a1..d118f35b28ff 100644
+--- a/Documentation/devicetree/bindings/interrupt-controller/apple,aic2.yaml
++++ b/Documentation/devicetree/bindings/interrupt-controller/apple,aic2.yaml
+@@ -47,6 +47,7 @@ properties:
+               - apple,t6030-aic3
+               - apple,t6031-aic3
+               - apple,t6041-aic3
++              - apple,t6050-aic3
+               - apple,t8132-aic3
+               - apple,t8140-aic3
+               - apple,t8142-aic3
+@@ -138,6 +139,7 @@ allOf:
+               - apple,t6000-aic
+               - apple,t6020-aic
+               - apple,t6031-aic3
++              - apple,t6050-aic3
+     then:
+       properties:
+         '#interrupt-cells':

@@ -1,0 +1,32 @@
+From 01533b5c733591fd7cb98190ede480ac2c1d35fc Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 16:24:38 -0800
+Subject: [PATCH 04/58] dt-bindings: arm: apple: Add the Mac Studio (M5 Ultra,
+ 2026)
+
+Add the J775D board and its T6050 (M5 Ultra) SoC.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ Documentation/devicetree/bindings/arm/apple.yaml | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/arm/apple.yaml b/Documentation/devicetree/bindings/arm/apple.yaml
+index f0061e05acbe..f3b2dfbc3ef9 100644
+--- a/Documentation/devicetree/bindings/arm/apple.yaml
++++ b/Documentation/devicetree/bindings/arm/apple.yaml
+@@ -472,6 +472,12 @@ properties:
+           - const: apple,t6041
+           - const: apple,arm-platform
+ 
++      - description: Apple M5 Ultra SoC based platforms
++        items:
++          - const: apple,j775d  # Mac Studio (M5 Ultra, 2026)
++          - const: apple,t6050
++          - const: apple,arm-platform
++
+   aurora,minimal-boot:
+     type: boolean
+     description:
