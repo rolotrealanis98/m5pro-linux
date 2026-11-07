@@ -1,0 +1,390 @@
+From 2bd7be1d532785fdc9f74a446f1ed72c221e6103 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:18:20 -0500
+Subject: [PATCH 1/4] smp: t6050: forward cores locked to a stage 1 base the
+ image left
+
+iBoot locks the RVBAR of every T6050 secondary to the base of the image
+it loaded, stage 1. A stage 2 with a kernel appended (about 38 MiB) does
+not fit between that base and the secondary-only CTRR window that ends
+at top_of_kernel_data (about 12 MiB on a J716s), so a stage 1 that puts
+it above the window runs it at another address. Its secondaries then
+reset into the retired stage 1's vectors, smp_prepare_rvbar() refuses
+every start, and kboot disables CPUs 1-17 ("is not alive").
+
+On T6050, rewrite slot 0 of that vector table, once, with the stub
+start.S already writes at a moved M3 image's old base ("ldr x16, 1f;
+br x16; 1: .quad _vectors_start"); T8140's single branch can be out of
+reach at this distance. Only a table with our four slot tags, in RAM
+below this image and outside the CTRR window, at EL2, is rewritten, and
+kboot reserves its 16K page so a core reset later still finds the relay.
+The write and read-back are shared with the T8140 relay, whose behaviour
+is unchanged.
+
+tests/python/test_smp_legacy_rvbar.py now builds the shared helper,
+and a new case runs the T6050 relay: it is written once, read back, and
+refused without a write outside EL2, for a foreign table, inside the
+CTRR window, above this image or below RAM, for an unlocked RVBAR and
+on other SoCs.
+
+Tested on the J716s (MacBook Pro 16-inch, M5 Pro): our stage 2, chainloaded
+above the CTRR window by our A/B stage 1, has started all 18 CPUs every
+day since 2026-11-04 through the same forwarding stub.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+(cherry picked from commit da96fedb6e693371f9f06b3d84020ad913f95afd)
+---
+ src/kboot.c                           |   7 ++
+ src/smp.c                             |  97 +++++++++++++++---
+ src/smp.h                             |   2 +
+ tests/python/test_smp_legacy_rvbar.py | 141 +++++++++++++++++++++++++-
+ 4 files changed, 229 insertions(+), 18 deletions(-)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index 068947c..465af4a 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -6271,6 +6271,13 @@ int kboot_prepare_dt(void *fdt)
+     if (relocated_from && fdt_add_mem_rsv(dt, relocated_from, SZ_16K))
+         bail("FDT: couldn't add reservation for m1n1's old reset vector\n");
+ 
++    // T6050: stage 1 placed this image away from the base the secondaries' RVBAR
++    // is locked to, and smp.c forwards them from the retired vectors there.
++    u64 rvbar_relay = smp_rvbar_relay();
++    if (chip_id == T6050 && rvbar_relay &&
++        fdt_add_mem_rsv(dt, ALIGN_DOWN(rvbar_relay, SZ_16K), SZ_16K))
++        bail("FDT: couldn't add reservation for the RVBAR relay\n");
++
+     if (chip_id == T8140) {
+         u64 ro_start, ro_end;
+         if (memory_fw_ro_range(&ro_start, &ro_end) != 1)
+diff --git a/src/smp.c b/src/smp.c
+index ba54fb7..226a597 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -150,6 +150,84 @@ static u64 old_vectors_start(void)
+     return relocated_from ? relocated_from + ((u64)_vectors_start - (u64)_base) : 0;
+ }
+ 
++/* Write a relay at a locked reset vector and publish it to cores that reset with caches off. */
++static int smp_write_relay(u64 locked, const u32 *code, size_t words)
++{
++    u64 page = ALIGN_DOWN(locked, get_page_size());
++    if (mmu_active())
++        mmu_add_mapping(page, page, get_page_size(), MAIR_IDX_NORMAL, PERM_RW);
++    for (size_t i = 0; i < words; i++)
++        write32(locked + 4 * i, code[i]);
++    dc_cvac_range((void *)locked, 4 * words);
++    sysop("dsb sy");
++    ic_ivau_range((void *)locked, 4 * words);
++    sysop("dsb sy");
++    sysop("isb");
++    if (mmu_active())
++        mmu_add_mapping(page, page, get_page_size(), MAIR_IDX_NORMAL, PERM_RX);
++
++    for (size_t i = 0; i < words; i++) {
++        if (read32(locked + 4 * i) != code[i]) {
++            printf("SMP: RVBAR relay read-back failed at 0x%lx\n", locked);
++            return -1;
++        }
++    }
++    installed_relay = locked;
++    return 0;
++}
++
++/*
++ * T6050: iBoot locks every secondary's RVBAR to the base of the image it
++ * loaded. A stage 1 that placed this image elsewhere (a stage 2 with a kernel
++ * appended does not fit below the secondary-only CTRR window, so it goes above
++ * it) leaves those cores resetting into the retired stage 1's vectors.
++ * Forward them with the stub start.S writes at a moved M3 image's old base:
++ * "ldr x16, 1f; br x16; 1: .quad _vectors_start", since the distance can be
++ * out of reach of a branch. Only a retired m1n1 vector table (same four slot
++ * tags as ours) in RAM below this image and outside the CTRR window is
++ * rewritten, once; kboot keeps its page from the OS.
++ */
++static int smp_prepare_rvbar_t6050(u64 locked, u64 target)
++{
++    const u32 relay[4] = {0x58000050, 0xd61f0200, (u32)target, (u32)(target >> 32)};
++    u64 page = ALIGN_DOWN(locked, SZ_16K);
++
++    if (installed_relay) {
++        if (installed_relay == locked && !memcmp((void *)locked, relay, sizeof(relay)))
++            return 0;
++        printf("SMP: RVBAR 0x%lx differs from the relay at 0x%lx; refusing start\n", locked,
++               installed_relay);
++        return -1;
++    }
++    if (!in_el2()) {
++        printf("SMP: RVBAR 0x%lx differs from vector 0x%lx; refusing start\n", locked, target);
++        return -1;
++    }
++
++    u64 ro_start = mrs(SYS_IMP_APL_CTRR_C_LWR_EL1);
++    u64 ro_end = ALIGN_UP(mrs(SYS_IMP_APL_CTRR_C_UPR_EL1), SZ_4K);
++    if (page < cur_boot_args.phys_base || page + SZ_16K > (u64)_base ||
++        (page < ro_end && page + SZ_16K > ro_start)) {
++        printf("SMP: RVBAR 0x%lx is not RAM below this image; refusing start\n", locked);
++        return -1;
++    }
++    for (u64 off = 0; off <= 0x180; off += 0x80) {
++        if (read32(locked + off) != read32((u64)_vectors_start + off)) {
++            printf("SMP: RVBAR 0x%lx is not a retired m1n1 vector table\n", locked);
++            return -1;
++        }
++    }
++    if (smp_write_relay(locked, relay, ARRAY_SIZE(relay)))
++        return -1;
++    printf("SMP: installed RVBAR relay at 0x%lx -> 0x%lx\n", locked, target);
++    return 0;
++}
++
++u64 smp_rvbar_relay(void)
++{
++    return installed_relay;
++}
++
+ static int smp_prepare_rvbar(const struct cpu_info *cpu)
+ {
+     u64 rvbar = read64(cpu->impl_reg);
+@@ -161,6 +239,8 @@ static int smp_prepare_rvbar(const struct cpu_info *cpu)
+     /* A stage that moved above the chainloaded image keeps entry at its old base. */
+     if (relocated_from && locked == old_vectors_start())
+         return 0;
++    if (chip_id == T6050 && (rvbar & RVBAR_LOCK))
++        return smp_prepare_rvbar_t6050(locked, target);
+     if (chip_id != T8140 || !(rvbar & RVBAR_LOCK)) {
+         printf("SMP: RVBAR 0x%lx differs from vector 0x%lx; refusing start\n", locked, target);
+         return -1;
+@@ -177,23 +257,8 @@ static int smp_prepare_rvbar(const struct cpu_info *cpu)
+         printf("SMP: RVBAR 0x%lx is not a verified retired image vector\n", locked);
+         return -1;
+     }
+-    u64 page = ALIGN_DOWN(locked, get_page_size());
+-    if (mmu_active())
+-        mmu_add_mapping(page, page, get_page_size(), MAIR_IDX_NORMAL, PERM_RW);
+-    write32(locked, branch);
+-    dc_cvac_range((void *)locked, sizeof(branch));
+-    sysop("dsb sy");
+-    ic_ivau_range((void *)locked, sizeof(branch));
+-    sysop("dsb sy");
+-    sysop("isb");
+-    if (mmu_active())
+-        mmu_add_mapping(page, page, get_page_size(), MAIR_IDX_NORMAL, PERM_RX);
+-
+-    if (read32(locked) != branch) {
+-        printf("SMP: RVBAR relay read-back failed at 0x%lx\n", locked);
++    if (smp_write_relay(locked, &branch, 1))
+         return -1;
+-    }
+-    installed_relay = locked;
+     printf("SMP: installed RVBAR relay at 0x%lx -> 0x%lx (0x%x)\n", locked, target, branch);
+     return 0;
+ }
+diff --git a/src/smp.h b/src/smp.h
+index df55437..73aa731 100644
+--- a/src/smp.h
++++ b/src/smp.h
+@@ -37,6 +37,8 @@ bool smp_has_pending_calls(void);
+ bool smp_is_alive(int cpu);
+ uint64_t smp_get_mpidr(int cpu);
+ u64 smp_get_release_addr(int cpu);
++/* The locked reset vector rewritten to forward cores to this image, or 0 */
++u64 smp_rvbar_relay(void);
+ void smp_set_wfe_mode(bool new_mode);
+ void smp_send_ipi(int cpu);
+ 
+diff --git a/tests/python/test_smp_legacy_rvbar.py b/tests/python/test_smp_legacy_rvbar.py
+index 9ff083e..414e7f2 100644
+--- a/tests/python/test_smp_legacy_rvbar.py
++++ b/tests/python/test_smp_legacy_rvbar.py
+@@ -10,7 +10,7 @@ from test_locked_dart_tables import function
+ def test_legacy_rvbar_lock_does_not_prune_cpus(tmp_path):
+     source = (REPO / "src/smp.c").read_text()
+     bodies = "\n".join(function(source, name) for name in (
+-        "smp_prepare_rvbar", "smp_start_cpu", "smp_start_secondaries"))
++        "smp_write_relay", "smp_prepare_rvbar", "smp_start_cpu", "smp_start_secondaries"))
+     harness = r'''
+ #include <assert.h>
+ #include <stdbool.h>
+@@ -33,6 +33,7 @@ _Static_assert(sizeof(u64) == 8, "production u64 ABI");
+ #define T8140 0x8140
+ #define T8142 0x8142
+ #define T8152 0x8152
++#define T6050 0x6050
+ #define MAIR_IDX_NORMAL 0
+ #define PERM_RW 0
+ #define PERM_RX 1
+@@ -118,6 +119,13 @@ static u32 cpu_start_bit(int i, const struct cpu_info *cpu) {
+ static void udelay(int t) { (void)t; }
+ static void smp_start_t8152(void) {}
+ static void smp_set_wfe_mode(bool a) { (void)a; }
++/* No T6050 in this matrix */
++static int smp_prepare_rvbar_t6050(u64 locked, u64 target) {
++  (void)locked;
++  (void)target;
++  assert(0);
++  return -1;
++}
+ ''' + bodies + r'''
+ static void setup(int chip, bool unlocked) {
+   chip_id = chip;
+@@ -190,6 +198,7 @@ int main(void) {
+ def test_t8140_owned_relay_and_m3_relocation_keep_existing_behavior(tmp_path):
+     source = (REPO / "src/smp.c").read_text()
+     current = function(source, "smp_prepare_rvbar")
++    relay = function(source, "smp_write_relay")
+     # Reconstruct just the old admission expression to compare both production
+     # tails under identical inputs, without requiring git history in CI.
+     old = current.replace(
+@@ -207,6 +216,7 @@ typedef unsigned long u64;
+ typedef uint32_t u32;
+ _Static_assert(sizeof(u64) == 8, "production u64 ABI");
+ #define T8140 0x8140
++#define T6050 0x6050
+ #define RVBAR_LOCK 1
+ #define RVBAR_ADDR 0x0000fffffffff000UL
+ #define MAIR_IDX_NORMAL 0
+@@ -274,7 +284,14 @@ static void ic_ivau_range(void *address, u64 size)
+     assert((u64)address == locked_vector && size == 4);
+     event("ic_ivau", (u64)address, size);
+ }
+-''' + current + "\n" + old + r'''
++static int smp_prepare_rvbar_t6050(u64 locked, u64 target)
++{
++    (void)locked;
++    (void)target;
++    assert(0);
++    return -1;
++}
++''' + relay + "\n" + current + "\n" + old + r'''
+ static void reset(void)
+ {
+     chip_id = T8140;
+@@ -336,3 +353,123 @@ int main(void)
+ }
+ '''
+     compile_and_run(tmp_path, "smp-rvbar-relay-parity", harness)
++
++
++def test_t6050_relay_forwards_only_a_retired_vector_table(tmp_path):
++    source = (REPO / "src/smp.c").read_text()
++    bodies = "\n".join(function(source, name) for name in (
++        "smp_write_relay", "smp_prepare_rvbar_t6050", "smp_prepare_rvbar"))
++    harness = r'''
++#include <assert.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++typedef unsigned long u64;
++typedef uint32_t u32;
++typedef int64_t s64;
++#define T8140 0x8140
++#define T6050 0x6050
++#define RVBAR_LOCK 1
++#define RVBAR_ADDR 0x0000fffffffff000UL
++#define MAIR_IDX_NORMAL 0
++#define PERM_RW 0
++#define PERM_RX 1
++#define SZ_4K 0x1000UL
++#define SZ_16K 0x4000UL
++#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
++#define ALIGN_DOWN(x, a) ((x) & ~((a) - 1))
++#define ALIGN_UP(x, a) (((x) + (a) - 1) & ~((a) - 1))
++#define sysop(op) ((void)0)
++#define mrs(reg) (reg)
++/* RAM: [ram, ram + 0x40000); this image at +0x20000, a retired stage 1 at +0x8000 */
++static unsigned char ram[0x40000] __attribute__((aligned(0x4000)));
++#define _base (ram + 0x20000)
++#define _vectors_start (ram + 0x20000)
++struct cpu_info { u64 impl_reg; };
++static struct { bool apple_sysregs_unlocked; } features, *cpu_features = &features;
++static struct { u64 phys_base; } cur_boot_args;
++static u64 SYS_IMP_APL_CTRR_C_LWR_EL1, SYS_IMP_APL_CTRR_C_UPR_EL1;
++static int chip_id;
++static bool el2;
++static u64 installed_relay, relocated_from, rvbar;
++static unsigned writes;
++static u64 read64(u64 a) { (void)a; return rvbar; }
++static u32 read32(u64 a) { return *(volatile u32 *)a; }
++static void write32(u64 a, u32 v) { *(volatile u32 *)a = v; writes++; }
++static bool in_el2(void) { return el2; }
++static u64 old_vectors_start(void) { return 0; }
++static bool smp_old_vector_owned(u64 a) { (void)a; assert(0); return false; }
++static bool mmu_active(void) { return false; }
++static u64 get_page_size(void) { return SZ_16K; }
++static void mmu_add_mapping(u64 a, u64 b, u64 c, int d, int e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
++static void dc_cvac_range(void *a, u64 n) { (void)a; (void)n; }
++static void ic_ivau_range(void *a, u64 n) { (void)a; (void)n; }
++''' + bodies + r'''
++static void tags(unsigned char *table, u32 seed)
++{
++    for (unsigned off = 0; off <= 0x180; off += 0x80)
++        *(u32 *)(table + off) = seed + off;
++}
++static void reset(u64 locked)
++{
++    memset(ram, 0, sizeof(ram));
++    tags(_vectors_start, 0x14000000);
++    tags((unsigned char *)locked, 0x14000000);
++    chip_id = T6050;
++    el2 = true;
++    features.apple_sysregs_unlocked = false;
++    cur_boot_args.phys_base = (u64)ram;
++    SYS_IMP_APL_CTRR_C_LWR_EL1 = (u64)ram + 0x30000;
++    SYS_IMP_APL_CTRR_C_UPR_EL1 = (u64)ram + 0x33000;
++    installed_relay = relocated_from = 0;
++    rvbar = locked | RVBAR_LOCK;
++    writes = 0;
++}
++int main(void)
++{
++    struct cpu_info cpu = {8};
++    u64 retired = (u64)ram + 0x8000, target = (u64)_vectors_start;
++    const u32 relay[4] = {0x58000050, 0xd61f0200, (u32)target, (u32)(target >> 32)};
++
++    /* A retired m1n1 table below this image: the four-word stub, once */
++    reset(retired);
++    assert(smp_prepare_rvbar(&cpu) == 0);
++    assert(installed_relay == retired && writes == 4);
++    assert(!memcmp((void *)retired, relay, sizeof(relay)));
++    /* the next core finds it in place and writes nothing */
++    assert(smp_prepare_rvbar(&cpu) == 0 && writes == 4);
++    /* a core locked elsewhere is refused while a relay exists */
++    rvbar = (retired + 0x4000) | RVBAR_LOCK;
++    assert(smp_prepare_rvbar(&cpu) == -1 && writes == 4);
++
++    /* Refusals that write nothing */
++    reset(retired);
++    el2 = false;
++    assert(smp_prepare_rvbar(&cpu) == -1 && !writes && !installed_relay);
++    reset(retired);
++    tags((unsigned char *)retired, 0xd503201f); /* not our slot tags */
++    assert(smp_prepare_rvbar(&cpu) == -1 && !writes);
++    reset((u64)ram + 0x30000); /* inside the CTRR window */
++    assert(smp_prepare_rvbar(&cpu) == -1 && !writes);
++    reset((u64)ram + 0x28000); /* above this image's base */
++    assert(smp_prepare_rvbar(&cpu) == -1 && !writes);
++    reset(retired);
++    cur_boot_args.phys_base = (u64)ram + 0xc000; /* below RAM */
++    assert(smp_prepare_rvbar(&cpu) == -1 && !writes);
++    reset(retired);
++    rvbar = retired; /* not locked: refused as before */
++    assert(smp_prepare_rvbar(&cpu) == -1 && !writes);
++
++    /* Unchanged cases */
++    reset(retired);
++    rvbar = target | RVBAR_LOCK;
++    assert(smp_prepare_rvbar(&cpu) == 0 && !writes);
++    reset(retired);
++    chip_id = 0x6040; /* another SoC is refused without a write */
++    assert(smp_prepare_rvbar(&cpu) == -1 && !writes);
++    puts("T6050 RVBAR relay PASS");
++    return 0;
++}
++'''
++    compile_and_run(tmp_path, "smp-t6050-relay", harness)
+-- 
+2.56.0
+
