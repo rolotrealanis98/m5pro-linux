@@ -1,0 +1,38 @@
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Subject: [PATCH] pending/dcp: fixed9: describe the J716s notch for the DCP driver
+
+The stage C display nodes have no apple,notch-height, so with the notch
+trimmed (no chosen.asahi,show-notch=1) the DCP mode would cover all
+2234 rows while the boot framebuffer covered 2160. Add the 74-row notch
+and the trimmed height in mm. Inert while show-notch=1 is set, which
+keeps the full 3456x2234 mode either way.
+
+---
+--- a/contrib/pending/dcp/aurora/mk-fixed9.py	2026-11-07 15:44:21
++++ b/contrib/pending/dcp/aurora/mk-fixed9.py	2026-11-07 15:44:21
+@@ -15,6 +15,9 @@
+ #   /arm-io/dart-disp0 0x28a300000+0xc000 (reg[0] only), IRQ 990, l1-tt-0 (scanout),
+ #                      l1-tt-16 (PIODMA); SIDs 3/4 are exclave planes: never attach them
+ # arm-io ranges add 0x200000000 to every arm-io address except the PMC window's.
++# Notch: 74 rows above the 3456x2160 area m1n1 trims to (J316 geometry, m1n1 kboot); the driver hides
++# them unless chosen.asahi,show-notch=1 or appledrm.show_notch=1 keep the full 3456x2234. adj-height-mm
++# 216 = 2160 rows at 254.6 ppi (ADT /arm-io/disp0 dot-pitch-float), for the trimmed mode.
+ import hashlib, pathlib, subprocess
+ H = pathlib.Path.home()
+ SRC = H/"Work/agents/trackpad-aurora/dt/j716s-typec-fixed8.dts"
+@@ -88,6 +91,7 @@
+ 			iommus = <{PH['dart_dcp']:#x} 0x17>;
+ {bw}			apple,dcp-index = <0x00>;
+ 			apple,clock-ids;
++			apple,notch-height = <0x4a>;
+ 			status = "disabled";
+ 			phandle = <{PH['dcp']:#x}>;
+ 
+@@ -99,6 +103,7 @@
+ 				compatible = "apple,panel-j716", "apple,panel-mini-led", "apple,panel";
+ 				width-mm = <0x159>;
+ 				height-mm = <0xdf>;
++				adj-height-mm = <0xd8>;
+ 				apple,max-brightness = <0x258>;
+ 			}};
+ 		}};
