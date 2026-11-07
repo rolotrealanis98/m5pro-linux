@@ -715,3 +715,37 @@ off, battery on) installed as `boot.bin`; `boot.bin.prev` stays R2-B `5091e1fe`;
 payloads (`boot.bin`, `boot.bin.prev`, `boot.bin.known-good`, `boot.bin.b2`). The verification reboot of the new
 daily is recorded in `aurora/STATE.md`.
 
+### Result (R3-AUDIO-A2 and R3-AUDIO-B2, 2026-11-07 09:27-09:45 UTC, self-revert loop + A/B stage-1; Rolando near the machine for the sound)
+
+Both payloads: series audio kernel `7.3.0-g32512dab5b4e` (`j716s-series-audio`, Rust on, AOP stack), m1n1 `pipepark-atc`
+`28b26ebc`, `initramfs-selftest`, `boot.bin.prev` = the battery daily `ce3f10af`. Root prepared with `audio-root-setup.sh` and
+the Studio-built packages (speakersafetyd 2.0.1, triforce-lv2 0.3.2, alsa-ucm-conf-asahi 10; bankstown and asahi-audio did
+not build and are not needed by our graphs).
+
+**A2 (`526ef58c`, mic + jack DT, speakers held off): WORKS.** Network at 23 s, no revert, trackpad up. Cards: `AppleJ716AOP`
+(`t8140-aop-audio`) and `AppleJ716` (`macaudio`). AOP: RTKit protocol 12, 13 AFK endpoints, `aop-audio`, `aop-audprov`,
+`aop-voicetrigger` announced; `cs42l84` revision 36; six `tas2764` probed ("no brownout configuration" only); both ADMACs.
+macaudio: "the boot loader passed no amp levels, disabling speakers" (expected on A), 0 woofer controls.
+- **Mic:** `arecord -D hw:AppleJ716AOP,0 -f FLOAT_LE -c 3 -r 48000`: first open logs `lpai channel masks: 0x0`, `pdm0 config:
+  0x0`, `pdm0 hf decimator: 0x0` (accepted). Ambient (nobody there): RMS 0.000082 (-82 dBFS) on all three capsules, not
+  zeros. Speech (Rolando talking, on B2, same AOP): RMS 0.000293 (-71 dBFS), peaks 0.0025 (-52 dBFS), per-second RMS
+  following the voice, three capsules within 0.2 dB. **Microphone works.** Jack switches present (`Headphone Jack`,
+  `Headset Mic Jack`, both off), headphones not tested.
+
+**B2 (`fa0161a2`, speaker DT, `snd_soc_macaudio.speaker_max_db=-40`): boots and is safe; first sound faults.** No revert,
+16 woofer/tweeter controls, `pcmC1D2c` (Speaker Sense) present.
+- **Gate fix:** speakersafetyd did not start: our udev rule had `ATTRS{id}` and `DRIVERS` on different parents, which udev
+  never matches (all parent keys must match one parent). Without the daemon the volumes stayed locked (silence, the safe
+  failure). Rule fixed (id only), reloaded, triggered: daemon active, parses `apple/j716.conf` (six speakers, amp gain
+  16 dBV, tweeter max 0.59 W, woofer 0.89 W), kernel then prints `Speaker volumes unlocked` and `Speaker volume ceiling
+  -40 dB`; `Speaker Volume` controls at 121 = -40 dB; `Amp Gain Volume` = 10 (its max).
+- **Routing:** `plughw:AppleJ716,1` alone fails ("no backend DAIs enabled for Secondary"): the front end must be routed with
+  `Speaker Playback Mux` = Secondary and `Speaker Switch` = on (no UCM: alsaucm cannot import our profile yet).
+- **First sound:** 2 s 1 kHz at -40 dBFS, six channels, `aplay` exit 0, daemon saw "Sample rate: 48000". At the end of the
+  stream every amp logged `fault: bad TDM clock` (20 fault lines, context `02,19,00,00,04` on i2c0 and `02,39,00,00,05`
+  on i2c2). This is the recipe's "AOP stopped the serializer under the amps" row (edimoldovan: mute toggle, undrained
+  sense). Stop rule applied: logs saved to `/boot/r1-logs/audio-b2-20261107/` (private), `Speaker Switch` off, daily
+  restored as `boot.bin` with R2-B as `boot.bin.prev`. Whether the tone was audible: Rolando's report pending.
+- **Next:** compare with edimoldovan's fix for the TDM-clock fault on J714c (his tree after 83d711c3a9), and check whether
+  the fault is on stream stop only (the daemon saw a valid rate, no fault during the 2 s).
+
