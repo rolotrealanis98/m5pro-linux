@@ -129,3 +129,23 @@ logs. Modules built for the daily will not load on the `-crashlog` kernel (rebui
 `~/Work/agents/e0-and-modules/build-modules.sh`).
 
 Worktree: `/Volumes/linux-cs/wt-crashlog`.
+
+## Update 2026-11-07: the /pram route (m1n1 0028)
+
+Today's loop showed ordinary DRAM is not kept across a clean warm reboot (cached and write-combined nodes both came back
+empty; the uncached node did not boot). The DRAM is ECC (`/chosen dram-ecc`) and iBoot initialises it on every boot.
+The one region iBoot keeps is `/pram` (`device_type = pram`, one `reg` entry, size = `/chosen embedded-panic-log-size`,
+about 1.5 MiB on the J716s; also listed in `/chosen/carveout-memory-map`). XNU maps it write-combined, keeps
+`struct embedded_panic_header` at its start, and iBoot reads the previous session's panic out of it at boot. It lies
+in iBoot's carve-out area at the top of DRAM, above the RAM handed to the OS, so it is outside the Linux memory node.
+
+- `patches/m1n1/0028-kboot-put-ramoops-in-iBoot-s-panic-log-region-pram.patch` (on 0021, the daily's m1n1; also
+  applies on the 0022-0027 wireless line): stage-2 fills `/reserved-memory/ramoops@<pram + 16 KiB>` from the ADT unless
+  the DT already has a ramoops node: compatible "ramoops", no-map, mem-type 0, ecc-size 16; the first 16 KiB (the panic
+  header page) are left alone. On the J716s: 512 KiB console, 128 KiB pmsg, 7 x 128 KiB dmesg records. Failures drop
+  the node and boot on.
+- `m1n1-build.sh`: the m1n1-r2 recipe; rebuilding `pipe-park-r2-atc` reproduces the daily's m1n1 `28b26ebc...`.
+- The DT node from `patches/0001` must not be in the DTB used with this m1n1: m1n1 leaves an existing ramoops node in
+  place, so the /pram node would not be added.
+- Open: whether iBoot keeps /pram after a clean reboot or only after an XNU-style panic reset (the ADT `wdt` node has
+  `panic-save-flag-bit`, the `mcc` node `panic-save-reg-idx`). The loop test tells.
