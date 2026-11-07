@@ -1,0 +1,248 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 14:39:22 -0800
+Subject: [PATCH 12/12] drm/apple: Fix display firmware buffer requests
+ reaching any mapped memory
+
+On T6050 with display firmware 27, when the display co-processor's
+firmware named a buffer in a request that was none of the host's
+pending command buffers, the host resolved the address through the
+whole IOMMU domain and copied up to 1 MiB to or from whatever it
+translated to, ignoring the mapping's permissions. A reply could thus
+be written into memory the co-processor may only read, such as another
+process's framebuffer or an imported buffer, and a request could read
+any memory the co-processor can reach. An address that translated to a
+device's registers was mapped cacheable and copied through, which can
+take the system down. Only the firmware's own retained mappings are
+now followed, a reply needs a mapping that grants writes, and an
+address in Linux's RAM or in any claimed memory resource is refused.
+
+The DART driver gains a resolver for this that refuses any address
+Linux mapped itself and returns the protection the firmware's leaves
+grant, for the four-level subtrees and root slots it retains. DRM_APPLE
+now follows the DART driver's build choice, since it calls into it.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+
+(cherry picked from commit 637bddce5b8d292fd2e5b765a61e446e4b6bb1de)
+---
+ drivers/gpu/drm/apple/Kconfig  |  2 ++
+ drivers/gpu/drm/apple/afk.c    | 26 ++++++++++----
+ drivers/iommu/apple-dart.c     | 66 ++++++++++++++++++++++++++++++++--
+ include/linux/soc/apple/dart.h |  7 ++++
+ 4 files changed, 91 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/gpu/drm/apple/Kconfig b/drivers/gpu/drm/apple/Kconfig
+index 7575fb03695e..3f09ef36c656 100644
+--- a/drivers/gpu/drm/apple/Kconfig
++++ b/drivers/gpu/drm/apple/Kconfig
+@@ -6,6 +6,8 @@ config DRM_APPLE
+ 	depends on APPLE_RTKIT
+ 	depends on TYPEC || !TYPEC
+ 	depends on OF_ADDRESS
++	# The firmware-27 remote buffer path calls into the DART driver.
++	depends on APPLE_DART || !APPLE_DART
+ 	select APPLE_PMP_REPORT
+ 	select OF_DYNAMIC
+ 	select DRM_CLIENT_SELECTION
+diff --git a/drivers/gpu/drm/apple/afk.c b/drivers/gpu/drm/apple/afk.c
+index e2d36e5c1f50..19bd1d985fe9 100644
+--- a/drivers/gpu/drm/apple/afk.c
++++ b/drivers/gpu/drm/apple/afk.c
+@@ -17,6 +17,8 @@
+ #include <linux/sizes.h>
+ #include <linux/unaligned.h>
+ #include <linux/workqueue.h>
++#include <linux/ioport.h>
++#include <linux/soc/apple/dart.h>
+ #include <linux/soc/apple/rtkit.h>
+ 
+ #include <kunit/visibility.h>
+@@ -1883,25 +1885,35 @@ static void afk_v2_status(struct apple_dcp_afkep *ep,
+ 		dev_warn(ep->dcp->dev, "AFKV2 error reply failed: %d\n", ret);
+ }
+ 
++/*
++ * A buffer the DCP firmware names that is none of the host's pending command
++ * buffers. Only the firmware's own retained mappings are followed, with the
++ * permission they grant: a reply is written only where the firmware's leaf
++ * allows writes, and a DVA that Linux mapped itself, or that names Linux's RAM
++ * or a device's registers, is refused.
++ */
+ static int afk_v27_access_remote(struct apple_dcp_afkep *ep, u64 dva, void *buffer,
+ 			   size_t size, bool to_remote, bool copy)
+ {
+-	struct iommu_domain *domain = iommu_get_domain_for_dev(ep->dcp->dev);
+ 	size_t off = 0;
+ 
+-	if (!domain || !dva || size > SZ_1M || size > U64_MAX - dva)
++	if (!dva || size > SZ_1M || size > U64_MAX - dva)
+ 		return -EINVAL;
+ 	while (off < size) {
+-		phys_addr_t pa = iommu_iova_to_phys(domain, dva + off);
++		phys_addr_t pa = 0;
+ 		size_t chunk = min_t(size_t, size - off,
+ 				    PAGE_SIZE - ((dva + off) & ~PAGE_MASK));
++		int ret = apple_dart_fw_remote(ep->dcp->dev, dva + off, to_remote, &pa);
+ 		void *cpu;
+ 
+-		if (!pa) {
++		if (!ret && region_intersects(pa, chunk, IORESOURCE_MEM,
++					      IORES_DESC_NONE) != REGION_DISJOINT)
++			ret = -EACCES;
++		if (ret) {
+ 			dev_err_ratelimited(ep->dcp->dev,
+-				"AFK[ep:%02x]: unmapped remote buffer %#llx + %#zx (%s)\n",
+-				ep->endpoint, dva, off, to_remote ? "reply" : "request");
+-			return -ENXIO;
++				"AFK[ep:%02x]: refused remote buffer %#llx + %#zx (%s): %d\n",
++				ep->endpoint, dva, off, to_remote ? "reply" : "request", ret);
++			return ret;
+ 		}
+ 		if (!copy) {
+ 			off += chunk;
+diff --git a/drivers/iommu/apple-dart.c b/drivers/iommu/apple-dart.c
+index 2a031f8be1cd..f47de28dd610 100644
+--- a/drivers/iommu/apple-dart.c
++++ b/drivers/iommu/apple-dart.c
+@@ -1233,7 +1233,7 @@ apple_dart_snapshot_fw_tree(struct apple_dart *dart, int sid, const u64 *live)
+ /* What firmware's recorded four-level subtree translates @addr to, or 0. */
+ static phys_addr_t apple_dart_fw_tree_phys(const struct apple_dart *dart,
+ 					   const struct apple_dart_fw_tree *tree,
+-					   const u64 *live, u64 addr)
++					   const u64 *live, u64 addr, int *prot_out)
+ {
+ 	u32 pgshift = ilog2(dart->pgsize);
+ 	u32 bits = ilog2(dart->pgsize / sizeof(u64));
+@@ -1251,6 +1251,8 @@ static phys_addr_t apple_dart_fw_tree_phys(const struct apple_dart *dart,
+ 	    !apple_dart_fw_leaf_decode(READ_ONCE(tree->leaf[slot][mid][page]),
+ 				       addr, &phys, &prot))
+ 		return 0;
++	if (prot_out)
++		*prot_out = prot;
+ 	return phys;
+ }
+ 
+@@ -2438,11 +2440,18 @@ static int apple_dart_check_fw_map(struct apple_dart_domain *domain, u64 dva,
+ 	return 0;
+ }
+ 
++/*
++ * What firmware's own retained translations in @domain map @address to, or 0.
++ * With @prot_out, also the protection every stream grants (IOMMU_READ and
++ * IOMMU_WRITE as the leaves say).
++ */
+ static phys_addr_t
+-apple_dart_inherited_phys(struct apple_dart_domain *domain, dma_addr_t address)
++apple_dart_inherited_phys_prot(struct apple_dart_domain *domain, dma_addr_t address,
++			       int *prot_out)
+ {
+ 	struct apple_dart_atomic_stream_map *map;
+ 	phys_addr_t result = 0;
++	int granted = IOMMU_READ | IOMMU_WRITE | IOMMU_CACHE;
+ 	int i, sid;
+ 
+ 	for_each_stream_map(i, domain, map) {
+@@ -2465,10 +2474,11 @@ apple_dart_inherited_phys(struct apple_dart_domain *domain, dma_addr_t address)
+ 				continue;
+ 			tree = dart->locked_fw_tree[sid];
+ 			fw = dart->locked_fw[sid][0];
++			prot = 0;
+ 			if (tree)
+ 				phys = apple_dart_fw_tree_phys(dart, tree,
+ 							       dart->locked_ttbr[sid][0],
+-							       address);
++							       address, &prot);
+ 			else if (slot >= entries ||
+ 				 !apple_dart_fw_slot_owned(fw, dart->locked_ttbr[sid][0], slot) ||
+ 				 !apple_dart_fw_leaf_decode(READ_ONCE(fw->leaf[slot][page]),
+@@ -2479,12 +2489,62 @@ apple_dart_inherited_phys(struct apple_dart_domain *domain, dma_addr_t address)
+ 				return 0;
+ 			}
+ 			result = phys;
++			granted &= prot;
+ 		}
+ 		spin_unlock_irqrestore(&dart->lock, flags);
+ 	}
++	if (prot_out)
++		*prot_out = result ? granted : 0;
+ 	return result;
+ }
+ 
++static phys_addr_t
++apple_dart_inherited_phys(struct apple_dart_domain *domain, dma_addr_t address)
++{
++	return apple_dart_inherited_phys_prot(domain, address, NULL);
++}
++
++/*
++ * Resolves a DVA a co-processor's firmware names in a request of its own, for
++ * a host copy to or from that buffer. Only firmware's retained mappings count:
++ * a DVA Linux mapped itself (a framebuffer, an imported or DMA_TO_DEVICE
++ * buffer) is refused, so the host never writes what the device may only read.
++ * @write requires the leaf to grant writes. -EACCES when refused, -ENXIO when
++ * unmapped.
++ */
++int apple_dart_fw_remote(struct device *dev, dma_addr_t iova, bool write,
++			 phys_addr_t *phys)
++{
++	struct iommu_domain *domain = iommu_get_domain_for_dev(dev);
++	struct apple_dart_domain *dart_domain;
++	struct io_pgtable_ops *ops;
++	struct io_pgtable_cfg *cfg;
++	dma_addr_t address;
++	phys_addr_t result;
++	int prot;
++
++	if (!domain || domain->owner != &apple_dart_iommu_ops)
++		return -ENODEV;
++	dart_domain = to_dart_domain(domain);
++	ops = dart_domain->pgtbl_ops;
++	if (dart_domain->dcp || !ops)
++		return -ENODEV;
++	address = (iova + dart_domain->dma_offset) & dart_domain->mask;
++	if (ops->iova_to_phys(ops, address))
++		return -EACCES;
++	cfg = &io_pgtable_ops_to_pgtable(ops)->cfg;
++	if (cfg->apple_dart_cfg.n_levels != 3 && cfg->apple_dart_cfg.n_levels != 4)
++		return -ENXIO;
++	result = apple_dart_inherited_phys_prot(dart_domain, address, &prot);
++	if (!result)
++		return -ENXIO;
++	if (!(prot & IOMMU_READ) || (write && !(prot & IOMMU_WRITE)))
++		return -EACCES;
++	*phys = result;
++	return 0;
++}
++EXPORT_SYMBOL_GPL(apple_dart_fw_remote);
++
+ static phys_addr_t apple_dart_iova_to_phys(struct iommu_domain *domain,
+ 					   dma_addr_t iova)
+ {
+diff --git a/include/linux/soc/apple/dart.h b/include/linux/soc/apple/dart.h
+index ce81d6ec5bcd..2c166c70dfc6 100644
+--- a/include/linux/soc/apple/dart.h
++++ b/include/linux/soc/apple/dart.h
+@@ -141,12 +141,19 @@ int apple_dart_save_tunnel_state(struct device *dev);
+ int apple_dart_restore_tunnel_state(struct device *dev);
+ /* Registered J713 managed radio provider, with no owned valid root or fault. */
+ int apple_dart_radio_check_idle(struct device *dev);
++/* A firmware-owned buffer's address for a host copy; Linux's own mappings refused. */
++int apple_dart_fw_remote(struct device *dev, dma_addr_t iova, bool write, phys_addr_t *phys);
+ #else
+ static inline int apple_dart_quiesce_commands(struct device *dev) { return 0; }
+ static inline int apple_dart_resume_commands(struct device *dev) { return 0; }
+ static inline int apple_dart_save_tunnel_state(struct device *dev) { return -EOPNOTSUPP; }
+ static inline int apple_dart_restore_tunnel_state(struct device *dev) { return -EOPNOTSUPP; }
+ static inline int apple_dart_radio_check_idle(struct device *dev) { return -EOPNOTSUPP; }
++static inline int apple_dart_fw_remote(struct device *dev, dma_addr_t iova, bool write,
++				       phys_addr_t *phys)
++{
++	return -EOPNOTSUPP;
++}
+ #endif
+ 
+ #endif
+-- 
+2.56.0
+

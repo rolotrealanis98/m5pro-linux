@@ -1,0 +1,124 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 10:13:06 -0800
+Subject: [PATCH 11/12] drm/apple: Fix one failed T6050 DCP taking down every
+ display
+
+On the M5 Ultra Mac Studio (J775D), one display processor that fails to
+probe or bind leaves the machine with no display at all: if the HDMI
+port's dcpext4 fails, the USB-C display goes dark with it, and if the
+USB-C port's dcpext0 fails, so does HDMI and the desktop on it.
+
+apple-drm binds every DCP as a component of one DRM device, so a single
+processor that fails to probe or bind holds back the whole device.
+
+T8122's and T6041's dcpext already join as an unusable pipe (ext_dead)
+when they fail. Extend that to every T6050 dcpext. A failed dcpext4
+leaves the USB-C output of dcpext0 working; a failed dcpext0 leaves HDMI
+on dcpext4 working, and USB on its port, whose Type-C display route is
+disabled. With every processor failed the DRM device has no pipe and
+fails to bind with -ENODEV, as before.
+
+[ rebased onto integration/aurora: conflict in dcp.c only; the failsafe
+  check and its comment now follow the T8132 dcpext probe that "drm/apple:
+  m4: adopt the J713 external DCPs" added, which keeps its own path ]
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+
+(cherry picked from commit b4b28b262f9b8ee39a3701e1fee03c5e34de0566)
+---
+ drivers/gpu/drm/apple/dcp-internal.h |  3 ++-
+ drivers/gpu/drm/apple/dcp.c          | 35 +++++++++++++++++++---------
+ 2 files changed, 26 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
+index aaef876df231..f81abd66b962 100644
+--- a/drivers/gpu/drm/apple/dcp-internal.h
++++ b/drivers/gpu/drm/apple/dcp-internal.h
+@@ -455,7 +455,8 @@ struct apple_dcp {
+ 	u32 afk_power_gen;
+ 	bool external;
+ 	/*
+-	 * T8122 dcpext: the panel's DRM device never waits on this processor.
++	 * A failsafe dcpext (dcp_ext_is_failsafe(): T8122's, T6041's, T6050's):
++	 * the DRM device of the other displays never waits on this processor.
+ 	 * A probe or bind failure leaves it in the device as an unusable pipe
+ 	 * (ext_dead): no CRTC, Type-C routes disabled or ignored, RTKit
+ 	 * messages dropped. See dcp_platform_probe().
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 380c31ab8669..6b464c1e5d31 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -5587,8 +5587,22 @@ static int dcp_comp_bind_pipe(struct device *dev, struct device *main, void *dat
+ static void dcp_ext_give_up(struct apple_dcp *dcp, int err, const char *when);
+ 
+ /*
+- * The T8122 dcpext boots its firmware here. If that fails, it must not take
+- * the internal panel's DRM device down with it: keep it as an unusable pipe.
++ * The external processors whose failure must not take the DRM device down:
++ * T8122's, T6041's and T6050's dcpext. One that fails to probe or bind joins
++ * as an unusable pipe (ext_dead), and the other displays go on without it.
++ * With every processor failed the DRM device has no pipe and does not bind.
++ */
++static bool dcp_ext_is_failsafe(struct device_node *np)
++{
++	return of_device_is_compatible(np, "apple,t8122-dcpext") ||
++	       of_device_is_compatible(np, "apple,t6041-dcpext") ||
++	       of_device_is_compatible(np, "apple,t6050-dcpext");
++}
++
++/*
++ * A failsafe dcpext (dcp_ext_is_failsafe()) boots its firmware here. If that
++ * fails, it must not take the other displays' DRM device down with it: keep
++ * it as an unusable pipe.
+  */
+ static int dcp_comp_bind(struct device *dev, struct device *main, void *data)
+ {
+@@ -6023,8 +6037,7 @@ static int dcp_platform_probe_pipe(struct platform_device *pdev)
+ 		dcp->desktop->client = GENMASK_ULL(63, 48) |
+ 				       (get_random_u64() & GENMASK_ULL(47, 4));
+ 	}
+-	dcp->ext_failsafe = of_device_is_compatible(dev->of_node, "apple,t8122-dcpext") ||
+-			    of_device_is_compatible(dev->of_node, "apple,t6041-dcpext");
++	dcp->ext_failsafe = dcp_ext_is_failsafe(dev->of_node);
+ 	dcp->external = of_device_is_compatible(dev->of_node, "apple,t6030-dcpext");
+ 	dcp->external_native = dcp->external && dcp_t6030_ext_native(dev->of_node);
+ 	dcp_external_audio_init(dcp);
+@@ -6408,7 +6421,7 @@ static int dcp_platform_probe_pipe(struct platform_device *pdev)
+ static void dcp_ext_give_up(struct apple_dcp *dcp, int err, const char *when)
+ {
+ 	WRITE_ONCE(dcp->ext_dead, true);
+-	dev_err(dcp->dev, "external display processor unusable (%s failed: %d); the internal display goes on without it\n",
++	dev_err(dcp->dev, "external display processor unusable (%s failed: %d); the other displays go on without it\n",
+ 		when, err);
+ 	dcp_typec_routes_disable(dcp);
+ }
+@@ -6479,10 +6492,11 @@ static int dcp_platform_probe_t8132_ext(struct platform_device *pdev)
+ }
+ 
+ /*
+- * The T8122 dcpext is a component of the panel's DRM device, so it must
+- * always register one, or the panel stays on the boot framebuffer. Keep
+- * deferring while its suppliers may still appear (bounded by the deferred
+- * probe timeout); on any other failure join as an unusable pipe.
++ * A failsafe dcpext (dcp_ext_is_failsafe()) is a component of the other
++ * displays' DRM device, so it must always register one, or they stay on the
++ * boot framebuffer. Keep deferring while its suppliers may still
++ * appear (bounded by the deferred probe timeout); on any other failure join
++ * as an unusable pipe.
+  */
+ static int dcp_platform_probe(struct platform_device *pdev)
+ {
+@@ -6500,8 +6514,7 @@ static int dcp_platform_probe(struct platform_device *pdev)
+ 
+ 	if (of_device_is_compatible(dev->of_node, "apple,t8132-dcpext"))
+ 		return dcp_platform_probe_t8132_ext(pdev);
+-	if (!of_device_is_compatible(dev->of_node, "apple,t8122-dcpext") &&
+-	    !of_device_is_compatible(dev->of_node, "apple,t6041-dcpext"))
++	if (!dcp_ext_is_failsafe(dev->of_node))
+ 		return dcp_platform_probe_pipe(pdev);
+ 
+ 	ret = dcp_ext_route_suppliers(dev);
+-- 
+2.56.0
+

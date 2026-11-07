@@ -1,0 +1,113 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 09:19:11 -0800
+Subject: [PATCH 06/12] drm/apple: dptx: Fix no DisplayPort link on T6050 with
+ firmware 27
+
+On the M5 Ultra Mac Studio (J775D) both DisplayPort ports of a display
+co-processor were refused (-EINVAL), so no DisplayPort link came up.
+They now come up: over USB-C the link trains and the mode is set.
+
+The T8140 external DPTX rules (the one port named by the DCP index, the
+J700 training and lane checks, and its max-drive reply) are keyed on
+the AFK v2 codec flag. Firmware 27 sets that flag for every DCP, so on
+T6050 the rules refused its ports 0 and 1 (-EINVAL) and no DisplayPort
+link came up.
+
+Key them on the T8140 external profile (dcp_is_external_h17p()) instead.
+T8140's external DCP takes the same paths as before; firmware 27 DCPs
+name their ports by unit, as earlier firmware does, and use the common
+DPTX calls.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+
+(cherry picked from commit 648a76045be57000cf655240ec12aa1229e6471c)
+---
+ drivers/gpu/drm/apple/dptx-service.h |  8 ++++++--
+ drivers/gpu/drm/apple/dptxep.c       | 17 +++++++++++------
+ 2 files changed, 17 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/gpu/drm/apple/dptx-service.h b/drivers/gpu/drm/apple/dptx-service.h
+index 3d990a9ca1ea..2cb8f68210eb 100644
+--- a/drivers/gpu/drm/apple/dptx-service.h
++++ b/drivers/gpu/drm/apple/dptx-service.h
+@@ -5,14 +5,18 @@
+ #include "afk.h"
+ #include "dptxep.h"
+ 
++/*
++ * T8140 external firmware names its one port by the DCP index; the others,
++ * firmware 27 among them, by port unit 0 or 1.
++ */
+ static inline int dptx_service_port(const char *name, const char *class,
+-				    s64 unit, bool wire_v2, u32 index,
++				    s64 unit, bool unit_is_index, u32 index,
+ 				    u32 num_ports)
+ {
+ 	if (!name || !class || strcmp(name, "dcpdptx-port-epic") ||
+ 	    strcmp(class, "AppleDCPDPTXRemotePort"))
+ 		return -EINVAL;
+-	if (wire_v2)
++	if (unit_is_index)
+ 		return num_ports == 1 && unit == index ? 0 : -EINVAL;
+ 	return unit >= 0 && unit < 2 ? unit : -EINVAL;
+ }
+diff --git a/drivers/gpu/drm/apple/dptxep.c b/drivers/gpu/drm/apple/dptxep.c
+index d13796ab6c8e..defc37715883 100644
+--- a/drivers/gpu/drm/apple/dptxep.c
++++ b/drivers/gpu/drm/apple/dptxep.c
+@@ -277,7 +277,7 @@ dptxport_call_get_max_drive_settings(struct apple_epic_service *service,
+ 		return -EINVAL;
+ 
+ 	reply->retcode = cpu_to_le32(0);
+-	if (service->ep->wire_v2) {
++	if (dcp_is_external_h17p(service->ep->dcp)) {
+ 		memset(reply, 0, reply_size);
+ 		put_unaligned_le32(3, reply_ + 20);
+ 		put_unaligned_le32(3, reply_ + 24);
+@@ -431,7 +431,7 @@ static int dptxport_call_set_active_lane_count(struct apple_epic_service *servic
+ 
+ 	u64 lane_count = le64_to_cpu(request->lane_count);
+ 
+-	if (service->ep->wire_v2) {
++	if (dcp_is_external_h17p(dcp)) {
+ 		ret = dptx_j700_validate_lanes(dptx, lane_count);
+ 		if (ret)
+ 			return ret;
+@@ -451,7 +451,8 @@ static int dptxport_call_set_active_lane_count(struct apple_epic_service *servic
+ 		dptx->phy_ops.dp.lanes = lane_count;
+ 		/* USB4 DP IN has no ATC PHY; still accept the lane count. */
+ 		dptx->phy_ops.dp.set_lanes =
+-			service->ep->wire_v2 || dcp_is_usb4_output(dcp) || (dcp->dptx_phy > 3);
++			dcp_is_external_h17p(dcp) || dcp_is_usb4_output(dcp) ||
++			(dcp->dptx_phy > 3);
+ 		break;
+ 	default:
+ 		dev_err(dcp->dev, "set_active_lane_count: invalid lane count:%llu\n", lane_count);
+@@ -1030,7 +1031,7 @@ static int dptxport_prepare(struct apple_epic_service *service, const char *name
+ 	    (!class || !class[0] || !strcmp(class, "AppleDCPDPTXRemotePort")))
+ 		port = unit >= 0 && unit < 2 ? unit : -EINVAL;
+ 	else
+-		port = dptx_service_port(name, class, unit, service->ep->wire_v2,
++		port = dptx_service_port(name, class, unit, dcp_is_external_h17p(dcp),
+ 					 dcp->index, dcp->hw.num_dptx_ports);
+ 
+ 	if (port < 0)
+@@ -1127,8 +1128,12 @@ static int dptxport_group_call(struct apple_epic_service *service, u16 group,
+ {
+ 	struct dptx_port *dptx = service->cookie;
+ 
+-	/* Keep native AFK-v2 training and its refusal policy distinct. */
+-	if (service->ep->wire_v2)
++	/*
++	 * Keep the T8140 external (J700) training and its refusal policy
++	 * distinct. It keys on that profile, not on the AFK v2 codec, which
++	 * firmware 27 speaks with the common DPTX calls.
++	 */
++	if (dcp_is_external_h17p(service->ep->dcp))
+ 		return dptxport_v2_group_call(service, group, command, data,
+ 					     size, reply, room);
+ 
+-- 
+2.56.0
+

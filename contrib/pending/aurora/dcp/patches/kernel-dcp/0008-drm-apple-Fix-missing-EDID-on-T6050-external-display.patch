@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 09:19:56 -0800
+Subject: [PATCH 08/12] drm/apple: Fix missing EDID on T6050 external displays
+
+On the M5 Ultra Mac Studio (J775D) displays on the external display
+processors had no EDID, so userspace failed to parse one and could not
+identify the monitor. The connector's EDID is now built from the sink
+metadata the firmware sends.
+
+On firmware 27, T6050's external display processor serves its AV service
+from another endpoint than earlier firmware does, while the driver binds
+the AV service where earlier firmware has it. No service is announced
+there, so the sink's EDID is never read and the connector has no EDID
+property; userspace then fails to parse one.
+
+Like the desktop 26.x external processor, it does send each sink's
+DisplayAttributes and TimingElements. Set sink_metadata_edid for
+apple,t6050-dcpext, so the connector's EDID is built from them on the
+existing sink-metadata path, a new sink on each Type-C attachment.
+
+This is the minimal firmware-27 EDID source. Reading the sink's own EDID
+from the AV service where firmware 27 serves it, as dj's driver does, is
+a planned follow-up.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+
+(cherry picked from commit e59d1cf02526fd9c0e51026862011e00919eb072)
+---
+ drivers/gpu/drm/apple/dcp.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 964e1614ff98..fad745267532 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -554,9 +554,10 @@ void dcp_drm_crtc_page_flip(struct apple_dcp *dcp, ktime_t now)
+ }
+ 
+ /*
+- * A desktop 26.x external processor does not hand out the sink's EDID through
+- * its DCPAV service, but exports the TimingElements and DisplayAttributes
+- * of every sink it drives, on HDMI and Type-C alike.
++ * A desktop 26.x external processor, and T6050's on firmware 27, does not
++ * hand out the sink's EDID through its DCPAV service, but exports the
++ * TimingElements and DisplayAttributes of every sink it drives, on HDMI and
++ * Type-C alike.
+  */
+ static bool dcp_sink_metadata(struct apple_dcp *dcp)
+ {
+@@ -7052,6 +7053,7 @@ static const struct apple_dcp_hw_data apple_dcp_hw_t6050_dcpext = {
+ 	.num_dptx_ports = 2,
+ 	.adopt_live_session = true,
+ 	.firmware_compat = DCP_FIRMWARE_V_27_0,
++	.sink_metadata_edid = true,
+ };
+ 
+ static const struct of_device_id of_match[] = {
+-- 
+2.56.0
+

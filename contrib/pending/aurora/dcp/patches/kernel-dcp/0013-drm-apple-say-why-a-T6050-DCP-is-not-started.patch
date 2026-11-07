@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rolando <rolotrealanis@gmail.com>
+Date: Fri, 6 Nov 2026 19:29:32 -0500
+Subject: [PATCH] drm/apple: say why a T6050 DCP is not started
+
+dcp_check_firmware_version() refuses a T6050 DCP whose
+apple,firmware-compat is not 27.0.0 without a word: the probe ends in
+-ENODEV and the boot framebuffer stays, but nothing says why. Log the
+compat it refused, as the T6041 and T6030 paths do, and the firmware
+version it accepted.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/gpu/drm/apple/dcp.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 6b464c1e5d31..82e2eb0c1439 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -4939,8 +4939,14 @@ static enum dcp_firmware_version dcp_check_firmware_version(struct device *dev)
+ 
+ 	if (hw->firmware_compat == DCP_FIRMWARE_V_27_0) {
+ 		ret = dcp_read_fw_version(dev, "apple,firmware-compat", compat_str);
+-		if (ret < 0 || strcmp(compat_str, "27.0.0"))
++		if (ret < 0 || strcmp(compat_str, "27.0.0")) {
++			dev_err(dev, "T6050 display not started: DCP firmware-compat %s is not 27.0.0\n",
++				ret < 0 ? "missing" : compat_str);
+ 			return DCP_FIRMWARE_UNKNOWN;
++		}
++		ret = dcp_read_fw_version(dev, "apple,firmware-version", fw_str);
++		dev_info(dev, "DCP firmware-compat 27.0.0 (FW: %s)\n",
++			 ret < 0 ? "missing" : fw_str);
+ 		return DCP_FIRMWARE_V_27_0;
+ 	}
+ 
+-- 
+2.56.0
+

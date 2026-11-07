@@ -1,0 +1,4887 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dj <43033058+DjDeveloperr@users.noreply.github.com>
+Date: Mon, 26 Oct 2026 02:34:20 -0400
+Subject: [PATCH 01/12] drm/apple: Add T6050 firmware-27 display support
+
+Add T6050 firmware-27 display support, serialized IOMFB commands, paired scanout, register/clock metadata, and DisplayPort callbacks. Reuse the current AFK v2 codec, port the T6050 mapped callback-buffer behavior, and preserve the newer display-fabric and atomic-commit interfaces. This combines the old AFK and DCP PRs because the common framing implementation already exists in integration.
+
+Source snapshot: t6050-gpu ee68abb105200e99636a5edfc647a5cfc1d89954
+Integration base: 9cbdd0734d9e186c5f5f5949a21b909d10c2571b
+
+Signed-off-by: Dj <43033058+DjDeveloperr@users.noreply.github.com>
+[ J775D: backport onto integration/aurora: adapted to dcp.c, dcp_backlight.c, dptxep.c, iomfb.c, iomfb_internal.h, iomfb_template.c, parser.c, systemep.c and the dcp binding, alongside the newer desktop, panel and HDR paths; the pair's members, tiling record, lock and forget shared with the desktop 26.6 pair, so its forget now also runs on a 26.6 crash and at unbind; APIF selftests left out; comments reworded; code unchanged; original d977897ba23f ]
+[ rebased onto integration/aurora: conflicts in iomfb_template.c and iomfb_v27.c only; the firmware-27 peer colour-matrix call now sits before the one set_matrix completion that "drm/apple: warn when the firmware refuses the colour matrix" introduced; the firmware-27 method table names A428 by its integration name, iomfbep_set_brightness_correction ("drm/apple: follow the colour matrix with identity brightness correction" renamed dcpep_pipe_set_428); otherwise unchanged; original 79634d7771c1 ]
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+
+(cherry picked from commit 2b564db1e5d3413d4324b0bb656e06cede494aba)
+---
+ .../bindings/display/apple,dcp.yaml           |  62 +-
+ drivers/gpu/drm/apple/Makefile                |   1 +
+ drivers/gpu/drm/apple/afk.c                   |  61 +-
+ drivers/gpu/drm/apple/afk.h                   |   3 +
+ drivers/gpu/drm/apple/dcp-fabric.c            |  46 ++
+ drivers/gpu/drm/apple/dcp-fabric.h            |   2 +
+ drivers/gpu/drm/apple/dcp-internal.h          |  31 +-
+ drivers/gpu/drm/apple/dcp-peer-frames-v27.h   |  45 ++
+ .../drm/apple/dcp-peer-modeset-probe-v27.inc  | 227 ++++++++
+ drivers/gpu/drm/apple/dcp-peer-probe-v27.inc  |  98 ++++
+ .../gpu/drm/apple/dcp-peer-runtime-v27.inc    | 161 ++++++
+ .../gpu/drm/apple/dcp-peer-swap-probe-v27.inc | 243 ++++++++
+ drivers/gpu/drm/apple/dcp-peer-v27.h          | 125 ++++
+ drivers/gpu/drm/apple/dcp-peer-v27.inc        | 154 +++++
+ .../drm/apple/dcp-peer-video-probe-v27.inc    | 250 ++++++++
+ drivers/gpu/drm/apple/dcp.c                   | 127 ++++-
+ drivers/gpu/drm/apple/dcp.h                   |  13 +
+ drivers/gpu/drm/apple/dcp_backlight.c         |   4 +-
+ drivers/gpu/drm/apple/dptx-drive-v27.inc      |  79 +++
+ drivers/gpu/drm/apple/dptxep.c                |  42 +-
+ drivers/gpu/drm/apple/dptxep.h                |   3 +
+ drivers/gpu/drm/apple/epic/dpavservep.c       |   3 +-
+ .../apple/iomfb-boolean-properties-v27.inc    |  51 ++
+ drivers/gpu/drm/apple/iomfb-dfb.h             | 105 ++++
+ .../drm/apple/iomfb-display-identity-v27.inc  |  84 +++
+ .../drm/apple/iomfb-external-counts-v27.inc   |  90 +++
+ .../gpu/drm/apple/iomfb-peer-runtime-v27.inc  | 125 ++++
+ drivers/gpu/drm/apple/iomfb-peer-v27.h        | 129 +++++
+ drivers/gpu/drm/apple/iomfb.c                 | 215 ++++++-
+ drivers/gpu/drm/apple/iomfb.h                 |   4 +
+ drivers/gpu/drm/apple/iomfb_internal.h        |   3 +
+ drivers/gpu/drm/apple/iomfb_template.c        | 288 +++++++++-
+ drivers/gpu/drm/apple/iomfb_v27.c             | 532 ++++++++++++++++++
+ drivers/gpu/drm/apple/iomfb_v27.h             |  95 ++++
+ drivers/gpu/drm/apple/parser.c                |  52 +-
+ drivers/gpu/drm/apple/parser.h                |   2 +
+ drivers/gpu/drm/apple/systemep.c              |   2 +-
+ drivers/gpu/drm/apple/version_utils.h         |   1 +
+ 38 files changed, 3477 insertions(+), 81 deletions(-)
+ create mode 100644 drivers/gpu/drm/apple/dcp-peer-frames-v27.h
+ create mode 100644 drivers/gpu/drm/apple/dcp-peer-modeset-probe-v27.inc
+ create mode 100644 drivers/gpu/drm/apple/dcp-peer-probe-v27.inc
+ create mode 100644 drivers/gpu/drm/apple/dcp-peer-runtime-v27.inc
+ create mode 100644 drivers/gpu/drm/apple/dcp-peer-swap-probe-v27.inc
+ create mode 100644 drivers/gpu/drm/apple/dcp-peer-v27.h
+ create mode 100644 drivers/gpu/drm/apple/dcp-peer-v27.inc
+ create mode 100644 drivers/gpu/drm/apple/dcp-peer-video-probe-v27.inc
+ create mode 100644 drivers/gpu/drm/apple/dptx-drive-v27.inc
+ create mode 100644 drivers/gpu/drm/apple/iomfb-boolean-properties-v27.inc
+ create mode 100644 drivers/gpu/drm/apple/iomfb-dfb.h
+ create mode 100644 drivers/gpu/drm/apple/iomfb-display-identity-v27.inc
+ create mode 100644 drivers/gpu/drm/apple/iomfb-external-counts-v27.inc
+ create mode 100644 drivers/gpu/drm/apple/iomfb-peer-runtime-v27.inc
+ create mode 100644 drivers/gpu/drm/apple/iomfb-peer-v27.h
+ create mode 100644 drivers/gpu/drm/apple/iomfb_v27.c
+ create mode 100644 drivers/gpu/drm/apple/iomfb_v27.h
+
+diff --git a/Documentation/devicetree/bindings/display/apple,dcp.yaml b/Documentation/devicetree/bindings/display/apple,dcp.yaml
+index 081f923b497e..533ec7aac7b3 100644
+--- a/Documentation/devicetree/bindings/display/apple,dcp.yaml
++++ b/Documentation/devicetree/bindings/display/apple,dcp.yaml
+@@ -26,6 +26,7 @@ properties:
+               - apple,t6041-dcp
+               - apple,t8140-dcp
+               - apple,t8142-dcp
++              - apple,t6050-dcp
+           - const: apple,dcp
+       - items:
+           - enum:
+@@ -34,6 +35,7 @@ properties:
+               - apple,t6000-dcpext
+               - apple,t6020-dcpext
+               - apple,t6041-dcpext
++              - apple,t6050-dcpext
+           - const: apple,dcpext
+       - items:
+           - const: apple,t8140-dcpext
+@@ -85,13 +87,32 @@ properties:
+ 
+   clocks:
+     minItems: 1
+-    maxItems: 2
++    maxItems: 64
+ 
+   clock-names:
+     minItems: 1
+-    items:
+-      - const: clock-154
+-      - const: clock-194
++    maxItems: 64
++
++  apple,clock-ids:
++    oneOf:
++      - type: boolean
++      - $ref: /schemas/types.yaml#/definitions/uint32-array
++        minItems: 1
++        maxItems: 64
++    description: |
++      Ordered firmware provider clock identifiers. Callback clock indices
++      select the corresponding entry in clocks. An explicitly empty table
++      is allowed when the provider has no clocks.
++
++  apple,firmware-physical-regs:
++    $ref: /schemas/types.yaml#/definitions/uint64-array
++    minItems: 1
++    maxItems: 10
++    description: |
++      Coprocessor physical base addresses in display register-table order,
++      including the bandwidth scratch and optional doorbell windows.
++      The number of entries must match the complete register table.
++      Omit on identity-mapped systems; reg supplies the physical view.
+ 
+   memory-region:
+     minItems: 1
+@@ -414,6 +435,7 @@ allOf:
+             enum: ['apple,t6030-dcpext', 'apple,t8132-dcpext']
+       required:
+         - compatible
++    then: {}
+     else:
+       properties:
+         mux-controls:
+@@ -431,12 +453,39 @@ allOf:
+     then:
+       required:
+         - apple,bw-scratch
++  - if:
++      properties:
++        compatible:
++          contains:
++            enum: ['apple,t6050-dcp', 'apple,t6050-dcpext']
++    then:
++      required:
++        - apple,clock-ids
++        - memory-region
++        - memory-region-names
++        - apple,firmware-compat
++      properties:
++        apple,firmware-compat:
++          items:
++            - const: 27
++            - const: 0
++            - const: 0
++    else:
++      properties:
++        clocks:
++          maxItems: 2
++        clock-names:
++          items:
++            - const: clock-154
++            - const: clock-194
++        apple,clock-ids: false
++        apple,firmware-physical-regs: false
+   - if:
+       not:
+         properties:
+           compatible:
+             contains:
+-              enum: ['apple,t8140-dcp', 'apple,t8140-dcpext']
++              enum: ['apple,t8140-dcp', 'apple,t8140-dcpext', 'apple,t6050-dcp', 'apple,t6050-dcpext']
+     then:
+       properties:
+         apple,power-lut-data-x: false
+@@ -448,7 +497,8 @@ allOf:
+       properties:
+         compatible:
+           contains:
+-            enum: ['apple,t8140-dcp', 'apple,t8140-dcpext']
++            enum: ['apple,t8140-dcp', 'apple,t8140-dcpext',
++                   'apple,t6050-dcp', 'apple,t6050-dcpext']
+     then:
+       properties:
+         resets: false
+diff --git a/drivers/gpu/drm/apple/Makefile b/drivers/gpu/drm/apple/Makefile
+index 964da993e8f2..ccdb10a97bec 100644
+--- a/drivers/gpu/drm/apple/Makefile
++++ b/drivers/gpu/drm/apple/Makefile
+@@ -29,6 +29,7 @@ appledrm-$(CONFIG_DRM_APPLE_KUNIT_TEST) += dcp_external_announce_test.o
+ appledrm-$(CONFIG_DRM_APPLE_KUNIT_TEST) += dcp_external_relink_test.o
+ appledrm-$(CONFIG_DRM_APPLE_KUNIT_TEST) += dcp_dropped_swap_test.o
+ appledrm-y += iomfb_v26_6.o iomfb_v26_6_link.o j613_dcp_activate.o
++appledrm-y += iomfb_v27.o
+ appledrm-y += epic/dpavservep.o
+ appledrm-y += plane.o
+ 
+diff --git a/drivers/gpu/drm/apple/afk.c b/drivers/gpu/drm/apple/afk.c
+index c988e566c534..e2d36e5c1f50 100644
+--- a/drivers/gpu/drm/apple/afk.c
++++ b/drivers/gpu/drm/apple/afk.c
+@@ -2,6 +2,8 @@
+ /* Copyright 2022 Sven Peter <sven@svenpeter.dev> */
+ 
+ #include <linux/bitfield.h>
++#include <linux/io.h>
++#include <linux/iommu.h>
+ #include <linux/debugfs.h>
+ #include <linux/delay.h>
+ #include <linux/dma-mapping.h>
+@@ -106,6 +108,7 @@ struct apple_dcp_afkep *afk_init(struct apple_dcp *dcp, u32 endpoint,
+ 
+ 	afkep->ops = ops;
+ 	afkep->dcp = dcp;
++	afkep->wire_v2 = dcp->fw_compat == DCP_FIRMWARE_V_27_0;
+ 	afkep->endpoint = endpoint;
+ 	afkep->wq = alloc_ordered_workqueue("apple-dcp-afkep%02x",
+ 					    WQ_MEM_RECLAIM, endpoint);
+@@ -1490,7 +1493,7 @@ static void afk_recv_handle_init(struct apple_dcp_afkep *ep, u32 channel,
+ 			return;
+ 		}
+ 		ret = parse_epic_service_init(&ctx, &epic_name, &epic_class, &epic_unit,
+-					      ep->dcp->fw_compat == DCP_FIRMWARE_H17P);
++					      (ep->dcp->fw_compat == DCP_FIRMWARE_H17P || ep->dcp->fw_compat == DCP_FIRMWARE_V_27_0));
+ 		if (ret == -ENOENT &&
+ 		    ep->dcp->hw.iomfb_method_profile == DCP_IOMFB_METHODS_H17G) {
+ 			/*
+@@ -1593,6 +1596,8 @@ static void afk_recv_handle_init(struct apple_dcp_afkep *ep, u32 channel,
+ 	}
+ 	if (ops->prepare)
+ 		afk_service_publish(service);
++	if (ops->init_props)
++		ops->init_props(service, epic_unit, props, props_size);
+ 	if (ops->init)
+ 		ops->init(service, epic_name, epic_class, epic_unit);
+ 	dev_info(ep->dcp->dev, "AFK[ep:%02x]: new service %s on channel %d\n",
+@@ -1878,6 +1883,43 @@ static void afk_v2_status(struct apple_dcp_afkep *ep,
+ 		dev_warn(ep->dcp->dev, "AFKV2 error reply failed: %d\n", ret);
+ }
+ 
++static int afk_v27_access_remote(struct apple_dcp_afkep *ep, u64 dva, void *buffer,
++			   size_t size, bool to_remote, bool copy)
++{
++	struct iommu_domain *domain = iommu_get_domain_for_dev(ep->dcp->dev);
++	size_t off = 0;
++
++	if (!domain || !dva || size > SZ_1M || size > U64_MAX - dva)
++		return -EINVAL;
++	while (off < size) {
++		phys_addr_t pa = iommu_iova_to_phys(domain, dva + off);
++		size_t chunk = min_t(size_t, size - off,
++				    PAGE_SIZE - ((dva + off) & ~PAGE_MASK));
++		void *cpu;
++
++		if (!pa) {
++			dev_err_ratelimited(ep->dcp->dev,
++				"AFK[ep:%02x]: unmapped remote buffer %#llx + %#zx (%s)\n",
++				ep->endpoint, dva, off, to_remote ? "reply" : "request");
++			return -ENXIO;
++		}
++		if (!copy) {
++			off += chunk;
++			continue;
++		}
++		cpu = memremap(pa, chunk, MEMREMAP_WB);
++		if (!cpu)
++			return -ENOMEM;
++		if (to_remote)
++			memcpy(cpu, buffer + off, chunk);
++		else
++			memcpy(buffer + off, cpu, chunk);
++		memunmap(cpu);
++		off += chunk;
++	}
++	return 0;
++}
++
+ static int afk_v2_access_owned(struct apple_epic_service *service, u64 dva,
+ 			       void *buffer, size_t size, bool to_peer, bool copy)
+ {
+@@ -1921,6 +1963,9 @@ static int afk_v2_access_owned(struct apple_epic_service *service, u64 dva,
+ 		break;
+ 	}
+ 	spin_unlock_irqrestore(&service->lock, flags);
++	/* T6050 callbacks may refer to firmware-owned buffers in the retained DART. */
++	if (ret && service->ep->dcp->fw_compat == DCP_FIRMWARE_V_27_0)
++		ret = afk_v27_access_remote(service->ep, dva, buffer, size, to_peer, copy);
+ 	if (ret)
+ 		dev_warn_ratelimited(service->ep->dcp->dev,
+ 				     "AFKV2 unowned buffer: ep=%u interface=%u size=%zu write=%u\n",
+@@ -2139,7 +2184,8 @@ static void afk_recv_handle(struct apple_dcp_afkep *ep, u32 channel, u32 type,
+ 		hdr_len = sizeof(*ehdr) + sizeof(*c);
+ 		if (data_size < hdr_len)
+ 			goto too_small;
+-		if (ep->dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G &&
++		if (ep->dcp->fw_compat == DCP_FIRMWARE_H17P &&
++		    ep->dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G &&
+ 		    !afk_validate_h17p_header(data, data_size)) {
+ 			dev_err(ep->dcp->dev,
+ 				"AFK[ep:%02x]: invalid compact message length\n",
+@@ -2157,7 +2203,7 @@ static void afk_recv_handle(struct apple_dcp_afkep *ep, u32 channel, u32 type,
+ 		 * queue channel at face value binds "system" to 0 and makes
+ 		 * every later announce and report look like a duplicate.
+ 		 */
+-		channel = le16_to_cpup((__le16 *)(data + 2));
++		channel = get_unaligned_le16(data + 2);
+ 
+ 		/*
+ 		 * Normalise into the wide sub-header the rest of this file
+@@ -2179,6 +2225,7 @@ static void afk_recv_handle(struct apple_dcp_afkep *ep, u32 channel, u32 type,
+ 	payload = data + hdr_len;
+ 	payload_size = data_size - hdr_len;
+ 
++
+ 	trace_afk_recv_handle(ep, channel, type, data_size, ehdr, eshdr);
+ 
+ 
+@@ -2523,7 +2570,7 @@ static int afk_send_epic_token(struct apple_dcp_afkep *ep, u32 channel, u16 tag,
+ 	}
+ 
+ 	spin_lock_irqsave(&ep->lock, flags);
+-	if (ep->stopping) {
++	if (ep->stopping || !ep->txbfr.ready) {
+ 		ret = -ESHUTDOWN;
+ 		goto out;
+ 	}
+@@ -2537,6 +2584,12 @@ static int afk_send_epic_token(struct apple_dcp_afkep *ep, u32 channel, u16 tag,
+ 	dma_rmb();
+ 	rptr = le32_to_cpu(*ep->txbfr.rptr);
+ 	wptr = le32_to_cpu(*ep->txbfr.wptr);
++	if (rptr >= ep->txbfr.bufsz || wptr >= ep->txbfr.bufsz ||
++	    !IS_ALIGNED(rptr, ep->txbfr.stride) ||
++	    !IS_ALIGNED(wptr, ep->txbfr.stride)) {
++		ret = -EPROTO;
++		goto out;
++	}
+ 	trace_afk_send_rwptr_pre(ep, rptr, wptr);
+ 	total_epic_size = sizeof(*ehdr) +
+ 		(ep->wire_v2 ? sizeof(struct epic_sub_hdr_h17p) : sizeof(*eshdr)) +
+diff --git a/drivers/gpu/drm/apple/afk.h b/drivers/gpu/drm/apple/afk.h
+index d9fb811252f8..cbea7c28c2cd 100644
+--- a/drivers/gpu/drm/apple/afk.h
++++ b/drivers/gpu/drm/apple/afk.h
+@@ -107,6 +107,9 @@ struct apple_epic_service_ops {
+ 			  const char *class, s64 unit);
+ 	void (*init)(struct apple_epic_service *service, const char *name,
+ 			      const char *class, s64 unit);
++	/* Consumed synchronously before init publishes service readiness. */
++	void (*init_props)(struct apple_epic_service *service, s64 unit,
++			   const void *props, size_t size);
+ 	int (*call)(struct apple_epic_service *service, u32 idx,
+ 		    const void *data, size_t data_size, void *reply,
+ 		    size_t reply_size);
+diff --git a/drivers/gpu/drm/apple/dcp-fabric.c b/drivers/gpu/drm/apple/dcp-fabric.c
+index 3dc3128b600a..eb11794f62cf 100644
+--- a/drivers/gpu/drm/apple/dcp-fabric.c
++++ b/drivers/gpu/drm/apple/dcp-fabric.c
+@@ -2284,12 +2284,51 @@ int dcp_tunnel_crossbar_down(struct apple_dcp *dcp, u32 unit)
+  * The output is the borrowed Type-C route's, or the fixed route's. Other
+  * SoCs clock it at select. Runs inside a DCP apcall: only tb_lock.
+  */
++static int dcp_direct_crossbar_link_t6050(struct apple_dcp *dcp, bool up)
++{
++	typeof(&apple_dp_phy_link_config) get_config;
++	typeof(&apple_dpxbar_link_configure) configure;
++	struct mux_control *xbar;
++	unsigned int pclk;
++	bool uhbr;
++	int ret;
++
++	guard(mutex)(&dcp->tb_lock);
++	/* A borrowed Type-C route has its own mux; xbar remains the fixed
++	 * output's mux (or NULL on a Type-C-only pipeline). */
++	xbar = dcp->active_typec_route ?
++		dcp->active_typec_route->active_xbar : dcp->xbar;
++	if (dcp->dptx_tunnel || !dcp->phy || !xbar)
++		return 0;
++	get_config = symbol_get(apple_dp_phy_link_config);
++	if (!get_config)
++		return dcp->fw_compat == DCP_FIRMWARE_V_27_0 ? -ENODEV : 0;
++	ret = get_config(dcp->phy, &pclk, &uhbr);
++	symbol_put(apple_dp_phy_link_config);
++	if (ret == -EOPNOTSUPP)
++		return 0;
++	if (!up && ret == -ENOLINK)
++		ret = 0;
++	if (ret)
++		return ret;
++	if (!up)
++		return dcp_dpxbar_link(xbar, false);
++	configure = symbol_get(apple_dpxbar_link_configure);
++	if (!configure)
++		return -ENODEV;
++	ret = configure(xbar, pclk, uhbr);
++	symbol_put(apple_dpxbar_link_configure);
++	return ret ? ret : dcp_dpxbar_link(xbar, true);
++}
++
+ int dcp_direct_crossbar_link(struct apple_dcp *dcp, bool up)
+ {
+ 	struct apple_dcp_typec_route *route;
+ 	struct mux_control *xbar = NULL;
+ 	int ret;
+ 
++	if (dcp->fw_compat == DCP_FIRMWARE_V_27_0)
++		return dcp_direct_crossbar_link_t6050(dcp, up);
+ 	if (!of_machine_is_compatible("apple,t6030"))
+ 		return 0;
+ 	guard(mutex)(&dcp->tb_lock);
+@@ -4926,3 +4965,10 @@ void dcp_fabric_shutdown_dptx(struct apple_dcp *dcp)
+ 		}
+ 	}
+ }
++
++int dcp_typec_test_link(struct platform_device *pdev, bool enabled)
++{
++	guard(mutex)(&dcp_typec_fabric_lock);
++	return enabled ? dcp_dptx_connect_oob(pdev, 0) :
++			 dcp_dptx_disconnect_oob(pdev, 0);
++}
+diff --git a/drivers/gpu/drm/apple/dcp-fabric.h b/drivers/gpu/drm/apple/dcp-fabric.h
+index f68b91e4d18f..2db549172d1d 100644
+--- a/drivers/gpu/drm/apple/dcp-fabric.h
++++ b/drivers/gpu/drm/apple/dcp-fabric.h
+@@ -127,4 +127,6 @@ int dcp_dptx_connect(struct apple_dcp *dcp, u32 port);
+ int dcp_dptx_disconnect(struct apple_dcp *dcp, u32 port);
+ bool dcp_is_external_h17p(struct apple_dcp *dcp);
+ 
++int dcp_typec_test_link(struct platform_device *pdev, bool enabled);
++
+ #endif /* __APPLE_DCP_FABRIC_H__ */
+diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
+index 89932f4b2753..cf7aa61ef34e 100644
+--- a/drivers/gpu/drm/apple/dcp-internal.h
++++ b/drivers/gpu/drm/apple/dcp-internal.h
+@@ -30,6 +30,7 @@
+ #include "dcp-180hz.h"
+ #include "iomfb.h"
+ #include "iomfb_h17p.h"
++#include "iomfb_v27.h"
+ #include "iomfb-state.h"
+ #include "iomfb_v12_3.h"
+ #include "iomfb_v13_3.h"
+@@ -37,6 +38,7 @@
+ #include "iomfb_v14_7_tpl.h"
+ #include "iomfb_v26_6.h"
+ #include "iomfb_v26_6_desktop.h"
++#include "dcp-peer-frames-v27.h"
+ #include "epic/dpavservep.h"
+ #include "version_utils.h"
+ 
+@@ -232,6 +234,7 @@ enum dcp_iomfb_method_profile {
+ };
+ 
+ struct apple_dcp_hw_data {
++	u8 firmware_dma_bits;
+ 	u32 num_dptx_ports;
+ 	enum dcp_iomfb_method_profile iomfb_method_profile;
+ 	/*
+@@ -415,6 +418,10 @@ struct apple_dcp {
+ 	struct apple_rtkit *rtk;
+ 	struct apple_crtc *crtc;
+ 	struct apple_connector *connector;
++	/* Protected by dcp_peer_lock; never take the physical route lock in
++	 * an AFK callback (a route operation may be waiting for that reply).
++	 */
++	struct dcp_peer_frames_v27 peer_frames;
+ 
+ 	struct apple_dcp_hw_data hw;
+ 	bool external_prepared;
+@@ -514,6 +521,18 @@ struct apple_dcp {
+ 	/* clock rate request by dcp in */
+ 	struct clk *clk;
+ 	struct clk *clk_194;
++	struct clk_bulk_data *firmware_clocks;
++	unsigned int num_firmware_clocks;
++	u64 disp_firmware_base[MAX_DISP_REGISTERS];
++	u32 dfb_format, dfb_compression;
++	u64 dfb_region_size;
++	bool dfb_format_valid, dfb_compression_valid;
++	struct list_head iomfb_boolean_properties;
++	u32 iomfb_boolean_property_count;
++	u32 external_pipes_v27, external_displays_v27, external_suppression_v27;
++	struct dcp_swap_submit_req_v27 present_v27;
++	/* Both paired wire records belong to the primary endpoint lock. */
++	struct dcp_swap_submit_req_v27 peer_present_v27;
+ 
+ 	/* DCP shared memory */
+ 	void *shmem;
+@@ -618,6 +637,8 @@ struct apple_dcp {
+ 
+ 	/* completion for active turning true */
+ 	struct completion start_done;
++	/* IOMFB has published fresh modes and acknowledged a Type-C display. */
++	struct completion typec_display_ready;
+ 
+ 	/* Is the DCP booted? */
+ 	bool active;
+@@ -837,6 +858,10 @@ struct apple_dcp {
+ 		struct iomfb_transaction *active;
+ 		struct task_struct *owner;
+ 		struct work_struct work;
++		spinlock_t callback_lock;
++		struct list_head callbacks;
++		struct work_struct callback_work;
++		unsigned int callback_count;
+ 		struct delayed_work timeout;
+ 		struct delayed_work backlight_retry;
+ 		unsigned long deadline;
+@@ -890,7 +915,8 @@ static inline bool iomfb_is_m4(const struct apple_dcp *dcp)
+ /* Presents carry nits; one serialized IOMFB owner. */
+ static inline bool dcp_presents_nits(const struct apple_dcp *dcp)
+ {
+-	return (dcp->fw_compat == DCP_FIRMWARE_H17P &&
++	return ((dcp->fw_compat == DCP_FIRMWARE_H17P ||
++	         dcp->fw_compat == DCP_FIRMWARE_V_27_0) &&
+ 		dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G) ||
+ 	       iomfb_is_m4(dcp);
+ }
+@@ -899,6 +925,7 @@ static inline bool dcp_presents_nits(const struct apple_dcp *dcp)
+ static inline bool dcp_fail_stop(const struct apple_dcp *dcp)
+ {
+ 	return dcp->fw_compat == DCP_FIRMWARE_H17P ||
++	       dcp->fw_compat == DCP_FIRMWARE_V_27_0 ||
+ 	       iomfb_is_m4(dcp);
+ }
+ 
+@@ -928,6 +955,8 @@ void iomfb_opaque_x_reset_h17p(struct apple_dcp *dcp);
+ int iomfb_configure_backlight_h17p(struct apple_dcp *dcp, u32 maximum,
+ 				   bool inherited_valid, u32 inherited,
+ 				   bool default_valid, u32 default_nits);
++int iomfb_queue_callback(struct apple_dcp *dcp, dcp_callback_t callback,
++			 const void *data, size_t size, void *cookie);
+ void iomfb_queue_init(struct apple_dcp *dcp);
+ void iomfb_queue_stop(struct apple_dcp *dcp);
+ bool iomfb_queue_drain(struct apple_dcp *dcp, unsigned long timeout);
+diff --git a/drivers/gpu/drm/apple/dcp-peer-frames-v27.h b/drivers/gpu/drm/apple/dcp-peer-frames-v27.h
+new file mode 100644
+index 000000000000..abb7798a1764
+--- /dev/null
++++ b/drivers/gpu/drm/apple/dcp-peer-frames-v27.h
+@@ -0,0 +1,45 @@
++/* SPDX-License-Identifier: GPL-2.0-only OR MIT */
++#ifndef APPLE_DCP_PEER_FRAMES_V27_H
++#define APPLE_DCP_PEER_FRAMES_V27_H
++
++#include <linux/types.h>
++
++/* Protected by dcp_peer_lock. Sequence comparisons cover less than 2^31
++ * outstanding swaps, as in the existing single-pipe retirement path.
++ */
++struct dcp_peer_frames_v27 {
++	u32 first, submitted, engine[2], retired;
++	bool active, armed, failed, have[2], have_retired;
++};
++
++static inline void dcp_peer_frame_submit_v27(struct dcp_peer_frames_v27 *s, u32 id)
++{
++	if (!s->armed) {
++		s->first = id;
++		s->armed = true;
++	}
++	s->submitted = id;
++}
++
++static inline bool dcp_peer_frame_complete_v27(struct dcp_peer_frames_v27 *s,
++					      unsigned int engine, u32 id,
++					      u32 *watermark)
++{
++	u32 done;
++
++	if (!s->active || s->failed || !s->armed || engine > 1 ||
++	    (s32)(id - s->first) < 0 || (s32)(s->submitted - id) < 0 ||
++	    (s->have[engine] && (s32)(id - s->engine[engine]) <= 0))
++		return false;
++	s->engine[engine] = id;
++	s->have[engine] = true;
++	if (!s->have[0] || !s->have[1])
++		return false;
++	done = (s32)(s->engine[0] - s->engine[1]) < 0 ? s->engine[0] : s->engine[1];
++	if (s->have_retired && (s32)(done - s->retired) <= 0)
++		return false;
++	s->retired = *watermark = done;
++	s->have_retired = true;
++	return true;
++}
++#endif
+diff --git a/drivers/gpu/drm/apple/dcp-peer-modeset-probe-v27.inc b/drivers/gpu/drm/apple/dcp-peer-modeset-probe-v27.inc
+new file mode 100644
+index 000000000000..a5aa449b446d
+--- /dev/null
++++ b/drivers/gpu/drm/apple/dcp-peer-modeset-probe-v27.inc
+@@ -0,0 +1,227 @@
++/* SPDX-License-Identifier: GPL-2.0-only OR MIT */
++/* Paired modeset bring-up, opt-in only. Scanout is a separate step. */
++/* The power-state step starts one asynchronous AP request per engine.
++ * Submit both before waiting: either firmware may rendezvous with its peer.
++ */
++static int dcp_peer_probe_power(struct apple_dcp *dcp, struct apple_dcp *peer,
++                                bool on)
++{
++	struct dcp_peer_video_wait *wait;
++	struct dcp_method_entry method = { .name = "peer_power_test",
++		.tag = {'A', '4', '8', '4'} };
++	u8 power[16] = {}, response[8];
++	int ret;
++
++	wait = kzalloc(sizeof(*wait), GFP_KERNEL);
++	if (!wait)
++		return -ENOMEM;
++	kref_init(&wait->refs);
++	init_completion(&wait->done);
++	wait->size = sizeof(response);
++	put_unaligned_le64(on, power);
++	kref_get(&wait->refs);
++	dcp_push(dcp, false, &method, sizeof(power), sizeof(response), power,
++		 dcp_peer_video_done, wait);
++	ret = dcp_peer_video_call(peer, "A484", power, sizeof(power),
++				  response, sizeof(response));
++	if (!ret && get_unaligned_le32(response + 4))
++		ret = -EIO;
++	if (!wait_for_completion_timeout(&wait->done, msecs_to_jiffies(2000)))
++		ret = ret ?: -ETIMEDOUT;
++	else if (!ret && get_unaligned_le32(wait->reply + 4))
++		ret = -EIO;
++	kref_put(&wait->refs, dcp_peer_video_free);
++	dev_info(dcp->dev, "peer power %u result=%d\n", on, ret);
++	return ret;
++}
++
++static int dcp_peer_probe_quiesce(struct apple_dcp *dcp, struct apple_dcp *peer)
++{
++	__le32 manage = 0;
++	int ret;
++
++	/* Setting the digital-out mode: pair API power0, 100ms,
++	 * then manage_elements(false), A362, on each engine before A365.
++	 * Only discard AP state after both engines have acknowledged power0.
++	 */
++	{
++		guard(mutex)(&dcp_peer_lock);
++		dcp->peer_tiling.modeset_complete = peer->peer_tiling.modeset_complete = false;
++	}
++	ret = dcp_peer_probe_power(dcp, peer, false);
++	if (ret)
++		return ret;
++	msleep(100);
++	ret = dcp_peer_video_call(dcp, "A362", &manage, sizeof(manage), NULL, 0);
++	if (ret)
++		return ret;
++	ret = dcp_peer_video_call(peer, "A362", &manage, sizeof(manage), NULL, 0);
++	if (ret)
++		return ret;
++	{
++		guard(mutex)(&dcp_peer_lock);
++		dcp->peer_frames = (struct dcp_peer_frames_v27){};
++		dcp->peer_tiling.member = peer->peer_tiling.member = false;
++		dcp->peer_tiling.vftg = peer->peer_tiling.vftg = false;
++		dcp->peer_tiling.modeset_complete = peer->peer_tiling.modeset_complete = false;
++		dcp->peer_tiling.phase = peer->peer_tiling.phase = 0;
++		dcp->peer_tiling.modeset_state = peer->peer_tiling.modeset_state = 0;
++		dcp->peer_tiling.ready = peer->peer_tiling.ready = false;
++	}
++	return 0;
++}
++
++static int dcp_peer_probe_prepare_vftg(struct apple_dcp *dcp, struct apple_dcp *peer,
++				      const struct dcp_peer_insert_video_req_v27 *video)
++{
++	guard(mutex)(&dcp_peer_lock);
++	if (dcp->peer_reserved != peer || peer->peer_owner != dcp)
++		return -ENODEV;
++	/* These are set BEFORE A366/A365, but membership is marked only after
++	 * both merge-mode insertions have accepted the derived video data.
++	 */
++	dcp->peer_tiling.vftg = peer->peer_tiling.vftg = true;
++	dcp->peer_tiling.modeset_complete = peer->peer_tiling.modeset_complete = false;
++	dcp->peer_tiling.primary = true;
++	peer->peer_tiling.primary = false;
++	dcp->peer_tiling.width = peer->peer_tiling.width =
++		get_unaligned_le32(video->video.timing + 8);
++	dcp->peer_tiling.height = peer->peer_tiling.height =
++		get_unaligned_le32(video->video.timing + 0x28);
++	dcp->peer_tiling.x = dcp->peer_tiling.y = peer->peer_tiling.y = 0;
++	peer->peer_tiling.x = dcp->peer_tiling.width;
++	return 0;
++}
++
++static int dcp_peer_probe_copy_dsc(struct apple_dcp *primary, struct apple_dcp *peer)
++{
++	u8 caps_req[36] = {}, caps[32], bpp_req[4] = {}, bpp[8];
++	u8 hints_req[12] = {}, hints[12];
++	u32 required;
++	int ret;
++
++	ret = dcp_peer_video_call_stream(primary, true, "A369", NULL, 0, &required, 4);
++	if (ret || !(required & 1))
++		return ret;
++	ret = dcp_peer_video_call_stream(primary, true, "A367", caps_req, 36, caps, 32);
++	if (ret)
++		return ret;
++	memcpy(caps_req, caps, 32);
++	ret = dcp_peer_video_call(peer, "A368", caps_req, 36, caps, 32);
++	if (ret)
++		return ret;
++	ret = dcp_peer_video_call_stream(primary, true, "A370", bpp_req, 4, bpp, 8);
++	if (ret || get_unaligned_le32(bpp + 2))
++		return ret ?: -EIO;
++	memcpy(bpp_req, bpp, 2);
++	ret = dcp_peer_video_call(peer, "A371", bpp_req, 4, bpp, 8);
++	if (ret || get_unaligned_le32(bpp + 2))
++		return ret ?: -EIO;
++	ret = dcp_peer_video_call_stream(primary, true, "A372", hints_req, 12, hints, 12);
++	if (ret || get_unaligned_le32(hints + 8))
++		return ret ?: -EIO;
++	memcpy(hints_req, hints, 8);
++	ret = dcp_peer_video_call(peer, "A373", hints_req, 12, hints, 12);
++	if (ret || get_unaligned_le32(hints + 8))
++		return ret ?: -EIO;
++	dev_info(primary->dev, "peer DSC copied: bpp=%u hints=%*ph\n",
++		 get_unaligned_le16(bpp), 8, hints);
++	return 0;
++}
++
++static int dcp_peer_probe_modeset(struct apple_dcp *dcp, struct apple_dcp *peer,
++				 const struct dcp_peer_insert_video_req_v27 *video,
++				 bool firmware_requires_merge)
++{
++	struct dcp_peer_video_wait *wait;
++	struct dcp_method_entry method = { .name = "peer_modeset_test",
++		.tag = {'A', '4', '1', '3'} };
++	__le32 mode[2] = {video->color_id, video->timing_id};
++	u32 primary_id, peer_id, phase, status;
++	unsigned long deadline;
++	int ret;
++
++	{
++		guard(mutex)(&dcp_peer_lock);
++		if (dcp->peer_reserved != peer || peer->peer_owner != dcp ||
++		    !dcp->peer_tiling.display_id_valid || !peer->peer_tiling.display_id_valid)
++			return -ENODEV;
++		dcp->peer_tiling.member = peer->peer_tiling.member = true;
++		/* The original A364 result is preserved even when the host
++		 * allocation requires a pair for a lower-bandwidth timing.
++		 */
++		dcp->peer_tiling.mode_flag = peer->peer_tiling.mode_flag =
++			!firmware_requires_merge;
++	}
++	ret = dcp_peer_probe_power(dcp, peer, true);
++	if (ret)
++		return ret;
++	/* Wait 100ms after both API-power transitions, before swap IDs. */
++	msleep(100);
++	ret = dcp_peer_video_call(dcp, "A360", NULL, 0, &primary_id, 4);
++	if (ret)
++		return ret;
++	ret = dcp_peer_video_call(peer, "A360", NULL, 0, &peer_id, 4);
++	if (ret)
++		return ret;
++	if (primary_id != peer_id) {
++		status = max(primary_id, peer_id);
++		ret = dcp_peer_video_call(primary_id < peer_id ? dcp : peer,
++					  "A361", &status, 4, NULL, 0);
++		if (ret)
++			return ret;
++	}
++	phase = 1;
++	dcp_peer_tiling_state_v27(dcp, true, 1, 10, &phase);
++	dcp_peer_tiling_state_v27(peer, true, 1, 10, &phase);
++	wait = kzalloc(sizeof(*wait), GFP_KERNEL);
++	if (!wait)
++		return -ENOMEM;
++	init_completion(&wait->done);
++	kref_init(&wait->refs);
++	kref_get(&wait->refs);
++	wait->size = 4;
++	dcp_push(dcp, false, &method, sizeof(mode), 4, mode,
++		 dcp_peer_video_done, wait);
++	/* The primary negotiates the link, signals phase2, and then waits for
++	 * its peer. Waiting for its final ACK first would deadlock the pair.
++	 */
++	deadline = jiffies + msecs_to_jiffies(8500);
++	for (;;) {
++		phase = 0;
++		if (!dcp_peer_tiling_state_v27(dcp, false, 1, 10, &phase)) {
++			ret = -ENODEV;
++			goto put;
++		}
++		if (phase >= 2)
++			break;
++		if (completion_done(&wait->done) || time_after_eq(jiffies, deadline)) {
++			ret = completion_done(&wait->done) ? -EIO : -ETIMEDOUT;
++			dev_err(dcp->dev, "peer primary ended before phase2: phase=%u result=%#x\n",
++				phase, get_unaligned_le32(wait->reply));
++			goto put;
++		}
++		msleep(2);
++	}
++	dev_info(dcp->dev, "peer primary reached modeset phase%u\n", phase);
++	ret = dcp_peer_probe_copy_dsc(dcp, peer);
++	if (ret)
++		goto put;
++	ret = dcp_peer_video_call(peer, "A413", mode, sizeof(mode), &status, 4);
++	if (ret || status) {
++		ret = ret ?: -EIO;
++		goto put;
++	}
++	if (!wait_for_completion_timeout(&wait->done, msecs_to_jiffies(8500)))
++		ret = -ETIMEDOUT;
++	else if (get_unaligned_le32(wait->reply))
++		ret = -EIO;
++put:
++	kref_put(&wait->refs, dcp_peer_video_free);
++	if (!ret) {
++		guard(mutex)(&dcp_peer_lock);
++		dcp->peer_tiling.modeset_complete = peer->peer_tiling.modeset_complete = true;
++	}
++	dev_info(dcp->dev, "peer paired modeset result=%d (scanout not submitted)\n", ret);
++	return ret;
++}
+diff --git a/drivers/gpu/drm/apple/dcp-peer-probe-v27.inc b/drivers/gpu/drm/apple/dcp-peer-probe-v27.inc
+new file mode 100644
+index 000000000000..33def11c752e
+--- /dev/null
++++ b/drivers/gpu/drm/apple/dcp-peer-probe-v27.inc
+@@ -0,0 +1,98 @@
++/* SPDX-License-Identifier: GPL-2.0-only OR MIT */
++/* Explicit, opt-in firmware bring-up command. This is not the final hotplug
++ * lifecycle: use only the dedicated, otherwise unrouted peer reservation.
++ */
++struct dcp_peer_probe_wait {
++	struct kref refs;
++	struct completion done;
++};
++
++static void dcp_peer_probe_free(struct kref *ref)
++{
++	kfree(container_of(ref, struct dcp_peer_probe_wait, refs));
++}
++
++static void dcp_peer_probe_done(struct apple_dcp *dcp, void *out, void *cookie)
++{
++	struct dcp_peer_probe_wait *wait = cookie;
++
++	complete(&wait->done);
++	kref_put(&wait->refs, dcp_peer_probe_free);
++}
++
++static ssize_t peer_setup_test_store(struct device *dev,
++				    struct device_attribute *attr,
++				    const char *buf, size_t count)
++{
++	static const struct dcp_method_entry method = {
++		.name = "setup_peer_dcp", .tag = {'A', '3', '6', '6'},
++	};
++	struct apple_dcp *dcp = dev_get_drvdata(dev);
++	struct dcp_peer_probe_wait *wait;
++	__le32 enabled = cpu_to_le32(1);
++	bool value;
++	long ret;
++
++	if (kstrtobool(buf, &value) || !value)
++		return -EINVAL;
++	if (!peer_allocation_probe || !dcp)
++		return -EOPNOTSUPP;
++	wait = kzalloc(sizeof(*wait), GFP_KERNEL);
++	if (!wait)
++		return -ENOMEM;
++	init_completion(&wait->done);
++	kref_init(&wait->refs);
++	{
++		guard(mutex)(&dcp_peer_lock);
++		if (!dcp->peer_owner || dcp->peer_owner->peer_reserved != dcp ||
++		    dcp->peer_unbinding || dcp->crashed || !dcp->active ||
++		    dcp->fw_compat != DCP_FIRMWARE_V_27_0 ||
++		    dcp->fixed_phy || dcp->nr_typec_routes ||
++		    (dcp->connector && dcp->connector->connected) ||
++		    dcp->ch_cmd.depth || dcp->ch_cb.depth || dcp->ch_async.depth ||
++		    dcp->ch_oobcmd.depth || dcp->ch_oobcb.depth ||
++		    dcp->ch_oobasync.depth) {
++			kref_put(&wait->refs, dcp_peer_probe_free);
++			return -EBUSY;
++		}
++		kref_get(&wait->refs);
++		/* Peer-DCP setup (one bool argument): four input
++		 * bytes (boolean followed by zero padding), no output.
++		 */
++		dcp_push(dcp, false, &method, sizeof(enabled), 0, &enabled,
++			 dcp_peer_probe_done, wait);
++	}
++	ret = wait_for_completion_timeout(&wait->done, msecs_to_jiffies(2000));
++	kref_put(&wait->refs, dcp_peer_probe_free);
++	dev_info(dev, "peer A366 setup test %s\n", ret ? "acknowledged" : "timed out");
++	return ret ? count : -ETIMEDOUT;
++}
++static DEVICE_ATTR_WO(peer_setup_test);
++
++#include "dcp-peer-video-probe-v27.inc"
++#include "dcp-peer-swap-probe-v27.inc"
++#include "dcp-peer-runtime-v27.inc"
++
++static struct attribute *dcp_peer_probe_attrs[] = {
++	&dev_attr_peer_setup_test.attr,
++	&dev_attr_peer_video_test.attr,
++	&dev_attr_peer_link_test.attr,
++	&dev_attr_peer_swap_test.attr,
++	&dev_attr_peer_stop_test.attr,
++	NULL,
++};
++
++static umode_t dcp_peer_probe_visible(struct kobject *kobj,
++				    struct attribute *attr, int n)
++{
++	return peer_allocation_probe ? attr->mode : 0;
++}
++
++static const struct attribute_group dcp_peer_probe_group = {
++	.attrs = dcp_peer_probe_attrs,
++	.is_visible = dcp_peer_probe_visible,
++};
++static const struct attribute_group *dcp_peer_probe_groups[] = {
++	&dcp_peer_probe_group,
++	NULL,
++};
+diff --git a/drivers/gpu/drm/apple/dcp-peer-runtime-v27.inc b/drivers/gpu/drm/apple/dcp-peer-runtime-v27.inc
+new file mode 100644
+index 000000000000..b1f99d6ddd65
+--- /dev/null
++++ b/drivers/gpu/drm/apple/dcp-peer-runtime-v27.inc
+@@ -0,0 +1,161 @@
++/* SPDX-License-Identifier: GPL-2.0-only OR MIT */
++/* Kept opt-in while paired DRM lifecycle is being validated on T6050. */
++static bool peer_scanout;
++module_param(peer_scanout, bool, 0444);
++MODULE_PARM_DESC(peer_scanout, "Enable firmware27 paired DRM scanout bring-up");
++
++static bool dcp_peer_transport_idle(struct apple_dcp *dcp)
++{
++	return dcp->active && !dcp->crashed && !dcp->peer_unbinding &&
++	       !dcp->ch_cmd.depth && !dcp->ch_cb.depth && !dcp->ch_async.depth &&
++	       !dcp->ch_oobcmd.depth && !dcp->ch_oobcb.depth && !dcp->ch_oobasync.depth;
++}
++
++int dcp_peer_modeset_v27(struct apple_dcp *dcp, u32 timing, u32 color, bool vrr)
++{
++	struct apple_dcp *peer;
++	int ret = -EOPNOTSUPP;
++
++	if (!peer_scanout || !peer_allocation_probe ||
++	    dcp->fw_compat != DCP_FIRMWARE_V_27_0)
++		return ret;
++	if (timing > U32_MAX - 10000 || color > U32_MAX - 10000)
++		return -EINVAL;
++	if (!device_trylock(dcp->dev))
++		return -EBUSY;
++	{
++		guard(mutex)(&dcp_peer_lock);
++		peer = dcp->peer_reserved;
++		if (!peer)
++			goto unlock;
++		if (peer->peer_owner != dcp || !dcp_peer_transport_idle(dcp) ||
++		    !dcp_peer_transport_idle(peer) || peer->fixed_phy ||
++		    peer->nr_typec_routes || !peer->crtc ||
++		    !peer->crtc->base.state || peer->crtc->base.state->active ||
++		    !device_trylock(peer->dev)) {
++			ret = -EBUSY;
++			goto unlock;
++		}
++	}
++	/* Do not silently select an untiled mode when paired VRR was requested.
++	 * The internal and single-pipe external adaptive-sync paths are unchanged.
++	 */
++	if (vrr) {
++		struct dcp_peer_get_video_req_v27 req = {
++			.timing_id = cpu_to_le32(timing), .color_id = cpu_to_le32(color),
++		};
++		struct dcp_peer_get_video_resp_v27 resp;
++
++		ret = dcp_peer_video_call(dcp, "A364", &req, sizeof(req), &resp, sizeof(resp));
++		if (ret || !(resp.success & 1) || (resp.requires_merge & 1)) {
++			ret = ret ?: -EINVAL;
++			goto peer_unlock;
++		}
++	}
++	ret = dcp_peer_install_video_v27(dcp, peer, timing, color, 4);
++	if (!ret) {
++		guard(mutex)(&dcp_peer_lock);
++		dcp->peer_frames = (struct dcp_peer_frames_v27){ .active = true };
++		dev_info(dcp->dev, "paired DRM mode ready: timing=%u color=%u\n", timing, color);
++	}
++peer_unlock:
++	device_unlock(peer->dev);
++unlock:
++	device_unlock(dcp->dev);
++	return ret;
++}
++
++/* Return1 after a paired stop,0 for a normal CRTC, or an error. */
++int dcp_peer_stop_v27(struct apple_dcp *dcp)
++{
++	struct apple_dcp *peer;
++	int ret = 0;
++
++	if (!peer_scanout || !READ_ONCE(dcp->peer_frames.active))
++		return 0;
++	if (!device_trylock(dcp->dev))
++		return -EBUSY;
++	{
++		guard(mutex)(&dcp_peer_lock);
++		peer = dcp->peer_reserved;
++		if (!peer || peer->peer_owner != dcp || !dcp_peer_transport_idle(dcp) ||
++		    !dcp_peer_transport_idle(peer) || !device_trylock(peer->dev)) {
++			ret = -EBUSY;
++			goto unlock;
++		}
++	}
++	ret = dcp_peer_probe_quiesce(dcp, peer);
++	device_unlock(peer->dev);
++	if (!ret)
++		ret = 1;
++unlock:
++	device_unlock(dcp->dev);
++	return ret;
++}
++
++struct apple_dcp *dcp_peer_scanout_v27(struct apple_dcp *dcp)
++{
++	struct apple_dcp *peer;
++
++	if (!peer_scanout || !READ_ONCE(dcp->peer_frames.active))
++		return NULL;
++	guard(mutex)(&dcp_peer_lock);
++	if (!dcp->peer_frames.active)
++		return NULL;
++	peer = dcp->peer_reserved;
++	if (!peer || peer->peer_owner != dcp || dcp->peer_frames.failed ||
++	    !dcp->peer_tiling.modeset_complete || !peer->peer_tiling.modeset_complete ||
++	    dcp->crashed || peer->crashed || dcp->peer_unbinding || peer->peer_unbinding)
++		return ERR_PTR(-EIO);
++	return peer;
++}
++
++void dcp_peer_swap_armed_v27(struct apple_dcp *dcp, u32 id)
++{
++	guard(mutex)(&dcp_peer_lock);
++	dcp_peer_frame_submit_v27(&dcp->peer_frames, id);
++}
++
++void dcp_peer_swap_failed_v27(struct apple_dcp *dcp)
++{
++	guard(mutex)(&dcp_peer_lock);
++	dcp->peer_frames.failed = true;
++	dcp_mode_invalidate(&dcp->mode_state);
++}
++
++bool dcp_peer_swap_complete_v27(struct apple_dcp *dcp, u32 id, ktime_t now,
++		void (*report)(struct apple_dcp *, u32, ktime_t))
++{
++	struct apple_dcp *owner;
++	u32 watermark;
++
++	/* Independent CRTCs must not serialize through the pair's mutex. */
++	if (!peer_scanout || (!READ_ONCE(dcp->peer_frames.active) &&
++			     !READ_ONCE(dcp->peer_owner)))
++		return false;
++	guard(mutex)(&dcp_peer_lock);
++	owner = dcp->peer_owner ?: dcp;
++	if (!peer_scanout || !owner->peer_frames.active)
++		return false;
++	if (dcp_peer_frame_complete_v27(&owner->peer_frames, dcp != owner, id, &watermark))
++		/* Queue the combined watermark to the primary IOMFB owner. */
++		report(owner, watermark, now);
++	return true;
++}
++
++int dcp_peer_color_v27(struct apple_dcp *dcp, struct iomfb_set_matrix_req *matrix)
++{
++	struct apple_dcp *peer = dcp_peer_scanout_v27(dcp);
++	u32 status, identity = 0x10000;
++	int ret;
++
++	if (!peer)
++		return 0;
++	if (IS_ERR(peer))
++		return PTR_ERR(peer);
++	ret = dcp_peer_video_call(peer, "A423", matrix, sizeof(*matrix), &status, 4);
++	if (ret || status)
++		return ret ?: -EIO;
++	ret = dcp_peer_video_call(peer, "A428", &identity, sizeof(identity), &status, 4);
++	return ret ?: (status ? -EIO : 0);
++}
+diff --git a/drivers/gpu/drm/apple/dcp-peer-swap-probe-v27.inc b/drivers/gpu/drm/apple/dcp-peer-swap-probe-v27.inc
+new file mode 100644
+index 000000000000..f6c8ced4317e
+--- /dev/null
++++ b/drivers/gpu/drm/apple/dcp-peer-swap-probe-v27.inc
+@@ -0,0 +1,243 @@
++/* SPDX-License-Identifier: GPL-2.0-only OR MIT */
++/* Explicit background-only paired swap diagnostic. No framebuffer DMA or
++ * DRM events are owned here. Both DRM CRTCs must remain inactive.
++ */
++struct dcp_peer_background {
++	struct iomfb_transaction transaction;
++	struct dcp_peer_video_wait *wait;
++	struct dcp_swap_submit_req_v27 wire;
++	bool sent;
++};
++
++static void dcp_peer_background_done(struct apple_dcp *dcp, void *out, void *cookie)
++{
++	struct dcp_peer_background *background = cookie;
++	struct dcp_swap_submit_resp_v27 failed = { .ret = ~0U };
++	struct dcp_swap_submit_resp_v27 *response = out ?: &failed;
++
++	if (!dcp_present_submit_h17p(&dcp->present_state_h17p,
++				     background->wire.swap.swap_id, !response->ret))
++		WRITE_ONCE(dcp->crashed, true);
++	dcp_peer_video_done(dcp, response, background->wait);
++}
++
++static void dcp_peer_background_start(struct apple_dcp *dcp,
++				      struct iomfb_transaction *transaction)
++{
++	struct dcp_peer_background *background =
++		container_of(transaction, struct dcp_peer_background, transaction);
++	struct dcp_method_entry method = { .name = "peer_background_test",
++		.tag = {'A', '4', '0', '8'} };
++	struct dcp_swap_submit_resp_v27 failed = { .ret = ~0U };
++
++	background->sent = true;
++	if (!dcp_present_begin_h17p(&dcp->present_state_h17p,
++				    background->wire.swap.swap_id)) {
++		dcp_peer_video_done(dcp, &failed, background->wait);
++		return;
++	}
++	dcp_push(dcp, false, &method, sizeof(background->wire), sizeof(failed),
++		 &background->wire, dcp_peer_background_done, background);
++}
++
++static void dcp_peer_background_release(struct iomfb_transaction *transaction)
++{
++	struct dcp_peer_background *background =
++		container_of(transaction, struct dcp_peer_background, transaction);
++
++	if (!background->sent)
++		kref_put(&background->wait->refs, dcp_peer_video_free);
++	kfree(background);
++}
++
++static int dcp_peer_queue_background(struct apple_dcp *dcp,
++				     struct dcp_swap_submit_req_v27 *wire,
++				     struct dcp_peer_video_wait *wait)
++{
++	struct dcp_peer_background *background;
++	int ret;
++
++	background = kzalloc_obj(*background);
++	if (!background)
++		return -ENOMEM;
++	background->wire = *wire;
++	background->wait = wait;
++	kref_get(&wait->refs);
++	background->transaction.start = dcp_peer_background_start;
++	background->transaction.release = dcp_peer_background_release;
++	ret = iomfb_queue(dcp, &background->transaction);
++	if (ret)
++		dcp_peer_background_release(&background->transaction);
++	return ret;
++}
++
++static int dcp_peer_probe_background(struct apple_dcp *dcp, struct apple_dcp *peer)
++{
++	struct dcp_swap_start_req_h17p start = {};
++	struct dcp_swap_start_resp_h17p a, b;
++	struct dcp_swap_submit_req_v27 *submit;
++	struct dcp_swap_submit_resp_v27 response;
++	struct dcp_peer_video_wait *wait, *peer_wait;
++	unsigned long deadline;
++	int ret;
++
++	submit = kzalloc(sizeof(*submit), GFP_KERNEL);
++	wait = kzalloc(sizeof(*wait), GFP_KERNEL);
++	peer_wait = kzalloc(sizeof(*peer_wait), GFP_KERNEL);
++	if (!submit || !wait || !peer_wait) {
++		kfree(submit);
++		kfree(wait);
++		kfree(peer_wait);
++		return -ENOMEM;
++	}
++	kref_init(&wait->refs);
++	init_completion(&wait->done);
++	wait->size = sizeof(response);
++	kref_init(&peer_wait->refs);
++	init_completion(&peer_wait->done);
++	peer_wait->size = sizeof(response);
++	ret = dcp_peer_video_call(dcp, "A406", &start, sizeof(start), &a, sizeof(a));
++	if (ret || a.ret) {
++		ret = ret ?: -EIO;
++		goto out;
++	}
++	ret = dcp_peer_video_call(peer, "A406", &start, sizeof(start), &b, sizeof(b));
++	if (ret || b.ret || a.swap_id != b.swap_id) {
++		dev_err(dcp->dev, "peer swap-start mismatch/error: %u/%u result=%d\n",
++			a.swap_id, ret ? 0 : b.swap_id, ret);
++		ret = ret ?: -EIO;
++		goto out;
++	}
++	submit->swap.swap_id = a.swap_id;
++	submit->swap.swap_enabled = submit->swap.swap_completed = IOMFB_SET_BACKGROUND | 7;
++	submit->swap.bg_color = 0xffff0000;
++	memset(submit->surf_null, 1, sizeof(submit->surf_null));
++	submit->unknown_pointer_null = submit->unknown_output_null = true;
++	ret = dcp_peer_queue_background(dcp, submit, wait);
++	if (ret)
++		goto out;
++	/* Queue both engines before waiting, with each present tracked by its
++	 * own IOMFB transaction and completion state. */
++	submit->swap.bg_color = 0xff0000ff;
++	ret = dcp_peer_queue_background(peer, submit, peer_wait);
++	if (ret)
++		goto out;
++	if (!wait_for_completion_timeout(&peer_wait->done, msecs_to_jiffies(2000))) {
++		ret = -ETIMEDOUT;
++		goto out;
++	}
++	memcpy(&response, peer_wait->reply, sizeof(response));
++	if (response.ret) {
++		ret = -EIO;
++		goto out;
++	}
++	if (!wait_for_completion_timeout(&wait->done, msecs_to_jiffies(2000))) {
++		ret = -ETIMEDOUT;
++		goto out;
++	}
++	memcpy(&response, wait->reply, sizeof(response));
++	if (response.ret) {
++		ret = -EIO;
++		goto out;
++	}
++	deadline = jiffies + msecs_to_jiffies(2000);
++	while (!READ_ONCE(dcp->have_swap_complete) || !READ_ONCE(peer->have_swap_complete) ||
++	       READ_ONCE(dcp->last_swap_id) != a.swap_id ||
++	       READ_ONCE(peer->last_swap_id) != a.swap_id) {
++		if (time_after_eq(jiffies, deadline)) {
++			ret = -ETIMEDOUT;
++			goto out;
++		}
++		msleep(2);
++	}
++	dev_info(dcp->dev, "peer background swap %u completed on both engines (optical unverified)\n",
++		 a.swap_id);
++out:
++	dev_info(dcp->dev, "peer background test result=%d\n", ret);
++	kref_put(&wait->refs, dcp_peer_video_free);
++	kref_put(&peer_wait->refs, dcp_peer_video_free);
++	kfree(submit);
++	return ret;
++}
++
++static ssize_t peer_swap_test_store(struct device *dev,
++				   struct device_attribute *attr,
++				   const char *buf, size_t count)
++{
++	struct apple_dcp *dcp, *peer;
++	struct device *peer_dev = NULL;
++	bool enabled;
++	int ret;
++
++	if (kstrtobool(buf, &enabled) || !enabled)
++		return -EINVAL;
++	if (!peer_allocation_probe || !device_trylock(dev))
++		return -EBUSY;
++	dcp = dev_get_drvdata(dev);
++	{
++		guard(mutex)(&dcp_peer_lock);
++		peer = dcp ? dcp->peer_reserved : NULL;
++		if (!peer || peer->peer_owner != dcp || !dcp_peer_video_idle(dcp) ||
++		    !dcp_peer_video_idle(peer) || READ_ONCE(dcp->peer_frames.active) || !dcp->peer_tiling.member ||
++		    !peer->peer_tiling.member || !dcp->peer_tiling.modeset_complete ||
++		    !peer->peer_tiling.modeset_complete || !dcp->crtc || !peer->crtc ||
++		    !dcp->crtc->base.state || !peer->crtc->base.state ||
++		    dcp->crtc->base.state->active || peer->crtc->base.state->active ||
++		    dcp->fw_compat != DCP_FIRMWARE_V_27_0 ||
++		    peer->fw_compat != DCP_FIRMWARE_V_27_0 ||
++		    !device_trylock(peer->dev)) {
++			ret = -EBUSY;
++			goto out;
++		}
++		peer_dev = peer->dev;
++	}
++	ret = dcp_peer_probe_background(dcp, peer);
++out:
++	if (peer_dev)
++		device_unlock(peer_dev);
++	device_unlock(dev);
++	return ret ? ret : count;
++}
++static DEVICE_ATTR_WO(peer_swap_test);
++
++/* End a diagnostic pair using the firmware's power/element sequence. Keep the
++ * reservation on failure: a failed ACK is not evidence that DMA has stopped.
++ */
++static ssize_t peer_stop_test_store(struct device *dev,
++				   struct device_attribute *attr,
++				   const char *buf, size_t count)
++{
++	struct apple_dcp *dcp, *peer;
++	struct device *peer_dev = NULL;
++	bool enabled;
++	int ret;
++
++	if (kstrtobool(buf, &enabled) || !enabled)
++		return -EINVAL;
++	if (!peer_allocation_probe || !device_trylock(dev))
++		return -EBUSY;
++	dcp = dev_get_drvdata(dev);
++	{
++		guard(mutex)(&dcp_peer_lock);
++		peer = dcp ? dcp->peer_reserved : NULL;
++		if (!peer || peer->peer_owner != dcp || !dcp_peer_video_idle(dcp) ||
++		    !dcp_peer_video_idle(peer) || !dcp->crtc || !peer->crtc ||
++		    !dcp->crtc->base.state || !peer->crtc->base.state ||
++		    dcp->crtc->base.state->active || peer->crtc->base.state->active ||
++		    dcp->fw_compat != DCP_FIRMWARE_V_27_0 ||
++		    peer->fw_compat != DCP_FIRMWARE_V_27_0 ||
++		    !device_trylock(peer->dev)) {
++			ret = -EBUSY;
++			goto out;
++		}
++		peer_dev = peer->dev;
++	}
++	ret = dcp_peer_probe_quiesce(dcp, peer);
++	dev_info(dev, "peer stop test result=%d\n", ret);
++out:
++	if (peer_dev)
++		device_unlock(peer_dev);
++	device_unlock(dev);
++	return ret ? ret : count;
++}
++static DEVICE_ATTR_WO(peer_stop_test);
+diff --git a/drivers/gpu/drm/apple/dcp-peer-v27.h b/drivers/gpu/drm/apple/dcp-peer-v27.h
+new file mode 100644
+index 000000000000..cea2a4f13e43
+--- /dev/null
++++ b/drivers/gpu/drm/apple/dcp-peer-v27.h
+@@ -0,0 +1,125 @@
++/* SPDX-License-Identifier: GPL-2.0-only OR MIT */
++#ifndef APPLE_DCP_PEER_V27_H
++#define APPLE_DCP_PEER_V27_H
++
++#include <linux/types.h>
++#include <linux/kernel.h>
++#include <linux/unaligned.h>
++
++#include "dcp-peer-v26_6.h"
++
++struct dcp_dptx_caps {
++	u32 width, total_rate, active_rate;
++};
++
++/* Per-engine state used by D114/D115 in a VFTG pair. This is not
++ * display-wall emulation: membership is set only while a split mode is active.
++ */
++/* The record is struct dcp_peer_tiling, shared with the desktop 26.6 pair. */
++
++static inline bool dcp_peer_tiling_get_v27(
++	const struct dcp_peer_tiling *own,
++	const struct dcp_peer_tiling *related, u32 event, u32 param, u32 *value)
++{
++	const struct dcp_peer_tiling *target = own;
++
++	/* The getter redirects event 2 only for an active pair. */
++	if (event == 2 && own->member) {
++		if (!related)
++			return false;
++		target = related;
++	}
++	switch (param) {
++	case 1: *value = target->member; return true;
++	case 2:
++		if (event == 1 || target->member)
++			*value = target->phase;
++		return true;
++	case 3: return true; /* The non-wall case preserves the input. */
++	case 4:
++		if (event != 1 && !target->member)
++			return true;
++		if (!target->display_id_valid)
++			return false;
++		*value = target->display_id;
++		return true;
++	case 5: case 12: *value = target->x; return true;
++	case 6:
++		if (event == 1 || target->member)
++			*value = target->ready;
++		return true;
++	case 8: *value = own->vftg; return true;
++	case 9: *value = own->primary; return true;
++	case 10:
++		if (event == 1 || target->member)
++			*value = target->modeset_state;
++		return true;
++	case 11: *value = 0; return true; /* This pair is not a display wall. */
++	case 13: *value = target->y; return true;
++	case 14: *value = target->mode_flag; return true;
++	default: return false;
++	}
++}
++
++static inline bool dcp_peer_tiling_set_v27(struct dcp_peer_tiling *own,
++	struct dcp_peer_tiling *related, u32 event, u32 param, u32 value)
++{
++	/* Unlike the getter, the setter always redirects event 2. */
++	struct dcp_peer_tiling *target = event == 2 ? related : own;
++
++	if (!target)
++		return false;
++	switch (param) {
++	case 2: target->phase = value; return true;
++	case 6: target->ready = !!value; return true;
++	case 10: target->modeset_state = value; return true;
++	default: return false;
++	}
++}
++
++/* AV display hints and display allocation records. */
++struct dcp_display_hints_v27 {
++	u8 hints[0x6c];
++	u8 padding[4];
++	__le32 primary_id, peer_id;
++	u8 extra_pipes, flags;
++	u8 allocation_reserved[22];
++	__le32 status;
++	u8 tail[12];
++} __packed;
++
++static_assert(sizeof(struct dcp_display_hints_v27) == 160);
++static_assert(offsetof(struct dcp_display_hints_v27, primary_id) == 0x70);
++static_assert(offsetof(struct dcp_display_hints_v27, status) == 0x90);
++
++/* Extra pipe count, as the T602X display crossbar computes it.
++ * Caps come from the live DPTX service, never from a forced clock limit.
++ */
++static inline u32 dcp_peer_extra_pipes(const u8 *hints,
++				     const struct dcp_dptx_caps *caps)
++{
++	u32 width = get_unaligned_le32(hints + 0x38);
++	u32 total = get_unaligned_le32(hints + 0x40);
++	u32 active = get_unaligned_le32(hints + 0x44);
++	u32 extra;
++
++	if (!(hints[0] & 1) || !width || !total || !active ||
++	    !caps->width || !caps->total_rate || !caps->active_rate)
++		return 0;
++	extra = (width - 1) / caps->width;
++	extra = max(extra, (total - 1) / caps->total_rate);
++	return max(extra, (active - 1) / caps->active_rate);
++}
++
++/* Peer validity rule of the T8132 display crossbar, inherited by T6050.
++ * Endpoint zero is the internal display; a peer must be on the same die.
++ */
++static inline bool dcp_peer_index_allowed(u32 primary, u32 peer)
++{
++	static const u8 masks[] = { 0, 0x1c, 0x18, 0x10, 0 };
++
++	return primary < ARRAY_SIZE(masks) && peer < ARRAY_SIZE(masks) &&
++	       (masks[primary] & BIT(peer));
++}
++
++#endif
+diff --git a/drivers/gpu/drm/apple/dcp-peer-v27.inc b/drivers/gpu/drm/apple/dcp-peer-v27.inc
+new file mode 100644
+index 000000000000..9bae0594b584
+--- /dev/null
++++ b/drivers/gpu/drm/apple/dcp-peer-v27.inc
+@@ -0,0 +1,154 @@
++/* SPDX-License-Identifier: GPL-2.0-only OR MIT */
++
++/* Bring-up gate until the framebuffer merge lifecycle is implemented. This
++ * only reserves an otherwise unrouted DCP; it never replaces a physical route.
++ */
++static bool peer_allocation_probe;
++module_param(peer_allocation_probe, bool, 0444);
++MODULE_PARM_DESC(peer_allocation_probe, "Test firmware27 logical peer allocation (merge bring-up)");
++
++bool dcp_peer_tiling_state_v27(struct apple_dcp *dcp, bool write,
++			      u32 event, u32 param, u32 *value)
++{
++	struct apple_dcp *peer;
++
++	guard(mutex)(&dcp_peer_lock);
++	if (!peer_allocation_probe || dcp->peer_unbinding || dcp->crashed)
++		return false;
++	peer = dcp->peer_reserved ?: dcp->peer_owner;
++	if (!peer || peer->peer_unbinding || peer->crashed)
++		return false;
++	/* A resource reservation is not a framebuffer pair. Before the
++	 * split-mode preparation, keep the established untiled callback path;
++	 * zero-initialized fields are not yet valid tiling-manager state.
++	 */
++	if (!dcp->peer_tiling.vftg || !peer->peer_tiling.vftg)
++		return false;
++	if (write)
++		return dcp_peer_tiling_set_v27(&dcp->peer_tiling,
++					      &peer->peer_tiling, event, param, *value);
++	return dcp_peer_tiling_get_v27(&dcp->peer_tiling, &peer->peer_tiling,
++				     event, param, value);
++}
++
++void dcp_peer_display_ids_v27(struct apple_dcp *dcp, u32 own, u32 related)
++{
++	struct apple_dcp *peer;
++
++	guard(mutex)(&dcp_peer_lock);
++	peer = dcp->peer_reserved ?: dcp->peer_owner;
++	if (!peer || own == related || dcp->peer_unbinding || peer->peer_unbinding)
++		return;
++	/* D575 carries external display IDs, not crossbar endpoint indices. */
++	dcp->peer_tiling.display_id = own;
++	dcp->peer_tiling.display_id_valid = true;
++	peer->peer_tiling.display_id = related;
++	peer->peer_tiling.display_id_valid = true;
++}
++
++static void dcp_peer_release_locked(struct apple_dcp *dcp)
++{
++	if (dcp->peer_reserved) {
++		/* A link-allocation release is not a DMA-stop acknowledgement.
++		 * Keep a prepared pair owned until the AP has powered both down.
++		 * Firmware may still need the tiling rendezvous state to stop.
++		 */
++		if (dcp->peer_tiling.vftg || dcp->peer_tiling.member ||
++		    dcp->peer_reserved->peer_tiling.vftg ||
++		    dcp->peer_reserved->peer_tiling.member) {
++			dcp->peer_tiling.modeset_complete = false;
++			dcp->peer_reserved->peer_tiling.modeset_complete = false;
++			return;
++		}
++		memset(&dcp->peer_tiling, 0, sizeof(dcp->peer_tiling));
++		memset(&dcp->peer_reserved->peer_tiling, 0,
++		       sizeof(dcp->peer_reserved->peer_tiling));
++		dcp->peer_reserved->peer_owner = NULL;
++		dcp->peer_reserved = NULL;
++	}
++}
++
++int dcp_peer_hints_v27(struct apple_dcp *dcp, struct dptx_port *port,
++		      const void *data, size_t size, void *reply, size_t reply_size)
++{
++	struct dcp_display_hints_v27 *r = reply;
++	struct apple_dcp *peer = NULL;
++	struct drm_crtc *crtc;
++	u32 extra;
++
++	if (size != sizeof(*r) || reply_size != sizeof(*r))
++		return -EINVAL;
++	memcpy(reply, data, sizeof(*r));
++	/* The first word is hint flags, not a return code. The completion
++	 * status has a field of its own, leaving the request hints unchanged.
++	 */
++	r->status = 0;
++	if (!peer_allocation_probe)
++		return 0;
++	if (!of_device_is_compatible(dcp->dev->of_node, "apple,t6050-dcpext") ||
++	    port->unit || !dcp->crtc)
++		return 0;
++
++	extra = dcp_peer_extra_pipes(r->hints, &port->caps);
++	memset(&r->primary_id, 0, 32);
++	guard(mutex)(&dcp_peer_lock);
++	if (dcp->peer_unbinding || dcp->crashed)
++		return -ENODEV;
++	if (!extra || !(r->hints[0] & 1)) {
++		dcp_peer_release_locked(dcp);
++		memset(&r->primary_id, 0, 32);
++		return 0;
++	}
++	/* This candidate implements a non-tiled, two-pipe reservation. Tiled
++	 * panels and more than one peer require the full display allocator.
++	 */
++	if (extra != 1 || (r->hints[0] & 2) || dcp->peer_owner)
++		return 0;
++	peer = dcp->peer_reserved;
++	if (!peer) {
++		drm_for_each_crtc(crtc, dcp->crtc->base.dev) {
++			struct apple_dcp *p = platform_get_drvdata(to_apple_crtc(crtc)->dcp);
++
++			/* A dedicated, unrouted peer cannot race Type-C's allocator
++			 * or a fixed connector's HPD handler in this bring-up step.
++			 */
++			if (!p || !p->active || p->crashed || p->peer_unbinding ||
++			    p->peer_owner || p->peer_reserved || p->fixed_phy ||
++			    p->nr_typec_routes || p->active_typec_route ||
++			    (p->connector && p->connector->connected) ||
++			    !dcp_peer_index_allowed(dcp->index, p->index) ||
++			    p->dptx_die != dcp->dptx_die ||
++			    !p->crtc || p->crtc->base.dev != dcp->crtc->base.dev ||
++			    p->fw_compat != DCP_FIRMWARE_V_27_0 ||
++			    !p->dptxport[0].enabled ||
++			    p->dptxport[0].caps.width < port->caps.width ||
++			    p->dptxport[0].caps.total_rate < port->caps.total_rate ||
++			    p->dptxport[0].caps.active_rate < port->caps.active_rate ||
++			    p->dptxport[0].connected || p->dptxport[1].connected ||
++			    !of_device_is_compatible(p->dev->of_node, "apple,t6050-dcpext"))
++				continue;
++			if (!peer || p->index < peer->index)
++				peer = p;
++		}
++		if (!peer) {
++			dev_info(dcp->dev, "no eligible idle peer for %u extra pipe\n", extra);
++			return 0;
++		}
++		dcp->peer_reserved = peer;
++		peer->peer_owner = dcp;
++		dev_info(dcp->dev, "reserved peer DCP%u for %ux%u, total %u active %u\n",
++			 peer->index, get_unaligned_le32(r->hints + 0x38),
++			 get_unaligned_le32(r->hints + 0x3c),
++			 get_unaligned_le32(r->hints + 0x40),
++			 get_unaligned_le32(r->hints + 0x44));
++	}
++	/* The display allocation update writes primary/peer endpoint IDs.
++	 * The extra pipe count supplies byte8. This is full dual-pipe, so the
++	 * T6050 limited-dual-pipe flag (byte9 bit1) remains clear.
++	 */
++	r->primary_id = cpu_to_le32(dcp->index);
++	r->peer_id = cpu_to_le32(peer->index);
++	r->extra_pipes = extra;
++	r->flags &= ~3;
++	return 0;
++}
+diff --git a/drivers/gpu/drm/apple/dcp-peer-video-probe-v27.inc b/drivers/gpu/drm/apple/dcp-peer-video-probe-v27.inc
+new file mode 100644
+index 000000000000..24c985a91195
+--- /dev/null
++++ b/drivers/gpu/drm/apple/dcp-peer-video-probe-v27.inc
+@@ -0,0 +1,250 @@
++/* SPDX-License-Identifier: GPL-2.0-only OR MIT */
++/* Opt-in A364/A365 bring-up. Installs derived modes without selecting them;
++ * paired power, modeset and swap ownership must be implemented separately.
++ */
++#include "iomfb-peer-v27.h"
++
++struct dcp_peer_video_wait {
++	struct kref refs;
++	struct completion done;
++	size_t size;
++	u8 reply[sizeof(struct dcp_peer_get_video_resp_v27)];
++};
++
++static void dcp_peer_video_free(struct kref *ref)
++{
++	kfree(container_of(ref, struct dcp_peer_video_wait, refs));
++}
++
++static void dcp_peer_video_done(struct apple_dcp *dcp, void *out, void *cookie)
++{
++	struct dcp_peer_video_wait *wait = cookie;
++
++	if (wait->size)
++		memcpy(wait->reply, out, wait->size);
++	complete(&wait->done);
++	kref_put(&wait->refs, dcp_peer_video_free);
++}
++
++static int dcp_peer_video_call_stream(struct apple_dcp *dcp, bool independent,
++			       const char *tag,
++			       void *in, size_t in_size, void *out, size_t out_size)
++{
++	struct dcp_method_entry method = { .name = "peer_video_test" };
++	struct dcp_peer_video_wait *wait;
++	int ret = 0;
++
++	if (out_size > sizeof(wait->reply))
++		return -EINVAL;
++	/* An unrelated AP thread gets its own firmware stream. A369/A367/etc.
++	 * must not be mistaken for nested callbacks of the pending A413.
++	 * Stream1 (the driver's OOB context) is independent of stream0.
++	 */
++	if (independent && (dcp->ch_oobcmd.depth || dcp->ch_oobcb.depth))
++		return -EBUSY;
++	wait = kzalloc(sizeof(*wait), GFP_KERNEL);
++	if (!wait)
++		return -ENOMEM;
++	memcpy(method.tag, tag, sizeof(method.tag));
++	wait->size = out_size;
++	init_completion(&wait->done);
++	kref_init(&wait->refs);
++	kref_get(&wait->refs);
++	dcp_push(dcp, independent, &method, in_size, out_size, in,
++		 dcp_peer_video_done, wait);
++	if (!wait_for_completion_timeout(&wait->done,
++		msecs_to_jiffies(!memcmp(tag, "A413", 4) ? 8500 : 2000)))
++		ret = -ETIMEDOUT;
++	else if (out_size)
++		memcpy(out, wait->reply, out_size);
++	/* A late ACK owns only the heap cookie, never a caller's stack. */
++	kref_put(&wait->refs, dcp_peer_video_free);
++	return ret;
++}
++
++static int dcp_peer_video_call(struct apple_dcp *dcp, const char *tag,
++			       void *in, size_t in_size, void *out, size_t out_size)
++{
++	return dcp_peer_video_call_stream(dcp, false, tag, in, in_size, out, out_size);
++}
++
++#include "dcp-peer-modeset-probe-v27.inc"
++
++static bool dcp_peer_video_idle(struct apple_dcp *dcp)
++{
++	return dcp->active && !dcp->crashed && !dcp->peer_unbinding &&
++	       !READ_ONCE(dcp->mode_state.changing) && !dcp->ch_cmd.depth && !dcp->ch_cb.depth &&
++	       !dcp->ch_async.depth && !dcp->ch_oobcmd.depth &&
++	       !dcp->ch_oobcb.depth && !dcp->ch_oobasync.depth;
++}
++
++/* Shared by the explicit diagnostic and normal DRM mode selection.
++ * Install4 chooses a pair only when firmware's A364 requires one.
++ */
++static int dcp_peer_install_video_v27(struct apple_dcp *dcp, struct apple_dcp *peer,
++                                     u32 timing, u32 color, u32 install)
++{
++	struct device *dev = dcp->dev;
++	struct dcp_peer_get_video_req_v27 req = {};
++	struct dcp_peer_get_video_resp_v27 resp;
++	struct dcp_peer_insert_video_req_v27 insert = {};
++	struct dcp_peer_insert_video_resp_v27 inserted;
++	__le32 enabled = cpu_to_le32(1);
++	int ret;
++
++	req.timing_id = cpu_to_le32(timing);
++	req.color_id = cpu_to_le32(color);
++	ret = dcp_peer_video_call(dcp, "A364", &req, sizeof(req), &resp, sizeof(resp));
++	if (ret)
++		return ret;
++	dev_info(dev, "peer video timing=%u color=%u success=%u merge=%u timing=%*ph color=%*ph\n",
++		 timing, color, resp.success, resp.requires_merge,
++		 64, resp.video.timing, 32, resp.video.color);
++	dev_info(dev, "peer timing tail=%*ph\n", 16, resp.video.timing + 64);
++	if (!(resp.success & 1)) {
++		ret = -ENOENT;
++		return ret;
++	}
++	if (!install)
++		return ret;
++	/* Mode3 explicitly tests a reserved pair using an existing lower-rate
++	 * timing. It does not advertise a mode, raise a limit, or add scanout.
++	 * Keep this diagnostic independent of production mode selection.
++	 */
++	if (!(resp.requires_merge & 1) && install != 3) {
++		if (install == 4 && (dcp->peer_tiling.vftg || peer->peer_tiling.vftg)) {
++			u8 power[16] = {1}, response[8];
++
++			ret = dcp_peer_probe_quiesce(dcp, peer);
++			if (ret)
++				return ret;
++			/* A mode-only DRM commit does not call CRTC poweron again. */
++			ret = dcp_peer_video_call(dcp, "A484", power, sizeof(power),
++						  response, sizeof(response));
++			if (ret || get_unaligned_le32(response + 4))
++				return ret ?: -EIO;
++		}
++		return -EOPNOTSUPP;
++	}
++	ret = dcp_peer_probe_quiesce(dcp, peer);
++	if (ret)
++		return ret;
++	insert.video = resp.video;
++	dcp_peer_split_timing_v27(&insert.video);
++	insert.timing_id = cpu_to_le32(timing + 10000);
++	insert.color_id = cpu_to_le32(color + 10000);
++	ret = dcp_peer_probe_prepare_vftg(dcp, peer, &insert);
++	if (ret)
++		return ret;
++	ret = dcp_peer_video_call(peer, "A366", &enabled, sizeof(enabled), NULL, 0);
++	if (ret)
++		return ret;
++	ret = dcp_peer_video_call(dcp, "A365", &insert, sizeof(insert),
++				  &inserted, sizeof(inserted));
++	if (!ret && !(inserted.success & 1))
++		ret = -EIO;
++	if (ret)
++		return ret;
++	/* The first call's in/out timing and color go to the peer. */
++	insert.video = inserted.video;
++	ret = dcp_peer_video_call(peer, "A365", &insert, sizeof(insert),
++				  &inserted, sizeof(inserted));
++	if (!ret && !(inserted.success & 1))
++		ret = -EIO;
++	dev_info(dev, "peer derived mode timing=%u color=%u width=%u height=%u clock=%u result=%d (not selected)\n",
++		 timing + 10000, color + 10000,
++		 get_unaligned_le32(insert.video.timing + 8),
++		 get_unaligned_le32(insert.video.timing + 0x28),
++		 get_unaligned_le32(insert.video.timing + 0x44), ret);
++	if (!ret && install >= 2)
++		ret = dcp_peer_probe_modeset(dcp, peer, &insert,
++					     resp.requires_merge & 1);
++	return ret;
++}
++
++static ssize_t peer_video_test_store(struct device *dev,
++				    struct device_attribute *attr,
++				    const char *buf, size_t count)
++{
++	struct apple_dcp *dcp, *peer;
++	struct device *peer_dev = NULL;
++	u32 timing, color, install;
++	char extra;
++	int ret;
++
++	if (sscanf(buf, "%u %u %u %c", &timing, &color, &install, &extra) != 3 ||
++	    install > 3 || timing > U32_MAX - 10000 || color > U32_MAX - 10000)
++		return -EINVAL;
++	if (!peer_allocation_probe)
++		return -EOPNOTSUPP;
++	/* Trylocks avoid the sysfs-removal/device-lock inversion. Hold both
++	 * devices across RPC waits so neither devm-backed DCP can be unbound.
++	 */
++	if (!device_trylock(dev))
++		return -EBUSY;
++	dcp = dev_get_drvdata(dev);
++	{
++		guard(mutex)(&dcp_peer_lock);
++		peer = dcp ? dcp->peer_reserved : NULL;
++		if (!peer || peer->peer_owner != dcp || !dcp_peer_video_idle(dcp) ||
++		    !dcp_peer_video_idle(peer) || !dcp->crtc || !peer->crtc ||
++		    !dcp->crtc->base.state || !peer->crtc->base.state ||
++		    (install && (dcp->crtc->base.state->active ||
++				 peer->crtc->base.state->active)) || peer->fixed_phy ||
++		    peer->nr_typec_routes || peer->peer_tiling.member ||
++		    dcp->peer_tiling.member ||
++		    dcp->fw_compat != DCP_FIRMWARE_V_27_0 ||
++		    peer->fw_compat != DCP_FIRMWARE_V_27_0 ||
++		    (peer->connector && peer->connector->connected)) {
++			ret = -EBUSY;
++			goto unlock;
++		}
++		if (!device_trylock(peer->dev)) {
++			ret = -EBUSY;
++			goto unlock;
++		}
++		peer_dev = peer->dev;
++	}
++	ret = dcp_peer_install_video_v27(dcp, peer, timing, color, install);
++unlock:
++	if (peer_dev)
++		device_unlock(peer_dev);
++	device_unlock(dev);
++	return ret ? ret : count;
++}
++static DEVICE_ATTR_WO(peer_video_test);
++
++static ssize_t peer_link_test_store(struct device *dev,
++				   struct device_attribute *attr,
++				   const char *buf, size_t count)
++{
++	struct apple_dcp *dcp;
++	bool enabled;
++	int ret;
++
++	if (kstrtobool(buf, &enabled))
++		return -EINVAL;
++	if (!peer_allocation_probe || !device_trylock(dev))
++		return -EBUSY;
++	dcp = dev_get_drvdata(dev);
++	if (!dcp || !dcp->active || dcp->crashed || !dcp->fixed_phy ||
++	    dcp->nr_typec_routes || dcp->connector_type != DRM_MODE_CONNECTOR_HDMIA) {
++		ret = -EOPNOTSUPP;
++		goto unlock;
++	}
++	{
++		guard(mutex)(&dcp_peer_lock);
++		if (dcp->peer_tiling.vftg || dcp->peer_tiling.member) {
++			ret = -EBUSY;
++			goto unlock;
++		}
++	}
++	/* Use the existing disconnect/connect lifecycle, serialized with HPD.
++	 * This diagnostic models link re-enumeration, not a physical cable pull.
++	 */
++	ret = dcp_typec_test_link(to_platform_device(dev), enabled);
++unlock:
++	device_unlock(dev);
++	return ret ? ret : count;
++}
++static DEVICE_ATTR_WO(peer_link_test);
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 70e46bab4b65..964e1614ff98 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -16,6 +16,7 @@
+ #include <linux/jiffies.h>
+ #include <linux/kconfig.h>
+ #include <linux/kernel.h>
++#include <linux/kref.h>
+ #include <linux/module.h>
+ #include <linux/mux/driver.h>
+ #include <linux/soc/apple/dp-tunnel.h>
+@@ -68,6 +69,7 @@
+ #include "iomfb_internal.h"
+ #include "iomfb_m4.h"
+ #include "ibootep.h"
++#include "iomfb_internal.h"
+ #include "parser.h"
+ #include "trace.h"
+ 
+@@ -229,6 +231,9 @@ bool dcp_t6041_ext_enabled(void)
+ 
+ #include "iomfb_v26_6_swap.h"
+ #include "dcp-peer-v26_6.inc"
++/* The firmware 27 pair shares dcp_peer_lock and dcp_peer_forget() above. */
++#include "dcp-peer-v27.inc"
++#include "dcp-peer-probe-v27.inc"
+ 
+ /*
+  * The backlight maximum of a desktop 26.x panel whose node has no
+@@ -1354,6 +1359,7 @@ static void dcp_rtk_crashed(void *cookie, const void *crashlog, size_t crashlog_
+ 		return;
+ 	}
+ 	dcp->crashed = true;
++	dcp_peer_forget(dcp);
+ 	dev_err(dcp->dev, "DCP has crashed\n");
+ 	if (dcp_fail_stop(dcp) &&
+ 	    dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G) {
+@@ -3835,6 +3841,7 @@ int dcp_start(struct platform_device *pdev)
+ 		return iomfb_v26_6_start(dcp);
+ 	if (dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP)
+ 		return dcp_start_desktop(dcp);
++	init_completion(&dcp->typec_display_ready);
+ 
+ 	/*
+ 	 * The T6030 firmware session is adopted for the internal panel.
+@@ -3876,7 +3883,9 @@ int dcp_start(struct platform_device *pdev)
+ 				 ret);
+ 	}
+ 
+-	if (dcp->phy && dcp->fw_compat >= DCP_FIRMWARE_V_13_5) {
++	if ((dcp->phy || (dcp->fw_compat == DCP_FIRMWARE_V_27_0 &&
++			  dcp->hw.num_dptx_ports)) &&
++	    dcp->fw_compat >= DCP_FIRMWARE_V_13_5) {
+ 		ret = ibootep_init(dcp);
+ 		if (ret)
+ 			dev_warn(dcp->dev, "Failed to start IBOOT endpoint: %d\n",
+@@ -4017,6 +4026,9 @@ static void _dcp_poweroff(struct apple_dcp *dcp)
+ 	case DCP_FIRMWARE_H17P:
+ 		iomfb_poweroff_h17p(dcp);
+ 		break;
++	case DCP_FIRMWARE_V_27_0:
++		iomfb_poweroff_v27(dcp);
++		break;
+ 	default:
+ 		WARN_ONCE(true, "Unexpected firmware version: %u\n", dcp->fw_compat);
+ 		break;
+@@ -4114,6 +4126,9 @@ static void __maybe_unused dcp_sleep(struct apple_dcp *dcp)
+ 	case DCP_FIRMWARE_H17P:
+ 		iomfb_sleep_h17p(dcp);
+ 		break;
++	case DCP_FIRMWARE_V_27_0:
++		iomfb_sleep_v27(dcp);
++		break;
+ 	default:
+ 		WARN_ONCE(true, "Unexpected firmware version: %u\n", dcp->fw_compat);
+ 		break;
+@@ -4139,7 +4154,7 @@ static bool dcp_uses_soft_dpms(struct apple_dcp *dcp)
+ 	/* The 14.7 panel has its own known-level blank and restore hooks. */
+ 	return (!iomfb_v14_7_panel_nits(dcp) &&
+ 		dcp_backlight_active(dcp) && dcp_has_panel(dcp)) ||
+-	       (dcp->fw_compat == DCP_FIRMWARE_H17P &&
++	       ((dcp->fw_compat == DCP_FIRMWARE_H17P || dcp->fw_compat == DCP_FIRMWARE_V_27_0) &&
+ 		dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G &&
+ 		dcp->connector_type == DRM_MODE_CONNECTOR_eDP);
+ }
+@@ -4203,10 +4218,13 @@ void dcp_poweron(struct platform_device *pdev)
+ 	}
+ 
+ 	if (dcp_uses_soft_dpms(dcp)) {
+-		if (dcp->fw_compat == DCP_FIRMWARE_H17P &&
++		if ((dcp->fw_compat == DCP_FIRMWARE_H17P || dcp->fw_compat == DCP_FIRMWARE_V_27_0) &&
+ 		    dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G &&
+ 		    !READ_ONCE(dcp->pipe_enabled_h17p)) {
+-			iomfb_poweron_h17p(dcp);
++			if (dcp->fw_compat == DCP_FIRMWARE_V_27_0)
++				iomfb_poweron_v27(dcp);
++			else
++				iomfb_poweron_h17p(dcp);
+ 			if (!READ_ONCE(dcp->pipe_enabled_h17p)) {
+ 				dev_err(dcp->dev, "initial display pipe enable failed\n");
+ 				WRITE_ONCE(dcp->crashed, true);
+@@ -4304,6 +4322,9 @@ void dcp_poweron(struct platform_device *pdev)
+ 	case DCP_FIRMWARE_H17P:
+ 		iomfb_poweron_h17p(dcp);
+ 		break;
++	case DCP_FIRMWARE_V_27_0:
++		iomfb_poweron_v27(dcp);
++		break;
+ 	default:
+ 		WARN_ONCE(true, "Unexpected firmware version: %u\n", dcp->fw_compat);
+ 		break;
+@@ -4843,6 +4864,23 @@ static int dcp_get_disp_regs(struct apple_dcp *dcp)
+ 	}
+ 
+ 	dcp->nr_disp_registers = count;
++	for (i = 0; i < count; i++)
++		dcp->disp_firmware_base[i] = dcp->disp_registers[i]->start;
++	if (of_property_present(dcp->dev->of_node, "apple,firmware-physical-regs")) {
++		if (of_property_count_u64_elems(dcp->dev->of_node,
++					       "apple,firmware-physical-regs") != count)
++			return -EINVAL;
++		ret = of_property_read_u64_array(dcp->dev->of_node,
++					       "apple,firmware-physical-regs",
++					       dcp->disp_firmware_base, count);
++		if (ret)
++			return ret;
++		for (i = 0; i < count; i++)
++			if (!IS_ALIGNED(dcp->disp_firmware_base[i], 4) ||
++			    resource_size(dcp->disp_registers[i]) >
++			    U64_MAX - dcp->disp_firmware_base[i])
++				return -EINVAL;
++	}
+ 	return 0;
+ }
+ 
+@@ -4898,6 +4936,13 @@ static enum dcp_firmware_version dcp_check_firmware_version(struct device *dev)
+ 	char fw_str[DCP_FW_VERSION_STR_LEN];
+ 	int ret;
+ 
++	if (hw->firmware_compat == DCP_FIRMWARE_V_27_0) {
++		ret = dcp_read_fw_version(dev, "apple,firmware-compat", compat_str);
++		if (ret < 0 || strcmp(compat_str, "27.0.0"))
++			return DCP_FIRMWARE_UNKNOWN;
++		return DCP_FIRMWARE_V_27_0;
++	}
++
+ 	/*
+ 	 * SoCs introduced with H17-generation firmware pin its interface; the
+ 	 * loader may not recognise their boot firmware version.
+@@ -5100,6 +5145,43 @@ VISIBLE_IF_KUNIT void dcp_enable_typec_work(struct apple_dcp *dcp)
+ 	}
+ }
+ 
++static int dcp_firmware_metadata_v27(struct apple_dcp *dcp)
++{
++	struct device *dev = dcp->dev;
++	struct device_node *fb;
++	struct resource resource;
++	int clocks, index, ret;
++
++	index = of_property_match_string(dev->of_node, "memory-region-names",
++					 "framebuffer");
++	if (index < 0)
++		return -EINVAL;
++	fb = of_parse_phandle(dev->of_node, "memory-region", index);
++	if (!fb)
++		return -EINVAL;
++	ret = of_address_to_resource(fb, 0, &resource);
++	of_node_put(fb);
++	if (ret)
++		return ret;
++	dcp->dfb_region_size = resource_size(&resource);
++	if (!dcp->dfb_region_size)
++		return -EINVAL;
++
++	clocks = of_property_count_u32_elems(dev->of_node, "apple,clock-ids");
++	if (clocks == -ENODATA &&
++	    of_property_present(dev->of_node, "apple,clock-ids"))
++		clocks = 0;
++	if (clocks < 0 || clocks > 64)
++		return -EINVAL;
++	ret = devm_clk_bulk_get_all(dev, &dcp->firmware_clocks);
++	if (ret < 0)
++		return ret;
++	if (ret != clocks)
++		return -EINVAL;
++	dcp->num_firmware_clocks = clocks;
++	return 0;
++}
++
+ static bool dcp_external_is_idle(struct apple_dcp *dcp)
+ {
+ 	u32 control = readl_relaxed(dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
+@@ -5196,6 +5278,14 @@ static int dcp_comp_bind_pipe(struct device *dev, struct device *main, void *dat
+ 	u32 cpu_ctrl;
+ 	int ret;
+ 
++	if (dcp->fw_compat == DCP_FIRMWARE_V_27_0) {
++		INIT_LIST_HEAD(&dcp->iomfb_boolean_properties);
++		ret = devm_add_action_or_reset(dev,
++				       iomfb_firmware_state_cleanup_v27, dcp);
++		if (ret)
++			return ret;
++	}
++
+ 	if (READ_ONCE(dcp->quiescing))
+ 		return dev_err_probe(dev, -EBUSY,
+ 				     "Live DCP session cannot be rebound; reboot required\n");
+@@ -5228,7 +5318,8 @@ static int dcp_comp_bind_pipe(struct device *dev, struct device *main, void *dat
+ 		return dev_err_probe(dev, ret,
+ 				     "Previous scanout has not been stopped\n");
+ 
+-	ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(42));
++	ret = dma_set_mask_and_coherent(dev,
++				DMA_BIT_MASK(dcp->hw.firmware_dma_bits ?: 42));
+ 	if (ret)
+ 		return ret;
+ 
+@@ -5369,12 +5460,18 @@ static int dcp_comp_bind_pipe(struct device *dev, struct device *main, void *dat
+ 		goto err_piodma;
+ 	}
+ 
++	if (dcp->fw_compat == DCP_FIRMWARE_V_27_0) {
++		ret = dcp_firmware_metadata_v27(dcp);
++		if (ret)
++			goto err_piodma;
++	}
+ 	/*
+ 	 * T6041: the device tree carries no DCP clock, and the boot loader
+ 	 * left the coprocessor clocked; D408 then reports 0 Hz, as the
+ 	 * driver this instance was ported from did.
+ 	 */
+-	if (dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP)
++	if (dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP ||
++	    (dcp->fw_compat == DCP_FIRMWARE_V_27_0 && !dcp->num_firmware_clocks))
+ 		dcp->clk = devm_clk_get_optional(dev, NULL);
+ 	else
+ 		dcp->clk = devm_clk_get(dev, NULL);
+@@ -5505,6 +5602,7 @@ VISIBLE_IF_KUNIT void dcp_comp_unbind(struct device *dev, struct device *main, v
+ 
+ 	if (!dcp)
+ 		return;
++	dcp_peer_forget(dcp);
+ 	/*
+ 	 * Stop the native initializer before looking up its owner, including
+ 	 * the dead-session path. Owner allocation may have landed in an open
+@@ -6942,9 +7040,25 @@ static const struct apple_dcp_hw_data apple_dcp_hw_t6041_dcpext = {
+ 	.sink_metadata_edid = true,
+ };
+ 
++static const struct apple_dcp_hw_data apple_dcp_hw_t6050 = {
++	.firmware_dma_bits = 41,
++	.num_dptx_ports = 0,
++	.adopt_live_session = true,
++	.firmware_compat = DCP_FIRMWARE_V_27_0,
++};
++
++static const struct apple_dcp_hw_data apple_dcp_hw_t6050_dcpext = {
++	.firmware_dma_bits = 41,
++	.num_dptx_ports = 2,
++	.adopt_live_session = true,
++	.firmware_compat = DCP_FIRMWARE_V_27_0,
++};
++
+ static const struct of_device_id of_match[] = {
+ 	{ .compatible = "apple,t6041-dcp", .data = &apple_dcp_hw_t6041, },
+ 	{ .compatible = "apple,t6041-dcpext", .data = &apple_dcp_hw_t6041_dcpext, },
++	{ .compatible = "apple,t6050-dcp", .data = &apple_dcp_hw_t6050 },
++	{ .compatible = "apple,t6050-dcpext", .data = &apple_dcp_hw_t6050_dcpext },
+ 	{ .compatible = "apple,t6020-dcp", .data = &apple_dcp_hw_t6020,  },
+ 	{ .compatible = "apple,t6020-dcpext", .data = &apple_dcp_hw_t6020_dcpext, },
+ 	{ .compatible = "apple,t8112-dcp", .data = &apple_dcp_hw_t8112,  },
+@@ -6974,6 +7088,7 @@ static struct platform_driver apple_platform_driver = {
+ 	.shutdown	= dcp_platform_shutdown,
+ 	.driver	= {
+ 		.name = "apple-dcp",
++		.dev_groups = dcp_peer_probe_groups,
+ 		.of_match_table	= of_match,
+ 		.pm = pm_sleep_ptr(&dcp_platform_pm_ops),
+ 	},
+diff --git a/drivers/gpu/drm/apple/dcp.h b/drivers/gpu/drm/apple/dcp.h
+index eab4cc0bc828..38a8184c2a25 100644
+--- a/drivers/gpu/drm/apple/dcp.h
++++ b/drivers/gpu/drm/apple/dcp.h
+@@ -58,6 +58,19 @@ void dcp_poweroff(struct platform_device *pdev);
+ int dcp_typec_prepare_route(struct apple_dcp *dcp);
+ void dcp_poweron(struct platform_device *pdev);
+ void dcp_external_recover(struct platform_device *pdev);
++int dcp_peer_hints_v27(struct apple_dcp *dcp, struct dptx_port *port,
++		      const void *data, size_t size, void *reply, size_t reply_size);
++bool dcp_peer_tiling_state_v27(struct apple_dcp *dcp, bool write,
++			      u32 event, u32 param, u32 *value);
++void dcp_peer_display_ids_v27(struct apple_dcp *dcp, u32 own, u32 related);
++int dcp_peer_modeset_v27(struct apple_dcp *dcp, u32 timing, u32 color, bool vrr);
++int dcp_peer_color_v27(struct apple_dcp *dcp, struct iomfb_set_matrix_req *matrix);
++int dcp_peer_stop_v27(struct apple_dcp *dcp);
++struct apple_dcp *dcp_peer_scanout_v27(struct apple_dcp *dcp);
++void dcp_peer_swap_armed_v27(struct apple_dcp *dcp, u32 id);
++void dcp_peer_swap_failed_v27(struct apple_dcp *dcp);
++bool dcp_peer_swap_complete_v27(struct apple_dcp *dcp, u32 id, ktime_t now,
++		void (*report)(struct apple_dcp *, u32, ktime_t));
+ int dcp_set_crc(struct drm_crtc *crtc, bool enabled);
+ int dcp_crtc_atomic_check(struct drm_crtc *crtc, struct drm_atomic_commit *commit);
+ int dcp_get_connector_type(struct platform_device *pdev);
+diff --git a/drivers/gpu/drm/apple/dcp_backlight.c b/drivers/gpu/drm/apple/dcp_backlight.c
+index b151887274a2..00f29157241f 100644
+--- a/drivers/gpu/drm/apple/dcp_backlight.c
++++ b/drivers/gpu/drm/apple/dcp_backlight.c
+@@ -96,7 +96,7 @@ static u32 brightness_part2[] = {
+ 
+ static bool dcp_backlight_presents_nits(struct apple_dcp *dcp)
+ {
+-	return (dcp->fw_compat == DCP_FIRMWARE_H17P &&
++	return ((dcp->fw_compat == DCP_FIRMWARE_H17P || dcp->fw_compat == DCP_FIRMWARE_V_27_0) &&
+ 		dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G) ||
+ 	       iomfb_v14_7_panel_nits(dcp);
+ }
+@@ -274,7 +274,7 @@ int dcp_backlight_configure(struct apple_dcp *dcp, u32 maximum,
+ 	unsigned long flags;
+ 	int ret;
+ 
+-	if ((dcp->fw_compat != DCP_FIRMWARE_H17P &&
++	if ((dcp->fw_compat != DCP_FIRMWARE_H17P && dcp->fw_compat != DCP_FIRMWARE_V_27_0 &&
+ 	     !iomfb_is_m4(dcp) && !iomfb_v14_7_panel_nits(dcp)) ||
+ 	    !dcp_has_panel(dcp) || !dcp->crtc || !kick)
+ 		return -EINVAL;
+diff --git a/drivers/gpu/drm/apple/dptx-drive-v27.inc b/drivers/gpu/drm/apple/dptx-drive-v27.inc
+new file mode 100644
+index 000000000000..9b8c3e6af1fa
+--- /dev/null
++++ b/drivers/gpu/drm/apple/dptx-drive-v27.inc
+@@ -0,0 +1,79 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Copyright 2026 Aurora Silicon */
++struct dptxport_drive_v27 {
++	__le32 status_or_count;
++	u8 reserved0[12];
++	__le32 count_or_status;
++	u8 reserved1[12];
++	struct {
++		__le32 type;
++		__le32 voltage;
++		__le32 pre;
++	} lane[];
++} __packed;
++
++static int dptxport_call_drive_v27(struct apple_epic_service *service, bool set,
++				 const void *data, size_t data_size,
++				 void *reply_, size_t reply_size)
++{
++	const struct dptxport_drive_v27 *request = data;
++	struct dptxport_drive_v27 *reply = reply_;
++	struct dptx_port *dptx = service->cookie;
++	union phy_configure_opts opts = {};
++	u32 count;
++	size_t size;
++	int ret;
++
++	if (data_size < sizeof(*request) || reply_size < sizeof(*reply))
++		return -EINVAL;
++	count = le32_to_cpu(set ? request->count_or_status : request->status_or_count);
++	if (count > 4 || count > dptx->lane_count)
++		return -EINVAL;
++	size = sizeof(*request) + count * sizeof(request->lane[0]);
++	if ((set && data_size < size) || (!set && reply_size < size))
++		return -EINVAL;
++
++	if (set) {
++		for (u32 i = 0; i < count; i++) {
++
++			if (le32_to_cpu(request->lane[i].type) ||
++			    le32_to_cpu(request->lane[i].voltage) > 3 ||
++			    le32_to_cpu(request->lane[i].pre) > 3 ||
++			    le32_to_cpu(request->lane[i].voltage) +
++			    le32_to_cpu(request->lane[i].pre) > 3)
++				return -EINVAL;
++			opts.dp.voltage[i] = le32_to_cpu(request->lane[i].voltage);
++			opts.dp.pre[i] = le32_to_cpu(request->lane[i].pre);
++		}
++		opts.dp.lanes = count;
++		opts.dp.link_rate = dptx->phy_ops.dp.link_rate;
++		opts.dp.set_voltages = 1;
++		if (count && !service->ep->dcp->dptx_tunnel) {
++			if (!dptx->atcphy)
++				return -ENODEV;
++			ret = phy_configure(dptx->atcphy, &opts);
++			if (ret)
++				return ret;
++		}
++		for (u32 i = 0; i < count; i++) {
++			dptx->drive_voltage[i] = opts.dp.voltage[i];
++			dptx->drive_pre[i] = opts.dp.pre[i];
++		}
++	}
++
++	memset(reply, 0, reply_size);
++	if (set) {
++		reply->count_or_status = cpu_to_le32(count);
++	} else {
++
++		reply->status_or_count = cpu_to_le32(count);
++	}
++
++	if (reply_size >= size) {
++		for (u32 i = 0; i < count; i++) {
++			reply->lane[i].voltage = cpu_to_le32(dptx->drive_voltage[i]);
++			reply->lane[i].pre = cpu_to_le32(dptx->drive_pre[i]);
++		}
++	}
++	return 0;
++}
+diff --git a/drivers/gpu/drm/apple/dptxep.c b/drivers/gpu/drm/apple/dptxep.c
+index b2426f0a0506..d13796ab6c8e 100644
+--- a/drivers/gpu/drm/apple/dptxep.c
++++ b/drivers/gpu/drm/apple/dptxep.c
+@@ -87,6 +87,8 @@ struct dptxport_apcall_set_tiled {
+ 	__le32 retcode;
+ };
+ 
++#include "dptx-drive-v27.inc"
++
+ /*
+  * SetTiledDisplayHints payload, as DCP sends it for an LG UltraFine 5K
+  * (offsets in bytes): tile location (column, row) at 0x08/0x0c, tiles
+@@ -284,6 +286,11 @@ dptxport_call_get_max_drive_settings(struct apple_epic_service *service,
+ 
+ 	reply->max_drive_settings[0] = cpu_to_le32(0x3);
+ 	reply->max_drive_settings[1] = cpu_to_le32(0x3);
++	if (service->ep->dcp->fw_compat == DCP_FIRMWARE_V_27_0) {
++		/* Protocol-27 drive settings: type, voltage, pre-emphasis. */
++		reply->max_drive_settings[0] = cpu_to_le32(0);
++		memcpy(reply->_unk1, &reply->max_drive_settings[1], sizeof(__le32));
++	}
+ 
+ 	return 0;
+ }
+@@ -751,8 +758,11 @@ dptxport_call_activate(struct apple_epic_service *service,
+ 	 * (DPTX_INACTIVE=0) from here; waking it earlier hangs the machine.
+ 	 * Activate always replies success to DCP.
+ 	 */
+-	if (dptx->atcphy && !dcp->phy_managed_by_typec)
+-		phy_set_mode_ext(dptx->atcphy, PHY_MODE_DP, dcp->index);
++	if (dptx->atcphy && !dcp->phy_managed_by_typec) {
++		ret = phy_set_mode_ext(dptx->atcphy, PHY_MODE_DP, dcp->index);
++		if (ret)
++			return ret;
++	}
+ 	if (dcp->dptx_tunnel) {
+ 		ret = dcp_tunnel_dpin_activate(dcp, dptx->unit, true);
+ 		/* T6030 14.7: report a failed tunnel activation to DCP. */
+@@ -924,6 +934,9 @@ static int dptxport_call(struct apple_epic_service *service, u32 idx,
+ 		if (dptxport_dual_pipe_alloc(service, data, data_size, reply,
+ 					     reply_size))
+ 			return 0;
++		if (service->ep->dcp->fw_compat == DCP_FIRMWARE_V_27_0)
++			return dcp_peer_hints_v27(service->ep->dcp, dptx, data,
++						  data_size, reply, reply_size);
+ 		memcpy(reply, data, min(reply_size, data_size));
+ 		ret = dptxport_call_set_tiled_display_hint(service, data,
+ 							   data_size, reply,
+@@ -934,9 +947,15 @@ static int dptxport_call(struct apple_epic_service *service, u32 idx,
+ 		return ret;
+ 	}
+ 	case DPTX_APCALL_GET_DRIVE_SETTINGS:
++		if (service->ep->dcp->fw_compat == DCP_FIRMWARE_V_27_0)
++			return dptxport_call_drive_v27(service, false, data, data_size,
++						     reply, reply_size);
+ 		return dptxport_call_get_drive_settings(service, data, data_size,
+ 							reply, reply_size);
+ 	case DPTX_APCALL_SET_DRIVE_SETTINGS:
++		if (service->ep->dcp->fw_compat == DCP_FIRMWARE_V_27_0)
++			return dptxport_call_drive_v27(service, true, data, data_size,
++						     reply, reply_size);
+ 		return dptxport_call_set_drive_settings(service, data, data_size,
+ 							reply, reply_size);
+         case DPTX_APCALL_ACTIVATE:
+@@ -1020,6 +1039,21 @@ static int dptxport_prepare(struct apple_epic_service *service, const char *name
+ 	return dptx_service_bind(service, &dcp->dptxport[port], unit);
+ }
+ 
++static void dptxport_init_props(struct apple_epic_service *service, s64 unit,
++			       const void *props, size_t size)
++{
++	struct apple_dcp *dcp = service->ep->dcp;
++	struct dcp_parse_ctx ctx;
++	struct dcp_dptx_caps caps;
++
++	if (unit < 0 || unit >= ARRAY_SIZE(dcp->dptxport) ||
++	    parse(props, size, &ctx) || parse_dptx_caps(&ctx, &caps))
++		return;
++	dcp->dptxport[unit].caps = caps;
++	dev_info(dcp->dev, "DPTX%lld caps: width=%u total=%u active=%u\n",
++		 unit, caps.width, caps.total_rate, caps.active_rate);
++}
++
+ static void dptxport_init(struct apple_epic_service *service, const char *name,
+ 			  const char *class, s64 unit)
+ {
+@@ -1152,6 +1186,7 @@ static const struct apple_epic_service_ops dptxep_ops[] = {
+ 		.prepare = dptxport_prepare,
+ 		.teardown = dptxport_teardown,
+ 		.init = dptxport_init,
++		.init_props = dptxport_init_props,
+ 		.call = dptxport_call,
+ 	},
+ 	{
+@@ -1306,7 +1341,8 @@ int dptx_controller_init(struct apple_dcp *dcp)
+ int dptxep_init(struct apple_dcp *dcp)
+ {
+ 	struct apple_dcp_afkep *ep;
+-	bool wire_v2 = dcp->hw.iomfb_method_profile ==
++	bool wire_v2 = dcp->fw_compat == DCP_FIRMWARE_V_27_0 ||
++		dcp->hw.iomfb_method_profile ==
+ 		DCP_IOMFB_METHODS_H17P_EXTERNAL;
+ 	int ret;
+ 	u32 port;
+diff --git a/drivers/gpu/drm/apple/dptxep.h b/drivers/gpu/drm/apple/dptxep.h
+index 211e72d9855e..11cd860f9ee3 100644
+--- a/drivers/gpu/drm/apple/dptxep.h
++++ b/drivers/gpu/drm/apple/dptxep.h
+@@ -3,6 +3,7 @@
+ 
+ #include <linux/phy/phy.h>
+ #include <linux/mux/consumer.h>
++#include "dcp-peer-v27.h"
+ 
+ enum dptx_apcall {
+ 	DPTX_APCALL_ACTIVATE = 0,
+@@ -49,6 +50,7 @@ enum dptx_link_rate {
+ struct apple_epic_service;
+ 
+ struct dptx_port {
++	struct dcp_dptx_caps caps;
+ 	bool enabled, connected;
+ 	/* A published session closed; unlike initial discovery, this is terminal. */
+ 	bool closed;
+@@ -63,6 +65,7 @@ struct dptx_port {
+ 	u32 link_rate, pending_link_rate;
+ 	u32 drive_settings[2];
+ 	u32 trained_voltage[4], trained_pre[4];
++	u32 drive_voltage[4], drive_pre[4];
+ 	/*
+ 	 * The sink's tile topology as DCP reports it in SetTiledDisplayHints:
+ 	 * tiles across and down, and this stream's tile. Valid once
+diff --git a/drivers/gpu/drm/apple/epic/dpavservep.c b/drivers/gpu/drm/apple/epic/dpavservep.c
+index a92af3295fcf..9621a86b4222 100644
+--- a/drivers/gpu/drm/apple/epic/dpavservep.c
++++ b/drivers/gpu/drm/apple/epic/dpavservep.c
+@@ -712,7 +712,8 @@ int dpavservep_init(struct apple_dcp *dcp)
+ 	if (IS_ERR(ep))
+ 		return PTR_ERR(ep);
+ 	/* External H17P uses AFKV2 service calls with host-owned OOB buffers. */
+-	ep->wire_v2 = dcp->hw.iomfb_method_profile ==
++	ep->wire_v2 = dcp->fw_compat == DCP_FIRMWARE_V_27_0 ||
++		dcp->hw.iomfb_method_profile ==
+ 		DCP_IOMFB_METHODS_H17P_EXTERNAL;
+ 	ep->inline_v2 = false;
+ 	dcp->dcpavservep = ep;
+diff --git a/drivers/gpu/drm/apple/iomfb-boolean-properties-v27.inc b/drivers/gpu/drm/apple/iomfb-boolean-properties-v27.inc
+new file mode 100644
+index 000000000000..b7b617b37994
+--- /dev/null
++++ b/drivers/gpu/drm/apple/iomfb-boolean-properties-v27.inc
+@@ -0,0 +1,51 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Copyright 2026 Aurora Silicon */
++
++struct dcp_boolean_property_v27 {
++	struct list_head node;
++	char name[64];
++	bool value;
++};
++
++static bool trampoline_set_boolean_property_v27(struct apple_dcp *dcp, int tag,
++						void *out, void *in)
++{
++	const u8 *request = in;
++	struct dcp_boolean_property_v27 *property;
++	char name[64];
++
++	trace_iomfb_callback(dcp, tag, __func__);
++
++	memcpy(name, request, sizeof(name));
++	name[sizeof(name) - 1] = '\0';
++	put_unaligned_le32(0, out);
++
++	list_for_each_entry(property, &dcp->iomfb_boolean_properties, node)
++		if (!strcmp(property->name, name))
++			goto update;
++	if (dcp->iomfb_boolean_property_count >= 64)
++		return true;
++	property = kzalloc(sizeof(*property), GFP_KERNEL);
++	if (!property)
++		return true;
++	memcpy(property->name, name, sizeof(name));
++	dcp->iomfb_boolean_property_count++;
++	list_add_tail(&property->node, &dcp->iomfb_boolean_properties);
++update:
++	property->value = request[64] & 1;
++	put_unaligned_le32(1, out);
++	return true;
++}
++
++void iomfb_firmware_state_cleanup_v27(void *data)
++{
++	struct apple_dcp *dcp = data;
++	struct dcp_boolean_property_v27 *property, *next;
++
++	external_counts_cleanup_v27(dcp);
++	list_for_each_entry_safe(property, next, &dcp->iomfb_boolean_properties, node) {
++		list_del(&property->node);
++		kfree(property);
++		dcp->iomfb_boolean_property_count--;
++	}
++}
+diff --git a/drivers/gpu/drm/apple/iomfb-dfb.h b/drivers/gpu/drm/apple/iomfb-dfb.h
+new file mode 100644
+index 000000000000..30e84ab8366c
+--- /dev/null
++++ b/drivers/gpu/drm/apple/iomfb-dfb.h
+@@ -0,0 +1,105 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Copyright 2026 Aurora Silicon */
++
++#ifndef __APPLE_IOMFB_DFB_H__
++#define __APPLE_IOMFB_DFB_H__
++
++#include <linux/align.h>
++#include <linux/errno.h>
++#include <linux/log2.h>
++#include <linux/kernel.h>
++#include <linux/types.h>
++
++static inline u64 apple_dcp_dfb_round_size(u64 size)
++{
++	unsigned int bits = fls64(size);
++	u64 unit, half, tail;
++
++	if (bits <= 24)
++		return size;
++	unit = 1ULL << (bits - 24);
++	half = unit >> 1;
++	tail = size & (unit - 1);
++	size &= ~(unit - 1);
++	if (tail > half || (tail == half && (size & unit)))
++		size += unit;
++	return size;
++}
++
++static inline u64 apple_dcp_dfb_plane_size(u32 width, u32 height, u32 bpe,
++					 u32 compression)
++{
++	u64 stride, data, cols, rows, tw = 16, th = 16;
++	unsigned int order;
++
++	if (!compression) {
++		stride = ALIGN((u64)width * bpe, 128);
++		return ALIGN(apple_dcp_dfb_round_size(stride * height), 0x4000);
++	}
++	if (compression == 2 && bpe > 4) {
++		th = 8;
++		if (bpe == 16)
++			tw = 8;
++	}
++	cols = DIV_ROUND_UP(width, tw);
++	rows = DIV_ROUND_UP(height, th);
++	if (compression == 3) {
++		stride = tw * th * cols * bpe;
++		data = ALIGN(rows * stride, 128);
++		return data + 8 * roundup_pow_of_two(cols) * roundup_pow_of_two(rows);
++	}
++	order = ilog2(0x4000 / bpe);
++	stride = ALIGN((u64)width * bpe, (u64)bpe << (order / 2));
++	data = ALIGN(ALIGN((u64)height, 1ULL << ((order + 1) / 2)) * stride, 128);
++	return data + ALIGN(2 * roundup_pow_of_two(cols) * roundup_pow_of_two(rows), 128);
++}
++
++static inline int apple_dcp_dfb_allocation(u32 width, u32 height, u32 format,
++					 u32 compression, u64 region_size,
++					 u32 *surface_format, u32 *allocation)
++{
++	u32 bpe;
++	u64 size;
++	bool alpha_plane = false;
++
++	if (!width || !height || width > 16384 || height > 16384 || !region_size)
++		return -EINVAL;
++	if (compression != 0 && compression != 2 && compression != 3)
++		return -EOPNOTSUPP;
++	switch (format) {
++	case 0x62336138:
++		if (compression == 2) {
++			format = 0x77343061;
++			bpe = 8;
++		} else {
++			bpe = 4;
++			alpha_plane = true;
++		}
++		break;
++	case 0x77343061:
++		bpe = 8;
++		break;
++	case 0x42475241:
++	case 0x77333072:
++	case 0x6c313072:
++		bpe = 4;
++		break;
++	default:
++		return -EOPNOTSUPP;
++	}
++	size = apple_dcp_dfb_plane_size(width, height, bpe, compression);
++	if (alpha_plane)
++		size += apple_dcp_dfb_plane_size(width, height, 1, compression);
++	if (size > U32_MAX)
++		return -EOVERFLOW;
++	if (compression)
++		size = ALIGN(apple_dcp_dfb_round_size(size), 0x4000);
++	if (size > region_size)
++		return -ENOSPC;
++	if (!size || size > U32_MAX)
++		return -EOVERFLOW;
++	*surface_format = format;
++	*allocation = size;
++	return 0;
++}
++#endif
+diff --git a/drivers/gpu/drm/apple/iomfb-display-identity-v27.inc b/drivers/gpu/drm/apple/iomfb-display-identity-v27.inc
+new file mode 100644
+index 000000000000..1b3710c1c762
+--- /dev/null
++++ b/drivers/gpu/drm/apple/iomfb-display-identity-v27.inc
+@@ -0,0 +1,84 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Copyright 2026 Aurora Silicon */
++
++struct dcp_display_product_request_v27 {
++	u8 vendor[10];
++	__le32 vendor_id;
++	__le32 vendor_length;
++	__le32 product_id;
++	u8 vendor_id_null, product_id_null;
++} __packed;
++
++struct dcp_display_product_reply_v27 {
++	u8 vendor[10];
++	__le32 vendor_id;
++	__le32 product_id;
++	u8 success, padding;
++} __packed;
++
++static_assert(sizeof(struct dcp_display_product_request_v27) == 24);
++static_assert(sizeof(struct dcp_display_product_reply_v27) == 20);
++static_assert(offsetof(struct dcp_display_product_reply_v27, product_id) == 14);
++
++struct dcp_display_identity_callback_v27 {
++	void *output;
++	enum dcp_context_id context;
++};
++
++static void display_identity_done_v27(struct apple_dcp *dcp, void *out, void *cookie)
++{
++	const struct dcp_display_product_reply_v27 *reply = out;
++	struct dcp_display_identity_callback_v27 *cb = cookie;
++	bool vendor_matches = reply && (!reply->vendor[0] ||
++			      (!memcmp(reply->vendor, "APP", 3) && !reply->vendor[3]));
++	bool display_x1 = reply && (reply->success & 1) && vendor_matches &&
++			 (le32_to_cpu(reply->product_id) >> 1) == 0x5721;
++
++	put_unaligned_le32(display_x1, cb->output);
++	dcp_ack(dcp, cb->context);
++	kfree(cb);
++}
++
++static bool trampoline_display_identity_v27(struct apple_dcp *dcp, int tag,
++					   void *out, void *in)
++{
++	static const struct dcp_method_entry method = {
++		.name = "display_product_id", .tag = {'A', '3', '7', '5'},
++	};
++	static const enum dcp_context_id contexts[] = {
++		DCP_CONTEXT_CB, DCP_CONTEXT_ASYNC, DCP_CONTEXT_OOBCB, DCP_CONTEXT_OOBASYNC,
++	};
++	struct dcp_channel *channels[] = {
++		&dcp->ch_cb, &dcp->ch_async, &dcp->ch_oobcb, &dcp->ch_oobasync,
++	};
++	struct dcp_display_product_request_v27 request = {
++		.vendor_length = cpu_to_le32(10),
++	};
++	struct dcp_display_identity_callback_v27 *cb;
++	int context = -1;
++
++	trace_iomfb_callback(dcp, tag, __func__);
++
++	for (unsigned int i = 0; i < ARRAY_SIZE(channels); i++) {
++		struct dcp_channel *ch = channels[i];
++
++		if (ch->depth && ch->output[ch->depth - 1] == out) {
++			context = contexts[i];
++			break;
++		}
++	}
++	if (WARN_ON(context < 0))
++		return true;
++	cb = kzalloc(sizeof(*cb), GFP_KERNEL);
++	if (!cb)
++		return true;
++	cb->output = out;
++	cb->context = context;
++	if (dcp_push_nested(dcp, context, &method, sizeof(request),
++			    sizeof(struct dcp_display_product_reply_v27), &request,
++			    display_identity_done_v27, cb)) {
++		kfree(cb);
++		return true;
++	}
++	return false;
++}
+diff --git a/drivers/gpu/drm/apple/iomfb-external-counts-v27.inc b/drivers/gpu/drm/apple/iomfb-external-counts-v27.inc
+new file mode 100644
+index 000000000000..ab5602821d3c
+--- /dev/null
++++ b/drivers/gpu/drm/apple/iomfb-external-counts-v27.inc
+@@ -0,0 +1,90 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Copyright 2026 Aurora Silicon */
++
++static DEFINE_SPINLOCK(external_counts_lock_v27);
++static u32 external_pipe_count_v27;
++static u32 external_apple_display_count_v27;
++static u32 external_suppression_count_v27;
++
++static bool trampoline_update_external_counts_v27(struct apple_dcp *dcp, int tag,
++						  void *out, void *in)
++{
++	const u8 *request = in;
++	bool plug = request[0] & 1;
++	u32 apple_display = request[1] & 1;
++	u32 pipes = get_unaligned_le32(request + 2);
++	unsigned long flags;
++
++	trace_iomfb_callback(dcp, tag, __func__);
++
++	if (dcp->connector_type == DRM_MODE_CONNECTOR_eDP)
++		return true;
++	spin_lock_irqsave(&external_counts_lock_v27, flags);
++	if ((plug && (pipes > U32_MAX - external_pipe_count_v27 ||
++		     apple_display > U32_MAX - external_apple_display_count_v27)) ||
++	    (!plug && (pipes > dcp->external_pipes_v27 ||
++		      apple_display > dcp->external_displays_v27))) {
++		spin_unlock_irqrestore(&external_counts_lock_v27, flags);
++		dev_warn_ratelimited(dcp->dev, "invalid external display count update\n");
++		return true;
++	}
++	dcp->external_pipes_v27 += plug ? pipes : -pipes;
++	dcp->external_displays_v27 += plug ? apple_display : -apple_display;
++	external_pipe_count_v27 += plug ? pipes : -pipes;
++	external_apple_display_count_v27 += plug ? apple_display : -apple_display;
++	spin_unlock_irqrestore(&external_counts_lock_v27, flags);
++	return true;
++}
++
++static bool trampoline_get_external_counts_v27(struct apple_dcp *dcp, int tag,
++					       void *out, void *in)
++{
++	const u8 *request = in;
++	unsigned long flags;
++	u32 counts[3];
++
++	trace_iomfb_callback(dcp, tag, __func__);
++	spin_lock_irqsave(&external_counts_lock_v27, flags);
++	counts[0] = external_pipe_count_v27;
++	counts[1] = external_apple_display_count_v27;
++	counts[2] = external_suppression_count_v27;
++	spin_unlock_irqrestore(&external_counts_lock_v27, flags);
++
++	for (unsigned int i = 0; i < ARRAY_SIZE(counts); i++)
++		if (!(request[12 + i] & 1))
++			put_unaligned_le32(counts[i], (u8 *)out + 4 * i);
++	return true;
++}
++
++static bool trampoline_apply_suppression_v27(struct apple_dcp *dcp, int tag,
++					    void *out, void *in)
++{
++	const u8 *request = in;
++	unsigned long flags;
++
++	trace_iomfb_callback(dcp, tag, __func__);
++	spin_lock_irqsave(&external_counts_lock_v27, flags);
++	if (((request[0] & 1) && external_suppression_count_v27 == U32_MAX) ||
++	    (!(request[0] & 1) && !dcp->external_suppression_v27)) {
++		spin_unlock_irqrestore(&external_counts_lock_v27, flags);
++		return true;
++	}
++	dcp->external_suppression_v27 += (request[0] & 1) ? 1U : -1U;
++	external_suppression_count_v27 += (request[0] & 1) ? 1U : -1U;
++	spin_unlock_irqrestore(&external_counts_lock_v27, flags);
++	return true;
++}
++
++static void external_counts_cleanup_v27(struct apple_dcp *dcp)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&external_counts_lock_v27, flags);
++	external_pipe_count_v27 -= dcp->external_pipes_v27;
++	external_apple_display_count_v27 -= dcp->external_displays_v27;
++	external_suppression_count_v27 -= dcp->external_suppression_v27;
++	dcp->external_pipes_v27 = 0;
++	dcp->external_displays_v27 = 0;
++	dcp->external_suppression_v27 = 0;
++	spin_unlock_irqrestore(&external_counts_lock_v27, flags);
++}
+diff --git a/drivers/gpu/drm/apple/iomfb-peer-runtime-v27.inc b/drivers/gpu/drm/apple/iomfb-peer-runtime-v27.inc
+new file mode 100644
+index 000000000000..c2a681328c10
+--- /dev/null
++++ b/drivers/gpu/drm/apple/iomfb-peer-runtime-v27.inc
+@@ -0,0 +1,125 @@
++/* SPDX-License-Identifier: GPL-2.0-only OR MIT */
++#include "iomfb-peer-v27.h"
++
++static void dcp_peer_swap_error(struct apple_dcp *owner, const char *where, u32 status)
++{
++	lockdep_assert_held(&owner->iomfb.lock);
++	dev_err(owner->dev, "paired swap %s failed: %#x\n", where, status);
++	dcp_peer_swap_failed_v27(owner);
++	/* One engine may already have accepted this frame. A failed peer ACK
++	 * is not a DMA-retirement witness for either scanout. The clean queue
++	 * retains its active transaction and next-scanout references on crash. */
++	WRITE_ONCE(owner->crashed, true);
++	dcp_swap_watchdog_complete(owner);
++	dcp_present_failed(owner);
++	schedule_work(&owner->vblank_wq);
++}
++
++static void dcp_peer_submit_error_on_owner(struct apple_dcp *owner, void *data, void *cookie)
++{
++	u32 *status = data;
++	dcp_peer_swap_error(owner, "peer submit", *status);
++}
++
++static void dcp_peer_submitted(struct apple_dcp *dcp, void *data, void *cookie)
++{
++	struct apple_dcp *owner = cookie;
++	struct dcp_swap_submit_resp_v27 *resp = data;
++	u32 status = resp ? resp->ret : ~0U;
++	u32 id;
++
++	if (owner != dcp) {
++		if (status && iomfb_queue_callback(owner, dcp_peer_submit_error_on_owner,
++						&status, sizeof(status), NULL)) {
++			WRITE_ONCE(owner->crashed, true);
++			schedule_work(&owner->vblank_wq);
++		}
++		return;
++	}
++	lockdep_assert_held(&owner->iomfb.lock);
++	if (READ_ONCE(owner->peer_frames.failed))
++		return;
++	id = owner->swap.h17p.swap.swap_id;
++	if (status) {
++		dcp_peer_swap_error(owner, "primary submit", status);
++		return;
++	}
++	if (dcp_present_submit(owner, id, true)) {
++		dcp_peer_swap_error(owner, "submit state", -EPROTO);
++		return;
++	}
++	/* Per-endpoint receive ordering handles the primary ACK before its
++	 * completion. The paired watermark still requires both completions. */
++	owner->swap_start = ktime_get();
++	owner->swap_submit_timestamp = arch_timer_read_counter();
++	dcp_swap_watchdog_arm(owner);
++}
++
++static void dcp_peer_started_on_owner(struct apple_dcp *owner, void *data, void *cookie)
++{
++	struct dcp_swap_start_resp_h17p *resp = data;
++	struct apple_dcp *peer = dcp_peer_scanout_v27(owner);
++	u32 id = owner->swap.h17p.swap.swap_id;
++
++	lockdep_assert_held(&owner->iomfb.lock);
++	if (IS_ERR_OR_NULL(peer) || peer != cookie || resp->ret || resp->swap_id != id) {
++		dcp_peer_swap_error(owner, "start/ID", resp->ret ?: -EPROTO);
++		return;
++	}
++	/* Keep the logical atomic input intact. Both split wire records are
++	 * primary-owned; dcp_push copies the peer's record into its own queue. */
++	iomfb_serialize_present_h17p(&owner->present_h17p, &owner->swap.h17p);
++	if (!iomfb_apply_backlight_h17p(owner, &owner->swap.h17p, &owner->present_h17p)) {
++		dcp_peer_swap_error(owner, "surface preparation", -EINVAL);
++		return;
++	}
++	iomfb_serialize_present_v27(&owner->present_v27, &owner->swap.h17p);
++	owner->present_v27.swap.brightness_update = owner->present_h17p.swap[0x354] & 1;
++	owner->present_v27.swap.brightness_nits = get_unaligned_le64(owner->present_h17p.swap + 0x35e);
++	dcp_peer_split_swap_v27(&owner->present_v27, &owner->peer_present_v27,
++				owner->peer_tiling.width);
++	if (dcp_present_retires(owner))
++		dcp_arm_retained_framebuffers(owner, id);
++	dcp_peer_swap_armed_v27(owner, id);
++	trace_iomfb_swap_submit(owner, id);
++	trace_iomfb_swap_submit(peer, id);
++	dcp_push(owner, false, &dcp_methods[dcpep_swap_submit], sizeof(owner->present_v27),
++		 sizeof(struct dcp_swap_submit_resp_v27), &owner->present_v27,
++		 dcp_peer_submitted, owner);
++	if (READ_ONCE(owner->crashed))
++		return;
++	dcp_push(peer, false, &dcp_methods[dcpep_swap_submit], sizeof(owner->peer_present_v27),
++		 sizeof(struct dcp_swap_submit_resp_v27), &owner->peer_present_v27,
++		 dcp_peer_submitted, owner);
++	if (READ_ONCE(peer->crashed))
++		dcp_peer_swap_error(owner, "peer publication", -EIO);
++}
++
++static void dcp_peer_started(struct apple_dcp *peer, void *data, void *cookie)
++{
++	struct apple_dcp *owner = cookie;
++	struct dcp_swap_start_resp_h17p failed = { .ret = ~0U };
++
++	if (iomfb_queue_callback(owner, dcp_peer_started_on_owner,
++				 data ?: &failed, sizeof(failed), peer)) {
++		WRITE_ONCE(owner->crashed, true);
++		schedule_work(&owner->vblank_wq);
++	}
++}
++
++static bool dcp_peer_start_second(struct apple_dcp *owner,
++				 struct dcp_swap_start_resp_h17p *resp)
++{
++	struct dcp_swap_start_req_h17p req = {};
++	struct apple_dcp *peer = dcp_peer_scanout_v27(owner);
++
++	if (!peer)
++		return false;
++	if (IS_ERR(peer) || resp->ret) {
++		dcp_peer_swap_error(owner, "primary start", resp->ret ?: -EIO);
++		return true;
++	}
++	owner->swap.h17p.swap.swap_id = resp->swap_id;
++	dcp_swap_start(peer, false, &req, dcp_peer_started, owner);
++	return true;
++}
+diff --git a/drivers/gpu/drm/apple/iomfb-peer-v27.h b/drivers/gpu/drm/apple/iomfb-peer-v27.h
+new file mode 100644
+index 000000000000..ea3b586e037c
+--- /dev/null
++++ b/drivers/gpu/drm/apple/iomfb-peer-v27.h
+@@ -0,0 +1,129 @@
++/* SPDX-License-Identifier: GPL-2.0-only OR MIT */
++#ifndef APPLE_IOMFB_PEER_V27_H
++#define APPLE_IOMFB_PEER_V27_H
++
++#include <linux/types.h>
++#include <linux/build_bug.h>
++#include <linux/unaligned.h>
++#include <linux/math64.h>
++#include "iomfb_plane.h"
++#include "iomfb_v27.h"
++
++/* A364 and A365 share the video-data prefix, but not the final
++ * flags: A364 has a requires-merge boolean before three pointer-null flags;
++ * A365 has only two pointer-null flags and padding.
++ */
++struct dcp_peer_video_data_v27 {
++	u8 timing[0x50];
++	u8 color[0x20];
++} __packed;
++
++struct dcp_peer_get_video_req_v27 {
++	struct dcp_peer_video_data_v27 video;
++	__le32 timing_id, color_id;
++	u8 requires_merge, timing_null, color_null, requires_merge_null;
++} __packed;
++
++struct dcp_peer_get_video_resp_v27 {
++	struct dcp_peer_video_data_v27 video;
++	u8 requires_merge, success, padding[2];
++} __packed;
++
++struct dcp_peer_insert_video_req_v27 {
++	struct dcp_peer_video_data_v27 video;
++	__le32 timing_id, color_id;
++	u8 timing_null, color_null, padding[2];
++} __packed;
++
++struct dcp_peer_insert_video_resp_v27 {
++	struct dcp_peer_video_data_v27 video;
++	u8 success, padding[3];
++} __packed;
++
++static_assert(sizeof(struct dcp_peer_get_video_req_v27) == 0x7c);
++static_assert(sizeof(struct dcp_peer_get_video_resp_v27) == 0x74);
++static_assert(sizeof(struct dcp_peer_insert_video_req_v27) == 0x7c);
++static_assert(sizeof(struct dcp_peer_insert_video_resp_v27) == 0x74);
++
++/* The digital-out mode setter.
++ * Keep vertical timings, color data and all unmodified fields intact.
++ * The signed horizontal offset uses division toward zero.
++ */
++static inline void dcp_peer_split_timing_v27(struct dcp_peer_video_data_v27 *v)
++{
++	static const u8 half_fields[] = { 4, 8, 12, 16, 20, 28, 68 };
++
++	for (unsigned int i = 0; i < sizeof(half_fields); i++) {
++		u8 *field = v->timing + half_fields[i];
++
++		put_unaligned_le32(get_unaligned_le32(field) >> 1, field);
++	}
++	put_unaligned_le32((s32)get_unaligned_le32(v->timing + 24) / 2,
++			   v->timing + 24);
++}
++
++/* VFTG splits a surface at the half-panel boundary.
++ * Source and destination use pixels here, as in the existing IOMFB plane
++ * path. Use rational arithmetic in the kernel rather than floating point;
++ * round a shared source boundary once so neither half loses/duplicates it.
++ * DRM has already clipped negative/offscreen destination coordinates.
++ */
++static inline bool dcp_peer_clip_surface_v27(const struct dcp_rect *src,
++	const struct dcp_rect *dst, u32 tile_x, u32 tile_width,
++	struct dcp_rect *tile_src, struct dcp_rect *tile_dst)
++{
++	u64 left = max_t(u64, dst->x, tile_x);
++	u64 right = min_t(u64, (u64)dst->x + dst->w,
++			  (u64)tile_x + tile_width);
++	u64 first, last;
++
++	memset(tile_src, 0, sizeof(*tile_src));
++	memset(tile_dst, 0, sizeof(*tile_dst));
++	if (!src->w || !src->h || !dst->w || !dst->h || left >= right)
++		return false;
++	first = div_u64((left - dst->x) * src->w + dst->w / 2, dst->w);
++	last = div_u64((right - dst->x) * src->w + dst->w / 2, dst->w);
++	if (first >= last || (u64)src->x + last > U32_MAX)
++		return false;
++	*tile_src = *src;
++	tile_src->x += first;
++	tile_src->w = last - first;
++	*tile_dst = *dst;
++	tile_dst->x = left - tile_x;
++	tile_dst->w = right - left;
++	return true;
++}
++
++
++/* Clone descriptors only: both DCPs use the same display DMA domain/IOVA. */
++static inline void dcp_peer_split_swap_v27(struct dcp_swap_submit_req_v27 *left,
++					  struct dcp_swap_submit_req_v27 *right,
++					  u32 tile_width)
++{
++	*right = *left;
++	for (unsigned int i = 0; i < ARRAY_SIZE(left->surf_null); i++) {
++		struct dcp_rect src = left->swap.src_rect[i];
++		struct dcp_rect dst = left->swap.dst_rect[i];
++		bool present = !left->surf_null[i];
++		struct dcp_swap_submit_req_v27 *halves[] = {left, right};
++
++		for (unsigned int side = 0; side < 2; side++) {
++			struct dcp_swap_submit_req_v27 *req = halves[side];
++			struct dcp_rect clipped_src, clipped_dst;
++
++			if (present && dcp_peer_clip_surface_v27(&src, &dst,
++				side * tile_width, tile_width, &clipped_src, &clipped_dst)) {
++				req->swap.src_rect[i] = clipped_src;
++				req->swap.dst_rect[i] = clipped_dst;
++			} else {
++				req->surf_null[i] = true;
++				req->surf_iova[i] = 0;
++				req->swap.surf_ids[i] = 0;
++				memset(&req->swap.src_rect[i], 0, sizeof(req->swap.src_rect[i]));
++				memset(&req->swap.dst_rect[i], 0, sizeof(req->swap.dst_rect[i]));
++			}
++		}
++	}
++}
++
++#endif
+diff --git a/drivers/gpu/drm/apple/iomfb.c b/drivers/gpu/drm/apple/iomfb.c
+index a504dca5a6be..5a660cb495dc 100644
+--- a/drivers/gpu/drm/apple/iomfb.c
++++ b/drivers/gpu/drm/apple/iomfb.c
+@@ -179,6 +179,10 @@ static int dcp_tx_offset(enum dcp_context_id id)
+ 	case DCP_CONTEXT_OOBCB:
+ 	case DCP_CONTEXT_OOBCMD:
+ 		return 0x08000;
++	case DCP_CONTEXT_ASYNC_CB:
++		return 0x20000;
++	case DCP_CONTEXT_OOBASYNC_CB:
++		return 0x28000;
+ 	default:
+ 		return -EINVAL;
+ 	}
+@@ -187,8 +191,10 @@ static int dcp_tx_offset(enum dcp_context_id id)
+ static int dcp_channel_offset(enum dcp_context_id id)
+ {
+ 	switch (id) {
++	case DCP_CONTEXT_ASYNC_CB:
+ 	case DCP_CONTEXT_ASYNC:
+ 		return 0x40000;
++	case DCP_CONTEXT_OOBASYNC_CB:
+ 	case DCP_CONTEXT_OOBASYNC:
+ 		return 0x48000;
+ 	case DCP_CONTEXT_CB:
+@@ -258,8 +264,10 @@ static struct dcp_channel *dcp_get_channel(struct apple_dcp *dcp,
+ 		return &dcp->ch_oobcb;
+ 	case DCP_CONTEXT_OOBCMD:
+ 		return &dcp->ch_oobcmd;
++	case DCP_CONTEXT_ASYNC_CB:
+ 	case DCP_CONTEXT_ASYNC:
+ 		return &dcp->ch_async;
++	case DCP_CONTEXT_OOBASYNC_CB:
+ 	case DCP_CONTEXT_OOBASYNC:
+ 		return &dcp->ch_oobasync;
+ 	default:
+@@ -295,7 +303,7 @@ static u8 dcp_pop_depth(u8 *depth)
+ /* Older firmware and the H17G method profile retain their existing transport. */
+ static bool iomfb_uses_queue(struct apple_dcp *dcp)
+ {
+-	return dcp->fw_compat == DCP_FIRMWARE_H17P &&
++	return (dcp->fw_compat == DCP_FIRMWARE_H17P || dcp->fw_compat == DCP_FIRMWARE_V_27_0) &&
+ 	       dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G;
+ }
+ 
+@@ -330,7 +338,8 @@ static int iomfb_enqueue_opaque_x(struct apple_dcp *dcp)
+ 	if (dcp->hw.iomfb_method_profile ==
+ 	    DCP_IOMFB_METHODS_H17P_EXTERNAL)
+ 		return 0;
+-	if (atomic_read(&dcp->iomfb.opaque_x_state) != IOMFB_OPAQUE_X_NEEDED)
++	if (dcp->fw_compat == DCP_FIRMWARE_V_27_0 ||
++	    atomic_read(&dcp->iomfb.opaque_x_state) != IOMFB_OPAQUE_X_NEEDED)
+ 		return 0;
+ 	if (dcp->iomfb.queued >= 32)
+ 		return -EBUSY;
+@@ -374,7 +383,8 @@ static void iomfb_queue_advance(struct apple_dcp *dcp)
+ 		/* The active operation may still be visible to firmware. */
+ 		return;
+ 	}
+-	if (!iomfb_channels_idle(dcp) || dcp->present_state_h17p.pending)
++	if (!iomfb_channels_idle(dcp) || dcp->present_state_h17p.pending ||
++	    READ_ONCE(dcp->iomfb.callback_count))
+ 		return;
+ 
+ 	if (transaction) {
+@@ -420,7 +430,8 @@ static void iomfb_queue_work(struct work_struct *work)
+ 		goto unlock;
+ 	}
+ 	if (dcp->iomfb.active || !iomfb_channels_idle(dcp) ||
+-	    dcp->present_state_h17p.pending || list_empty(&dcp->iomfb.pending))
++	    dcp->present_state_h17p.pending || READ_ONCE(dcp->iomfb.callback_count) ||
++	    list_empty(&dcp->iomfb.pending))
+ 		goto unlock;
+ 
+ 	transaction = list_first_entry(&dcp->iomfb.pending,
+@@ -513,12 +524,92 @@ static void iomfb_backlight_retry(struct work_struct *work)
+ 		schedule_work(&dcp->bl_update_wq);
+ }
+ 
++/* A peer endpoint may finish a dependency while this endpoint has an active
++ * transaction. Continue on its serialized owner, not by taking another
++ * endpoint's IOMFB mutex from a receive callback. */
++struct iomfb_callback {
++	struct list_head link;
++	dcp_callback_t callback;
++	void *cookie;
++	u8 data[];
++};
++
++int iomfb_queue_callback(struct apple_dcp *dcp, dcp_callback_t callback,
++			 const void *data, size_t size, void *cookie)
++{
++	struct iomfb_callback *item;
++	unsigned long flags;
++	int ret = 0;
++
++	/* This queue carries control replies and completion watermarks only. */
++	if (!callback || size > 64 || (size && !data))
++		return -EINVAL;
++	item = kzalloc(struct_size(item, data, size), GFP_KERNEL);
++	if (!item)
++		return -ENOMEM;
++	item->callback = callback;
++	item->cookie = cookie;
++	if (size)
++		memcpy(item->data, data, size);
++	spin_lock_irqsave(&dcp->iomfb.callback_lock, flags);
++	if (READ_ONCE(dcp->iomfb.stopped) || READ_ONCE(dcp->crashed)) {
++		ret = -ESHUTDOWN;
++	} else if (dcp->iomfb.callback_count >= 64) {
++		ret = -EBUSY;
++	} else {
++		list_add_tail(&item->link, &dcp->iomfb.callbacks);
++		dcp->iomfb.callback_count++;
++		/* Stop takes this lock before cancelling work, closing enqueue/stop. */
++		schedule_work(&dcp->iomfb.callback_work);
++	}
++	spin_unlock_irqrestore(&dcp->iomfb.callback_lock, flags);
++	if (ret)
++		kfree(item);
++	return ret;
++}
++
++static struct iomfb_callback *iomfb_pop_callback(struct apple_dcp *dcp)
++{
++	struct iomfb_callback *item = NULL;
++	unsigned long flags;
++
++	spin_lock_irqsave(&dcp->iomfb.callback_lock, flags);
++	if (!list_empty(&dcp->iomfb.callbacks)) {
++		item = list_first_entry(&dcp->iomfb.callbacks, struct iomfb_callback, link);
++		list_del(&item->link);
++		dcp->iomfb.callback_count--;
++	}
++	spin_unlock_irqrestore(&dcp->iomfb.callback_lock, flags);
++	return item;
++}
++
++static void iomfb_callback_work(struct work_struct *work)
++{
++	struct apple_dcp *dcp = container_of(work, struct apple_dcp, iomfb.callback_work);
++	struct iomfb_callback *item;
++
++	mutex_lock(&dcp->iomfb.lock);
++	while ((item = iomfb_pop_callback(dcp))) {
++		if (!dcp->iomfb.stopped && !READ_ONCE(dcp->crashed)) {
++			WRITE_ONCE(dcp->iomfb.owner, current);
++			item->callback(dcp, item->data, item->cookie);
++			WRITE_ONCE(dcp->iomfb.owner, NULL);
++		}
++		kfree(item);
++	}
++	iomfb_queue_advance(dcp);
++	mutex_unlock(&dcp->iomfb.lock);
++}
++
+ void iomfb_queue_init(struct apple_dcp *dcp)
+ {
+ 	mutex_init(&dcp->iomfb.lock);
+ 	INIT_LIST_HEAD(&dcp->iomfb.pending);
+ 	INIT_LIST_HEAD(&dcp->iomfb.dropped);
+ 	INIT_WORK(&dcp->iomfb.work, iomfb_queue_work);
++	spin_lock_init(&dcp->iomfb.callback_lock);
++	INIT_LIST_HEAD(&dcp->iomfb.callbacks);
++	INIT_WORK(&dcp->iomfb.callback_work, iomfb_callback_work);
+ 	INIT_DELAYED_WORK(&dcp->iomfb.timeout, iomfb_queue_timeout);
+ 	INIT_DELAYED_WORK(&dcp->iomfb.backlight_retry, iomfb_backlight_retry);
+ 	atomic_set(&dcp->iomfb.opaque_x_state, IOMFB_OPAQUE_X_WAITING);
+@@ -526,14 +617,22 @@ void iomfb_queue_init(struct apple_dcp *dcp)
+ 
+ void iomfb_queue_stop(struct apple_dcp *dcp)
+ {
++	struct iomfb_callback *item;
++	unsigned long flags;
++
+ 	if (!iomfb_uses_queue(dcp))
+ 		return;
+ 
+ 	mutex_lock(&dcp->iomfb.lock);
+-	dcp->iomfb.stopped = true;
++	spin_lock_irqsave(&dcp->iomfb.callback_lock, flags);
++	WRITE_ONCE(dcp->iomfb.stopped, true);
++	spin_unlock_irqrestore(&dcp->iomfb.callback_lock, flags);
+ 	iomfb_discard_pending(dcp);
+ 	mutex_unlock(&dcp->iomfb.lock);
+ 	cancel_work_sync(&dcp->iomfb.work);
++	cancel_work_sync(&dcp->iomfb.callback_work);
++	while ((item = iomfb_pop_callback(dcp)))
++		kfree(item);
+ 	cancel_delayed_work_sync(&dcp->iomfb.timeout);
+ 	cancel_delayed_work_sync(&dcp->iomfb.backlight_retry);
+ }
+@@ -554,7 +653,7 @@ bool iomfb_queue_drain(struct apple_dcp *dcp, unsigned long timeout)
+ 		mutex_lock(&dcp->iomfb.lock);
+ 		idle = READ_ONCE(dcp->crashed) || dcp->iomfb.stopped ||
+ 		       (!dcp->iomfb.active && list_empty(&dcp->iomfb.pending) &&
+-			!dcp->present_state_h17p.pending);
++			!dcp->present_state_h17p.pending && !READ_ONCE(dcp->iomfb.callback_count));
+ 		mutex_unlock(&dcp->iomfb.lock);
+ 		if (idle)
+ 			return true;
+@@ -751,9 +850,9 @@ static int iomfb_queue_command(struct apple_dcp *dcp, bool oob,
+ }
+ 
+ /* Call a DCP function given by a tag */
+-void dcp_push(struct apple_dcp *dcp, bool oob, const struct dcp_method_entry *call,
+-		     u32 in_len, u32 out_len, void *data, dcp_callback_t cb,
+-		     void *cookie)
++static void dcp_push_context(struct apple_dcp *dcp, enum dcp_context_id context,
++			     const struct dcp_method_entry *call, u32 in_len,
++			     u32 out_len, void *data, dcp_callback_t cb, void *cookie)
+ {
+ 	struct dcp_method_entry resolved = *call;
+ 
+@@ -765,14 +864,6 @@ void dcp_push(struct apple_dcp *dcp, bool oob, const struct dcp_method_entry *ca
+ 	}
+ #endif
+ 
+-	/* Reply chains stay on the serialized receiver; callers enqueue copies. */
+-	if (iomfb_uses_queue(dcp) && READ_ONCE(dcp->iomfb.owner) != current) {
+-		if (iomfb_queue_command(dcp, oob, call, in_len, out_len,
+-					data, cb, cookie))
+-			WRITE_ONCE(dcp->crashed, true);
+-		return;
+-	}
+-
+ 	if (dcp_fail_stop(dcp) && READ_ONCE(dcp->crashed))
+ 		return;
+ 
+@@ -781,7 +872,6 @@ void dcp_push(struct apple_dcp *dcp, bool oob, const struct dcp_method_entry *ca
+ 		memcpy(resolved.tag, call->tag_h17g, sizeof(resolved.tag));
+ 	call = &resolved;
+ 
+-	enum dcp_context_id context = dcp_call_context(dcp, oob);
+ 	struct dcp_channel *ch = dcp_get_channel(dcp, context);
+ 
+ 	struct dcp_packet_header header = {
+@@ -835,6 +925,54 @@ void dcp_push(struct apple_dcp *dcp, bool oob, const struct dcp_method_entry *ca
+ 			 dcpep_msg(context, data_len, offset));
+ }
+ 
++void dcp_push(struct apple_dcp *dcp, bool oob,
++	      const struct dcp_method_entry *call, u32 in_len, u32 out_len,
++	      void *data, dcp_callback_t cb, void *cookie)
++{
++	/* Reply chains stay on the serialized receiver; callers enqueue copies. */
++	if (iomfb_uses_queue(dcp) && READ_ONCE(dcp->iomfb.owner) != current) {
++		if (iomfb_queue_command(dcp, oob, call, in_len, out_len,
++					data, cb, cookie))
++			WRITE_ONCE(dcp->crashed, true);
++		return;
++	}
++
++	dcp_push_context(dcp, dcp_call_context(dcp, oob), call,
++			 in_len, out_len, data, cb, cookie);
++}
++
++/* A nested query must return on the firmware-initiated stream it answers. */
++int dcp_push_nested(struct apple_dcp *dcp, enum dcp_context_id origin,
++		    const struct dcp_method_entry *call, u32 in_len, u32 out_len,
++		    void *data, dcp_callback_t cb, void *cookie)
++{
++	enum dcp_context_id context;
++	struct dcp_channel *ch;
++
++	if (READ_ONCE(dcp->iomfb.owner) != current || READ_ONCE(dcp->crashed))
++		return -ESHUTDOWN;
++	switch (origin) {
++	case DCP_CONTEXT_CB:
++	case DCP_CONTEXT_OOBCB:
++		context = origin;
++		break;
++	case DCP_CONTEXT_ASYNC:
++		context = DCP_CONTEXT_ASYNC_CB;
++		break;
++	case DCP_CONTEXT_OOBASYNC:
++		context = DCP_CONTEXT_OOBASYNC_CB;
++		break;
++	default:
++		return -EINVAL;
++	}
++	ch = dcp_get_channel(dcp, context);
++	if (!ch || !ch->depth || ch->depth >= DCP_MAX_CALL_DEPTH ||
++	    (u64)sizeof(struct dcp_packet_header) + in_len + out_len > 0x8000)
++		return -EINVAL;
++	dcp_push_context(dcp, context, call, in_len, out_len, data, cb, cookie);
++	return READ_ONCE(dcp->crashed) ? -EPROTO : 0;
++}
++
+ /* Parse a callback tag "D123" into the ID 123. Returns -EINVAL on failure. */
+ int dcp_parse_tag(char tag[4])
+ {
+@@ -1472,6 +1610,7 @@ static void dcpep_handle_cb(struct apple_dcp *dcp, enum dcp_context_id context,
+ 	bool handled, zero_reply;
+ 
+ 	if ((dcp->fw_compat == DCP_FIRMWARE_H17P ||
++	     dcp->fw_compat == DCP_FIRMWARE_V_27_0 ||
+ 	     dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP) &&
+ 	    (length < sizeof(*hdr) || !ch || ch->depth >= DCP_MAX_CALL_DEPTH ||
+ 	     offset >= 0x8000 || length > 0x8000 - offset)) {
+@@ -1509,13 +1648,15 @@ static void dcpep_handle_cb(struct apple_dcp *dcp, enum dcp_context_id context,
+ 		dcp->crashed = true;
+ 		return;
+ 	}
+-	if (dcp->fw_compat == DCP_FIRMWARE_H17P &&
++	if ((dcp->fw_compat == DCP_FIRMWARE_H17P || dcp->fw_compat == DCP_FIRMWARE_V_27_0) &&
+ 	    (tag < 0 || tag >= IOMFB_MAX_CB ||
+ 	     (u64)sizeof(*hdr) + hdr->in_len + hdr->out_len != length ||
+ 	     (dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G &&
+ 	      handled &&
+-	      !iomfb_check_callback_h17p(dcp, tag, hdr->in_len, hdr->out_len)))) {
+-		dev_err(dev, "unsupported IOMFB callback %d (%u, %u)\n",
++	      !(dcp->fw_compat == DCP_FIRMWARE_V_27_0 ?
++		iomfb_v27_callback_size_valid(tag, hdr->in_len, hdr->out_len) :
++		iomfb_check_callback_h17p(dcp, tag, hdr->in_len, hdr->out_len))))) {
++		dev_err(dev, "unqualified IOMFB callback %d (%u, %u)\n",
+ 			tag, hdr->in_len, hdr->out_len);
+ 		dcp->crashed = true;
+ 		return;
+@@ -1551,6 +1692,7 @@ static void dcpep_handle_cb(struct apple_dcp *dcp, enum dcp_context_id context,
+ 		    READ_ONCE(dcp->desktop->modeset_active))
+ 			WRITE_ONCE(dcp->desktop->modeset_callback_error, true);
+ 		if (dcp->fw_compat == DCP_FIRMWARE_H17P ||
++		    dcp->fw_compat == DCP_FIRMWARE_V_27_0 ||
+ 		    dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP) {
+ 			if (hdr->out_len)
+ 				memset(out, 0, hdr->out_len);
+@@ -1617,7 +1759,7 @@ static void dcpep_handle_ack(struct apple_dcp *dcp, enum dcp_context_id context)
+ 	 * its output cannot be trusted.  The tag is left out of the check: it
+ 	 * has only been seen preserved on 13.5 firmware.
+ 	 */
+-	if (dcp->fw_compat != DCP_FIRMWARE_H17P) {
++	if ((dcp->fw_compat != DCP_FIRMWARE_H17P && dcp->fw_compat != DCP_FIRMWARE_V_27_0)) {
+ 		record = out - sent->in_len - sizeof(*record);
+ 		if (record->in_len != sent->in_len ||
+ 		    record->out_len != sent->out_len) {
+@@ -2777,6 +2919,9 @@ int dcp_crtc_atomic_modeset(struct drm_crtc *crtc,
+ 	case DCP_FIRMWARE_H17P:
+ 		ret = iomfb_modeset_h17p(dcp, crtc_state);
+ 		break;
++	case DCP_FIRMWARE_V_27_0:
++		ret = iomfb_modeset_v27(dcp, crtc_state);
++		break;
+ 	default:
+ 		WARN_ONCE(true, "Unexpected firmware version: %u\n",
+ 			  dcp->fw_compat);
+@@ -3061,8 +3206,9 @@ bool iomfb_present_complete_h17p(struct apple_dcp *dcp)
+ 		if (transaction->brightness_only)
+ 			return false;
+ 	}
+-	atomic_cmpxchg(&dcp->iomfb.opaque_x_state, IOMFB_OPAQUE_X_WAITING,
+-		       IOMFB_OPAQUE_X_NEEDED);
++	if (dcp->fw_compat != DCP_FIRMWARE_V_27_0)
++		atomic_cmpxchg(&dcp->iomfb.opaque_x_state, IOMFB_OPAQUE_X_WAITING,
++			       IOMFB_OPAQUE_X_NEEDED);
+ 	iomfb_scanout_complete_h17p(dcp);
+ 	return true;
+ }
+@@ -3142,7 +3288,10 @@ static void iomfb_backlight_start(struct apple_dcp *dcp,
+ 		return;
+ 
+ 	dcp->swap.h17p = scanout->request;
+-	iomfb_present_backlight_h17p(dcp);
++	if (dcp->fw_compat == DCP_FIRMWARE_V_27_0)
++		iomfb_present_backlight_v27(dcp);
++	else
++		iomfb_present_backlight_h17p(dcp);
+ }
+ 
+ static void iomfb_backlight_release(struct iomfb_transaction *transaction)
+@@ -3200,7 +3349,10 @@ static void iomfb_atomic_start(struct apple_dcp *dcp,
+ 		return;
+ 	}
+ 	dcp->iomfb.next_scanout = atomic->scanout;
+-	iomfb_flush_h17p(dcp, atomic->crtc, atomic->state);
++	if (dcp->fw_compat == DCP_FIRMWARE_V_27_0)
++		iomfb_flush_v27(dcp, atomic->crtc, atomic->state);
++	else
++		iomfb_flush_h17p(dcp, atomic->crtc, atomic->state);
+ }
+ 
+ static void iomfb_atomic_release(struct iomfb_transaction *transaction)
+@@ -3358,6 +3510,9 @@ void dcp_flush(struct drm_crtc *crtc, struct drm_atomic_commit *commit)
+ 	case DCP_FIRMWARE_H17P:
+ 		iomfb_flush_h17p(dcp, crtc, commit);
+ 		break;
++	case DCP_FIRMWARE_V_27_0:
++		iomfb_flush_v27(dcp, crtc, commit);
++		break;
+ 	default:
+ 		WARN_ONCE(true, "Unexpected firmware version: %u\n", dcp->fw_compat);
+ 		break;
+@@ -3382,6 +3537,9 @@ static void iomfb_start(struct apple_dcp *dcp)
+ 	case DCP_FIRMWARE_H17P:
+ 		iomfb_start_h17p(dcp);
+ 		break;
++	case DCP_FIRMWARE_V_27_0:
++		iomfb_start_v27(dcp);
++		break;
+ 	default:
+ 		WARN_ONCE(true, "Unexpected firmware version: %u\n", dcp->fw_compat);
+ 		break;
+@@ -3457,7 +3615,7 @@ int iomfb_start_rtkit(struct apple_dcp *dcp)
+ 	 * has nothing answering it on the AP side, and without this one the
+ 	 * display DART faults.
+ 	 */
+-	if (dcp->fw_compat == DCP_FIRMWARE_H17P &&
++	if ((dcp->fw_compat == DCP_FIRMWARE_H17P || dcp->fw_compat == DCP_FIRMWARE_V_27_0) &&
+ 	    dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17P_EXTERNAL) {
+ 		ret = apple_rtkit_start_ep(dcp->rtk, REMOTE_ALLOC_ENDPOINT);
+ 		if (ret)
+@@ -3502,6 +3660,9 @@ void iomfb_shutdown(struct apple_dcp *dcp)
+ 	case DCP_FIRMWARE_H17P:
+ 		iomfb_shutdown_h17p(dcp);
+ 		break;
++	case DCP_FIRMWARE_V_27_0:
++		iomfb_shutdown_v27(dcp);
++		break;
+ 	default:
+ 		WARN_ONCE(true, "Unexpected firmware version: %u\n", dcp->fw_compat);
+ 		break;
+diff --git a/drivers/gpu/drm/apple/iomfb.h b/drivers/gpu/drm/apple/iomfb.h
+index 5e5795ba3c37..a3aa2d5118d9 100644
+--- a/drivers/gpu/drm/apple/iomfb.h
++++ b/drivers/gpu/drm/apple/iomfb.h
+@@ -15,6 +15,7 @@
+ enum dcp_context_id {
+ 	/* Callback */
+ 	DCP_CONTEXT_CB = 0,
++	DCP_CONTEXT_ASYNC_CB = 1,
+ 
+ 	/* Command */
+ 	DCP_CONTEXT_CMD = 2,
+@@ -24,6 +25,7 @@ enum dcp_context_id {
+ 
+ 	/* Out-of-band callback */
+ 	DCP_CONTEXT_OOBCB = 4,
++	DCP_CONTEXT_OOBASYNC_CB = 5,
+ 
+ 	/* Out-of-band command */
+ 	DCP_CONTEXT_OOBCMD = 6,
+@@ -184,6 +186,8 @@ enum dcpep_method {
+ 	 * H17P pipe-configuration calls made before the first swap.  Most
+ 	 * names are unknown; they are identified by method number.
+ 	 */
++	dcpep_pipe_query_353,
++	dcpep_pipe_set_352,
+ 	dcpep_pipe_cfg_415,
+ 	dcpep_pipe_cfg_031,
+ 	dcpep_pipe_cfg_414,
+diff --git a/drivers/gpu/drm/apple/iomfb_internal.h b/drivers/gpu/drm/apple/iomfb_internal.h
+index b34a1171123e..5d32a1c034e9 100644
+--- a/drivers/gpu/drm/apple/iomfb_internal.h
++++ b/drivers/gpu/drm/apple/iomfb_internal.h
+@@ -118,3 +118,6 @@ u8 dcp_crtc_eotf(struct apple_dcp *dcp, struct drm_crtc *crtc,
+ int dcp_crtc_check_hdr(struct apple_dcp *dcp, struct drm_crtc *crtc,
+ 		       struct drm_atomic_commit *commit);
+ void dcp_hdr_metadata_forget(struct apple_dcp *dcp);
++int dcp_push_nested(struct apple_dcp *dcp, enum dcp_context_id origin,
++		    const struct dcp_method_entry *call, u32 in_len, u32 out_len,
++		    void *data, dcp_callback_t cb, void *cookie);
+diff --git a/drivers/gpu/drm/apple/iomfb_template.c b/drivers/gpu/drm/apple/iomfb_template.c
+index 82e5310f3fd6..891ad15d2364 100644
+--- a/drivers/gpu/drm/apple/iomfb_template.c
++++ b/drivers/gpu/drm/apple/iomfb_template.c
+@@ -32,6 +32,7 @@
+ #include "dcp-edr.h"
+ #include "iomfb.h"
+ #include "iomfb_internal.h"
++#include "iomfb-dfb.h"
+ #include "parser.h"
+ #include "dcp-refresh.h"
+ #include "dcp-property.h"
+@@ -369,10 +370,24 @@ static void dcp_swap_submit(struct apple_dcp *dcp, bool oob,
+ 				cb(dcp, NULL, cookie);
+ 			return;
+ 		}
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++		iomfb_serialize_present_v27(&dcp->present_v27, request);
++		dcp->present_v27.swap.brightness_update =
++			dcp->present_h17p.swap[0x354] & 1;
++		dcp->present_v27.swap.brightness_nits =
++			get_unaligned_le64(dcp->present_h17p.swap + 0x35e);
++		data = &dcp->present_v27;
++#else
+ 		data = &dcp->present_h17p;
++#endif
+ 	}
+ 
+-	dcp_push(dcp, oob, &dcp_methods[dcpep_swap_submit], sizeof(*request),
++	dcp_push(dcp, oob, &dcp_methods[dcpep_swap_submit],
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++		 sizeof(struct dcp_swap_submit_req_v27),
++#else
++		 sizeof(*request),
++#endif
+ 		 sizeof(struct dcp_swap_submit_resp_h17p), (void *)data, cb, cookie);
+ }
+ #else
+@@ -407,7 +422,7 @@ DCP_THUNK_INOUT(dcp_set_power_state, dcpep_set_power_state,
+  * programmed, which is the panel's native mode, instead of requesting one.
+  */
+ #if DCP_FW_H17(DCP_FW_VER)
+-#define DCP_INHERIT_BOOT_MODE	true
++#define DCP_INHERIT_BOOT_MODE	(DCP_FW_VER < DCP_FW_VERSION(27, 0, 0))
+ #else
+ #define DCP_INHERIT_BOOT_MODE	false
+ #endif
+@@ -420,7 +435,7 @@ DCP_THUNK_INOUT(dcp_set_power_state, dcpep_set_power_state,
+  * still sends its clear swap first.
+  */
+ #if DCP_FW_H17(DCP_FW_VER)
+-#define DCP_HAS_CLIENT_TEARDOWN	false
++#define DCP_HAS_CLIENT_TEARDOWN	((DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0)))
+ #else
+ #define DCP_HAS_CLIENT_TEARDOWN	true
+ #endif
+@@ -600,29 +615,27 @@ static u32 dcpep_cb_zero(struct apple_dcp *dcp)
+ 	return 0;
+ }
+ 
+-static void dcpep_cb_swap_complete(struct apple_dcp *dcp,
+-				   struct DCP_FW_NAME(dc_swap_complete_resp) *resp)
++static void dcp_report_swap_complete(struct apple_dcp *dcp, u32 id, ktime_t now)
+ {
+-	ktime_t now = ktime_get();
+ 	bool retire = true;
+ 
+ #if DCP_FW_DESKTOP_26(DCP_FW_VER)
+-	if (dcp_peer_swap_complete_26_6(dcp, resp->swap_id))
++	if (dcp_peer_swap_complete_26_6(dcp, id))
+ 		return;
+ #endif
+ #if DCP_FW_H17(DCP_FW_VER)
+ 	if (dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G &&
+-	    !dcp_present_complete_h17p(&dcp->present_state_h17p, resp->swap_id)) {
++	    !dcp_present_complete_h17p(&dcp->present_state_h17p, id)) {
+ 		/*
+ 		 * Abort semantics are not captured on H17P.  If an aborted
+ 		 * present completes after all, its framebuffers were already
+ 		 * unarmed and its event signalled; record it and carry on.
+ 		 */
+ 		if (dcp_present_was_aborted_h17p(&dcp->present_state_h17p,
+-						 resp->swap_id)) {
++						 id)) {
+ 			dev_warn_ratelimited(dcp->dev,
+ 					     "completion for aborted present %u ignored\n",
+-					     resp->swap_id);
++					     id);
+ 			return;
+ 		}
+ 		/*
+@@ -631,13 +644,13 @@ static void dcpep_cb_swap_complete(struct apple_dcp *dcp,
+ 		 * in flight now is a different one.
+ 		 */
+ 		if (dcp_present_was_retired_h17p(&dcp->present_state_h17p,
+-						 resp->swap_id)) {
++						 id)) {
+ 			dev_warn_ratelimited(dcp->dev,
+ 					     "completion for retired present %u ignored\n",
+-					     resp->swap_id);
++					     id);
+ 			return;
+ 		}
+-		dev_err(dcp->dev, "unexpected present completion %u\n", resp->swap_id);
++		dev_err(dcp->dev, "unexpected present completion %u\n", id);
+ 		dcp->crashed = true;
+ 		return;
+ 	}
+@@ -646,30 +659,59 @@ static void dcpep_cb_swap_complete(struct apple_dcp *dcp,
+ #endif
+ #if DCP_FW_DESKTOP_26(DCP_FW_VER)
+ 	/* Late or duplicate completions cannot retire the replacement's flip. */
+-	if (!dcp_desktop_present_complete(dcp, resp->swap_id))
++	if (!dcp_desktop_present_complete(dcp, id))
+ 		return;
+-	dcp_backlight_desktop_finish(dcp, resp->swap_id, false, true);
++	dcp_backlight_desktop_finish(dcp, id, false, true);
+ #endif
+-	trace_iomfb_swap_complete(dcp, resp->swap_id);
+-	dcp->last_swap_id = resp->swap_id;
++	dcp->last_swap_id = id;
+ 	dcp->have_swap_complete = true;
+ 	dcp_swap_watchdog_complete(dcp);
+ 	if (retire) {
+-		dcp_release_retained_framebuffers(dcp, resp->swap_id);
++		dcp_release_retained_framebuffers(dcp, id);
+ 		dcp_drm_crtc_page_flip(dcp, now);
+ 	}
+ 	if (READ_ONCE(dcp->crc_enabled)) {
+ #if DCP_FW_H17(DCP_FW_VER)
+ 		if (dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G) {
+-			iomfb_queue_crc_h17p(dcp, resp->swap_id);
++			iomfb_queue_crc_h17p(dcp, id);
+ 			return;
+ 		}
+ #endif
+ 		u32 crc32 = 0;
+-		drm_crtc_add_crc_entry(&dcp->crtc->base, true, resp->swap_id, &crc32);
++		drm_crtc_add_crc_entry(&dcp->crtc->base, true, id, &crc32);
+ 	}
+ }
+ 
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++struct dcp_peer_completion { u32 id; ktime_t time; };
++static void dcp_peer_report_on_owner(struct apple_dcp *owner, void *data, void *cookie)
++{
++	struct dcp_peer_completion *completion = data;
++	dcp_report_swap_complete(owner, completion->id, completion->time);
++}
++static void dcp_peer_queue_completion(struct apple_dcp *owner, u32 id, ktime_t time)
++{
++	struct dcp_peer_completion completion = { id, time };
++	if (iomfb_queue_callback(owner, dcp_peer_report_on_owner, &completion,
++				 sizeof(completion), NULL)) {
++		WRITE_ONCE(owner->crashed, true);
++		schedule_work(&owner->vblank_wq);
++	}
++}
++#endif
++
++static void dcpep_cb_swap_complete(struct apple_dcp *dcp,
++				   struct DCP_FW_NAME(dc_swap_complete_resp) *resp)
++{
++	ktime_t now = ktime_get();
++	trace_iomfb_swap_complete(dcp, resp->swap_id);
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	if (dcp_peer_swap_complete_v27(dcp, resp->swap_id, now, dcp_peer_queue_completion))
++		return;
++#endif
++	dcp_report_swap_complete(dcp, resp->swap_id, now);
++}
++
+ /* special */
+ static void complete_vi_set_temperature_hint(struct apple_dcp *dcp, void *out, void *cookie)
+ {
+@@ -710,7 +752,7 @@ static_assert(sizeof(struct dcp_h17p_dfb_surface_req) == 0x230);
+ DCP_THUNK_INOUT(dcp_register_dfb_surface, dcpep_register_dfb_surface,
+ 		struct dcp_h17p_dfb_surface_req, u32);
+ 
+-static void dcp_ack_dfb_surface(struct apple_dcp *dcp)
++static void __maybe_unused dcp_ack_dfb_surface(struct apple_dcp *dcp)
+ {
+ 	struct dcp_channel *ch = &dcp->ch_cb;
+ 	u8 *succ = ch->output[ch->depth - 1];
+@@ -725,7 +767,7 @@ static void dcp_ack_dfb_surface(struct apple_dcp *dcp)
+  * default surface ID.  The bytes at +0x29..+0x2c are an opaque word whose
+  * meaning is not known.
+  */
+-static void dcp_fill_dfb_surface(struct apple_dcp *dcp, u8 *s)
++static void __maybe_unused dcp_fill_dfb_surface(struct apple_dcp *dcp, u8 *s)
+ {
+ 	s[0x002] = 0x01;
+ 	memcpy(s + 0x00b, "8a3b", 4);
+@@ -753,7 +795,14 @@ static void dcp_fill_dfb_surface(struct apple_dcp *dcp, u8 *s)
+  */
+ static void complete_dfb_surface(struct apple_dcp *dcp, void *out, void *cookie)
+ {
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	struct dcp_channel *ch = &dcp->ch_cb;
++
++	*(u8 *)ch->output[ch->depth - 1] = out && !get_unaligned_le32(out);
++	dcp_ack(dcp, DCP_CONTEXT_CB);
++#else
+ 	dcp_ack_dfb_surface(dcp);
++#endif
+ }
+ 
+ static bool iomfbep_cb_create_dfb_surface(struct apple_dcp *dcp, int tag,
+@@ -773,12 +822,45 @@ static bool iomfbep_cb_create_dfb_surface(struct apple_dcp *dcp, int tag,
+ 	if (!req)
+ 		return true;
+ 
++
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	{
++		struct dcp_dfb_dimensions_h17p dim;
++		struct dcp_surface *surface = (void *)req->surface;
++		u32 format, allocation;
++		int ret = -EINVAL;
++
++		memcpy(&dim, in, sizeof(dim));
++		if (dcp->dfb_format_valid && dcp->dfb_compression_valid)
++			ret = apple_dcp_dfb_allocation(dim.width, dim.height,
++				dcp->dfb_format, dcp->dfb_compression,
++				dcp->dfb_region_size, &format, &allocation);
++		if (ret) {
++			dev_err(dcp->dev, "unsupported DFB layout %ux%u format=%#x compression=%u (%d)\n",
++				dim.width, dim.height, dcp->dfb_format,
++				dcp->dfb_compression, ret);
++			*(u8 *)out = false;
++			kfree(req);
++			return true;
++		}
++
++		surface->is_premultiplied = 1;
++		surface->format = format;
++		surface->pix_size = 1;
++		surface->pel_w = 1;
++		surface->pel_h = 1;
++		surface->buf_size = allocation;
++		surface->surface_id = 5;
++		surface->has_comp = 1;
++		surface->has_planes = 1;
++	}
++#else
+ 	dcp_fill_dfb_surface(dcp, req->surface);
++#endif
+ 
+ 	dcp_register_dfb_surface(dcp, false, req, complete_dfb_surface, NULL);
+ 	kfree(req);
+ 
+-	/* deferred ACK: the A472 completion reports success for us */
+ 	return false;
+ }
+ #endif
+@@ -837,6 +919,9 @@ static void iomfb_cb_pr_publish(struct apple_dcp *dcp, struct iomfb_property *pr
+ 	switch (prop->id) {
+ #if !DCP_FW_DESKTOP_26(DCP_FW_VER)
+ 	/* The desktop 26.x firmware publishes no panel level here. */
++	#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	case 20:
++#else
+ 	case IOMFB_PROPERTY_NITS_V13_3:
+ 	/*
+ 	 * 13.x firmware publishes another property under the 14.7 ID, with
+@@ -845,6 +930,7 @@ static void iomfb_cb_pr_publish(struct apple_dcp *dcp, struct iomfb_property *pr
+ 	 */
+ #if DCP_FW_VERSION(14, 7, 0) <= DCP_FW_VER
+ 	case IOMFB_PROPERTY_NITS_V14_7:
++#endif
+ #endif
+ 	{
+ #if DCP_FW_H17(DCP_FW_VER)
+@@ -1283,7 +1369,8 @@ static struct DCP_FW_NAME(dcp_map_reg_resp) dcpep_cb_map_reg(struct apple_dcp *d
+ 		 * dma_map_resource() them instead fails and hands the firmware
+ 		 * DMA_MAPPING_ERROR as a device address.
+ 		 */
+-		dma_addr_t dva = rsrc->start;
++		dma_addr_t dva = dcp->fw_compat == DCP_FIRMWARE_V_27_0 ?
++			dcp->disp_firmware_base[req->index] : rsrc->start;
+ #elif DCP_FW_DESKTOP_26(DCP_FW_VER)
+ 		/*
+ 		 * The desktop 26.x firmware takes the register windows'
+@@ -1298,7 +1385,12 @@ static struct DCP_FW_NAME(dcp_map_reg_resp) dcpep_cb_map_reg(struct apple_dcp *d
+ #endif
+ 
+ 		return (struct DCP_FW_NAME(dcp_map_reg_resp)){
+-			.addr = rsrc->start,
++			.addr =
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++			dcp->disp_firmware_base[req->index],
++#else
++			rsrc->start,
++#endif
+ 			.length = resource_size(rsrc),
+ #if DCP_FW_VER >= DCP_FW_VERSION(13, 2, 0)
+ 			.dva = dva,
+@@ -1495,6 +1587,17 @@ static bool dcpep_process_chunks(struct apple_dcp *dcp,
+ 			dev_warn(dcp->dev, "TimingElements without valid modes!\n");
+ 		dcp_180hz_notify(dcp);
+ 		dcp_firmware_metadata_timing(dcp);
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++		if (dcp->peer_reserved)
++			for (unsigned int i = 0; i < dcp->nr_modes; i++) {
++				struct dcp_display_mode *m = &dcp->modes[i];
++
++				if ((u64)m->mode.clock * 1000 > dcp->dptxport[0].caps.total_rate)
++					dev_info(dcp->dev, "peer mode timing=%u color=%u " DRM_MODE_FMT "\n",
++						 m->timing_mode_id, m->color_mode_id,
++						 DRM_MODE_ARG(&m->mode));
++			}
++#endif
+ 	} else if (!strcmp(req->key, "DisplayAttributes")) {
+ 		struct dcp_parse_ctx metadata_ctx = ctx;
+ 
+@@ -1640,6 +1743,27 @@ static void boot_1_11(struct apple_dcp *dcp, void *out, void *cookie)
+ 
+ static void boot_1_10(struct apple_dcp *dcp, void *out, void *cookie)
+ {
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	struct dcp_dfb_dimensions_h17p dim;
++
++	if (!out)
++		return;
++	memcpy(&dim, out, sizeof(dim));
++
++	if (dim.width > 16384 || dim.height > 16384
++	   ) {
++		struct dcp_channel *ch = &dcp->ch_cb;
++
++		dev_err(dcp->dev, "invalid default framebuffer dimensions %ux%u\n",
++			dim.width, dim.height);
++		*(u8 *)ch->output[ch->depth - 1] = false;
++		dcp_ack(dcp, DCP_CONTEXT_CB);
++		return;
++	}
++
++	dcp_set_dfb_dimensions(dcp, false, &dim, boot_1_11, NULL);
++
++#else
+ 	struct dcp_dfb_dimensions_h17p dim;
+ 
+ 	/*
+@@ -1660,12 +1784,25 @@ static void boot_1_10(struct apple_dcp *dcp, void *out, void *cookie)
+ 		dim.width, dim.height);
+ 
+ 	dcp_set_dfb_dimensions(dcp, false, &dim, boot_1_11, NULL);
++
++#endif
+ }
+ 
+ static void boot_1_9(struct apple_dcp *dcp, void *out, void *cookie)
+ {
+ 	u32 zero = 0;
+ 
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	struct dcp_dfb_dimensions_h17p dim;
++
++	if (!out)
++		return;
++	memcpy(&dim, out, sizeof(dim));
++	if (dim.width && dim.height) {
++		boot_2(dcp, out, cookie);
++		return;
++	}
++#endif
+ 	dcp_get_dfb_state(dcp, false, &zero, boot_1_10, NULL);
+ }
+ 
+@@ -1673,6 +1810,12 @@ static void boot_1_8(struct apple_dcp *dcp, void *out, void *cookie)
+ {
+ 	struct dcp_dfb_layout_req_h17p req = {};
+ 
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	if (!out)
++		return;
++	dcp->dfb_format_valid = *((u8 *)out + 0x28) & 1;
++	memcpy(&dcp->dfb_format, out, sizeof(dcp->dfb_format));
++#endif
+ 	dcp_get_dfb_layout(dcp, false, &req, boot_1_9, NULL);
+ }
+ 
+@@ -1680,6 +1823,12 @@ static void boot_1_7(struct apple_dcp *dcp, void *out, void *cookie)
+ {
+ 	struct dcp_dfb_info_h17p info = {};
+ 
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	if (!out)
++		return;
++	dcp->dfb_compression_valid = *((u8 *)out + 4) & 1;
++	memcpy(&dcp->dfb_compression, out, sizeof(dcp->dfb_compression));
++#endif
+ 	dcp_get_dfb_info(dcp, false, &info, boot_1_8, NULL);
+ }
+ 
+@@ -1687,6 +1836,16 @@ static void boot_1_6(struct apple_dcp *dcp, void *out, void *cookie)
+ {
+ 	u64 zero = 0;
+ 
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	if (!out)
++		return;
++	if (!(*(u8 *)out & 1)) {
++		struct dcp_dfb_layout_req_h17p req = {};
++
++		dcp_get_dfb_layout(dcp, false, &req, boot_1_9, NULL);
++		return;
++	}
++#endif
+ 	dcp_get_dfb_compression_info(dcp, false, &zero, boot_1_7, NULL);
+ }
+ #endif
+@@ -1867,6 +2026,7 @@ static void release_swap_cookie(struct kref *ref)
+  */
+ static void dcp_h17p_prepare_swap(struct apple_dcp *dcp)
+ {
++#if DCP_FW_VER < DCP_FW_VERSION(27, 0, 0)
+ 	struct DCP_FW_NAME(dcp_swap_submit_req) *req = &DCP_FW_SWAP(dcp);
+ 	unsigned int i;
+ 
+@@ -1916,6 +2076,7 @@ static void dcp_h17p_prepare_swap(struct apple_dcp *dcp)
+ 		memmove(r + off - 2, r + off, n - off);
+ 		memset(r + n - 2, 0, 2);
+ 	}
++#endif
+ }
+ #else
+ static void dcp_h17p_prepare_swap(struct apple_dcp *dcp) { }
+@@ -2181,7 +2342,12 @@ static void dcp_on_set_power_state(struct apple_dcp *dcp, void *out, void *cooki
+ static void dcp_on_set_parameter(struct apple_dcp *dcp, void *out, void *cookie)
+ {
+ 	struct dcp_set_parameter_dcp param = {
+-		.param = IOMFBPARAM_ADAPTIVE_SYNC,
++		.param =
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++		15,
++#else
++		IOMFBPARAM_ADAPTIVE_SYNC,
++#endif
+ 		.value = { 0 },
+ #if DCP_FW_VER >= DCP_FW_VERSION(13, 2, 0)
+ 		.count = 3,
+@@ -2376,6 +2542,16 @@ void DCP_FW_NAME(iomfb_poweroff)(struct apple_dcp *dcp)
+ 		goto peer_stopped;
+ #endif
+ 
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	ret = dcp_peer_stop_v27(dcp);
++	if (ret < 0) {
++		dev_err(dcp->dev, "paired power-off failed: %d\n", ret);
++		return;
++	}
++	if (ret > 0)
++		goto close_client;
++#endif
++
+ 	cookie = kzalloc(sizeof(*cookie), GFP_KERNEL);
+ 	if (!cookie)
+ 		return;
+@@ -2417,6 +2593,9 @@ void DCP_FW_NAME(iomfb_poweroff)(struct apple_dcp *dcp)
+ 
+ #if DCP_FW_DESKTOP_26(DCP_FW_VER)
+ peer_stopped:
++#endif
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++close_client:
+ #endif
+ 	poff_cookie = kzalloc(sizeof(*poff_cookie), GFP_KERNEL);
+ 	if (!poff_cookie)
+@@ -2543,6 +2722,14 @@ void DCP_FW_NAME(iomfb_sleep)(struct apple_dcp *dcp)
+ 
+ 	struct dcp_wait_cookie *cookie;
+ 
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	ret = dcp_peer_stop_v27(dcp);
++	if (ret < 0) {
++		dev_err(dcp->dev, "paired sleep failed: %d\n", ret);
++		return;
++	}
++#endif
++
+ #if DCP_FW_H17(DCP_FW_VER)
+ 	if (dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G)
+ 		return;
+@@ -2656,6 +2843,12 @@ static void dcpep_cb_hotplug(struct apple_dcp *dcp, u64 *connected)
+ 		action |= DCP_HOTPLUG_NOTIFY;
+ 	}
+ 	dcp_handle_hotplug_actions(dcp, action);
++	/* Fresh modes and positive firmware HPD, not lane-count negotiation,
++	 * make IOMFB ready for the resume modeset. */
++	if (*connected && dcp->fw_compat == DCP_FIRMWARE_V_27_0 &&
++	    dcp_is_typec_output(dcp))
++		complete_all(&dcp->typec_display_ready);
++
+ }
+ 
+ #if DCP_FW_DESKTOP_26(DCP_FW_VER)
+@@ -2927,6 +3120,10 @@ static void dcp_swapped(struct apple_dcp *dcp, void *data, void *cookie)
+ 	dcp_swap_watchdog_arm(dcp);
+ }
+ 
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++#include "iomfb-peer-runtime-v27.inc"
++#endif
++
+ static void dcp_swap_started(struct apple_dcp *dcp, void *data, void *cookie)
+ {
+ 	struct DCP_FW_NAME(dcp_swap_start_resp) *resp = data;
+@@ -2942,6 +3139,10 @@ static void dcp_swap_started(struct apple_dcp *dcp, void *data, void *cookie)
+ 			dcp_drm_crtc_vblank(dcp->crtc);
+ 		return;
+ 	}
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	if (dcp_peer_start_second(dcp, resp))
++		return;
++#endif
+ 	DCP_FW_SWAP(dcp).swap.swap_id = resp->swap_id;
+ 	if (dcp_present_retires(dcp))
+ 		dcp_arm_retained_framebuffers(dcp, resp->swap_id);
+@@ -3524,6 +3725,16 @@ int DCP_FW_NAME(iomfb_modeset)(struct apple_dcp *dcp,
+ static void dcp_on_set_adaptive_sync(struct apple_dcp *dcp, void *out,
+ 				     void *cookie)
+ {
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	if (!out || get_unaligned_le32(out)) {
++		struct dcp_wait_cookie *wait = cookie;
++
++		wait->status = -EOPNOTSUPP;
++		complete(&wait->done);
++		kref_put(&wait->refcount, release_wait_cookie);
++		return;
++	}
++#endif
+ 	dcp_set_digital_out_mode(dcp, false, &dcp->mode,
+ 				 complete_set_digital_out_mode, cookie);
+ }
+@@ -3532,7 +3743,12 @@ static void dcp_set_adaptive_sync(struct apple_dcp *dcp, u32 min_vrr,
+ 				  void *cookie)
+ {
+ 	struct dcp_set_parameter_dcp param = {
+-		.param = IOMFBPARAM_ADAPTIVE_SYNC,
++		.param =
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++		15,
++#else
++		IOMFBPARAM_ADAPTIVE_SYNC,
++#endif
+ 		.value = {
+ 			min_vrr, /* minRR, 16.16 fixed-point Hz */
+ 			0,       /* mediaTargetRate */
+@@ -3615,7 +3831,17 @@ int DCP_FW_NAME(iomfb_modeset)(struct apple_dcp *dcp,
+ 	    DCP_IOMFB_METHODS_H17P_EXTERNAL) {
+ 		dev_dbg(dcp->dev, "inheriting the bootloader's display mode\n");
+ 		complete_set_digital_out_mode(dcp, NULL, cookie);
+-	} else if (mode->vrr &&
++	} else
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	if ((ret = dcp_peer_modeset_v27(dcp, mode->timing_mode_id,
++				      mode->color_mode_id, crtc_state->vrr_enabled)) != -EOPNOTSUPP) {
++		cookie->status = ret;
++		if (!ret)
++			crtc_state->color_mgmt_changed = true;
++		complete_set_digital_out_mode(dcp, NULL, cookie);
++	} else
++#endif
++	if (mode->vrr &&
+ 		   dcp->hw.iomfb_method_profile !=
+ 		   DCP_IOMFB_METHODS_H17P_EXTERNAL)
+ 		dcp_set_adaptive_sync(dcp,
+@@ -3920,6 +4146,12 @@ void DCP_FW_NAME(iomfb_flush)(struct apple_dcp *dcp, struct drm_crtc *crtc, stru
+ 		dcp_ctm_to_fw(mat.matrix, crtc_state->ctm ?
+ 			      crtc_state->ctm->data : NULL);
+ 
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++		if (dcp_peer_color_v27(dcp, &mat)) {
++			dcp_peer_swap_error(dcp, "color matrix", -EIO);
++			return;
++		}
++#endif
+ #if DCP_FW_DESKTOP_26(DCP_FW_VER)
+ 		dcp->desktop->gamma_pending = dcp_gamma_update(dcp, crtc_state);
+ 		dcp->desktop->matrix = mat;
+diff --git a/drivers/gpu/drm/apple/iomfb_v27.c b/drivers/gpu/drm/apple/iomfb_v27.c
+new file mode 100644
+index 000000000000..0ec2ce360005
+--- /dev/null
++++ b/drivers/gpu/drm/apple/iomfb_v27.c
+@@ -0,0 +1,532 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* Copyright The Asahi Linux Contributors */
++/* Copyright 2026 Aurora Silicon */
++
++#include <linux/unaligned.h>
++#include <linux/spinlock.h>
++
++#include "dcp-link.h"
++#include "iomfb_v27.h"
++#include "iomfb_v12_3.h"
++#include "iomfb_v13_3.h"
++#include "version_utils.h"
++#include "dcp-internal.h"
++
++void iomfb_serialize_present_v27(struct dcp_swap_submit_req_v27 *wire,
++				const struct dcp_swap_submit_req_h17p *request)
++{
++	memset(wire, 0, sizeof(*wire));
++	memcpy(wire->swap.timestamp, request->swap.timestamp,
++	       sizeof(wire->swap.timestamp));
++	wire->swap.unk_38 = request->swap.unk_38;
++	/* The common geometry runs from swap_id through bg_color. */
++	memcpy(&wire->swap.swap_id, &request->swap.swap_id,
++	       offsetof(struct dcp_swap_v27, reserved_158) -
++	       offsetof(struct dcp_swap_v27, swap_id));
++	memcpy(wire->surf, request->surf, sizeof(wire->surf));
++	memcpy(wire->surf_iova, request->surf_iova,
++	       sizeof(*request) -
++	       offsetof(struct dcp_swap_submit_req_h17p, surf_iova));
++}
++
++struct dcp_h17p_hotplug_request {
++	__le64 connected;
++	u8 tiled_display[0x4c];
++	u8 tiled_display_null;
++	u8 padding[3];
++} __packed;
++
++struct dcp_h17p_swap_info_request {
++	u8 swap_info[0xe0];
++	u8 swap_info_null;
++	u8 padding[3];
++} __packed;
++
++static_assert(sizeof(struct dcp_h17p_hotplug_request) == 0x58);
++static_assert(sizeof(struct dcp_h17p_swap_info_request) == 0xe4);
++
++static_assert(sizeof(struct dc_swap_complete_resp_h17p) == 0x730);
++static_assert(offsetof(struct dc_swap_complete_resp_h17p, swap_id) == 0);
++static_assert(offsetof(struct dcp_swap_v27, brightness_update) == 0x354);
++static_assert(offsetof(struct dcp_swap_v27, brightness_nits) == 0x35e);
++static_assert(sizeof(struct dcp_swap_v27) == 0x6e0);
++
++static const struct dcp_method_entry dcp_methods[dcpep_num_methods] = {
++	IOMFB_METHOD("A000", dcpep_late_init_signal),
++	IOMFB_METHOD("A027", dcpep_setup_video_limits),
++	IOMFB_METHOD("A136", iomfbep_a131_pmu_service_matched),
++	IOMFB_METHOD("A137", iomfbep_a132_backlight_service_matched),
++	IOMFB_METHOD("A389", dcpep_set_create_dfb),
++	IOMFB_METHOD("A390", iomfbep_a358_vi_set_temperature_hint),
++	IOMFB_METHOD("A401", dcpep_start_signal),
++	IOMFB_METHOD("A406", dcpep_swap_start),
++	IOMFB_METHOD("A408", dcpep_swap_submit),
++	IOMFB_METHOD("A411", dcpep_set_display_device),
++	IOMFB_METHOD("A412", dcpep_is_main_display),
++	IOMFB_METHOD("A413", dcpep_set_digital_out_mode),
++	IOMFB_METHOD("A423", iomfbep_set_matrix),
++	IOMFB_METHOD("A427", iomfbep_get_color_remap_mode),
++	IOMFB_METHOD("A450", dcpep_set_parameter_dcp),
++	IOMFB_METHOD("A454", dcpep_create_default_fb),
++	IOMFB_METHOD("A037", dcpep_get_dfb_compression_info),
++	IOMFB_METHOD("A036", dcpep_get_dfb_info),
++	IOMFB_METHOD("A103", dcpep_get_dfb_layout),
++	IOMFB_METHOD("A453", dcpep_get_dfb_state),
++	IOMFB_METHOD("A104", dcpep_set_dfb_dimensions),
++	IOMFB_METHOD("A105", dcpep_commit_dfb_info),
++	IOMFB_METHOD("A035", dcpep_dfb_query),
++	IOMFB_METHOD("A384", dcpep_dfb_ready_query),
++	IOMFB_METHOD("A353", dcpep_pipe_query_353),
++	IOMFB_METHOD("A352", dcpep_pipe_set_352),
++	IOMFB_METHOD("A415", dcpep_pipe_cfg_415),
++	IOMFB_METHOD("A033", dcpep_pipe_cfg_031),
++	IOMFB_METHOD("A414", dcpep_pipe_cfg_414),
++	IOMFB_METHOD("A489", dcpep_pipe_query_478),
++	IOMFB_METHOD("A485", dcpep_pipe_query_474),
++	IOMFB_METHOD("A487", dcpep_pipe_set_476),
++	IOMFB_METHOD("A428", iomfbep_set_brightness_correction),
++	IOMFB_METHOD("A458", dcpep_enable_disable_video_power_savings),
++	IOMFB_METHOD("A466", dcpep_first_client_open),
++	IOMFB_METHOD("A467", iomfbep_last_client_close),
++	IOMFB_METHOD("A475", dcpep_set_display_refresh_properties),
++	IOMFB_METHOD("A478", dcpep_flush_supports_power),
++	IOMFB_METHOD("A479", iomfbep_abort_swaps_dcp),
++	IOMFB_METHOD("A484", dcpep_set_power_state),
++	IOMFB_METHOD("A483", dcpep_register_dfb_surface),
++};
++
++#define iomfb_modeset_h17p iomfb_modeset_v27
++#define iomfb_flush_h17p iomfb_flush_v27
++#define iomfb_poweron_h17p iomfb_poweron_v27
++#define iomfb_poweroff_h17p iomfb_poweroff_v27
++#define iomfb_sleep_h17p iomfb_sleep_v27
++#define iomfb_shutdown_h17p iomfb_shutdown_v27
++#define iomfb_present_backlight_h17p iomfb_present_backlight_v27
++#define DCP_FW h17p
++#define DCP_FW_VER DCP_FW_VERSION(27, 0, 0)
++
++#include "iomfb_template.c"
++
++static bool trampoline_rt_bandwidth_h17p(struct apple_dcp *dcp, int tag,
++					 void *out, void *in)
++{
++	u64 scratch = dcp->disp_firmware_base[dcp->disp_bw_scratch_index] +
++		      dcp->disp_bw_scratch_offset;
++	u64 clock_request = 0;
++
++	trace_iomfb_callback(dcp, tag, __func__);
++	if (apple_dcp_h17p_rt_bw_encode_reply(in, out, scratch, clock_request))
++		dev_warn(dcp->dev, "D003 bandwidth request is malformed\n");
++	return true;
++}
++
++static bool trampoline_get_frequency_v27(struct apple_dcp *dcp, int tag,
++					void *out, void *in)
++{
++	const struct apple_dcp_h17p_clock_request *request = in;
++	u32 index = le32_to_cpu(request->clock_id);
++	u64 rate = 0;
++
++	if (index < dcp->num_firmware_clocks)
++		rate = clk_get_rate(dcp->firmware_clocks[index].clk);
++	else
++		dev_err(dcp->dev, "DCP requested undeclared provider clock index %u\n",
++			index);
++	*(__le64 *)out = cpu_to_le64(rate);
++	return true;
++}
++
++static bool trampoline_hotplug_h17p(struct apple_dcp *dcp, int tag,
++				    void *out, void *in)
++{
++	const struct dcp_h17p_hotplug_request *request = in;
++
++	/* The opt-in peer allocator needs the firmware's tiling metadata to verify
++	 * the VFTG relationship before implementing its framebuffer lifecycle.
++	 * Keep both halves: the endpoint IDs are at the end of this payload.
++	 */
++	if (dcp->peer_reserved || dcp->peer_owner) {
++		dev_info(dcp->dev, "peer HPD connected=%llu null=%u head=%*ph\n",
++			 le64_to_cpu(request->connected), request->tiled_display_null,
++			 40, request->tiled_display);
++		dev_info(dcp->dev, "peer HPD tail=%*ph\n", 36,
++			 request->tiled_display + 40);
++	}
++	if (!(request->tiled_display_null & 1) && request->connected &&
++	    !(get_unaligned_le32(request->tiled_display + 0xc) & BIT(3)))
++		dcp_peer_display_ids_v27(dcp,
++			get_unaligned_le32(request->tiled_display + 0x3b),
++			get_unaligned_le32(request->tiled_display + 0x47));
++	if (!(request->tiled_display_null & 1))
++		memcpy(out, request->tiled_display,
++		       sizeof(request->tiled_display));
++	return trampoline_hotplug(dcp, tag, out, in);
++}
++
++static bool trampoline_swap_info_h17p(struct apple_dcp *dcp, int tag,
++				      void *out, void *in)
++{
++	const struct dcp_h17p_swap_info_request *request = in;
++
++	trace_iomfb_callback(dcp, tag, __func__);
++	if (!(request->swap_info_null & 1))
++		memcpy(out, request->swap_info, sizeof(request->swap_info));
++	return true;
++}
++
++static bool iomfbep_cb_video_range_h17p(struct apple_dcp *dcp, int tag,
++					void *out, void *in)
++{
++	__le32 *resp = out;
++
++	resp[0] = cpu_to_le32(0x435b0000);
++	resp[1] = 0;
++	return true;
++}
++
++struct dcp_h17p_get_data_prop_req {
++	char obj[4];
++	char key[0x40];
++	__le32 length;
++	u8 data_null;
++	u8 length_null;
++	u8 padding[2];
++} __packed;
++static_assert(sizeof(struct dcp_h17p_get_data_prop_req) == 0x4c);
++
++struct dcp_h17p_get_data_prop_resp {
++	u8 data[0xc00];
++	__le32 length;
++} __packed;
++static_assert(sizeof(struct dcp_h17p_get_data_prop_resp) == 0xc04);
++
++static bool trampoline_get_data_prop_v27(struct apple_dcp *dcp, int tag,
++					void *out, void *in)
++{
++	const struct dcp_h17p_get_data_prop_req *req = in;
++	struct dcp_h17p_get_data_prop_resp *resp = out;
++	const struct property *prop;
++	u32 cap = min_t(u32, le32_to_cpu(req->length), sizeof(resp->data));
++
++	if (memcmp(req->obj, "VORP", sizeof(req->obj)) ||
++	    strnlen(req->key, sizeof(req->key)) == sizeof(req->key))
++		return true;
++
++	prop = of_find_property(dcp->dev->of_node, req->key, NULL);
++	if (!prop || prop->length < 0 || prop->length > cap)
++		return true;
++	memcpy(resp->data, prop->value, prop->length);
++	resp->length = cpu_to_le32(prop->length);
++	return true;
++}
++
++struct dcp_allocate_buffer_req_v27 {
++	__le32 options;
++	__le64 size;
++	__le32 alignment;
++	u8 dva_null;
++	u8 capacity_null;
++	u8 padding[2];
++} __packed;
++
++struct dcp_allocate_buffer_resp_v27 {
++	__le64 dva;
++	__le64 capacity;
++	__le32 mem_desc_id;
++} __packed;
++
++struct dcp_buffer_lifecycle_req_v27 {
++	__le32 mem_desc_id;
++	__le32 options;
++} __packed;
++
++static_assert(sizeof(struct dcp_allocate_buffer_req_v27) == 0x14);
++static_assert(sizeof(struct dcp_allocate_buffer_resp_v27) == 0x14);
++static_assert(offsetof(struct dcp_allocate_buffer_resp_v27, mem_desc_id) == 0x10);
++static_assert(sizeof(struct dcp_buffer_lifecycle_req_v27) == 8);
++
++static bool trampoline_allocate_buffer_v27(struct apple_dcp *dcp, int tag,
++					 void *out, void *in)
++{
++	const struct dcp_allocate_buffer_req_v27 *req = in;
++	struct dcp_allocate_buffer_resp_v27 *resp = out;
++	struct dcp_allocate_buffer_req allocation = {
++		.unk0 = le32_to_cpu(req->options),
++		.size = le64_to_cpu(req->size),
++		.unk2 = le32_to_cpu(req->alignment),
++	};
++	struct dcp_allocate_buffer_resp buffer;
++
++	if (!allocation.size || allocation.size > SIZE_MAX - SZ_16K ||
++	    allocation.unk2 > PAGE_SIZE ||
++	    (allocation.unk2 && !is_power_of_2(allocation.unk2)))
++		return true;
++	buffer = dcpep_cb_allocate_buffer(dcp, &allocation);
++	if (!req->dva_null)
++		resp->dva = cpu_to_le64(buffer.dva);
++	if (!req->capacity_null)
++		resp->capacity = cpu_to_le64(ALIGN(buffer.dva_size, SZ_16K));
++	resp->mem_desc_id = cpu_to_le32(buffer.mem_desc_id);
++	return true;
++}
++
++static bool trampoline_buffer_lifecycle_v27(struct apple_dcp *dcp, int tag,
++					  void *out, void *in)
++{
++	const struct dcp_buffer_lifecycle_req_v27 *req = in;
++	__le32 *status = out;
++	u32 id = le32_to_cpu(req->mem_desc_id);
++
++	if (!id || id >= DCP_MAX_MAPPINGS ||
++	    !test_bit(id, dcp->memdesc_map) || !dcp->memdesc[id].buf) {
++		*status = cpu_to_le32(14);
++		return true;
++	}
++	if (tag == 452)
++		dma_wmb();
++	else
++		dma_rmb();
++	*status = 0;
++	return true;
++}
++
++static bool trampoline_ideal_screen_space_v27(struct apple_dcp *dcp, int tag,
++					    void *out, void *in)
++{
++	const char *gamut;
++	u32 space = 1;
++
++	if (!of_property_read_string(dcp->dev->of_node,
++				     "apple,artwork-display-gamut", &gamut)) {
++		if (!strcmp(gamut, "P3"))
++			space = 2;
++		else if (!strcmp(gamut, "AdobeRGB"))
++			space = 3;
++	}
++	*(__le32 *)out = cpu_to_le32(space);
++	return true;
++}
++
++static bool trampoline_tiling_state_v27(struct apple_dcp *dcp, int tag,
++				       void *out, void *in)
++{
++	const struct dcpep_get_tiling_state_req *req = in;
++	struct dcpep_get_tiling_state_resp *resp = out;
++
++	resp->value = req->value;
++	resp->ret = 0;
++	if (!(req->value_null & 1) &&
++	    dcp_peer_tiling_state_v27(dcp, false, req->event, req->param,
++				      &resp->value)) {
++		resp->ret = 1;
++		return true;
++	}
++	if (!req->value_null && (req->param == 1 || req->param == 11) &&
++	    dcp->connector && !dcp->connector->base.has_tile) {
++		resp->value = 0;
++		resp->ret = 1;
++	}
++	return true;
++}
++
++/* D115: same16-byte input as D114, boolean/padded4 output. */
++static bool trampoline_set_tiling_state_v27(struct apple_dcp *dcp, int tag,
++					   void *out, void *in)
++{
++	const struct dcpep_get_tiling_state_req *req = in;
++	u32 value = req->value;
++
++	*(__le32 *)out = cpu_to_le32(!(req->value_null & 1) &&
++		dcp_peer_tiling_state_v27(dcp, true, req->event, req->param, &value));
++	return true;
++}
++
++#include "iomfb-display-identity-v27.inc"
++#include "iomfb-external-counts-v27.inc"
++#include "iomfb-boolean-properties-v27.inc"
++
++static const iomfb_cb_handler cb_handlers[IOMFB_MAX_CB] = {
++	[0] = dcpep_cb_d000_h17p,
++	[1] = trampoline_true,
++	[2] = trampoline_nop,
++	[3] = trampoline_rt_bandwidth_h17p,
++	[6] = trampoline_set_frame_sync_props_h17p,
++	[100] = iomfbep_cb_match_pmu_service,
++	[101] = trampoline_zero,
++	[102] = trampoline_nop,
++	[104] = trampoline_nop,
++	[106] = trampoline_nop,
++	[107] = trampoline_true,
++	[108] = trampoline_true,
++	[109] = trampoline_true,
++	[110] = trampoline_true,
++	[111] = trampoline_create_backlight_service,
++	[112] = trampoline_true,
++	[113] = trampoline_zero,
++	[116] = trampoline_nop,
++	[117] = trampoline_zero,
++	[118] = trampoline_zero,
++	[119] = trampoline_zero,
++	[114] = trampoline_tiling_state_v27,
++	[115] = trampoline_set_tiling_state_v27,
++	[120] = dcpep_cb_boot_1,
++	[121] = trampoline_false,
++	[122] = trampoline_false,
++	[123] = trampoline_zero,
++	[124] = trampoline_read_edt_data,
++	[126] = trampoline_prop_start,
++	[127] = trampoline_prop_chunk,
++	[128] = trampoline_prop_end,
++	[129] = trampoline_allocate_bandwidth,
++	[130] = trampoline_update_external_counts_v27,
++	[131] = trampoline_get_external_counts_v27,
++	[132] = trampoline_apply_suppression_v27,
++	[133] = trampoline_display_identity_v27,
++	[201] = trampoline_map_piodma,
++	[202] = trampoline_unmap_piodma,
++	[206] = iomfbep_cb_match_pmu_service_2,
++	[207] = iomfbep_cb_match_backlight_service,
++	[204] = trampoline_ideal_screen_space_v27,
++	[208] = trampoline_nop,
++	[209] = trampoline_get_time,
++	[300] = trampoline_pr_publish,
++	[400] = trampoline_get_data_prop_v27,
++	[401] = trampoline_get_uint_prop,
++	[404] = trampoline_nop,
++	[406] = trampoline_set_fx_prop,
++	[408] = trampoline_get_frequency_v27,
++	[411] = trampoline_map_reg,
++	[413] = trampoline_true,
++	[414] = trampoline_sr_set_property_int,
++	[415] = trampoline_true,
++	[451] = trampoline_allocate_buffer_v27,
++	[452] = trampoline_buffer_lifecycle_v27,
++	[453] = trampoline_buffer_lifecycle_v27,
++	[454] = trampoline_release_mem_desc,
++	[552] = trampoline_true,
++	[561] = trampoline_true,
++	[563] = trampoline_true,
++	[565] = trampoline_true,
++	[567] = trampoline_true,
++	[569] = trampoline_set_boolean_property_v27,
++	[572] = trampoline_zero,
++	[574] = iomfbep_cb_video_range_h17p,
++	[575] = trampoline_hotplug_h17p,
++	[576] = trampoline_nop,
++	[586] = iomfbep_cb_create_dfb_surface,
++	[587] = trampoline_nop,
++	[588] = trampoline_nop,
++	[589] = trampoline_swap_info_h17p,
++
++	[592] = trampoline_nop,
++	[594] = trampoline_swap_complete,
++	[596] = trampoline_swap_complete_intent_gated,
++	[597] = trampoline_abort_swap_ap_gated,
++	[598] = trampoline_enable_backlight_message_ap_gated,
++	[599] = trampoline_nop,
++	[601] = trampoline_false,
++	[602] = trampoline_false,
++	[603] = trampoline_nop,
++};
++
++static const struct {
++	u16 input, output;
++} callback_sizes[IOMFB_MAX_CB] = {
++	[0] = { 0x0, 0x4 },
++	[1] = { 0x0, 0x4 },
++	[2] = { 0x0, 0x0 },
++	[3] = { 0x4, 0x14 },
++	[6] = { 0x54, 0x50 },
++	[300] = { 0x10, 0x0 },
++	[100] = { 0x0, 0x0 },
++	[101] = { 0x0, 0x4 },
++	[102] = { 0x44, 0x0 },
++	[104] = { 0x44, 0x0 },
++	[106] = { 0x40, 0x0 },
++	[107] = { 0x0, 0x4 },
++	[108] = { 0x0, 0x4 },
++	[109] = { 0x0, 0x4 },
++	[110] = { 0x0, 0x4 },
++	[111] = { 0x0, 0x4 },
++	[112] = { 0x0, 0x4 },
++	[113] = { 0x1044, 0x1004 },
++	[116] = { 0xc, 0x0 },
++	[117] = { 0x14, 0x4 },
++	[118] = { 0x3e88, 0x4 },
++	[119] = { 0x4, 0x4 },
++	[114] = { 0x10, 0x8 },
++	[115] = { 0x10, 0x4 },
++	[120] = { 0x0, 0x4 },
++	[121] = { 0x0, 0x4 },
++	[122] = { 0x0, 0x4 },
++	[123] = { 0x0, 0x4 },
++	[124] = { 0x64, 0x24 },
++	[126] = { 0x4, 0x4 },
++	[127] = { 0x1008, 0x4 },
++	[128] = { 0x40, 0x4 },
++	[129] = { 0x1c, 0x14 },
++	[130] = { 0x8, 0x0 },
++	[131] = { 0x10, 0xc },
++	[132] = { 0x4, 0x0 },
++	[133] = { 0x0, 0x4 },
++	[201] = { 0xc, 0x10 },
++	[202] = { 0x18, 0x0 },
++	[206] = { 0x0, 0x4 },
++	[207] = { 0x0, 0x4 },
++	[204] = { 0x0, 0x4 },
++	[208] = { 0x4, 0x0 },
++	[209] = { 0x0, 0x8 },
++	[400] = { 0x4c, 0xc04 },
++	[401] = { 0x50, 0xc },
++	[404] = { 0x48, 0x0 },
++	[406] = { 0x48, 0x0 },
++	[408] = { 0x8, 0x8 },
++	[411] = { 0x10, 0x1c },
++	[413] = { 0x1048, 0x4 },
++	[414] = { 0x50, 0x4 },
++	[415] = { 0x4c, 0x4 },
++	[451] = { 0x14, 0x14 },
++	[452] = { 0x8, 0x4 },
++	[453] = { 0x8, 0x4 },
++	[454] = { 0x4, 0x4 },
++	[552] = { 0x1044, 0x4 },
++	[561] = { 0x1044, 0x4 },
++	[563] = { 0x4c, 0x4 },
++	[565] = { 0x48, 0x4 },
++	[567] = { 0x80, 0x4 },
++	[569] = { 0x44, 0x4 },
++	[572] = { 0x4, 0x4 },
++	[574] = { 0x4, 0x8 },
++	[575] = { 0x58, 0x4c },
++	[576] = { 0x4, 0x0 },
++	[586] = { 0x8, 0x4 },
++	[587] = { 0x0, 0x0 },
++	[588] = { 0x18, 0x0 },
++	[589] = { 0xe4, 0xe0 },
++	[592] = { 0x0, 0x0 },
++	[594] = { 0x730, 0x0 },
++	[596] = { 0x14, 0x0 },
++	[597] = { 0x4, 0x0 },
++	[598] = { 0x4, 0x0 },
++	[599] = { 0x4, 0x0 },
++	[601] = { 0x0, 0x4 },
++	[602] = { 0x0, 0x4 },
++	[603] = { 0x0, 0x0 },
++};
++
++bool iomfb_v27_callback_size_valid(unsigned int tag, u32 input, u32 output)
++{
++	if (tag >= ARRAY_SIZE(callback_sizes) || !cb_handlers[tag])
++		return false;
++	return input >= callback_sizes[tag].input &&
++	       output >= callback_sizes[tag].output;
++}
++
++void iomfb_start_v27(struct apple_dcp *dcp)
++{
++	dcp->cb_handlers = cb_handlers;
++	dcp_start_signal(dcp, false, dcp_started, NULL);
++}
++
++#undef DCP_FW_VER
++#undef DCP_FW
+diff --git a/drivers/gpu/drm/apple/iomfb_v27.h b/drivers/gpu/drm/apple/iomfb_v27.h
+new file mode 100644
+index 000000000000..ac1ded5eb047
+--- /dev/null
++++ b/drivers/gpu/drm/apple/iomfb_v27.h
+@@ -0,0 +1,95 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/* Copyright The Asahi Linux Contributors */
++/* Copyright 2026 Aurora Silicon */
++
++#ifndef APPLE_IOMFB_V27_H
++#define APPLE_IOMFB_V27_H
++
++#include "iomfb_h17p.h"
++
++struct dcp_swap_v27 {
++
++	u64 timestamp[7];
++	u64 unk_38;
++
++	u64 debug_info[2];
++
++	u64 event_wait[SWAP_SURFACES];
++	u64 event_signal_on_glass;
++	u64 event_signal[SWAP_SURFACES];
++
++	u32 swap_id;
++
++	u32 surf_ids[SWAP_SURFACES];
++	struct dcp_rect src_rect[SWAP_SURFACES];
++	u32 surf_flags[SWAP_SURFACES];
++	u32 surf_unk[SWAP_SURFACES];
++	struct dcp_rect dst_rect[SWAP_SURFACES];
++	u32 swap_enabled;
++	u32 swap_completed;
++
++	u32 bg_color;
++	u8 reserved_158[0x1fc];
++
++	u8 brightness_update;
++	u8 reserved_355[9];
++	u64 brightness_nits;
++	u8 reserved_366[0x37a];
++} __packed;
++
++struct dcp_surface_v27 {
++	struct dcp_surface base;
++	u8 padding[47];
++} __packed;
++
++struct dcp_swap_submit_req_v27 {
++	struct dcp_swap_v27 swap;
++	struct dcp_surface_v27 surf[SWAP_SURFACES];
++	u64 surf_iova[SWAP_SURFACES];
++	u64 unk_u64_a[SWAP_SURFACES];
++
++	u8 unkbool;
++	u64 unkdouble;
++	u64 unkU64;
++	u8 unkbool2;
++	u32 clear;
++	u32 unkU32Ptr;
++	u8 swap_null;
++	u8 surf_null[SWAP_SURFACES];
++	u8 unkoutbool_null;
++	u8 unknown_pointer_null;
++	u8 unknown_output_null;
++	u8 padding[2];
++} __packed;
++
++struct dcp_swap_submit_resp_v27 {
++	u8 unkoutbool;
++	u32 unkU32out;
++	u32 ret;
++	u8 padding[3];
++} __packed;
++
++static_assert(sizeof(struct dcp_swap_v27) == 0x6e0);
++static_assert(sizeof(struct dcp_surface_v27) == 0x22c);
++static_assert(sizeof(struct dcp_swap_submit_req_v27) == 0xff4);
++static_assert(offsetof(struct dcp_swap_submit_req_v27, surf) == 0x6e0);
++static_assert(offsetof(struct dcp_swap_submit_req_v27, surf_iova) == 0xf90);
++static_assert(offsetof(struct dcp_swap_submit_req_v27, swap_null) == 0xfea);
++static_assert(offsetof(struct dcp_swap_v27, brightness_update) == 0x354);
++static_assert(offsetof(struct dcp_swap_v27, brightness_nits) == 0x35e);
++
++void iomfb_serialize_present_v27(struct dcp_swap_submit_req_v27 *wire,
++				const struct dcp_swap_submit_req_h17p *request);
++bool iomfb_v27_callback_size_valid(unsigned int tag, u32 input, u32 output);
++void iomfb_firmware_state_cleanup_v27(void *data);
++int iomfb_modeset_v27(struct apple_dcp *dcp, struct drm_crtc_state *state);
++void iomfb_flush_v27(struct apple_dcp *dcp, struct drm_crtc *crtc,
++		     struct drm_atomic_commit *commit);
++void iomfb_start_v27(struct apple_dcp *dcp);
++void iomfb_shutdown_v27(struct apple_dcp *dcp);
++void iomfb_poweron_v27(struct apple_dcp *dcp);
++void iomfb_poweroff_v27(struct apple_dcp *dcp);
++void iomfb_sleep_v27(struct apple_dcp *dcp);
++void iomfb_present_backlight_v27(struct apple_dcp *dcp);
++
++#endif
+diff --git a/drivers/gpu/drm/apple/parser.c b/drivers/gpu/drm/apple/parser.c
+index 6e48211d69f5..d6cf8440a6cb 100644
+--- a/drivers/gpu/drm/apple/parser.c
++++ b/drivers/gpu/drm/apple/parser.c
+@@ -15,6 +15,7 @@
+ 
+ #include "parser.h"
+ #include "dcp-refresh.h"
++#include "dcp-peer-v27.h"
+ #include "trace.h"
+ 
+ #define DCP_PARSE_HEADER 0xd3
+@@ -1761,12 +1762,57 @@ int parse_panel_metadata(struct dcp_parse_ctx *handle, struct dcp_display_metada
+ 	return 0;
+ }
+ 
++int parse_dptx_caps(struct dcp_parse_ctx *handle, struct dcp_dptx_caps *caps)
++{
++	struct iterator it;
++	struct dcp_dptx_caps parsed = {};
++	int ret = 0;
++
++	ret = iterator_begin(handle, &it, true);
++	if (ret)
++		return ret;
++	for (; it.idx < it.len; ++it.idx) {
++		u32 *field = NULL;
++		char *key = parse_string(it.handle);
++		s64 value;
++
++		if (IS_ERR(key))
++			return PTR_ERR(key);
++		if (!strcmp(key, "MaxPixelWidth"))
++			field = &parsed.width;
++		else if (!strcmp(key, "MaxTotalPixelRate"))
++			field = &parsed.total_rate;
++		else if (!strcmp(key, "MaxActivePixelRate"))
++			field = &parsed.active_rate;
++		kfree(key);
++		if (!field) {
++			ret = skip(it.handle);
++			if (ret)
++				return ret;
++			if (it.handle->pos > it.handle->len)
++				return -EINVAL;
++			continue;
++		}
++		if (*field)
++			return -EINVAL;
++		ret = parse_int_bound(it.handle, &value, 1, U32_MAX);
++		if (ret)
++			return ret;
++		*field = value;
++	}
++	if (!parsed.width || !parsed.total_rate || !parsed.active_rate)
++		return -ENOENT;
++	*caps = parsed;
++	return 0;
++}
++
+ int parse_epic_service_init(struct dcp_parse_ctx *handle, const char **name,
+ 			    const char **class, s64 *unit, bool h17p_keys)
+ {
+ 	int ret = 0;
+ 	struct iterator it;
+ 	bool parsed_unit = false;
++	bool explicit_unit = false;
+ 	bool parsed_name = false;
+ 	bool parsed_class = false;
+ 
+@@ -1814,10 +1860,12 @@ int parse_epic_service_init(struct dcp_parse_ctx *handle, const char **name,
+ 			else
+ 				parsed_class = true;
+ 		} else if (!strcmp(key, "EPICUnit") ||
+-			   (h17p_keys && !strcmp(key, "interface-id"))) {
++			   (h17p_keys && !explicit_unit && !strcmp(key, "interface-id"))) {
+ 			ret = parse_int(it.handle, unit);
+-			if (!ret)
++			if (!ret) {
+ 				parsed_unit = true;
++				explicit_unit |= !strcmp(key, "EPICUnit");
++			}
+ 		} else {
+ 			ret = skip(it.handle);
+ 		}
+diff --git a/drivers/gpu/drm/apple/parser.h b/drivers/gpu/drm/apple/parser.h
+index 3fa384ecf68c..5fba2615c24a 100644
+--- a/drivers/gpu/drm/apple/parser.h
++++ b/drivers/gpu/drm/apple/parser.h
+@@ -17,6 +17,7 @@ typedef void (*dcp_identity_key_fn)(void *data, const char *key, u32 key_len,
+ int parse_identity_keys(const void *blob, size_t len, dcp_identity_key_fn emit, void *data);
+ struct apple_connector;
+ struct apple_dcp_typec_route;
++struct dcp_dptx_caps;
+ 
+ struct dcp_parse_ctx {
+ 	struct apple_dcp *dcp;
+@@ -225,6 +226,7 @@ int parse_display_attributes(struct dcp_parse_ctx *handle, int *width_mm,
+ 			     int *height_mm, bool *backlight_control);
+ int parse_epic_service_init(struct dcp_parse_ctx *handle, const char **name,
+ 			    const char **class, s64 *unit, bool h17p_keys);
++int parse_dptx_caps(struct dcp_parse_ctx *handle, struct dcp_dptx_caps *caps);
+ 
+ struct dcp_sound_format_mask {
+ 	u64 formats;			/* SNDRV_PCM_FMTBIT_* */
+diff --git a/drivers/gpu/drm/apple/systemep.c b/drivers/gpu/drm/apple/systemep.c
+index 38f667e11451..cbd243c4c12b 100644
+--- a/drivers/gpu/drm/apple/systemep.c
++++ b/drivers/gpu/drm/apple/systemep.c
+@@ -108,7 +108,7 @@ static int powerlog_report(struct apple_epic_service *service, enum epic_subtype
+ 	dev_dbg(dcp->dev, "systemep: mNits event: Nits: %u.%03u, iDAC: %u\n",
+ 		mnits.millinits / 1000, mnits.millinits % 1000, mnits.idac);
+ have_mnits:
+-	if ((dcp->fw_compat == DCP_FIRMWARE_H17P &&
++	if (((dcp->fw_compat == DCP_FIRMWARE_H17P || dcp->fw_compat == DCP_FIRMWARE_V_27_0) &&
+ 	     dcp->hw.iomfb_method_profile != DCP_IOMFB_METHODS_H17G) ||
+ 	    dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP) {
+ 		if (!dcp_has_panel(dcp))
+diff --git a/drivers/gpu/drm/apple/version_utils.h b/drivers/gpu/drm/apple/version_utils.h
+index 8851ee57c2da..8cf36e39d3f2 100644
+--- a/drivers/gpu/drm/apple/version_utils.h
++++ b/drivers/gpu/drm/apple/version_utils.h
+@@ -61,6 +61,7 @@ enum dcp_firmware_version {
+ 	 * (iomfb_v26_6_desktop.c); not the J613 DCPLink DCP_FIRMWARE_V_26_6.
+ 	 */
+ 	DCP_FIRMWARE_V_26_6_DESKTOP,
++	DCP_FIRMWARE_V_27_0,
+ };
+ 
+ #endif /*__APPLE_VERSION_UTILS_H__*/
+-- 
+2.56.0
+

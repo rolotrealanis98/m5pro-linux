@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 09:18:59 -0800
+Subject: [PATCH 04/12] iommu/apple-dart: Support T6050's boot-locked display
+ DARTs
+
+On the M5 Ultra Mac Studio (J775D) the boot loader leaves every display
+DART locked on its own page tables. apple-dart now keeps the firmware's
+mappings there and maps Linux's beside them, so the display co-processor
+can be adopted with no DART fault.
+
+On T6050 the boot loader leaves every display DART locked on its own
+four-level roots (dart-dcpextN stream 23, dart-dispextN streams 0 and
+16), with no reserved-table handoff. That is the case fw_mirror already
+covers on T6041, T8140 and T8142: firmware's root slots are kept and
+Linux maps only into the slots it owns. Add apple,t6050-dart to that
+list.
+
+Only the bare-metal apple-dart driver reads this; an APIF guest's DARTs
+(apple,dart-apif) are a separate driver and unchanged.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+
+(cherry picked from commit b379d8d8a19288ad800724d94f6699b93c9be720)
+---
+ drivers/iommu/apple-dart.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/iommu/apple-dart.c b/drivers/iommu/apple-dart.c
+index 1234b4a771e7..e9667e8a3d41 100644
+--- a/drivers/iommu/apple-dart.c
++++ b/drivers/iommu/apple-dart.c
+@@ -4494,9 +4494,14 @@ static int apple_dart_probe(struct platform_device *pdev)
+ 		dart->locked = apple_dart_is_locked(dart);
+ 	/* Reserved table-page lifetime requires the matched three-level loader. */
+ 	dart->fw_handoff = apple_dart_fw_handoff_enabled(dart);
+-	/* Preserve our retained-root path when no reserved-table handoff exists. */
++	/*
++	 * Preserve our retained-root path when no reserved-table handoff exists.
++	 * T6050's boot loader leaves every display DART locked on four-level
++	 * roots of its own (dart-dcpextN SID 23, dart-dispextN SIDs 0 and 16).
++	 */
+ 	dart->fw_mirror = dart->locked && !dart->fw_handoff &&
+ 		(of_device_is_compatible(dev->of_node, "apple,t6041-dart") ||
++		 of_device_is_compatible(dev->of_node, "apple,t6050-dart") ||
+ 		 of_device_is_compatible(dev->of_node, "apple,t8140-dart") ||
+ 		 of_device_is_compatible(dev->of_node, "apple,t8142-dart"));
+ 	/*
+-- 
+2.56.0
+
