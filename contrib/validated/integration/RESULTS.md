@@ -1749,3 +1749,12 @@ no `chosen.m5pro,n1` variable; `chosen.m5pro,gpu=1`; battery on. 60 s settle rul
 - The loader no longer trains the N1 on the daily; m1n1's N1 training (0023, 0025-0027, the n1 modes) is now an
   optional path kept for the omacom series and #65.
 - Rollback: the twin on the prev slot; the previous GPU daily `e2b-daily-20261107-fd4b3b9e.bin` is kept on the Studio.
+
+## RESTART-EXP3: omacom-loader session, plain reboots (2026-11-07 23:25 UTC) — all clean
+
+From the review-fixed omacom loader session (m1n1 02785a3 + daily kernel): three `systemctl reboot` with no ESP write,
+each after ~30 s of Wi-Fi traffic: all primary, pmu `300000`, 73-75 s. The "immediate" arm did not run as intended: the
+restore of the new daily went through esp-put, whose default settle is now 60 s, so it was a write + 60 s case, and it
+came back clean (primary, 300000). Tally after esp-put with the 60 s settle: 6 of 6 restores clean across the
+omacom-loader, power-kernel and daily sessions; with the old ~1 s gap, 4 of 11 were counted or failed. Exp4 (busy
+disk without an ESP write, and write + 60 s, three each) is running.
