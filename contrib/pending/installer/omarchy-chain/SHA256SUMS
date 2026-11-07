@@ -1,0 +1,24 @@
+# inputs (pinned)
+bb8c79ee1d361a80e8c1e5e9844f0563fd578494bd467abc1c4549dfa9ef7715  uboot-aurora-2026.07.aurora6-1-aarch64.pkg.tar.zst
+fa4891894ac49172e7c5f3409883872d768d65b2da55a6a058d80bce3a07f52f  m1n1-aurora-1.6.1.aurora22-1-aarch64.pkg.tar.zst
+09d6f6bc8990bb7b53688b06b2ab538e453e129fb35406d6a6bd5bb053f25642  limine-12.9.6-1-aarch64.pkg.tar.xz
+d5f2a66b48bda4ac5bd4c4346224336527f45d244b62c190642682e05207592e  asahi-scripts-20261023-1-any.pkg.tar.xz
+5601a44e7dc03d6ce8f296efe4b5cb3cfd0ee765ed98eb7191b72a4490626eab  linux-aurora-7.2.11.aurora15-1-aarch64.pkg.tar.zst
+9c3db1a504c5eeac54fadb1dadb45ac5ea36316c39fadb73836102ac4bf125f0  uboot-aurora/quiet-console.patch (omarchy-pkgs ed5bf6dd)
+2262575e2a542b254bbe6b6c8bdb00f70b6fe9b3fe6772e9b13a537d91ee8ffd  asahi-scripts-20261023-1:update-m1n1
+296d34003111210e7222470399a8daa2933d7fd4d9104cfae7873a064860f489  asahi-scripts-20261023-1:functions.sh
+659af884741861a6edd68b364d4f9ec04d624fe761dd0163e81964dafe136e8c  t6050-j716s.dtb (next-daily)
+0f302e9a7a05be12884d38e2aff794ec64ae094619eb9d06df8e5bac6e5106fb  Image-7.3.0-ga0f2f30c967b.gz
+cffbbaf1030d224ca092c586aa25ab0ef2a93db5a1e2701aa3bd0d5618b2fbfa  initramfs-ftab.cpio.gz (private)
+# build outputs (build.sh)
+e3c2374f1f30065fe27979d35dd0e9807151b60a4fba74fe3b183ac899e22599  m1n1-test.bin
+7b7e7f39c8c7d4f46da9cfa6212ef82471a8a7d4884f4256744416cdba3008ae  m1n1-ref.bin
+8036ff2eb5adda296c8fb20a87b15ea23e9c44e837e968954ef9e0aa8a7298a9  u-boot-test-nodtb.bin
+395581411174f864c609383aad63a81671344366ab4a26a27015020ee6e0f025  u-boot-omarchy-nodtb.bin
+2591da1facb7815aa68081eeb1f285b3b818cb2b182e747860496d38d3b275ae  boot-b1.bin
+0b0cc9b4faaf3b3bf274de26b58b45aae88a14a92f827f3115aee27f857b6f00  boot-ref.bin
+# ESP files (mk-esp.py)
+2591da1facb7815aa68081eeb1f285b3b818cb2b182e747860496d38d3b275ae  m1n1/boot.bin
+11288bad5042853c8fbad27ddf65f9bc53675959a87e0e67908a173ce1571479  EFI/BOOT/BOOTAA64.EFI
+9d6ad3e7a2bea5d3faa50a459989a10bfbb92e4bb944739f80c0fc9483210272  limine.conf
+01c202b74f6cc986eccde16f0236eb10fa283bb7224d078b229852eedbadfb51  m5chain/Image
