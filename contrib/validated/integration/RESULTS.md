@@ -1330,3 +1330,22 @@ the nine coprocessor `__OS_LOG` segments (the one thing this loader does on ever
 Retry once after the E2 chain; if it falls back again, the DCP loader needs the panel or a trace before stages B0/B
 (which use the same loader) can mean anything.
 
+### Result (GPU E2b, 2026-11-07 18:42-18:46 UTC, loop, nobody at the machine): THE GPU FIRMWARE BOOTS
+
+Payload `e2b-gpu-20261107-3f2fec04` (= E2a + `chosen.m5pro,gpu=1`). First boot of the file, primary slot, self-test
+"network OK", 18 CPUs, N1 adopted, wlan0 associated.
+- m1n1: `FDT: GPU: T6050: chosen.m5pro,gpu=1: GPU hand-off`; ttbs/pagetables/handoff/l2-pagetables, fw-text 0xa4000,
+  fw-data 0x184000 all "outside Linux RAM"; sgx 0x2300000000+0x3fdc000; mailboxes GFX/GFX1 from the ADT.
+- Kernel: six reserved-memory regions; `always-on domain afr/gfx is off at boot, turning it on`; `aurora 2300000000.gpu:
+  Probing...`; `GPU ID registers: 0xb031100 0xb0a00 0x11020a 0x40404 0x1320311 0x400c1809`; `GPU firmware build:
+  26C5035r for T6050 G17S` -> `GPU firmware: 27.3 (26C5035r), G17S`; `GPU idle power-off delay: 2 ms`; MMU initialised,
+  IO maps; `RTKit: Initializing (protocol version 12)` x2; `M5 firmware graph ready: private +0x178000, shared +0x34000`;
+  **`M5 primary initdata acknowledged`**, **`M5 secondary initdata acknowledged`**, **`M5 firmware opening records
+  retired`**, **`[drm] Initialized aurora 1.0.0 for 2300000000.gpu on minor 1`**; `/dev/dri/card1` (driver aurora) and
+  `/dev/dri/renderD128`; power domains gfx/afr/gpx on, cs off; mailboxes bound to apple-mailbox; no crash, no SError,
+  no DART/UAT fault, no RCU stall; stable for the 2+ minutes until the daily was restored.
+- The 27.2+ InitData graph (A/B2/C/D) is accepted by the 27.3 beta 1 firmware on the first try. `e2-readback.sh`
+  says STOP-FAULT on one line that is the harmless `printk: debug: skip boot console de-registration.` (same false
+  positive as E2a): treat the run as **PASS E2**. Next: userspace (Mesa for G17 under the `aurora` DRM name), a soak,
+  then the GPU kernel as the daily. Logs: `~/Work/agents/gpu-e2/logs/e2b/` (private).
+
