@@ -1,0 +1,23 @@
+### properties (< new, > ref)
+770a771,776
+> /soc@200000000/power-management@280600000/power-controller@140: #power-domain-cells = <0x0>
+> /soc@200000000/power-management@280600000/power-controller@140: #reset-cells = <0x0>
+> /soc@200000000/power-management@280600000/power-controller@140: (node)
+> /soc@200000000/power-management@280600000/power-controller@140: compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate"
+> /soc@200000000/power-management@280600000/power-controller@140: label = "ans"
+> /soc@200000000/power-management@280600000/power-controller@140: reg = <0x140 0x4>
+957c963
+< /soc@200000000/reset-controller@280620000: compatible = "apple,t6050-cio-reset"
+---
+> /soc@200000000/reset-controller@280620000: compatible = "apple,t6050-cio-reset", "apple,t8142-cio-reset"
+959d964
+< /soc@200000000/reset-controller@280620000: status = "okay"
+987c992
+< /soc@200000000/smc@28c600000: compatible = "apple,t6050-smc"
+---
+> /soc@200000000/smc@28c600000: compatible = "apple,t6050-smc", "apple,t8103-smc"
+### child order (< new, > ref)
+6c6
+< /soc@200000000/power-management@280600000: power-controller@210 power-controller@238 power-controller@240 power-controller@248 power-controller@2f8 power-controller@410 power-controller@418 power-controller@420
+---
+> /soc@200000000/power-management@280600000: power-controller@140 power-controller@210 power-controller@238 power-controller@240 power-controller@248 power-controller@2f8 power-controller@410 power-controller@418 power-controller@420

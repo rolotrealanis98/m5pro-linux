@@ -1,0 +1,98 @@
+From c0135531025aa532288a3ab7addc7551f9472bd3 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 11:59:40 -0800
+Subject: [PATCH 40/58] Bluetooth: btcentauri: Take the factory address from
+ local-bd-address
+
+Boot loaders fill the standard local-bd-address property from the
+bluetooth0 alias. Take the factory address from it (least significant
+byte first), falling back to local-mac-address, and let the binding
+accept either.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+
+(cherry picked from commit 562736dae347662b9d6ada221ee3fcb3fea9dba4)
+[n1-wifi: on aurora-j716s this driver replaces integration's J813/J873 N1 driver files]
+---
+ .../net/bluetooth/apple,centauri.yaml         | 12 +++++++-
+ drivers/bluetooth/btcentauri.c                | 28 ++++++++++++++++---
+ 2 files changed, 35 insertions(+), 5 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/net/bluetooth/apple,centauri.yaml b/Documentation/devicetree/bindings/net/bluetooth/apple,centauri.yaml
+index f8a1895145da..6b1a33cac7aa 100644
+--- a/Documentation/devicetree/bindings/net/bluetooth/apple,centauri.yaml
++++ b/Documentation/devicetree/bindings/net/bluetooth/apple,centauri.yaml
+@@ -24,15 +24,25 @@ properties:
+     maxItems: 1
+     description: Standard five-cell PCI function address
+ 
++  local-bd-address:
++    $ref: /schemas/types.yaml#/definitions/uint8-array
++    minItems: 6
++    maxItems: 6
++    description: Factory Bluetooth public address, least significant byte
++      first (the standard Bluetooth property a boot loader fills)
++
+   local-mac-address:
+     $ref: /schemas/types.yaml#/definitions/uint8-array
+     minItems: 6
+     maxItems: 6
+     description: Factory Bluetooth public address in network byte order
+ 
++oneOf:
++  - required: [local-bd-address]
++  - required: [local-mac-address]
++
+ required:
+   - compatible
+   - reg
+-  - local-mac-address
+ 
+ additionalProperties: false
+diff --git a/drivers/bluetooth/btcentauri.c b/drivers/bluetooth/btcentauri.c
+index 6f500c5e1526..9e0e2d786356 100644
+--- a/drivers/bluetooth/btcentauri.c
++++ b/drivers/bluetooth/btcentauri.c
+@@ -618,16 +618,36 @@ static int cen_hci_post_init(struct hci_dev *hdev)
+ 	return 0;
+ }
+ 
++/*
++ * The factory address in network byte order, for the firmware's provisioning command: from
++ * the standard local-bd-address (least significant byte first, as boot loaders fill it from
++ * the bluetooth0 alias), else from local-mac-address (already in network order).
++ */
++static int cen_bt_address(struct device *dev, u8 address[6])
++{
++	u8 bd[6];
++	int i, ret;
++
++	if (device_property_count_u8(dev, "local-bd-address") == 6) {
++		ret = device_property_read_u8_array(dev, "local-bd-address", bd, sizeof(bd));
++		if (ret)
++			return ret;
++		for (i = 0; i < 6; i++)
++			address[i] = bd[5 - i];
++		return 0;
++	}
++	if (device_property_count_u8(dev, "local-mac-address") != 6)
++		return -EINVAL;
++	return device_property_read_u8_array(dev, "local-mac-address", address, 6);
++}
++
+ static int cen_hci_setup(struct hci_dev *hdev)
+ {
+ 	struct cen_bt *bt = hci_get_drvdata(hdev);
+ 	u8 address[6], init_done[16], seed[24];
+ 	int ret;
+ 
+-	if (device_property_count_u8(&bt->pdev->dev, "local-mac-address") != 6)
+-		return -EINVAL;
+-	ret = device_property_read_u8_array(&bt->pdev->dev, "local-mac-address",
+-					    address, sizeof(address));
++	ret = cen_bt_address(&bt->pdev->dev, address);
+ 	if (ret)
+ 		return ret;
+ 	if (is_zero_ether_addr(address) || is_broadcast_ether_addr(address))

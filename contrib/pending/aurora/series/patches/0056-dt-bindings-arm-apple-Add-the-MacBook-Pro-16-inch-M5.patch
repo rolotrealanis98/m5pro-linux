@@ -1,0 +1,32 @@
+From 0f38293dfe54a5502bd97f0b592157d71ca24b69 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 20:58:21 -0500
+Subject: [PATCH 56/58] dt-bindings: arm: apple: Add the MacBook Pro (16-inch,
+ M5 Pro)
+
+The J716s (Mac17,8 in its ADT) is a MacBook Pro with one T6050 die, the
+M5 Pro. Add its board compatible.
+
+Assisted-by: LLM
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Documentation/devicetree/bindings/arm/apple.yaml | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/arm/apple.yaml b/Documentation/devicetree/bindings/arm/apple.yaml
+index f3b2dfbc3ef9..e7fdf573f86f 100644
+--- a/Documentation/devicetree/bindings/arm/apple.yaml
++++ b/Documentation/devicetree/bindings/arm/apple.yaml
+@@ -472,6 +472,12 @@ properties:
+           - const: apple,t6041
+           - const: apple,arm-platform
+ 
++      - description: Apple M5 Pro SoC based platforms
++        items:
++          - const: apple,j716s  # MacBook Pro (16-inch, M5 Pro, 2026)
++          - const: apple,t6050
++          - const: apple,arm-platform
++
+       - description: Apple M5 Ultra SoC based platforms
+         items:
+           - const: apple,j775d  # Mac Studio (M5 Ultra, 2026)

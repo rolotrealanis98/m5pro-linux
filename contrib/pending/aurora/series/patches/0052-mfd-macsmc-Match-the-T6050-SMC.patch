@@ -1,0 +1,52 @@
+From 42f2654041acee9149b634a46316a48433b11d98 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 20:55:57 -0500
+Subject: [PATCH 52/58] mfd: macsmc: Match the T6050 SMC
+
+t6050-die0.dtsi describes the SMC as "apple,t6050-smc" alone, which no
+driver matches in this tree, so on the J716s (MacBook Pro 16-inch, M5 Pro)
+there was no SMC: no RTC, no power button or lid events, no reboot or
+power-off, no SMC GPIOs (the trackpad's AFE reset is one of them).
+
+Match the compatible in the driver. It takes the generic path, as the
+"apple,t8103-smc" fallback did, which is how the J716s has been booting.
+The j716c/t6050-platform branch matches the same string and adds a T6050
+cell list on top; this entry is the part of that which a board needs
+today, and the binding entry has the same shape as there.
+
+Tested on J716s through the equivalent "apple,t8103-smc" fallback: RTC,
+SMC input, reboot, macsmc-gpio and macsmc-low-gpio probe, and the
+trackpad's AFE reset on gp1c works. Not built with this entry yet.
+
+Assisted-by: LLM
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Documentation/devicetree/bindings/mfd/apple,smc.yaml | 2 ++
+ drivers/mfd/macsmc.c                                 | 1 +
+ 2 files changed, 3 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/mfd/apple,smc.yaml b/Documentation/devicetree/bindings/mfd/apple,smc.yaml
+index 8641aaeb432e..72429b1c3379 100644
+--- a/Documentation/devicetree/bindings/mfd/apple,smc.yaml
++++ b/Documentation/devicetree/bindings/mfd/apple,smc.yaml
+@@ -18,6 +18,8 @@ properties:
+     oneOf:
+       - description: T8152 SMC with read-only hardware monitoring.
+         const: apple,t8152-smc
++      - description: T6050 SMC, matched by the driver on its own
++        const: apple,t6050-smc
+       - items:
+           - enum:
+               - apple,t6020-smc
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index 546e5cdbb72a..e60e4dc160d9 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -585,6 +585,7 @@ static int apple_smc_probe(struct platform_device *pdev)
+ 
+ static const struct of_device_id apple_smc_of_match[] = {
+ 	{ .compatible = "apple,t8152-smc" },
++	{ .compatible = "apple,t6050-smc" },
+ 	{ .compatible = "apple,t8103-smc" },
+ 	{ .compatible = "apple,smc" },
+ 	{},

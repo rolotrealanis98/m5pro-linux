@@ -1,0 +1,38 @@
+From ab0b99a211e3a9dbf5f0796b8a7cb1965862fe35 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 02:23:17 -0800
+Subject: [PATCH 13/58] dt-bindings: iommu: apple,sart: Add the T6050 SART
+
+The T6050 (M5 Ultra) SART keeps SARTv3's entries but moves the address
+and size arrays, so it is not compatible with apple,t6000-sart and has
+no fallback.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ Documentation/devicetree/bindings/iommu/apple,sart.yaml | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/iommu/apple,sart.yaml b/Documentation/devicetree/bindings/iommu/apple,sart.yaml
+index e6482453d6da..19ffe1bf167f 100644
+--- a/Documentation/devicetree/bindings/iommu/apple,sart.yaml
++++ b/Documentation/devicetree/bindings/iommu/apple,sart.yaml
+@@ -26,6 +26,9 @@ description:
+   SART3, first seen in M1 Pro/Max, extends both the address space and filter
+   entry size to 42 bit.
+ 
++  SART4, seen on M5 Ultra (T6050), keeps SART3's entries but moves the
++  address and size arrays, so it has no SART3 fallback.
++
+ properties:
+   compatible:
+     oneOf:
+@@ -43,6 +46,7 @@ properties:
+           - const: apple,t6000-sart
+       - enum:
+           - apple,t6000-sart
++          - apple,t6050-sart
+           - apple,t8015-sart
+           - apple,t8103-sart
+ 

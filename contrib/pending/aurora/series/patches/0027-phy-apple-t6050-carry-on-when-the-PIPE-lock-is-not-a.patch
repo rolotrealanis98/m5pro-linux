@@ -1,0 +1,88 @@
+From 082bf28a9190f824663d2c8dbfc4b35fd92f32b9 Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Tue, 3 Nov 2026 22:35:50 -0500
+Subject: [PATCH 27/58] phy: apple: t6050: carry on when the PIPE lock is not
+ acknowledged
+
+On J716c the PIPE handler does not acknowledge the lock request when
+the controller switches from the dummy producer to USB3, even with the
+dummy PHY behind the mux enabled. The switch then fails and the port
+falls back to USB2.
+
+The switch works without the ACK. Wait 6 ms for the lock ACK, and for
+an unlock ACK to clear, then log the PIPE handler state if it is
+missing and complete the switch. With this, USB3 comes up on that
+port.
+
+Developed with Claude Code.
+
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ drivers/phy/apple/atc-t6050-combo.h                | 12 +++++++++++-
+ .../phy/apple/usb-t6050/apple_t6050_usb3_pipe.h    | 14 ++++++--------
+ 2 files changed, 17 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/phy/apple/atc-t6050-combo.h b/drivers/phy/apple/atc-t6050-combo.h
+index d4aa80de61ac..1da782c4f9de 100644
+--- a/drivers/phy/apple/atc-t6050-combo.h
++++ b/drivers/phy/apple/atc-t6050-combo.h
+@@ -18,9 +18,19 @@ static int combo_poll(void *ctx, unsigned int bank, unsigned int offset,
+ {
+ 	struct t6050_dp *dp = ctx;
+ 	u32 value;
+-	return readl_poll_timeout(dp->banks[bank] + offset, value,
++	int ret = readl_poll_timeout(dp->banks[bank] + offset, value,
+ 		(value & mask) == expected,
+ 		(bank == 44 || bank == 35 || usec <= 1000) ? 1 : 1000, usec);
++
++	/* The PIPE switch carries on without the lock ACK; say so. */
++	if (ret && bank == 44 && offset == 0x14 && usec == 6000)
++		dev_warn(dp->dev,
++			 "PIPE %slock not acknowledged; continuing (override=%x values=%x mux=%x req=%x ack=%x aon=%x nonsel=%x)\n",
++			 expected ? "" : "un", readl(dp->banks[44]),
++			 readl(dp->banks[44] + 4), readl(dp->banks[44] + 0xc),
++			 readl(dp->banks[44] + 0x10), value,
++			 readl(dp->banks[44] + 0x1c), readl(dp->banks[44] + 0x20));
++	return ret;
+ }
+ static void combo_delay(void *ctx, unsigned int usec) { udelay(usec); }
+ static void combo_pause(void *ctx, unsigned int nsec) { ndelay(nsec); }
+diff --git a/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h b/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h
+index 8414ff1cebb6..f5962152444b 100644
+--- a/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h
++++ b/drivers/phy/apple/usb-t6050/apple_t6050_usb3_pipe.h
+@@ -39,9 +39,10 @@ apple_t6050_usb3_pipe_cold_dummy(const struct apple_t6050_usb_io *io)
+ }
+ 
+ /*
+- * Returns 0, or the failing step: -2 the PIPE was not parked on a known producer, -3 the lock was
+- * not acknowledged, -4..-6 the BIST, -7 the mux did not read back USB3, -8 the BIST did not stop,
+- * -9 the lock release was not acknowledged. Up to -6 the mux is untouched.
++ * Returns 0, or the failing step: -2 the PIPE was not parked on a known producer, -4..-6 the
++ * BIST, -7 the mux did not read back USB3, -8 the BIST did not stop. Up to -6 the mux is
++ * untouched. A lock or unlock that is not acknowledged within 6 ms is not fatal: it is logged
++ * and the switch carries on. On J716c the lock ACK does not come.
+  */
+ static inline int
+ apple_t6050_usb3_pipe_switch(const struct apple_t6050_usb_io *io)
+@@ -62,9 +63,7 @@ apple_t6050_usb3_pipe_switch(const struct apple_t6050_usb_io *io)
+     apple_t6050_usb_mask(io, 44, 0x00, 1, 1);
+     apple_t6050_usb_mask(io, 44, 0x10, 1, 1);
+     locked = 1;
+-    result = -3;
+-    if (io->poll(io->context, 44, 0x14, 1, 1, 6000))
+-        goto out;
++    io->poll(io->context, 44, 0x14, 1, 1, 6000);
+ 
+     bist = 1;
+     result = -4;
+@@ -92,8 +91,7 @@ apple_t6050_usb3_pipe_switch(const struct apple_t6050_usb_io *io)
+     apple_t6050_usb_mask(io, 44, 0x00, 5, 0);
+     if (locked) {
+         apple_t6050_usb_mask(io, 44, 0x10, 1, 0);
+-        if (io->poll(io->context, 44, 0x14, 1, 0, 6000) && !result)
+-            result = -9;
++        io->poll(io->context, 44, 0x14, 1, 0, 6000);
+     }
+     return result;
+ }

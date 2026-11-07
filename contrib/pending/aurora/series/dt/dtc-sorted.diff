@@ -1,0 +1,57 @@
+--- /private/tmp/claude-501/-Users-rolo-Documents-GitHub/19de95f5-8b2b-5988-b9e9-331f62bc639f/scratchpad/b.dts	2026-11-06 21:08:55
++++ /private/tmp/claude-501/-Users-rolo-Documents-GitHub/19de95f5-8b2b-5988-b9e9-331f62bc639f/scratchpad/a.dts	2026-11-06 21:08:55
+@@ -632,7 +632,7 @@
+ 			reg-names = "irq";
+ 
+ 			input@8000 {
+-				apple,afe-reset-gpios = <0x51 0x1c 0x01>;
++				apple,afe-reset-gpios = <0x48 0x1c 0x01>;
+ 				apple,fifo-size = <0x800>;
+ 				apple,helper-cpu = <0x47>;
+ 				compatible = "apple,dockchannel-hid";
+@@ -1087,15 +1087,6 @@
+ 			#size-cells = <0x01>;
+ 			compatible = "apple,t6050-pmgr", "apple,t8103-pmgr", "syscon", "simple-mfd";
+ 			reg = <0x02 0x80600000 0x00 0x4000>;
+-
+-			power-controller@140 {
+-				#power-domain-cells = <0x00>;
+-				#reset-cells = <0x00>;
+-				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+-				label = "ans";
+-				phandle = <0x50>;
+-				reg = <0x140 0x04>;
+-			};
+ 
+ 			power-controller@210 {
+ 				#power-domain-cells = <0x00>;
+@@ -1356,9 +1347,10 @@
+ 
+ 		reset-controller@280620000 {
+ 			#reset-cells = <0x01>;
+-			compatible = "apple,t6050-cio-reset", "apple,t8142-cio-reset";
++			compatible = "apple,t6050-cio-reset";
+ 			phandle = <0x31>;
+ 			reg = <0x02 0x80620000 0x00 0x4000>;
++			status = "okay";
+ 		};
+ 
+ 		serial@288e3c000 {
+@@ -1373,7 +1365,7 @@
+ 		};
+ 
+ 		smc@28c600000 {
+-			compatible = "apple,t6050-smc", "apple,t8103-smc";
++			compatible = "apple,t6050-smc";
+ 			mboxes = <0x20>;
+ 			reg = <0x02 0x8c600000 0x00 0x4000 0x02 0x8de00000 0x00 0x140000>;
+ 			reg-names = "smc", "sram";
+@@ -1382,7 +1374,7 @@
+ 				#gpio-cells = <0x02>;
+ 				compatible = "apple,smc-low-gpio";
+ 				gpio-controller;
+-				phandle = <0x51>;
++				phandle = <0x48>;
+ 			};
+ 
+ 			hwmon {

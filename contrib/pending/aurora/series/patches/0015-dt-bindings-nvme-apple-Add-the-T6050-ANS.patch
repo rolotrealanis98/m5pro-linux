@@ -1,0 +1,69 @@
+From ca0e15459340fb485b7282145e3b588855b57e6f Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 02:23:18 -0800
+Subject: [PATCH 15/58] dt-bindings: nvme: apple: Add the T6050 ANS
+
+Add apple,t6050-nvme-ans2: T6040's three-region layout (nvme, ans,
+nvmmu) and power domains. The T6050 ANS is adopted running and never
+reset through PMGR, so it requires no reset.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ .../bindings/nvme/apple,nvme-ans.yaml         | 24 ++++++++++++++++---
+ 1 file changed, 21 insertions(+), 3 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/nvme/apple,nvme-ans.yaml b/Documentation/devicetree/bindings/nvme/apple,nvme-ans.yaml
+index a6dafcf59428..181f0ed46dfa 100644
+--- a/Documentation/devicetree/bindings/nvme/apple,nvme-ans.yaml
++++ b/Documentation/devicetree/bindings/nvme/apple,nvme-ans.yaml
+@@ -14,6 +14,7 @@ properties:
+     oneOf:
+       - const: apple,t8015-nvme-ans2
+       - const: apple,t6041-nvme-ans2
++      - const: apple,t6050-nvme-ans2
+       - items:
+           - enum:
+               - apple,t6020-nvme-ans2
+@@ -151,6 +152,7 @@ allOf:
+           contains:
+             enum:
+               - apple,t6041-nvme-ans2
++              - apple,t6050-nvme-ans2
+               - apple,t8132-nvme-ans2
+               - apple,t8140-nvme-ans2
+     then:
+@@ -166,13 +168,29 @@ allOf:
+         reg-names:
+           maxItems: 2
+ 
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: apple,t6050-nvme-ans2
++    then:
++      description:
++        The T6050 ANS is adopted running, its power stays with the firmware
++        and it is never reset through PMGR, so it names no power domain and
++        no reset.
++      properties:
++        power-domains: false
++        power-domain-names: false
++    else:
++      required:
++        - resets
++        - power-domains
++        - power-domain-names
++
+ required:
+   - compatible
+   - reg
+   - reg-names
+-  - resets
+-  - power-domains
+-  - power-domain-names
+   - mboxes
+   - interrupts
+   - apple,sart

@@ -1,0 +1,55 @@
+From 12868dce523c3cd36268cbdff9cf3ce495ece171 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 14:19:46 -0800
+Subject: [PATCH 19/58] dt-bindings: phy: apple,t6050-dp-phy: Allow the USB
+ domain on combo PHYs
+
+The combo PHY's USB2 PHY and digital banks are in the USB controller's
+power domain. Let a combo PHY name it fourth, as "usb", so the PHY can
+hold it on a port with no USB controller bound. The fixed DisplayPort
+PHY keeps exactly three domains.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ .../devicetree/bindings/phy/apple,t6050-dp-phy.yaml  | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml b/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml
+index 52cb96f4a965..b055369faf9f 100644
+--- a/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml
++++ b/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml
+@@ -74,14 +74,20 @@ properties:
+     description: Offset, mask and value tuples for the PIPE handler
+ 
+   power-domains:
++    description:
++      A combo PHY may name the USB controller's domain fourth ("usb"). Its
++      USB2 PHY and digital banks are in that domain, and the PHY then holds it
++      while it runs, also on a port with no USB controller bound.
+     minItems: 3
+-    maxItems: 3
++    maxItems: 4
+ 
+   power-domain-names:
++    minItems: 3
+     items:
+       - const: usb-aon
+       - const: common
+       - const: wrapper
++      - const: usb
+ 
+   apple,tunable-axi2af:
+     $ref: /schemas/types.yaml#/definitions/uint32-array
+@@ -184,6 +190,10 @@ allOf:
+       properties:
+         '#phy-cells':
+           const: 0
++        power-domains:
++          maxItems: 3
++        power-domain-names:
++          maxItems: 3
+       if:
+         required:
+           - mode-switch

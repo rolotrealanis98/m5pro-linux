@@ -1,0 +1,108 @@
+From fcf0a91ccee0d41fd0cd5cf8c549a37feadf56d1 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 14:19:48 -0800
+Subject: [PATCH 20/58] phy: apple: t6050: Hold the USB domain for the combo
+ PHY's USB2 banks
+
+The combo PHY's USB2 PHY and digital banks are in the USB controller's
+power domain. Only a bound USB controller holds that domain, so on a
+port with no controller (a DisplayPort-only port, as on J775D with Linux
+on the hardware) the first Type-C mode switch wrote an unclocked bank
+and took an SError.
+
+A combo PHY node may now name that domain as a fourth power domain,
+"usb". When it does, the PHY holds it from combo start to combo stop,
+after the common domain on the way up and before it on the way down.
+Nodes that name three domains probe and run exactly as before, and the
+fixed DisplayPort PHY still takes exactly three.
+
+Testing: on J775D (M5 Ultra), with the fourth domain named on each combo
+port, Type-C mode switches and DisplayPort on the rear ports ran without
+an SError on every boot since 2026-10-30.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ drivers/phy/apple/atc-t6050-combo.h |  8 ++++++++
+ drivers/phy/apple/atc-t6050-dp.c    | 20 ++++++++++++++------
+ 2 files changed, 22 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/phy/apple/atc-t6050-combo.h b/drivers/phy/apple/atc-t6050-combo.h
+index 1066748dc1af..3c3454ceb64d 100644
+--- a/drivers/phy/apple/atc-t6050-combo.h
++++ b/drivers/phy/apple/atc-t6050-combo.h
+@@ -94,6 +94,8 @@ static int combo_stop(struct t6050_dp *dp)
+ 		if (!ret)
+ 			dp->usb2_active = false;
+ 	}
++	if (!ret && dp->ndomains > 3)
++		ret = atc_domain_set(&dp->domain[3], false);
+ 	if (!ret)
+ 		ret = atc_domain_set(&dp->domain[1], false);
+ 	if (!ret)
+@@ -118,6 +120,12 @@ static int combo_start(struct t6050_dp *dp, enum combo_mode mode)
+ 	ret = atc_domain_set(&dp->domain[0], true);
+ 	if (!ret)
+ 		ret = atc_domain_set(&dp->domain[1], true);
++	/*
++	 * The USB2 PHY and digital banks are unclocked without the USB domain,
++	 * which a USB controller holds only while one is bound to this port.
++	 */
++	if (!ret && dp->ndomains > 3)
++		ret = atc_domain_set(&dp->domain[3], true);
+ 	if (!ret)
+ 		ret = APPLE_T6050_USB_RUN(&dp->usb_platform, apple_t6050_usb2_host);
+ 	if (!ret)
+diff --git a/drivers/phy/apple/atc-t6050-dp.c b/drivers/phy/apple/atc-t6050-dp.c
+index cafee096a625..447915391948 100644
+--- a/drivers/phy/apple/atc-t6050-dp.c
++++ b/drivers/phy/apple/atc-t6050-dp.c
+@@ -83,7 +83,9 @@ struct t6050_dp {
+ 	void __iomem *banks[45];
+ 	struct resource resources[45];
+ 	struct apple_tunable *tunables[ARRAY_SIZE(tunable_names)];
+-	struct atc_domain domain[3]; /* USB AON, common, wrapper: native order. */
++	/* USB AON, common, wrapper: native order; a combo may add USB. */
++	struct atc_domain domain[4];
++	unsigned int ndomains;
+ 	u32 training[4][16];
+ 	u32 voltage[4], pre[4];
+ 	int rate;
+@@ -605,14 +607,14 @@ static int t6050_typec_register(struct t6050_dp *dp)
+ 
+ static int t6050_dp_probe(struct platform_device *pdev)
+ {
+-	static const char * const domains[] = {"usb-aon", "common", "wrapper"};
++	static const char * const domains[] = {"usb-aon", "common", "wrapper", "usb"};
+ 	struct device *dev = &pdev->dev;
+ 	struct t6050_dp *dp;
+ 	struct phy_provider *provider;
+ 	struct phy *phy;
+ 	struct resource *core;
+ 	void __iomem *base;
+-	int ret;
++	int ndomains, ret;
+ 
+ 	dp = devm_kzalloc(dev, sizeof(*dp), GFP_KERNEL);
+ 	if (!dp)
+@@ -741,10 +743,16 @@ static int t6050_dp_probe(struct platform_device *pdev)
+ 		if (ret)
+ 			return ret;
+ 	}
+-	/* Three named domains prevent automatic wrapper enable at probe time. */
+-	if (of_count_phandle_with_args(dev->of_node, "power-domains", "#power-domain-cells") != 3)
++	/*
++	 * Named domains prevent automatic wrapper enable at probe time. A combo
++	 * PHY may also name the USB controller's domain, which its USB2 banks
++	 * are in (combo_start()).
++	 */
++	ndomains = of_count_phandle_with_args(dev->of_node, "power-domains", "#power-domain-cells");
++	if (ndomains != 3 && !(dp->combo && ndomains == 4))
+ 		return -EINVAL;
+-	for (unsigned int i = 0; i < ARRAY_SIZE(domains); i++) {
++	dp->ndomains = ndomains;
++	for (unsigned int i = 0; i < dp->ndomains; i++) {
+ 		dp->domain[i].dev = dev_pm_domain_attach_by_name(dev, domains[i]);
+ 		if (IS_ERR_OR_NULL(dp->domain[i].dev))
+ 			return dev_err_probe(dev, dp->domain[i].dev ? PTR_ERR(dp->domain[i].dev) : -ENODEV,

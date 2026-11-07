@@ -1,0 +1,27 @@
+From deb8133aa9e13d65962f57254d9db8eb1c89ba2b Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 16:24:40 -0800
+Subject: [PATCH 03/58] dt-bindings: mailbox: apple,mailbox: Add T6050 ASC
+ mailboxes
+
+T6050's coprocessors (ANS among them) use the ASC v4 mailbox.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ Documentation/devicetree/bindings/mailbox/apple,mailbox.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/mailbox/apple,mailbox.yaml b/Documentation/devicetree/bindings/mailbox/apple,mailbox.yaml
+index cd19124e724c..add726470307 100644
+--- a/Documentation/devicetree/bindings/mailbox/apple,mailbox.yaml
++++ b/Documentation/devicetree/bindings/mailbox/apple,mailbox.yaml
+@@ -44,6 +44,7 @@ properties:
+               - apple,t6030-asc-mailbox
+               - apple,t6031-asc-mailbox
+               - apple,t6041-asc-mailbox
++              - apple,t6050-asc-mailbox
+           - const: apple,asc-mailbox-v4
+ 
+       - description:

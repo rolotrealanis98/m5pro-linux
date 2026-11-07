@@ -1,0 +1,31 @@
+From 9e53edd483428e06e5ac62712d90325a8a0eafe4 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 02:23:19 -0800
+Subject: [PATCH 17/58] dt-bindings: nvme: apple: Allow the boot loader's RTKit
+ handoff on T6050
+
+The boot loader leaves the T6050 ANS's firmware running with the
+controller disabled and, as on T8132 and T8140, adds apple,rtkit-handoff
+to the node so the kernel adopts that RTKit session instead of starting
+the co-processor again. The T6050 profile relies on that adoption. Allow
+the property on apple,t6050-nvme-ans2.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ Documentation/devicetree/bindings/nvme/apple,nvme-ans.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/nvme/apple,nvme-ans.yaml b/Documentation/devicetree/bindings/nvme/apple,nvme-ans.yaml
+index 181f0ed46dfa..3c1b4e34563d 100644
+--- a/Documentation/devicetree/bindings/nvme/apple,nvme-ans.yaml
++++ b/Documentation/devicetree/bindings/nvme/apple,nvme-ans.yaml
+@@ -117,6 +117,7 @@ allOf:
+           not:
+             contains:
+               enum:
++                - apple,t6050-nvme-ans2
+                 - apple,t8132-nvme-ans2
+                 - apple,t8140-nvme-ans2
+     then:
