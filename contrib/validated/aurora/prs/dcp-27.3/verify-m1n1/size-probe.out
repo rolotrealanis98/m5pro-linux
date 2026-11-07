@@ -1,0 +1,300 @@
+[0/6] [0s]
+[1/6] Fetching image [0s]
+[2/6] Unpacking image [0s]
+[3/6] Fetching kernel [0s]
+[4/6] Fetching init image [0s]
+[5/6] Unpacking init image [0s]
+[6/6] Starting container [0s]
+[6/6] Starting container [0s]
+[  1/270] Verify package files          100% | 439.0   B/s | 266.0   B |  00m01s
+[  2/270] Prepare transaction           100% |   4.9 KiB/s | 268.0   B |  00m00s
+[  3/270] Installing libjpeg-turbo-0:3. 100% | 145.2 MiB/s | 743.5 KiB |  00m00s
+[  4/270] Installing libpng-2:1.6.58-1. 100% | 132.3 MiB/s | 271.0 KiB |  00m00s
+[  5/270] Installing fonts-filesystem-1 100% | 769.5 KiB/s | 788.0   B |  00m00s
+[  6/270] Installing urw-base35-fonts-c 100% |  37.5 MiB/s |  38.4 KiB |  00m00s
+[  7/270] Installing expat-0:2.9.0-1.fc 100% |  31.9 MiB/s | 391.5 KiB |  00m00s
+[  8/270] Installing lcms2-0:2.16-6.fc4 100% | 237.5 MiB/s | 486.4 KiB |  00m00s
+[  9/270] Upgrading elfutils-libelf-0:0 100% | 823.9 MiB/s |   1.6 MiB |  00m00s
+[ 10/270] Installing openjpeg-0:2.5.4-1 100% | 202.3 MiB/s | 414.3 KiB |  00m00s
+[ 11/270] Installing libwebp-0:1.6.0-2. 100% | 200.6 MiB/s | 821.7 KiB |  00m00s
+[ 12/270] Installing mesa-filesystem-0: 100% |   4.2 MiB/s |   4.3 KiB |  00m00s
+[ 13/270] Installing libX11-xcb-0:1.8.1 100% |   0.0   B/s |  67.8 KiB |  00m00s
+[ 14/270] Installing libdav1d-0:1.5.4-1 100% | 450.1 MiB/s | 921.7 KiB |  00m00s
+[ 15/270] Installing libmpc-0:1.3.1-8.f 100% | 150.6 MiB/s | 154.2 KiB |  00m00s
+[ 16/270] Installing libICE-0:1.1.2-3.f 100% | 218.5 MiB/s | 223.8 KiB |  00m00s
+[ 17/270] Installing clang-resource-fil 100% |  16.3 MiB/s |  16.7 KiB |  00m00s
+[ 18/270] Installing libSM-0:1.2.5-3.fc 100% |   0.0   B/s | 130.4 KiB |  00m00s
+[ 19/270] Installing libogg-2:1.3.6-2.f 100% |   0.0   B/s |  79.2 KiB |  00m00s
+[ 20/270] Installing openh264-0:2.6.0-2 100% | 339.1 MiB/s |   1.0 MiB |  00m00s
+[ 21/270] Installing rav1e-libs-0:0.8.1 100% | 413.1 MiB/s |   2.1 MiB |  00m00s
+[ 22/270] Installing libaom-0:3.15.2-1. 100% | 417.6 MiB/s |   4.2 MiB |  00m00s
+[ 23/270] Installing svt-av1-libs-0:3.1 100% | 427.1 MiB/s |   3.4 MiB |  00m00s
+[ 24/270] Installing adobe-mappings-cma 100% | 446.8 MiB/s |  15.2 MiB |  00m00s
+[ 25/270] Installing shared-mime-info-0 100% | 114.6 MiB/s |   2.6 MiB |  00m00s
+[ 26/270] Installing libstdc++-devel-0: 100% | 579.9 MiB/s |  36.5 MiB |  00m00s
+[ 27/270] Installing less-0:710-1.fc43. 100% |  41.5 MiB/s | 552.0 KiB |  00m00s
+[ 28/270] Installing libedit-0:3.1-58.2 100% | 275.3 MiB/s | 281.9 KiB |  00m00s
+[ 29/270] Installing fribidi-0:1.0.16-3 100% |  22.1 MiB/s | 248.8 KiB |  00m00s
+[ 30/270] Installing jbigkit-libs-0:2.1 100% | 179.2 MiB/s | 183.5 KiB |  00m00s
+[ 31/270] Installing imath-0:3.1.12-4.f 100% | 380.7 MiB/s | 389.9 KiB |  00m00s
+[ 32/270] Installing adobe-mappings-cma 100% | 285.7 MiB/s | 585.2 KiB |  00m00s
+[ 33/270] Installing libtheora-1:1.1.1- 100% | 460.2 MiB/s | 471.2 KiB |  00m00s
+[ 34/270] Installing libvorbis-1:1.3.7- 100% | 414.2 MiB/s | 848.2 KiB |  00m00s
+[ 35/270] Installing cpp-0:15.3.1-1.fc4 100% | 334.5 MiB/s |  35.5 MiB |  00m00s
+[ 36/270] Upgrading elfutils-libs-0:0.1 100% | 243.6 MiB/s | 748.3 KiB |  00m00s
+[ 37/270] Installing elfutils-debuginfo 100% |  11.9 MiB/s | 146.1 KiB |  00m00s
+[ 38/270] Installing graphviz-libs-0:13 100% | 332.1 MiB/s |   1.3 MiB |  00m00s
+[ 39/270] Installing urw-base35-bookman 100% | 455.0 MiB/s |   1.4 MiB |  00m00s
+[ 40/270] Installing urw-base35-c059-fo 100% | 697.6 MiB/s |   1.4 MiB |  00m00s
+[ 41/270] Installing urw-base35-d050000 100% |   0.0   B/s |  85.4 KiB |  00m00s
+[ 42/270] Installing urw-base35-gothic- 100% | 581.4 MiB/s |   1.2 MiB |  00m00s
+[ 43/270] Installing urw-base35-nimbus- 100% | 525.9 MiB/s |   1.1 MiB |  00m00s
+[ 44/270] Installing urw-base35-nimbus- 100% | 455.3 MiB/s |   1.4 MiB |  00m00s
+[ 45/270] Installing urw-base35-nimbus- 100% | 598.5 MiB/s |   2.4 MiB |  00m00s
+[ 46/270] Installing urw-base35-p052-fo 100% | 495.8 MiB/s |   1.5 MiB |  00m00s
+[ 47/270] Installing urw-base35-standar 100% |  64.4 MiB/s |  66.0 KiB |  00m00s
+[ 48/270] Installing urw-base35-z003-fo 100% | 382.6 MiB/s | 391.8 KiB |  00m00s
+[ 49/270] Installing urw-base35-fonts-0 100% |   0.0   B/s |   5.6 KiB |  00m00s
+[ 50/270] Installing abattis-cantarell- 100% | 189.9 MiB/s | 194.4 KiB |  00m00s
+[ 51/270] Installing google-droid-sans- 100% | 481.5 MiB/s |   6.3 MiB |  00m00s
+[ 52/270] Installing aribb24-0:1.0.3^20 100% | 137.3 MiB/s | 140.6 KiB |  00m00s
+[ 53/270] Installing zvbi-0:0.2.44-2.fc 100% |  74.0 MiB/s |   1.3 MiB |  00m00s
+[ 54/270] Installing libultrahdr-0:1.4. 100% | 170.6 MiB/s | 349.3 KiB |  00m00s
+[ 55/270] Installing jasper-libs-0:4.2. 100% | 326.5 MiB/s | 334.4 KiB |  00m00s
+[ 56/270] Installing LibRaw-0:0.21.5-1. 100% | 579.6 MiB/s |   2.3 MiB |  00m00s
+[ 57/270] Installing llhttp-0:9.3.1-1.f 100% | 150.6 MiB/s | 154.2 KiB |  00m00s
+[ 58/270] Installing libssh2-0:1.11.1-9 100% | 343.9 MiB/s | 352.1 KiB |  00m00s
+[ 59/270] Installing libgit2-0:1.9.7-1. 100% | 448.1 MiB/s |   1.3 MiB |  00m00s
+[ 60/270] Installing oniguruma-0:6.9.10 100% | 375.5 MiB/s | 768.9 KiB |  00m00s
+[ 61/270] Installing spirv-tools-libs-0 100% | 469.6 MiB/s |   5.6 MiB |  00m00s
+[ 62/270] Installing hwdata-0:0.412-1.f 100% | 673.1 MiB/s |  10.1 MiB |  00m00s
+[ 63/270] Installing libpciaccess-0:0.1 100% |  72.2 MiB/s |  74.0 KiB |  00m00s
+[ 64/270] Installing libdrm-0:2.4.134-1 100% | 250.8 MiB/s | 770.4 KiB |  00m00s
+[ 65/270] Installing lm_sensors-libs-0: 100% |  92.7 MiB/s |  95.0 KiB |  00m00s
+[ 66/270] Installing libxshmfence-0:1.3 100% |  68.0 MiB/s |  69.6 KiB |  00m00s
+[ 67/270] Installing libwayland-client- 100% |  69.5 MiB/s |  71.2 KiB |  00m00s
+[ 68/270] Installing libglvnd-1:1.7.0-8 100% | 665.1 MiB/s |   1.3 MiB |  00m00s
+[ 69/270] Installing lpcnetfreedv-0:0.5 100% | 450.3 MiB/s |  14.9 MiB |  00m00s
+[ 70/270] Installing codec2-0:1.2.0-7.f 100% | 343.3 MiB/s |   1.4 MiB |  00m00s
+[ 71/270] Installing soxr-0:0.1.3-20.fc 100% | 204.1 MiB/s | 209.0 KiB |  00m00s
+[ 72/270] Installing xvidcore-0:1.3.7-1 100% | 333.0 MiB/s | 682.1 KiB |  00m00s
+[ 73/270] Installing xeve-libs-0:0.5.1- 100% | 381.8 MiB/s | 781.9 KiB |  00m00s
+[ 74/270] Installing xevd-libs-0:0.5.0- 100% | 262.5 MiB/s | 268.8 KiB |  00m00s
+[ 75/270] Installing vo-amrwbenc-0:0.1. 100% | 175.2 MiB/s | 179.4 KiB |  00m00s
+[ 76/270] Installing twolame-libs-0:0.4 100% | 154.9 MiB/s | 158.7 KiB |  00m00s
+[ 77/270] Installing speex-0:1.2.0-20.f 100% | 135.2 MiB/s | 138.5 KiB |  00m00s
+[ 78/270] Installing snappy-0:1.2.2-2.f 100% |  83.2 MiB/s |  85.2 KiB |  00m00s
+[ 79/270] Installing opus-0:1.5.2-3.fc4 100% | 191.8 MiB/s | 392.8 KiB |  00m00s
+[ 80/270] Installing opencore-amr-0:0.1 100% | 206.9 MiB/s | 423.7 KiB |  00m00s
+[ 81/270] Installing libvpx-0:1.15.0-4. 100% | 360.2 MiB/s |   2.5 MiB |  00m00s
+[ 82/270] Installing liblc3-0:1.1.3-5.f 100% | 203.0 MiB/s | 207.8 KiB |  00m00s
+[ 83/270] Installing lame-libs-0:3.100- 100% | 610.8 MiB/s |   1.2 MiB |  00m00s
+[ 84/270] Installing ilbc-0:3.0.4-17.fc 100% |  79.0 MiB/s |  80.9 KiB |  00m00s
+[ 85/270] Installing gsm-0:1.0.23-1.fc4 100% |  77.0 MiB/s |  78.8 KiB |  00m00s
+[ 86/270] Installing fdk-aac-free-0:2.0 100% | 289.4 MiB/s | 592.7 KiB |  00m00s
+[ 87/270] Installing libpkgconf-0:2.3.0 100% | 132.0 MiB/s | 135.1 KiB |  00m00s
+[ 88/270] Installing pkgconf-0:2.3.0-3. 100% |   9.4 MiB/s | 114.9 KiB |  00m00s
+[ 89/270] Installing pkgconf-m4-0:2.3.0 100% |   0.0   B/s |  14.8 KiB |  00m00s
+[ 90/270] Installing pkgconf-pkg-config 100% | 136.4 KiB/s |   1.8 KiB |  00m00s
+[ 91/270] Installing kernel-headers-0:7 100% | 195.3 MiB/s |   7.0 MiB |  00m00s
+[ 92/270] Installing glibc-devel-0:2.42 100% | 178.4 MiB/s |   2.3 MiB |  00m00s
+[ 93/270] Installing libxcrypt-devel-0: 100% |   0.0   B/s |  33.4 KiB |  00m00s
+[ 94/270] Installing libseccomp-0:2.6.1 100% | 242.3 MiB/s | 248.1 KiB |  00m00s
+[ 95/270] Installing libopenjph-0:0.22. 100% | 319.1 MiB/s | 326.7 KiB |  00m00s
+[ 96/270] Installing libheif-0:1.23.7-1 100% | 443.3 MiB/s |   2.7 MiB |  00m00s
+[ 97/270] Installing bubblewrap-0:0.12. 100% |  14.0 MiB/s | 186.0 KiB |  00m00s
+[ 98/270] Installing dbus-libs-1:1.16.2 100% | 194.7 MiB/s | 398.7 KiB |  00m00s
+[ 99/270] Installing avahi-libs-0:0.9~r 100% | 227.5 MiB/s | 233.0 KiB |  00m00s
+[100/270] Installing libubsan-0:15.3.1- 100% | 465.2 MiB/s | 476.4 KiB |  00m00s
+[101/270] Installing libatomic-0:15.3.1 100% |  68.0 MiB/s |  69.6 KiB |  00m00s
+[102/270] Installing libasan-0:15.3.1-1 100% | 513.5 MiB/s |   1.5 MiB |  00m00s
+[103/270] Installing jansson-0:2.14-3.f 100% |  92.3 MiB/s |  94.5 KiB |  00m00s
+[104/270] Installing binutils-0:2.45.1- 100% | 563.9 MiB/s |  31.0 MiB |  00m00s
+[105/270] Installing cups-filesystem-1: 100% | 890.6 KiB/s |   1.8 KiB |  00m00s
+[106/270] Installing cups-libs-1:2.4.19 100% | 357.5 MiB/s | 732.2 KiB |  00m00s
+[107/270] Installing highway-0:1.3.0-1. 100% | 490.7 MiB/s |   1.5 MiB |  00m00s
+[108/270] Installing libjxl-1:0.11.2-1. 100% | 523.4 MiB/s |   2.6 MiB |  00m00s
+[109/270] Installing liblastlog2-0:2.41 100% |  45.5 MiB/s | 139.7 KiB |  00m00s
+[110/270] Installing libfdisk-0:2.41.6- 100% | 205.0 MiB/s | 419.9 KiB |  00m00s
+[111/270] Installing util-linux-0:2.41. 100% | 214.2 MiB/s |   6.9 MiB |  00m00s
+[112/270] Installing openssh-0:10.0p1-1 100% | 107.1 MiB/s |   1.4 MiB |  00m00s
+[113/270] Installing libdatrie-0:0.2.13 100% |  92.8 MiB/s |  95.0 KiB |  00m00s
+[114/270] Installing libthai-0:0.1.29-1 100% | 395.1 MiB/s | 809.2 KiB |  00m00s
+[115/270] Installing libwmf-lite-0:0.2. 100% | 166.0 MiB/s | 170.0 KiB |  00m00s
+[116/270] Installing liblerc-0:4.0.0-9. 100% | 267.6 MiB/s | 548.1 KiB |  00m00s
+[117/270] Installing libtiff-0:4.7.2-3. 100% | 323.0 MiB/s | 661.6 KiB |  00m00s
+[118/270] Installing libpaper-1:2.1.1-9 100% |  96.2 MiB/s |  98.5 KiB |  00m00s
+[119/270] Installing libijs-0:0.35-25.f 100% |   0.0   B/s | 102.6 KiB |  00m00s
+[120/270] Installing jbig2dec-libs-0:0. 100% | 170.5 MiB/s | 174.6 KiB |  00m00s
+[121/270] Installing adobe-mappings-pdf 100% | 488.5 MiB/s |   4.4 MiB |  00m00s
+[122/270] Installing pixman-0:0.46.2-2. 100% | 320.1 MiB/s | 655.6 KiB |  00m00s
+[123/270] Installing lzo-0:2.10-15.fc43 100% | 160.7 MiB/s | 164.6 KiB |  00m00s
+[124/270] Installing libcbor-0:0.12.0-6 100% | 136.0 MiB/s | 139.3 KiB |  00m00s
+[125/270] Installing libfido2-0:1.16.0- 100% | 273.7 MiB/s | 280.3 KiB |  00m00s
+[126/270] Installing openssh-clients-0: 100% | 141.8 MiB/s |   2.7 MiB |  00m00s
+[127/270] Installing git-core-0:2.56.0- 100% | 375.3 MiB/s |  27.0 MiB |  00m00s
+[128/270] Installing git-core-doc-0:2.5 100% |   1.4 GiB/s |  19.3 MiB |  00m00s
+[129/270] Installing python-pip-wheel-0 100% | 623.0 MiB/s |   1.2 MiB |  00m00s
+[130/270] Installing google-noto-fonts- 100% |   0.0   B/s |  18.5 KiB |  00m00s
+[131/270] Installing google-noto-sans-v 100% | 347.8 MiB/s |   1.4 MiB |  00m00s
+[132/270] Installing default-fonts-core 100% |  17.8 MiB/s |  18.2 KiB |  00m00s
+[133/270] Installing libXau-0:1.0.12-3. 100% | 119.6 MiB/s | 122.5 KiB |  00m00s
+[134/270] Installing libxcb-0:1.17.0-6. 100% | 309.7 MiB/s |   2.2 MiB |  00m00s
+[135/270] Installing libX11-common-0:1. 100% | 107.9 MiB/s |   1.2 MiB |  00m00s
+[136/270] Installing libX11-0:1.8.13-1. 100% | 426.7 MiB/s |   1.3 MiB |  00m00s
+[137/270] Installing libXext-0:1.3.6-4. 100% | 143.7 MiB/s | 147.1 KiB |  00m00s
+[138/270] Installing libXrender-0:0.9.1 100% |   0.0   B/s |  71.3 KiB |  00m00s
+[139/270] Installing libXt-0:1.3.1-3.fc 100% | 233.7 MiB/s | 478.7 KiB |  00m00s
+[140/270] Installing libvdpau-0:1.5-10. 100% |  68.7 MiB/s |  70.4 KiB |  00m00s
+[141/270] Installing libXxf86vm-0:1.1.6 100% |   0.0   B/s |  70.5 KiB |  00m00s
+[142/270] Installing libXfixes-0:6.0.1- 100% |   0.0   B/s |  71.6 KiB |  00m00s
+[143/270] Installing graphite2-0:1.3.14 100% |  21.5 MiB/s | 241.7 KiB |  00m00s
+[144/270] Installing freetype-0:2.13.3- 100% | 398.4 MiB/s | 816.0 KiB |  00m00s
+[145/270] Installing harfbuzz-0:11.5.1- 100% | 453.2 MiB/s |   2.7 MiB |  00m00s
+[146/270] Installing libraqm-0:0.10.1-3 100% |  68.1 MiB/s |  69.8 KiB |  00m00s
+[147/270] Installing libdeflate-0:1.26- 100% | 161.4 MiB/s | 165.3 KiB |  00m00s
+[148/270] Installing openexr-libs-0:3.2 100% | 497.7 MiB/s |   6.5 MiB |  00m00s
+[149/270] Installing groff-base-0:1.23. 100% |  47.7 MiB/s |   4.2 MiB |  00m00s
+[150/270] Installing ncurses-0:6.5-7.20 100% |  67.6 MiB/s | 900.2 KiB |  00m00s
+[151/270] Installing perl-Digest-0:1.20 100% |  36.2 MiB/s |  37.1 KiB |  00m00s
+[152/270] Installing perl-FileHandle-0: 100% |   0.0   B/s |   9.8 KiB |  00m00s
+[153/270] Installing perl-B-0:1.89-524. 100% | 267.9 MiB/s | 548.6 KiB |  00m00s
+[154/270] Installing perl-Digest-MD5-0: 100% | 103.2 MiB/s | 105.6 KiB |  00m00s
+[155/270] Installing perl-libnet-0:3.15 100% | 287.8 MiB/s | 294.7 KiB |  00m00s
+[156/270] Installing perl-Data-Dumper-0 100% | 134.2 MiB/s | 137.4 KiB |  00m00s
+[157/270] Installing perl-Unicode-Norma 100% | 257.2 MiB/s | 526.8 KiB |  00m00s
+[158/270] Installing perl-MIME-Base32-0 100% |  31.4 MiB/s |  32.2 KiB |  00m00s
+[159/270] Installing perl-URI-0:5.36-1. 100% | 141.4 MiB/s | 289.5 KiB |  00m00s
+[160/270] Installing perl-IO-Socket-IP- 100% |  99.8 MiB/s | 102.2 KiB |  00m00s
+[161/270] Installing perl-AutoLoader-0: 100% |   0.0   B/s |  21.0 KiB |  00m00s
+[162/270] Installing perl-IO-Socket-SSL 100% | 701.7 MiB/s | 718.6 KiB |  00m00s
+[163/270] Installing perl-locale-0:1.13 100% |   0.0   B/s |   6.5 KiB |  00m00s
+[164/270] Installing perl-Net-SSLeay-0: 100% | 358.2 MiB/s |   1.4 MiB |  00m00s
+[165/270] Installing perl-Time-Local-2: 100% |   0.0   B/s |  70.6 KiB |  00m00s
+[166/270] Installing perl-Time-HiRes-4: 100% |  25.0 MiB/s | 153.8 KiB |  00m00s
+[167/270] Installing perl-if-0:0.61.000 100% |   0.0   B/s |   6.2 KiB |  00m00s
+[168/270] Installing perl-File-Path-0:2 100% |   0.0   B/s |  64.5 KiB |  00m00s
+[169/270] Installing perl-Pod-Escapes-1 100% |   0.0   B/s |  25.9 KiB |  00m00s
+[170/270] Installing perl-Text-Tabs+Wra 100% |   0.0   B/s |  23.9 KiB |  00m00s
+[171/270] Installing perl-Pod-Simple-1: 100% | 561.4 MiB/s | 574.9 KiB |  00m00s
+[172/270] Installing perl-HTTP-Tiny-0:0 100% |   0.0   B/s | 164.5 KiB |  00m00s
+[173/270] Installing perl-Class-Struct- 100% |   0.0   B/s |  25.9 KiB |  00m00s
+[174/270] Installing perl-IPC-Open3-0:1 100% |   0.0   B/s |  28.5 KiB |  00m00s
+[175/270] Installing perl-File-Temp-1:0 100% |   0.0   B/s | 164.1 KiB |  00m00s
+[176/270] Installing perl-POSIX-0:2.23- 100% | 256.4 MiB/s | 262.6 KiB |  00m00s
+[177/270] Installing perl-Term-Cap-0:1. 100% |   0.0   B/s |  30.6 KiB |  00m00s
+[178/270] Installing perl-Term-ANSIColo 100% |   0.0   B/s |  99.2 KiB |  00m00s
+[179/270] Installing perl-podlators-1:6 100% |  28.6 MiB/s | 321.7 KiB |  00m00s
+[180/270] Installing perl-Pod-Perldoc-0 100% |  15.0 MiB/s | 169.2 KiB |  00m00s
+[181/270] Installing perl-File-stat-0:1 100% |   0.0   B/s |  13.1 KiB |  00m00s
+[182/270] Installing perl-SelectSaver-0 100% |   0.0   B/s |   2.6 KiB |  00m00s
+[183/270] Installing perl-Socket-4:2.04 100% | 144.3 MiB/s | 147.8 KiB |  00m00s
+[184/270] Installing perl-Symbol-0:1.09 100% |   0.0   B/s |   7.3 KiB |  00m00s
+[185/270] Installing perl-Pod-Usage-4:2 100% |   7.8 MiB/s |  87.9 KiB |  00m00s
+[186/270] Installing perl-IO-0:1.55-524 100% | 191.0 MiB/s | 195.5 KiB |  00m00s
+[187/270] Installing perl-overloading-0 100% |   0.0   B/s |   5.6 KiB |  00m00s
+[188/270] Installing perl-mro-0:1.29-52 100% |   0.0   B/s |  82.5 KiB |  00m00s
+[189/270] Installing perl-base-0:2.27-5 100% |   0.0   B/s |  13.0 KiB |  00m00s
+[190/270] Installing perl-Fcntl-0:1.20- 100% |   0.0   B/s |  93.8 KiB |  00m00s
+[191/270] Installing perl-Text-ParseWor 100% |   0.0   B/s |  14.6 KiB |  00m00s
+[192/270] Installing perl-Getopt-Long-1 100% |   0.0   B/s | 147.2 KiB |  00m00s
+[193/270] Installing perl-Storable-1:3. 100% | 239.1 MiB/s | 244.8 KiB |  00m00s
+[194/270] Installing perl-overload-0:1. 100% |   0.0   B/s |  72.0 KiB |  00m00s
+[195/270] Installing perl-Getopt-Std-0: 100% |   0.0   B/s |  11.8 KiB |  00m00s
+[196/270] Installing perl-File-Basename 100% |   0.0   B/s |  14.6 KiB |  00m00s
+[197/270] Installing perl-vars-0:1.05-5 100% |   0.0   B/s |   4.3 KiB |  00m00s
+[198/270] Installing perl-Errno-0:1.38- 100% |   0.0   B/s |   8.8 KiB |  00m00s
+[199/270] Installing perl-MIME-Base64-0 100% |  94.0 MiB/s |  96.3 KiB |  00m00s
+[200/270] Installing perl-parent-1:0.24 100% |   0.0   B/s |  11.0 KiB |  00m00s
+[201/270] Installing perl-Scalar-List-U 100% | 153.0 MiB/s | 156.7 KiB |  00m00s
+[202/270] Installing perl-constant-0:1. 100% |   0.0   B/s |  27.4 KiB |  00m00s
+[203/270] Installing perl-Encode-4:3.21 100% | 242.1 MiB/s |   4.8 MiB |  00m00s
+[204/270] Installing perl-DynaLoader-0: 100% |   0.0   B/s |  32.5 KiB |  00m00s
+[205/270] Installing perl-PathTools-0:3 100% | 223.2 MiB/s | 228.6 KiB |  00m00s
+[206/270] Installing perl-Carp-0:1.54-5 100% |   0.0   B/s |  47.7 KiB |  00m00s
+[207/270] Installing perl-Exporter-0:5. 100% |  54.3 MiB/s |  55.6 KiB |  00m00s
+[208/270] Installing perl-libs-4:5.42.3 100% | 317.6 MiB/s |  11.7 MiB |  00m00s
+[209/270] Installing perl-interpreter-4 100% |  15.7 MiB/s | 176.5 KiB |  00m00s
+[210/270] Installing perl-TermReadKey-0 100% | 107.6 MiB/s | 110.2 KiB |  00m00s
+[211/270] Installing perl-Error-1:0.170 100% |   0.0   B/s |  80.0 KiB |  00m00s
+[212/270] Installing perl-lib-0:0.65-52 100% |   0.0   B/s |   8.9 KiB |  00m00s
+[213/270] Installing git-0:2.56.0-1.fc4 100% |   0.0   B/s |  59.0 KiB |  00m00s
+[214/270] Installing perl-Git-0:2.56.0- 100% |  31.9 MiB/s |  65.4 KiB |  00m00s
+[215/270] Installing xml-common-0:0.6.3 100% |  79.2 MiB/s |  81.1 KiB |  00m00s
+[216/270] Installing fontconfig-0:2.17. 100% |   1.1 MiB/s |   1.2 MiB |  00m01s
+[217/270] Installing cairo-0:1.18.6-1.f 100% | 127.4 MiB/s |   1.8 MiB |  00m00s
+[218/270] Installing cairo-gobject-0:1. 100% |  22.1 MiB/s |  67.8 KiB |  00m00s
+[219/270] Installing libgs-0:10.05.1-7. 100% | 438.4 MiB/s |  23.2 MiB |  00m00s
+[220/270] Installing libXft-0:2.3.8-9.f 100% |  13.5 MiB/s | 193.9 KiB |  00m00s
+[221/270] Installing pango-0:1.57.1-1.f 100% |  83.2 MiB/s |   1.2 MiB |  00m00s
+[222/270] Installing glycin-libs-0:2.0. 100% | 500.7 MiB/s |   4.0 MiB |  00m00s
+[223/270] Installing gdk-pixbuf2-0:2.44 100% | 172.5 MiB/s |   2.6 MiB |  00m00s
+[224/270] Installing librsvg2-0:2.61.5- 100% | 458.3 MiB/s |   4.6 MiB |  00m00s
+[225/270] Installing glycin-loaders-0:2 100% | 592.6 MiB/s |  11.9 MiB |  00m00s
+[226/270] Installing libaribcaption-0:1 100% | 266.9 MiB/s | 273.3 KiB |  00m00s
+[227/270] Installing libzip-0:1.11.4-2. 100% | 133.7 MiB/s | 136.9 KiB |  00m00s
+[228/270] Installing liblqr-1-0:0.4.2-2 100% |   0.0   B/s | 110.6 KiB |  00m00s
+[229/270] Installing fftw-libs-double-0 100% | 449.0 MiB/s |   1.8 MiB |  00m00s
+[230/270] Installing ImageMagick-libs-1 100% | 433.6 MiB/s |  14.3 MiB |  00m00s
+[231/270] Installing mpdecimal-0:4.0.1- 100% |  69.0 MiB/s | 282.7 KiB |  00m00s
+[232/270] Installing python3-libs-0:3.1 100% | 342.1 MiB/s |  45.8 MiB |  00m00s
+[233/270] Installing python3-0:3.14.8-1 100% |   7.7 MiB/s |  86.4 KiB |  00m00s
+[234/270] Installing llvm-filesystem-0: 100% |   1.0 MiB/s |   1.1 KiB |  00m00s
+[235/270] Installing llvm-libs-0:21.1.8 100% | 542.3 MiB/s | 132.9 MiB |  00m00s
+[236/270] Installing mesa-dri-drivers-0 100% | 416.2 MiB/s |  36.6 MiB |  00m00s
+[237/270] Installing mesa-libgbm-0:25.3 100% |  33.5 MiB/s |  68.6 KiB |  00m00s
+[238/270] Installing mesa-libGL-0:25.3. 100% | 163.5 MiB/s | 334.9 KiB |  00m00s
+[239/270] Installing libglvnd-glx-1:1.7 100% | 340.7 MiB/s |   1.0 MiB |  00m00s
+[240/270] Installing libva-0:2.22.0-6.f 100% | 137.1 MiB/s | 561.6 KiB |  00m00s
+[241/270] Installing libavutil-free-0:7 100% | 262.7 MiB/s | 806.9 KiB |  00m00s
+[242/270] Installing libswresample-free 100% |  76.0 MiB/s | 155.7 KiB |  00m00s
+[243/270] Installing libavcodec-free-0: 100% | 385.6 MiB/s |   8.5 MiB |  00m00s
+[244/270] Installing clang-libs-0:21.1. 100% | 500.9 MiB/s | 109.7 MiB |  00m00s
+[245/270] Installing lld-libs-0:21.1.8- 100% | 478.6 MiB/s |   6.2 MiB |  00m00s
+[246/270] Installing libomp-0:21.1.8-6. 100% | 393.3 MiB/s |   2.8 MiB |  00m00s
+[247/270] Installing make-1:4.4.1-11.fc 100% | 123.4 MiB/s |   1.9 MiB |  00m00s
+[248/270] Installing gcc-0:15.3.1-1.fc4 100% | 474.8 MiB/s |  99.7 MiB |  00m00s
+[249/270] Installing gcc-c++-0:15.3.1-1 100% | 446.5 MiB/s |  38.8 MiB |  00m00s
+[250/270] Installing clang-0:21.1.8-6.f 100% | 562.7 MiB/s |  65.8 MiB |  00m00s
+[251/270] Installing libomp-devel-0:21. 100% | 100.5 MiB/s |   1.5 MiB |  00m00s
+[252/270] Installing lld-0:21.1.8-6.fc4 100% |   2.0 MiB/s |  47.4 KiB |  00m00s
+[253/270] Installing libheif-ffmpeg-0:1 100% |  16.8 MiB/s |  68.6 KiB |  00m00s
+[254/270] Installing llvm-0:21.1.8-6.fc 100% | 421.4 MiB/s |  86.0 MiB |  00m00s
+[255/270] Installing compiler-rt-0:21.1 100% | 508.3 MiB/s |  34.1 MiB |  00m00s
+[256/270] Installing python-unversioned 100% |  34.5 KiB/s | 424.0   B |  00m00s
+[257/270] Installing python3-html2text- 100% |  19.4 MiB/s | 297.5 KiB |  00m00s
+[258/270] Installing ImageMagick-1:7.1. 100% |  10.1 MiB/s | 145.0 KiB |  00m00s
+[259/270] Installing perl-NDBM_File-0:1 100% |  23.9 MiB/s |  73.5 KiB |  00m00s
+[260/270] Installing bat-0:0.26.1-4.fc4 100% | 223.2 MiB/s |   4.9 MiB |  00m00s
+[261/270] Installing less-color-0:710-1 100% | 221.0 KiB/s |   2.7 KiB |  00m00s
+[262/270] Installing mesa-va-drivers-0: 100% | 960.9 KiB/s | 984.0   B |  00m00s
+[263/270] Installing open-sans-fonts-0: 100% | 417.4 MiB/s |   2.1 MiB |  00m00s
+[264/270] Installing 7zip-0:26.04-1.fc4 100% | 168.0 MiB/s |   3.2 MiB |  00m00s
+[265/270] Installing unzip-0:6.0-67.fc4 100% |  33.0 MiB/s | 473.7 KiB |  00m00s
+[266/270] Installing rustup-0:1.29.0-9. 100% | 285.7 MiB/s |   8.6 MiB |  00m00s
+[267/270] Installing which-0:2.23-3.fc4 100% |   8.8 MiB/s | 125.6 KiB |  00m00s
+[268/270] Installing diffutils-0:3.12-3 100% | 101.5 MiB/s |   1.6 MiB |  00m00s
+[269/270] Removing elfutils-libs-0:0.19 100% |   3.9 KiB/s |  12.0   B |  00m00s
+[270/270] Removing elfutils-libelf-0:0. 100% |  23.0   B/s |  16.0   B |  00m01s
+1b253f1 .init                  3088         0
+1b253f1 .text                655360     65536
+1b253f1 .rodata              207024    720896
+1b253f1 .rela.dyn             55120    927920
+1b253f1 .data                196608    983040
+1b253f1 unpadded .init                  3088         0
+1b253f1 unpadded .text                595656     65536
+1b253f1 unpadded .rodata              207024    720896
+1b253f1 unpadded .rela.dyn             53016    927920
+1b253f1 unpadded .data                104656    983040
+1b253f1 pcie: t6050: pulse the N1 reset through the SMC as on J813 (chosen.asahi,t6050-n1=2|4): file part 0x1098d0 (limit 0x120000)
+e0640ca .init                  3088         0
+e0640ca .text                655360     65536
+e0640ca .rodata              208448    720896
+e0640ca .rela.dyn             53696    929344
+e0640ca .data                196608    983040
+e0640ca unpadded .init                  3088         0
+e0640ca unpadded .text                600200     65536
+e0640ca unpadded .rodata              208448    720896
+e0640ca unpadded .rela.dyn             53208    929344
+e0640ca unpadded .data                104784    983040
+e0640ca kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub: file part 0x109950 (limit 0x120000)

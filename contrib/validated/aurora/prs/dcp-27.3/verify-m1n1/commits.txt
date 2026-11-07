@@ -1,0 +1,7 @@
+base: b6b4592 Merge pull request #61 from aurora-silicon/feat/aop-motion-cal-20261031
+below: 1b253f1 pcie: t6050: pulse the N1 reset through the SMC as on J813 (chosen.asahi,t6050-n1=2|4)
+d1: 8e5c8e9 firmware: add the 27.2 and 27.3 beta 1 stub iBoot strings
+d2: db04421 kboot: t6050: reserve the running coprocessors' __OS_LOG segments
+d3: d7f99dd kboot: t6050: hand the internal display to the firmware-27 DCP driver
+d4: e0640ca kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
+tip-default: e0640ca kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub

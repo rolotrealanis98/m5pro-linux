@@ -1,0 +1,22 @@
+1b253f1 .init                  3088         0
+1b253f1 .text                655360     65536
+1b253f1 .rodata              207024    720896
+1b253f1 .rela.dyn             55120    927920
+1b253f1 .data                196608    983040
+1b253f1 unpadded .init                  3088         0
+1b253f1 unpadded .text                595656     65536
+1b253f1 unpadded .rodata              207024    720896
+1b253f1 unpadded .rela.dyn             53016    927920
+1b253f1 unpadded .data                104656    983040
+1b253f1 pcie: t6050: pulse the N1 reset through the SMC as on J813 (chosen.asahi,t6050-n1=2|4): file part 0x1098d0 (limit 0x120000)
+e0640ca .init                  3088         0
+e0640ca .text                655360     65536
+e0640ca .rodata              208448    720896
+e0640ca .rela.dyn             53696    929344
+e0640ca .data                196608    983040
+e0640ca unpadded .init                  3088         0
+e0640ca unpadded .text                600200     65536
+e0640ca unpadded .rodata              208448    720896
+e0640ca unpadded .rela.dyn             53208    929344
+e0640ca unpadded .data                104784    983040
+e0640ca kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub: file part 0x109950 (limit 0x120000)

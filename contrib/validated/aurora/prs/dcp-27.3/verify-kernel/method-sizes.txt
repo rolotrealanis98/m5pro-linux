@@ -1,0 +1,44 @@
+dcpep_late_init_signal                     27.0 A000 in 0x4 out -           27.2 A000 in 0x4 out -           27.3 A000 in 0x4 out -
+dcpep_setup_video_limits                   27.0 A027 in - out 0x4           27.2 A027 in - out 0x4           27.3 A027 in - out 0x4
+iomfbep_a131_pmu_service_matched           27.0 A136 in - out 0x4           27.2 A136 in - out 0x4           27.3 A136 in - out 0x4
+iomfbep_a132_backlight_service_matched     27.0 A137 in - out 0x4           27.2 A137 in - out 0x4           27.3 A137 in - out 0x4
+dcpep_set_create_dfb                       27.0 A389 in - out -             27.2 A390 in - out -             27.3 A390 in - out -
+iomfbep_a358_vi_set_temperature_hint       27.0 A390 in - out 0x4           27.2 A391 in - out 0x4           27.3 A391 in - out 0x4
+dcpep_start_signal                         27.0 A401 in - out 0x4           27.2 A451 in - out 0x4           27.3 A451 in - out 0x4
+dcpep_swap_start                           27.0 A406 in 0x10 out 0x8        27.2 A456 in 0x10 out 0x8        27.3 A456 in 0x10 out 0x8
+dcpep_swap_submit                          27.0 A408 in 0xff4 out 0xc       27.2 A458 in 0xff4 out 0xc       27.3 A458 in 0x1144 out 0xc  <-- 27.2->27.3 CHANGED
+dcpep_set_display_device                   27.0 A411 in 0x4 out 0x4         27.2 A461 in 0x4 out 0x4         27.3 A461 in 0x4 out 0x4
+dcpep_is_main_display                      27.0 A412 in - out 0x4           27.2 A462 in - out 0x4           27.3 A462 in - out 0x4
+dcpep_set_digital_out_mode                 27.0 A413 in 0x8 out 0x4         27.2 A463 in 0x8 out 0x4         27.3 A463 in 0x8 out 0x4
+iomfbep_set_matrix                         27.0 A423 in 0x50 out 0x4        27.2 A473 in 0x50 out 0x4        27.3 A473 in 0x50 out 0x4
+iomfbep_get_color_remap_mode               27.0 A427 in 0x8 out 0x8         27.2 A477 in 0x8 out 0x8         27.3 A477 in 0x8 out 0x8
+dcpep_set_parameter_dcp                    27.0 A450 in 0x28 out 0x4        27.2 A500 in 0x28 out 0x4        27.3 A500 in 0x28 out 0x4
+dcpep_create_default_fb                    27.0 A454 in - out 0x4           27.2 A504 in - out 0x4           27.3 A504 in - out 0x4
+dcpep_get_dfb_compression_info             27.0 A037 in 0x8 out -           27.2 A037 in 0x8 out -           27.3 A037 in 0x8 out -
+dcpep_get_dfb_info                         27.0 A036 in 0x2c out -          27.2 A036 in 0x2c out -          27.3 A036 in 0x2c out -
+dcpep_get_dfb_layout                       27.0 A103 in 0xc out 0x8         27.2 A103 in 0xc out 0x8         27.3 A103 in 0xc out 0x8
+dcpep_get_dfb_state                        27.0 A453 in 0x4 out 0x8         27.2 A503 in 0x4 out 0x8         27.3 A503 in 0x4 out 0x8
+dcpep_set_dfb_dimensions                   27.0 A104 in 0x8 out -           27.2 A104 in 0x8 out -           27.3 A104 in 0x8 out -
+dcpep_commit_dfb_info                      27.0 A105 in - out -             27.2 A105 in - out -             27.3 A105 in - out -
+dcpep_dfb_query                            27.0 A035 in - out 0x4           27.2 A035 in - out 0x4           27.3 A035 in - out 0x4
+dcpep_dfb_ready_query                      27.0 A384 in - out 0x4           27.2 A385 in - out 0x4           27.3 A385 in - out 0x4
+dcpep_pipe_query_353                       27.0 A353 in - out 0x8           27.2 A353 in - out 0x8           27.3 A353 in - out 0x8
+dcpep_pipe_set_352                         27.0 A352 in 0x8 out 0x4         27.2 A352 in 0x8 out 0x4         27.3 A352 in 0x8 out 0x4
+dcpep_pipe_cfg_415                         27.0 A415 in 0xc out 0xc         27.2 A465 in 0xc out 0xc         27.3 A465 in 0xc out 0xc
+dcpep_pipe_cfg_031                         27.0 A033 in 0x6c out -          27.2 A033 in 0x6c out -          27.3 A033 in 0x6c out -
+dcpep_pipe_cfg_414                         27.0 A414 in 0x8 out 0x8         27.2 A464 in 0x8 out 0x8         27.3 A464 in 0x8 out 0x8
+dcpep_pipe_query_478                       27.0 A489 in - out 0x4           27.2 A539 in - out 0x4           27.3 A540 in - out 0x4
+dcpep_pipe_query_474                       27.0 A485 in - out 0x4           27.2 A535 in - out 0x4           27.3 A536 in - out 0x4
+dcpep_pipe_set_476                         27.0 A487 in 0x4 out -           27.2 A537 in 0x4 out -           27.3 A538 in 0x4 out -
+iomfbep_set_brightness_correction          27.0 A428 in 0x4 out 0x4         27.2 A478 in 0x4 out 0x4         27.3 A478 in 0x4 out 0x4
+dcpep_enable_disable_video_power_savings   27.0 A458 in 0x4 out 0x4         27.2 A508 in 0x4 out 0x4         27.3 A508 in 0x4 out 0x4
+dcpep_first_client_open                    27.0 A466 in - out -             27.2 A516 in - out -             27.3 A516 in - out -
+iomfbep_last_client_close                  27.0 A467 in 0x4 out 0x4         27.2 A517 in 0x4 out 0x4         27.3 A517 in 0x4 out 0x4
+dcpep_set_display_refresh_properties       27.0 A475 in - out 0x4           27.2 A525 in - out 0x4           27.3 A526 in - out 0x4
+dcpep_flush_supports_power                 27.0 A478 in 0x4 out -           27.2 A528 in 0x4 out -           27.3 A529 in 0x4 out -
+iomfbep_abort_swaps_dcp                    27.0 A479 in 0x8 out 0x4         27.2 A529 in 0x8 out 0x4         27.3 A530 in 0x8 out 0x4
+dcpep_set_power_state                      27.0 A484 in 0x10 out 0x8        27.2 A534 in 0x10 out 0x8        27.3 A535 in 0x10 out 0x8
+dcpep_register_dfb_surface                 27.0 A483 in 0x230 out 0x4       27.2 A533 in 0x230 out 0x4       27.3 A534 in 0x230 out 0x4
+
+all tags whose checked sizes change 27.2->27.3: [('A457', 'in 0x1d30 out 0xc', 'in 0x1e80 out 0xc'), ('A458', 'in 0xff4 out 0xc', 'in 0x1144 out 0xc')]
+new A521: in 0x14 out 0x4

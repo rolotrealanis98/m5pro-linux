@@ -1,0 +1,18 @@
+== 96a21fd81383 drm/apple: dcp: Choose the firmware 27 method table by firmware build
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+Commit 96a21fd81383 ("drm/apple: dcp: Choose the firmware 27 method table by firmware build") has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.
+== 716bce007fd3 drm/apple: Add the firmware 27.3 IOMFB method table and swap layout
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+Commit 716bce007fd3 ("drm/apple: Add the firmware 27.3 IOMFB method table and swap layout") has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.
