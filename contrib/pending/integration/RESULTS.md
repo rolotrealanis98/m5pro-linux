@@ -746,6 +746,13 @@ macaudio: "the boot loader passed no amp levels, disabling speakers" (expected o
   on i2c2). This is the recipe's "AOP stopped the serializer under the amps" row (edimoldovan: mute toggle, undrained
   sense). Stop rule applied: logs saved to `/boot/r1-logs/audio-b2-20261107/` (private), `Speaker Switch` off, daily
   restored as `boot.bin` with R2-B as `boot.bin.prev`. Rolando heard nothing, which proves little: -40 dBFS under a -40 dB ceiling is about -80 dB, below the room.
+- **Reboot after the speaker test did not complete cleanly.** Turning `Speaker Switch` off produced another burst of
+  `bad TDM clock` (358.6-358.8 s), then `Speaker volumes locked: Lock timeout` (359.8 s); `systemctl reboot` ran to
+  "Sending SIGTERM to remaining processes" (361 s) and the machine only came back 52 s after the command (a clean reboot takes
+  about 22 s), with iBoot's PMU boot-error count at 1 (`pmu-scrpad` `300100` instead of `2f0000`). **The A/B stage-1 did its
+  job for the first time in anger:** it booted `boot.bin.prev` (R2-B, 7.2) as `fallback-after-failure`, network up, and the
+  next plain reboot cleared the count and returned to the primary slot. The audio kernel's reboot path hangs or resets
+  abnormally after the amps faulted (shutdown/remove in tas2764, macaudio or the AOP speaker path, under investigation).
 - **Next:** compare with edimoldovan's fix for the TDM-clock fault on J714c (his tree after 83d711c3a9), and check whether
   the fault is on stream stop only (the daemon saw a valid rate, no fault during the 2 s).
 
