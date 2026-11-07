@@ -12,7 +12,7 @@ echo 0 > "$TR/tracing_on"; : > "$TR/trace"
 for e in iomfb_swap_submit iomfb_swap_complete iomfb_vrr_timestamps; do
 	[ -w "$TR/events/dcp/$e/enable" ] && echo 1 > "$TR/events/dcp/$e/enable"
 done
-echo "vrrflip-run start $OUT" > /dev/kmsg
+echo "vrrflip-run start ${OUT#./}" > /dev/kmsg
 echo 1 > "$TR/tracing_on"
 "$BIN" -o "$OUT/intervals.csv" "$@" 2>&1 | tee "$OUT/vrrflip.txt"
 RC=0; grep -q "result vrr-off-50" "$OUT/vrrflip.txt" || RC=1
