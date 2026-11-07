@@ -1,0 +1,125 @@
+From c6a5648459bb856ccaa46aa4fd18f329bbb7b360 Mon Sep 17 00:00:00 2001
+From: betizzel <betizzel@pm.me>
+Date: Fri, 6 Nov 2026 21:45:20 -0600
+Subject: [PATCH] kboot: reserve coprocessor __OS_LOG buffers that lie in RAM
+
+On T6050 (M5 Pro) iBoot leaves the __OS_LOG buffers of the
+coprocessors it started inside the RAM range it hands to the OS:
+DCP, DCPEXT0-3, MTP, AOP and AUSS, about 1.1 MiB at 0x1000623c000 on
+J714s. The firmware keeps writing its log there, and nothing reserved
+it, so Linux used those pages; on one boot they sat in the CMA area.
+Reserve every in-RAM __OS_LOG segment listed in segment-ranges on
+/arm-io nodes and their nubs as no-map, rounded out to 16 KiB.
+
+Carried unchanged from omarchy-m5 patches/m1n1/0007 (commit a5df9e4).
+The J716s ADT lists the same __OS_LOG segments (MTP, AUSS, AOP, DCP,
+DCPEXT0-3) at DRAM addresses.
+
+Link: https://github.com/betizzel/omarchy-m5/commit/a5df9e4df61b60dd6195e13a2a3a043d76b92c0f
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ src/kboot.c | 81 +++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 81 insertions(+)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index 16a06ea..fbae399 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -2828,6 +2828,80 @@ static int dt_setup_mtd_phram(void)
+     return 0;
+ }
+ 
++/*
++ * iBoot leaves the __OS_LOG buffers of the coprocessors it started inside the
++ * RAM range it hands to the OS (on T6050: DCP, DCPEXT0-3, MTP, AOP and AUSS),
++ * and the firmware keeps writing to them. Keep the OS off those pages.
++ */
++static int dt_reserve_oslog(int node, u64 ram_lo, u64 ram_hi)
++{
++    u32 seg_len, names_len;
++    const struct adt_segment_ranges *seg = adt_getprop(adt, node, "segment-ranges", &seg_len);
++    const char *names = adt_getprop(adt, node, "segment-names", &names_len);
++
++    if (!seg || !names || !seg_len || seg_len % sizeof(*seg))
++        return 0;
++
++    int resv_node = fdt_path_offset(dt, "/reserved-memory");
++    if (resv_node < 0)
++        bail("FDT: '/reserved-memory' not found\n");
++
++    const char *name = names;
++    const char *end = names + names_len;
++    for (u32 i = 0; i < seg_len / sizeof(*seg) && name < end; i++) {
++        const char *next = memchr(name, ';', end - name);
++        size_t len = next ? (size_t)(next - name) : strnlen(name, end - name);
++
++        if (len == 8 && !memcmp(name, "__OS_LOG", 8)) {
++            u64 start = ALIGN_DOWN(seg[i].phys, SZ_16K);
++            u64 stop = ALIGN_UP(seg[i].phys + seg[i].size, SZ_16K);
++            char node_name[32];
++
++            snprintf(node_name, sizeof(node_name), "oslog@%lx", start);
++            if (start >= ram_lo && stop <= ram_hi &&
++                fdt_subnode_offset(dt, resv_node, node_name) < 0) {
++                if (dt_get_or_add_reserved_mem(node_name, "apple,asc-oslog", true, start,
++                                               stop - start) < 0)
++                    return -1;
++                printf("FDT: reserved %s __OS_LOG 0x%lx..0x%lx\n", adt_get_name(adt, node), start,
++                       stop);
++            }
++        }
++
++        if (!next)
++            break;
++        name = next + 1;
++    }
++
++    return 0;
++}
++
++static int dt_reserve_asc_oslogs(void)
++{
++    u64 ram_lo = cur_boot_args.phys_base;
++    u64 ram_hi = cur_boot_args.phys_base + cur_boot_args.mem_size;
++    int node = adt_path_offset(adt, "/arm-io");
++
++    if (node < 0)
++        return 0;
++
++    /* The segments are listed on the coprocessor node and/or its nub child */
++    ADT_FOREACH_CHILD(adt, node)
++    {
++        if (dt_reserve_oslog(node, ram_lo, ram_hi) < 0)
++            return -1;
++
++        int nubs = adt_get_child_count(adt, node);
++        int nub = nubs ? adt_first_child_offset(adt, node) : -1;
++        for (; nubs > 0; nubs--, nub = adt_next_sibling_offset(adt, nub)) {
++            if (dt_reserve_oslog(nub, ram_lo, ram_hi) < 0)
++                return -1;
++        }
++    }
++
++    return 0;
++}
++
+ int kboot_prepare_dt(void *fdt)
+ {
+     if (dt) {
+@@ -2945,6 +3019,13 @@ int kboot_prepare_dt(void *fdt)
+         fdt_node_check_compatible(dt, 0, "apple,t6022") == 0)
+         dt_fixup_t6020_compat(dt);
+ 
++    /*
++     * Coprocessor log buffers inside RAM must be reserved before the /memory
++     * node is written.
++     */
++    if (dt_reserve_asc_oslogs())
++        return -1;
++
+     /*
+      * Set the /memory node late since we might be allocating from the top of memory
+      * in one of the above devicetree prep functions, and we want an up-to-date value
+-- 
+2.56.0
+
