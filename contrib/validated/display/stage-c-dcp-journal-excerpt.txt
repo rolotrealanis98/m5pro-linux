@@ -1,0 +1,88 @@
+[drm] Initialized simpledrm 1.0.0 for 10bd15f4000.framebuffer on minor 0
+simple-framebuffer 10bd15f4000.framebuffer: [drm] fb0: simpledrmdrmfb frame buffer device
+apple-dcp 48ae00000.dcp: panel identity fallback: ADT parsed, panel node absent, dimensions 345x223 mm
+apple-dcp 48ae00000.dcp: live DCP DMA resources retained until reboot
+apple-dcp 48ae00000.dcp: negotiating RTKit with the running DCP
+apple-dcp 48ae00000.dcp: RTKit: Initializing (protocol version 12)
+apple-dcp 48ae00000.dcp: shmem_setup: iova: 1ffffffc000, buffer: ffff800081f0c000
+apple-dcp 48ae00000.dcp: shmem_setup: iova: 1ffffff8000, buffer: ffff800081f14000
+apple-dcp 48ae00000.dcp: shmem_setup: iova: 1000acc4000 -> pa: 10bd12d8000 -> iomem: ffff800081f20000
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ck_PCC2DBlm_v5.cpp:4267: IOMFB LACS_ERROR: DCP took too long to respond to LAS stats
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ck_PCC2DBlm_v5.cpp:4307: IOMFB: BLM LTS data hasn't been read in more than 10 secs
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ap_link.c:301: shared memory dva: 0x1ffffe00000 0x1000454000
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ap_link.c:278: ap_link: IOMFB: DCP heap size: 0x1000000 [iBoot:0x1000000] [LinkService:0x0]
+apple-dcp 48ae00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:6935: IOMFB: Could not find Backlight service
+apple-dcp 48ae00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:6946: IOMFB: Could not find nvram service
+apple-dcp 48ae00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:3256: virtual bool UnifiedPipeline::start_ios_gated(): Created AP Services
+apple-dcp 48ae00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:3287: start_ios_gated: trigger pending HPD notification
+apple-dcp 48ae00000.dcp: RTKit: syslog message: FramebufferDCP.cpp:4640: virtual void IOMobileFramebuffer::hotPlug_notify(uint64_t)
+apple-dcp 48ae00000.dcp: dcp_hotplug() connected:1 valid_mode:0 nr_modes:0
+apple-dcp 48ae00000.dcp: AFK[ep:20]: new service system on channel 1
+apple-dcp 48ae00000.dcp: AFK[ep:20]: new service powerlog-service on channel 3
+apple-dcp 48ae00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:3295: virtual bool UnifiedPipeline::start_ios_gated(): Flushed RTPs
+apple-dcp 48ae00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:2545: set_device_enabled_gated: current state: 1, requested state: 1
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ableCompensator.cpp:429: initial_guess: temperature from SMC not set, using PMU temperature as initial guess: 30.289993286
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ableCompensator.cpp:173: IOMFB setup_table: Could not find table 'display-backlight-compensation-v1' in registry. Using default table.
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:14585: IOMFB updateFrequencies: minimum-frequency property not found, using getClockFrequency(0) instead.
+apple-dcp 48ae00000.dcp: DCP requested undeclared provider clock index 0
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:14588: IOMFB updateFrequencies getClockFrequency returned pixelClock = 0
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:14617: IOMFB updateFrequencies EDT ERROR: getClockFrequency(0) (0) < videoClock 521064960! Giving up on frequencies.
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:23691: set_disp_perf_state: video_clock = 521065000, disp_clock = 677384448
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:23703: set_disp_perf_state: Call config_disp_perf_state :: Disp_Index = 0: perf_state = 5, disp_clock = 677384448, Flags = 0
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ipeDCP_H17GSCD.cpp:1768: IOMFB: videoClock is zero, defaulting to 521065000
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:14755: 
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ck_Config_H17G.cpp:1843: program_frame_size: pixel_clock 1042130000, vid0 521065000, 00020910 0000007e
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:14585: IOMFB updateFrequencies: minimum-frequency property not found, using getClockFrequency(0) instead.
+apple-dcp 48ae00000.dcp: DCP requested undeclared provider clock index 0
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:14588: IOMFB updateFrequencies getClockFrequency returned pixelClock = 0
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:14617: IOMFB updateFrequencies EDT ERROR: getClockFrequency(0) (0) < videoClock 521064960! Giving up on frequencies.
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:23691: set_disp_perf_state: video_clock = 521065000, disp_clock = 677384448
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:23703: set_disp_perf_state: Call config_disp_perf_state :: Disp_Index = 0: perf_state = 5, disp_clock = 677384448, Flags = 0
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:13824: set_run_mode_safe: deferring: 2 -> 4
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:13731: virtual IOMFBStatus IOMFB::UPPipeDCP_H17GSCD::ready_for_run_mode_change(AppleRegisterStream *): initiating deferred run mode ch
+apple-dcp 48ae00000.dcp: RTKit: syslog message: common_afk.cpp:1227: IOMFB: DPTX Generic SDP base index missing
+apple-dcp 48ae00000.dcp: RTKit: syslog message: UPPipe.cpp:7593: DynamicSDP IOMFB: get_dptx_sdp_base_wrapper: Enabling Dynamic SDP allocation.
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:18671: DynamicSDP: initialize_SDP sdp_base_channel_idx:0, max_available_sdp_count:1
+apple-dcp 48ae00000.dcp: RTKit: syslog message: MxHal_v1.cpp:249: IOMFB: load APT M3 IMem : size 0x9130
+apple-dcp 48ae00000.dcp: RTKit: syslog message: MxHal_v1.cpp:249: IOMFB: load APT M3 DMem : size 0x6844
+apple-dcp 48ae00000.dcp: RTKit: syslog message: MxHal_v1.cpp:249: IOMFB: load APT M3 DMem : size 0x60b8
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:19339: ERB: TSQ is not in VBlank so early release buffer can be supported tsq = 1060 v_blank = 222
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:19273: ERB: line duration(nclks) is 81000000 in nclks tsq in lines = 1060, subframeduration_nclks = 100000
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:19275: ERB: display lead time is 15256 in nclks tsq in nclks = 86319 vbi_advance_nclks = 162
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:19280: ERB: total_nclks = 101413
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:19292: ERB: vbi_pulse is 1413 in nclks vbi_pulse in us = 58
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:19303: ERB: LCD: vbi_pulse is close to end of active vbi_pulse_nclks = 1413
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:19367: ERB: Early release buffer feature not recommended, check timings for the platform
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:19244: ERB:Early release buffer NOT enabled
+apple-dcp 48ae00000.dcp: RTKit: syslog message: CAHandler.cpp:257: IOMFB load_ca_data: Unrecognized data version 0 (expected 1 or 2)
+apple-dcp 48ae00000.dcp: RTKit: syslog message: UPTSQManager.cpp:131: IOMFB: clearing M3 reset
+apple-dcp 48ae00000.dcp: RTKit: syslog message: UPTSQ_Hal_v1.cpp:347: IOMFB: timebase_offset = 4
+apple-dcp 48ae00000.dcp: RTKit: syslog message: UPTSQManager.cpp:104: IOMFB: switch to normal mode succeeded
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ipeDCP_H17GSCD.cpp:1460: IOMFB init_power_lut: failed to read power-lut-data-x
+apple-dcp 48ae00000.dcp: boot done
+apple-dcp 48ae00000.dcp: RTKit: syslog message: FramebufferDCP.cpp:3329: IOMFB:create_default_fb_surface: Creating default FB surface failed - width = 3456, height = 2234
+apple-dcp 48ae00000.dcp: dcp_hotplug() connected:1 valid_mode:0 nr_modes:6
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ifiedPipeline.cpp:10241: Found AFK dict
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ifiedPipeline.cpp:10252: Didnt find export_uuid
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ifiedPipeline.cpp:10278: IOMFB UUID Exporting UUID :0 , uuid_override : 0
+apple-dcp 48ae00000.dcp: RTKit: syslog message: peDCP_H17GSCD.cpp:13541: IOMFB: panel charge parity violation [0xfb3fab5]
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ck_PCC2DBlm_v5.cpp:4267: IOMFB LACS_ERROR: DCP took too long to respond to LAS stats
+apple-dcp 48ae00000.dcp: DCP booted
+apple-dcp 48ae00000.dcp: RTKit: syslog message: FramebufferDCP.cpp:4846: clamshell value is 1
+apple-dcp 48ae00000.dcp: DCP is_main_display: 1
+apple-dcp 48ae00000.dcp: dcp_hotplug() connected:1 valid_mode:0 nr_modes:6
+[drm] Initialized apple 1.0.0 for display-subsystem on minor 1
+apple-dcp 48ae00000.dcp: no EDID source
+apple-dcp 48ae00000.dcp: using firmware-derived EDID metadata for connection 0
+apple-dcp 48ae00000.dcp: dcp_poweron() starting
+apple-dcp 48ae00000.dcp: dcp_set_power_state_req returned, 10000 ms remaining
+apple-dcp 48ae00000.dcp: backlight restore unavailable: -61
+apple-dcp 48ae00000.dcp: set_digital_out_mode(color:1 timing:2) "3456x2234": 120 1042130 3456 3464 3496 3536 2234 2352 2360 2456 0x48 0x5
+apple-dcp 48ae00000.dcp: set_digital_out_mode() color mode depth:8 format:0 colorimetry:16 eotf:0 range:0 vrr:0
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ifiedPipeline.cpp:11636: set_digital_out_mode: Modeset requested for colorID: 1, timingID: 2
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ifiedPipeline.cpp:11963: Already set to timingID: 2 colorID: 1. 3456x2234 link: 1
+apple-dcp 48ae00000.dcp: set_digital_out_mode finished:2125
+apple-dcp 48ae00000.dcp: set_digital_out_mode finished with 8500 to spare
+apple-drm display-subsystem: [drm] fb0: appledrmfb frame buffer device
+apple-dcp 48ae00000.dcp: no loader brightness reported; backlight starts at 300 nits without a panel change
+apple-dcp 48ae00000.dcp: RTKit: syslog message: ipeDCP_H17GSCD.cpp:2985: brightness_changed: brightness value: 19660800
