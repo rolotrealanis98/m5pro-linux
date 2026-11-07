@@ -179,3 +179,11 @@ NVMe/SART commits are PR #936, the combo-PHY and dwc3 commits are PR #939 plus A
   Every payload must carry the N1-aware m1n1 from now on (a loader without 0027 hangs once on a warm N1).
 - Open on the daily: lid sleep confirmation on this kernel, speaker listening check, netconsole path (double NAT).
 
+
+## 2026-11-07 20:37 UTC
+- Daily: `e2b-daily-20261107-fd4b3b9e.bin` = kernel `7.3.0-g3671d907d570` (the 87-patch series + Aurora #1012 + the 15-commit
+  27.2+ GPU InitData port) + m1n1 `n1-warm-gpu` + the stitched-FTAB initramfs; chosen `n1=4`, `gpu=1`, battery on, no
+  `pcie_aspm=off`; rollback = the E2b test twin `3f2fec04`. The aurora GPU initialises at boot (27.3 firmware, G17S,
+  renderD128) and the desktop launcher picks the zink GPU session when the driver is present.
+- Previous daily `4feff24c` kept in `~/Work/agents/next-daily/payloads/private/` for a manual rollback.
+- Open on the daily: a full desktop login on the GPU kernel (attended), DCP stage C, lid sleep on this kernel.
