@@ -1147,3 +1147,14 @@ once the N1 restart issue is solved (the daily must carry both stacks).
   sink only, software DSP off). speakersafetyd's 71/58 C idle coil readings are its deliberate warm-start assumption
   (99 C cold, 120 C warm, decaying to t_ambient 50 C), not a profile bug.
 
+### Result (LID daily promotion + bisect C and D, 2026-11-07 14:40-14:52 UTC, loop, nobody at the machine)
+
+- **Daily promoted:** `daily-20261107-534ca146.bin` = kernel `7.3.0-g82a7d71d217e` (series tip + 0066 lid-open confirm),
+  stack DTB, battery, `kvm-arm.wfi_trap_policy=trap`, no self-test flag: primary slot, 18 CPUs, network,
+  `lid_wake_settle_ms` 2000. Previous daily `dcec81ed` retired from `boot.bin.prev`.
+- **C** (`7.3.0-ga2518bd52a46`, series tip + 0065 kernel crypto): boots; nft ok; `ip rule` unsupported (expected);
+  `CRYPTO_USER_API_HASH=y`; **iwd starts** (`active`).
+- **D** (`7.3.0-g91812cddaf1c`, + 0064 netfilter/routing/WireGuard): boots; `ip rule` lists the local table; iwd active.
+- full2 (+ 0063 haptic) running next; if it boots, the one earlier failure of the combined kernel stays unexplained
+  (no capture) and the crash-log work decides whether to trust it.
+
