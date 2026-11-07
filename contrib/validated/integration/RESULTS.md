@@ -1196,3 +1196,18 @@ initramfs; `n1=4`, `pcie_aspm=off`, self-test on, battery on). `boot.bin.prev` =
   goes into every payload from here on, and the next daily is W4 + the lid patch (building).
 - Module set for the lid daily kernel `82a7d71d217e` installed on the root (171 modules, phram included).
 
+### Result (CRASHLOG-PRAM, 2026-11-07 15:48-15:58 UTC, loop, nobody at the machine)
+
+m1n1 0028 (ramoops node carved from iBoot's `/pram` panic-log region, header page skipped, mem-type 0) + crash-log
+kernel + daily DTB: payload `crashlog-pram-20261107-de06f732`, daily twin `daily-20261107-c317334d` as prev for the panic.
+- Boots on the primary slot; `reserved-memory/ramoops@10bd98dc000` (1552 KiB) present, ramoops registered, `/dev/pmsg0`.
+- Warm `systemctl reboot` with pmsg + kmsg probes written: **store empty** on the next boot.
+- Deliberate panic (`sysrq c`, PANIC_TIMEOUT 10): the machine came back on the daily twin as `fallback-after-failure`
+  (so the panic and the restart happened), and the store was **empty** there too.
+- Conclusion: iBoot consumes and clears `/pram` on every boot (XNU's own panic log is extracted by iBoot), and the ECC
+  DRAM is zeroed; no RAM region we can name survives a reset for Linux. RAM-backed pstore is **not viable** on the J716s
+  without NVRAM access or an iBoot-side path. Evidence for a frozen boot has to come from outside the machine:
+  netconsole with the USB Ethernet adapter on the Studio's LAN (attended re-plug; pre-panic lines, and panic lines too
+  with an AX88179-class adapter), plus `initcall_debug` on hunt payloads. The kernel config pieces stay in the series
+  (harmless); the DT node and m1n1 0028 stay in contrib/pending/crashlog for the record.
+
