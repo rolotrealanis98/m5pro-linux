@@ -1,6 +1,14 @@
-# Make the J716s audio DTBs from a private copy of fixed8 and compile them with Aurora's dtc
+# Make the J716s audio DTBs from the daily DT and compile them with Aurora's dtc
 # (read-only use of /Volumes/linux-cs/wt-aurora/scripts/dtc/dtc).
-#   python3 -I ~/Work/agents/audio-aurora/mk-audio-dtb.py
+#   python3 -I ~/Work/agents/audio-aurora/mk-audio-dtb.py            # from fixed8-notun-edp (current lineage)
+#   python3 -I ~/Work/agents/audio-aurora/mk-audio-dtb.py fixed8     # from fixed8 (older lineage, per-unit tunables)
+#
+# Sources:
+#   notun-edp  ~/Work/agents/aurora-kernel/dts/j716s-typec-fixed8-notun-edp.dts: fixed8 minus the 14 baked
+#              apple,tunable-* lists (m1n1 patch 0021 fills them at boot) plus apple,internal-panel on the chosen
+#              framebuffer. No per-unit values: outputs t6050-j716s-audio{,-spk}-notun-edp.dtb.
+#   fixed8     ~/Work/agents/trackpad-aurora/dt/j716s-typec-fixed8.dts (carries per-unit tunables: keep private):
+#              outputs t6050-j716s-audio{,-spk}.dtb.
 #
 # t6050-j716s-audio.dtb      (primary)  fixed8 + AOP (setup port), base-ns and LEAP-S ADMACs, the AOP audio
 #                                       node, the amps and jack codec on i2c1/i2c2/i2c3, and the sound card.
@@ -15,16 +23,23 @@
 #                                       The kernel (patch 0011) holds the speaker volume at -30 dB in every state.
 #
 # Every address, IRQ, GPIO, DART stream and slot is from the J716s ADT (adt-runtime-j716s.bin); node
-# shapes follow edimoldovan's working J714c DT (linux-aurora t6050-j714c @ 671fd38e1c0d). The DTS
-# files carry per-unit tunables inherited from fixed8: keep them in this folder, never publish them.
-import hashlib, pathlib, subprocess
+# shapes follow edimoldovan's working J714c DT (linux-aurora t6050-j714c @ 671fd38e1c0d). The fixed8-based
+# DTS files carry per-unit tunables inherited from fixed8: keep those private. The notun-edp ones do not.
+import hashlib, pathlib, subprocess, sys
 H = pathlib.Path.home()
-SRC = H/"Work/agents/trackpad-aurora/dt/j716s-typec-fixed8.dts"
+SOURCES = {
+    "notun-edp": (H/"Work/agents/aurora-kernel/dts/j716s-typec-fixed8-notun-edp.dts",
+                  "90c604668bbdf03d27d149c29913b6418db33636607715524ac85153e6135cc0", "-notun-edp"),
+    "fixed8": (H/"Work/agents/trackpad-aurora/dt/j716s-typec-fixed8.dts",
+               "999eeacb0759e34be252c00ed81b299cb24d182e4c1ff6cfe7dd308ade4c4c54", ""),
+}
+which = sys.argv[1] if len(sys.argv) > 1 else "notun-edp"
+SRC, SRC_SHA, SUFFIX = SOURCES[which]
 OUT = H/"Work/agents/audio-aurora/dt"
 DTC = "/Volumes/linux-cs/wt-aurora/scripts/dtc/dtc"
 SPK_LEVEL = 10        # ADT speaker-config amp_gain is 15; macaudio caps "Amp Gain Volume" at this byte
 sha = lambda b: hashlib.sha256(b).hexdigest()
-assert sha(SRC.read_bytes()) == "999eeacb0759e34be252c00ed81b299cb24d182e4c1ff6cfe7dd308ade4c4c54", "fixed8 changed"
+assert sha(SRC.read_bytes()) == SRC_SHA, f"{SRC.name} changed"
 src = SRC.read_text()
 
 # New phandles; fixed8 uses up to 0x51.
@@ -60,8 +75,18 @@ def amp(label, name, addr, ph, imon, vmon, spk):
             f"\t\t\t\tphandle = <{ph:#04x}>;\n"
             f"\t\t\t}};\n")
 
+def strip_tunable_comments(t):
+    # notun-edp keeps fixed7's comment block about the ATC1 tunables it no longer carries (names, banks and a
+    # local script path, no values). Drop it from the published DTS; the DTB is the same either way.
+    a = t.find("\t\t\t/* ATC1 (left-front) board tunables from the ADT")
+    if a < 0:
+        return t
+    b = t.index("\t\t\t/* Present in the ADT, not consumed by the driver:", a)
+    b = t.index("*/\n", b) + 3
+    return t[:a] + t[b:]
+
 def build(spk):
-    t = src
+    t = strip_tunable_comments(src) if which == "notun-edp" else src
     # 1. pinctrl_ap: open the audio pins (106, 107 amps; 134, 139 jack codec) besides PERST# 80,
     #    the pattern of Aurora's t6050-j775d.dts.
     t = sub(t, "gpio-reserved-ranges = <0x00 0x50 0x51 0x8c>;",
@@ -269,7 +294,7 @@ def build(spk):
 
 OUT.mkdir(parents=True, exist_ok=True)
 for name, spk in (("j716s-audio", False), ("j716s-audio-spk", True)):
-    dts = OUT/f"{name}.dts"; dtb = OUT/f"t6050-{name}.dtb"
+    dts = OUT/f"{name}{SUFFIX}.dts"; dtb = OUT/f"t6050-{name}{SUFFIX}.dtb"
     dts.write_text(build(spk))
     r = subprocess.run([DTC, "-q", "-I", "dts", "-O", "dtb", "-o", str(dtb), str(dts)],
                        capture_output=True, text=True)
