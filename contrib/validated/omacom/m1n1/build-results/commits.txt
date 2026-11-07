@@ -1,0 +1,24 @@
+base 6d879ae cpufreq: T6050
+base0 121fcbf Merge pull request #20 from satchlj/j613-gpu26-identity-20261030
+c01 47e8282 tests: build the T6050 paths that #26 adds
+c02 f8ab2e1 smp: t6050: forward cores locked to a stage 1 base the image left
+c03 5a8f40d kboot: n1: fill the T6050 N1 hand-off in the DT
+c04 6c8497b pcie: t6050: train apcie0 port 0 (the N1) behind chosen.asahi,t6050-n1
+c05 3ac8c17 pcie: t6050: start ANS for the N1 training's storage checks (chosen.asahi,t6050-n1=3|4)
+c06 c49ef5d pcie: t6050: pulse the N1 reset through the SMC as on J813 (chosen.asahi,t6050-n1=2|4)
+c07 561df3a pcie: t6050: handle a warm N1 and a live port 0 at entry (chosen.asahi,t6050-n1=2|4)
+c08 8906f3b kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
+c09 b87cfab firmware: add the 27.2 and 27.3 beta 1 stub iBoot strings
+c10 badcc4b kboot: t6050: reserve the running coprocessors' __OS_LOG segments
+c11 922e6c1 kboot: t6050: hand the internal display to the firmware-27 DCP driver
+c12 1e7b278 kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
+c13 aee8488 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
+ci-base 6d879ae cpufreq: T6050
+ci-base0 121fcbf Merge pull request #20 from satchlj/j613-gpu26-identity-20261030
+ci-tip1 f8ab2e1 smp: t6050: forward cores locked to a stage 1 base the image left
+ci-tip2 561df3a pcie: t6050: handle a warm N1 and a live port 0 at entry (chosen.asahi,t6050-n1=2|4)
+ci-tip3 8906f3b kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
+ci-tip4 1e7b278 kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
+ci-tip5 aee8488 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
+ci-wdt-standalone 0d93a70 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
+wdt-standalone 0d93a70 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep

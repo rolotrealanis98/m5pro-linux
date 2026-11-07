@@ -1,0 +1,54 @@
+From 1e7b2780660fda0fbaf655c3c7a0e8083f88a4cc Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 14:09:19 -0500
+Subject: [PATCH 4/4] kboot: t6050: publish DCP firmware-compat 27.3.0 for the
+ 27.3 beta 1 stub
+
+apple,firmware-compat names the DCP interface the kernel has to speak.
+The 27.3 beta 1 stub (mBoot-20457.60.65.0.1) published its own version,
+27.2.98.1, which no driver table describes. Its DCP firmware
+(AppleDCP-1317.60.10) implements one interface: 27.2's with one more
+IOMFB method at A521 and a larger IOMFBSwap. Publish that as 27.3.0, as
+13.5 beta 4 publishes 13.5.0. apple,firmware-version stays the stub's.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ src/kboot.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index 6d86b75..8ea896c 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -5399,7 +5399,9 @@ static void dt_reserve_t6050_oslogs(void)
+  * never initialised, walked or shut down here (dt_carveout_reserved_regions() would do all three,
+  * and the kboot_display_handoff.c walk is written for two-level tables; these are four-level).
+  *
+- * apple,firmware-compat is the stub's own version. chosen.asahi,t6050-dcp-compat=27.0.0 publishes
++ * apple,firmware-compat names the DCP interface the stub's firmware implements: the stub's own
++ * version, except that the 27.3 beta 1 stub publishes <27 3 0>, the interface read from its DCP
++ * firmware (IOMFB method tags and swap layout). chosen.asahi,t6050-dcp-compat=27.0.0 publishes
+  * <27 0 0> instead: that claims an ABI this firmware was not built for; experiment only.
+  */
+ #define T6050_ASC_CPU_CONTROL     0x44
+@@ -5566,6 +5568,7 @@ static int t6050_disp_publish(const struct t6050_disp_nodes *ph, u64 vram, u64 v
+ static void dt_set_display_t6050(void)
+ {
+     static const struct fw_version_info compat_27_0 = {V27_0, "27.0", {27, 0, 0}, 3, "override"};
++    static const struct fw_version_info compat_27_3 = {V27_3B1, "27.3", {27, 3, 0}, 3, "compat"};
+     struct t6050_disp_state e;
+ 
+     t6050_disp_read(&e);
+@@ -5611,7 +5614,8 @@ static void dt_set_display_t6050(void)
+         t6050_dcp_log("no ADT /vram above OS RAM: no handoff\n");
+         return;
+     }
+-    const struct fw_version_info *compat = &os_firmware;
++    const struct fw_version_info *compat =
++        os_firmware.version == V27_3B1 ? &compat_27_3 : &os_firmware;
+     if (t6050_chosen_is("asahi,t6050-dcp-compat", "27.0.0")) {
+         t6050_dcp_log("OVERRIDE: firmware-compat 27.0.0\n");
+         compat = &compat_27_0;
+-- 
+2.56.0
+

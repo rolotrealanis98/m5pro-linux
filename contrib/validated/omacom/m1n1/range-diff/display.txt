@@ -1,0 +1,140 @@
+1:  8e5c8e9 ! 1:  b87cfab firmware: add the 27.2 and 27.3 beta 1 stub iBoot strings
+    @@ Commit message
+         and the 27.2 stub's mBoot-20457.41.3 as V27_2.
+     
+         Of the os_firmware.version users, none takes a new branch on T6050:
+    -    the GPU path stops at "unsupported chip" before its firmware switch,
+    +    the GPU path takes dt_set_gpu_t6050() before its firmware switch,
+         the ISP and iBoot DCP paths only match older versions, and the 26.6.2
+         checks (J613, payload ranking) do not match.
+     
+         Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+     
+      ## src/firmware.c ##
+     @@ src/firmware.c: const struct fw_version_info fw_versions[NUM_FW_VERSIONS] = {
+    -     [V26_7]      = {V26_7,      "26.7",        {26, 7, 0},     3, "mBoot-18000.161.10.701.1"},
+    -     [V26_7_1]    = {V26_7_1,    "26.7.1",      {26, 7, 1},     3, "mBoot-18000.161.10.702.1"},
+    +     // Same iBoot string as 27.0: detect_firmware() always picks V27_0. Verified from the J575D
+    +     // (M3 Ultra) 27.0.1 iBoot (26A434): both report "mBoot-20457.1.29", so no V27_0_1 exists.
+          [V27_0]      = {V27_0,      "27.0",        {27, 0, 0},     3, "mBoot-20457.1.29"},
+     +    // Aura (aurora-silicon/aura PR #61): the 27.2 stub's iBoot string.
+     +    [V27_2]      = {V27_2,      "27.2",        {27, 2, 0},     3, "mBoot-20457.41.3"},
+2:  db04421 ! 2:  badcc4b kboot: t6050: reserve the running coprocessors' __OS_LOG segments
+    @@ Commit message
+         "unknown compatible" for it; dart-disp0 is locked as before.
+     
+         Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+     
+      ## src/kboot.c ##
+    -@@ src/kboot.c: static int dt_set_j713_dcp_handoff(void)
+    -     return 0;
+    +@@ src/kboot.c: static void dt_set_j514s_native(void)
+    +             printf("FDT: J514S DCPEXT%u handoff refused\n", n);
+      }
+      
+     +/*
+3:  d7f99dd ! 3:  922e6c1 kboot: t6050: hand the internal display to the firmware-27 DCP driver
+    @@ Commit message
+         handoff marker: it expects the loader to describe the framebuffer, name
+         the DCP firmware and enable the display nodes, and it refuses a
+         firmware-compat it has no method table for at probe, before it touches
+    -    the DCP. aurora-wip does none of this for T6050.
+    +    the DCP. integration/aurora does none of this for T6050.
+     
+         On every T6050 boot, read the internal display as iBoot left it and log
+         it: the DCP ASC's CPU control and status, the PROTECT of dart-dcp and
+    @@ Commit message
+         and nothing is written. dart-disp0 is locked after this read, as
+         before, so the log shows iBoot's own state.
+     
+    -    With the boot.bin config line chosen.m5,t6050-display=1, and only when
+    +    With the boot.bin config line chosen.asahi,t6050-display=1, and only when
+         the OS firmware is known, the DCP runs, both DARTs are locked, the three
+         streams translate on four-level tables at the ADT's roots, the DT's
+         dcp, DARTs, mailbox and piodma are the ADT's devices and /vram lies
+    @@ Commit message
+         fails the DT is left as it was. The DARTs are never initialised, walked
+         or shut down here.
+     
+    -    chosen.m5,t6050-dcp-compat=27.0.0 publishes <27 0 0> as the compat
+    +    chosen.asahi,t6050-dcp-compat=27.0.0 publishes <27 0 0> as the compat
+         instead. That claims an interface the 27.3 firmware was not built for
+         and is only for experiments.
+     
+    +    Tested on the J716s with the same hand-off on our stage 2 (under the
+    +    name chosen.m5,t6050-display): the dcp, its mailbox, both DARTs and the
+    +    display subsystem are enabled with /vram as the framebuffer, and the
+    +    27.3 DCP driver probes to its devicetree check without a DART fault.
+    +
+         Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+     
+      ## src/kboot.c ##
+     @@ src/kboot.c: static void dt_reserve_t6050_oslogs(void)
+    @@ src/kboot.c: static void dt_reserve_t6050_oslogs(void)
+     + * (DCP SID 23 on dart-dcp; scanout SID 0 and PIODMA SID 16 on dart-disp0) beside the ADT's
+     + * l1-tt-N. Every read is guarded; nothing is written. Logged on every T6050 boot.
+     + *
+    -+ * With chosen.m5,t6050-display=1, and only when the DCP runs and both DARTs are locked with those
+    -+ * three streams translating on four-level tables at the ADT's roots: reserve /vram (no-map,
+    ++ * With chosen.asahi,t6050-display=1, and only when the DCP runs and both DARTs are locked with
+    ++ * those three streams translating on four-level tables at the ADT's roots: reserve /vram (no-map,
+     + * "framebuffer"), give it to the dcp node and the display subsystem as their "framebuffer"
+     + * memory-region, publish the stub's firmware as apple,firmware-version/-compat, and enable the
+     + * dcp node, its mailbox, both DARTs and the display subsystem, all of which the DT carries
+    @@ src/kboot.c: static void dt_reserve_t6050_oslogs(void)
+     + * never initialised, walked or shut down here (dt_carveout_reserved_regions() would do all three,
+     + * and the kboot_display_handoff.c walk is written for two-level tables; these are four-level).
+     + *
+    -+ * apple,firmware-compat is the stub's own version. chosen.m5,t6050-dcp-compat=27.0.0 publishes
+    ++ * apple,firmware-compat is the stub's own version. chosen.asahi,t6050-dcp-compat=27.0.0 publishes
+     + * <27 0 0> instead: that claims an ABI this firmware was not built for; experiment only.
+     + */
+     +#define T6050_ASC_CPU_CONTROL     0x44
+    @@ src/kboot.c: static void dt_reserve_t6050_oslogs(void)
+     +
+     +    t6050_disp_read(&e);
+     +
+    -+    if (!t6050_chosen_is("m5,t6050-display", "1")) {
+    -+        t6050_dcp_log("not armed (chosen.m5,t6050-display)\n");
+    ++    if (!t6050_chosen_is("asahi,t6050-display", "1")) {
+    ++        t6050_dcp_log("not armed (chosen.asahi,t6050-display)\n");
+     +        return;
+     +    }
+     +    if (os_firmware.version == V_UNKNOWN) {
+    @@ src/kboot.c: static void dt_reserve_t6050_oslogs(void)
+     +        return;
+     +    }
+     +    const struct fw_version_info *compat = &os_firmware;
+    -+    if (t6050_chosen_is("m5,t6050-dcp-compat", "27.0.0")) {
+    ++    if (t6050_chosen_is("asahi,t6050-dcp-compat", "27.0.0")) {
+     +        t6050_dcp_log("OVERRIDE: firmware-compat 27.0.0\n");
+     +        compat = &compat_27_0;
+     +    }
+4:  e0640ca ! 4:  1e7b278 kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
+    @@ Commit message
+         13.5 beta 4 publishes 13.5.0. apple,firmware-version stays the stub's.
+     
+         Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+     
+      ## src/kboot.c ##
+     @@ src/kboot.c: static void dt_reserve_t6050_oslogs(void)
+       * never initialised, walked or shut down here (dt_carveout_reserved_regions() would do all three,
+       * and the kboot_display_handoff.c walk is written for two-level tables; these are four-level).
+       *
+    -- * apple,firmware-compat is the stub's own version. chosen.m5,t6050-dcp-compat=27.0.0 publishes
+    +- * apple,firmware-compat is the stub's own version. chosen.asahi,t6050-dcp-compat=27.0.0 publishes
+     + * apple,firmware-compat names the DCP interface the stub's firmware implements: the stub's own
+     + * version, except that the 27.3 beta 1 stub publishes <27 3 0>, the interface read from its DCP
+    -+ * firmware (IOMFB method tags and swap layout). chosen.m5,t6050-dcp-compat=27.0.0 publishes
+    ++ * firmware (IOMFB method tags and swap layout). chosen.asahi,t6050-dcp-compat=27.0.0 publishes
+       * <27 0 0> instead: that claims an ABI this firmware was not built for; experiment only.
+       */
+      #define T6050_ASC_CPU_CONTROL     0x44
+    @@ src/kboot.c: static void dt_set_display_t6050(void)
+     -    const struct fw_version_info *compat = &os_firmware;
+     +    const struct fw_version_info *compat =
+     +        os_firmware.version == V27_3B1 ? &compat_27_3 : &os_firmware;
+    -     if (t6050_chosen_is("m5,t6050-dcp-compat", "27.0.0")) {
+    +     if (t6050_chosen_is("asahi,t6050-dcp-compat", "27.0.0")) {
+              t6050_dcp_log("OVERRIDE: firmware-compat 27.0.0\n");
+              compat = &compat_27_0;

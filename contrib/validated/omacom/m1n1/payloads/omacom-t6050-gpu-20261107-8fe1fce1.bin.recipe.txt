@@ -1,0 +1,19 @@
+payload   omacom-t6050-gpu-20261107-8fe1fce1.bin
+size      40290038 bytes
+sha256    8fe1fce10f1fcd1819022f7e1715af4861aad69fd844e32d62ca3abb082ebc45
+mode      test; m5.selftest ON (self-reverts to boot.bin.prev without network in 90 s); battery driver ENABLED (attended boot only)
+m1n1      custom:c08.bin [UNPINNED]  /Users/rolo/Work/agents/omacom-m1n1/build/c08.bin
+          sha256 5f8b6393c5606f0d914ee6f13c79de5ada6940f886664f4080b38413c3d8ec3c
+kernel    custom:Image.gz [UNPINNED]  /Users/rolo/Work/agents/gpu-e2/kbuild/gpu/Image.gz
+          sha256 5125f15be6cf5933256e105e78097067274d8071367bf993888c237881c3d1b9
+dtb       custom:t6050-j716s-gpu27-gpu-on.dtb [UNPINNED]  /Users/rolo/Work/agents/m1n1-gpu-pr/payloads/t6050-j716s-gpu27-gpu-on.dtb
+          sha256 adada7fc5134cec28ebde4302fae5452e2994993e9bd0debd4c8af8f06ba3543
+initramfs custom:initramfs-ftab.cpio.gz [UNPINNED]  /Users/rolo/Work/agents/next-daily/payloads/private/initramfs-ftab.cpio.gz
+          sha256 cffbbaf1030d224ca092c586aa25ab0ef2a93db5a1e2701aa3bd0d5618b2fbfa
+bootargs  earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5 kvm-arm.wfi_trap_policy=trap m5.selftest=1
+layout    m1n1 @0x0+0x410000 | bootargs @0x410000+0xd8 | show-notch @0x4100d8+0x32 | Image.gz @0x41010a+0x1251836 | dtb @0x1661940+0xa578 | initramfs @0x166beb8+0x100083e
+note      m1n1 custom:c08.bin is unpinned: the sha256 above is the only record of it
+note      kernel custom:Image.gz is unpinned: the sha256 above is the only record of it
+note      dtb custom:t6050-j716s-gpu27-gpu-on.dtb is unpinned: the sha256 above is the only record of it
+note      initramfs custom:initramfs-ftab.cpio.gz is unpinned: the sha256 above is the only record of it
+note      battery driver enabled: attended boot only; a probe hang is not self-recoverable

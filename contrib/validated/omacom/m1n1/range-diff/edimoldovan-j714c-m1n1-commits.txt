@@ -1,0 +1,18 @@
+5bb6965 payload: T6050 stage 2 marks stage 1's live ANS session for U-Boot
+70b298d payload: an appended kernel takes the stage 1 config's proxy window without its chainload target
+fc277aa dapf: add the T6050 PMP DART (dart-pmp0)
+5365315 payload: boot= takes the stage 1 config's proxy window without its chainload target
+160b644 kboot: GPU handoff for T6050
+103ab88 main: T6050_NO_HOST_PREP build switch skips the USB host prep
+3b2e6dc usb: T6050 host prep: short first window, the second cycle is the one that connects
+4849f76 usb: T6050 host prep flips every port and records the time to connect
+c2e43a7 kboot: kboot_set_chosen_u32s reopens the packed tree from a copy
+52c1e5f usb: T6050 host prep keeps a device-less port in host mode after the last attempt
+d5449bb kboot: kboot_set_chosen_u32s reopens the packed tree before writing
+b2b1c44 usb: T6050 host prep verifies the connection, retries, records the port status for the kernel
+65bbd8b usb: T6050 leaves the free ports in USB 2.0 host mode for the next stage
+eaa6bd1 cpufreq: T6050 cluster 0 (M), same command model as T8142
+f1afac5 T6050: drop the NVMe bring-up traces
+5211878 T6050: NVMe register geometry, retained heap, opt-in coprocessor stop
+7c61d6b proxyclient: T6050 chainload and boot on the boot CPU
+26c2c86 T6050 (J714c): MTP DAPF and dense secondary release mask

@@ -1,0 +1,109 @@
+1:  a8b4519 ! 1:  5a8f40d kboot: n1: fill the T6050 N1 hand-off in the DT
+    @@ Commit message
+         Nothing here trains a link.
+     
+         Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+     
+      ## Makefile ##
+     @@ Makefile: OBJECTS := \
+    @@ Makefile: OBJECTS := \
+     
+      ## src/kboot.c ##
+     @@
+    - #include "iodev.h"
+    - #include "isp.h"
+      #include "kboot_atc.h"
+    -+#include "kboot_n1.h"
+      #include "kboot_display_facts.h"
+      #include "kboot_gpu_t8122.h"
+    ++#include "kboot_n1.h"
+      #include "kboot_pmp_t8122.h"
+    + #include "kboot_t6031.h"
+    + #include "malloc.h"
+     @@ src/kboot.c: int kboot_prepare_dt(void *fdt)
+              return -1;
+          if (dt_set_bluetooth())
+2:  9823d48 ! 2:  6c8497b pcie: t6050: train apcie0 port 0 (the N1) behind chosen.asahi,t6050-n1
+    @@ Commit message
+         Adds pmgr_psreg_by_name(), and makes pmgr_power_is_on() skip virtual
+         devices: T6050 has a no_ps APCIE_PHY_SW beside the real one. Adds
+         tunables_check_local_addr() (Aura's read-back with per-record strobe
+    -    bits excused) and kboot_get_chosen().
+    +    bits excused), and kboot_get_chosen(), kboot_chosen_param() for the
+    +    other kboot files.
+     
+         Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+     
+      ## Makefile ##
+     @@ Makefile: OBJECTS := \
+      	memory.o memory_asm.o \
+      	nvme.o \
+      	payload.o \
+    --	pcie.o pcie_fdt.o \
+    -+	pcie.o pcie_fdt.o pcie_t6050.o \
+    +-	pcie.o \
+    ++	pcie.o pcie_t6050.o \
+      	pmgr.o \
+      	proxy.o \
+      	ringbuffer.o \
+     
+      ## src/kboot.c ##
+    -@@ src/kboot.c: static bool kboot_show_notch(void)
+    -     return false;
+    +@@ src/kboot.c: static const char *kboot_chosen_param(const char *name)
+    +     return NULL;
+      }
+      
+    -+/* The value of payload variable chosen.<name>, or NULL */
+    ++/* kboot_chosen_param() for the SoC helpers in other files (kboot_n1.c) */
+     +const char *kboot_get_chosen(const char *name)
+     +{
+    -+    for (int i = 0; i < MAX_CHOSEN_PARAMS; i++) {
+    -+        if (!chosen_params[i][0])
+    -+            break;
+    -+        if (!strcmp(chosen_params[i][0], name))
+    -+            return chosen_params[i][1];
+    -+    }
+    -+    return NULL;
+    ++    return kboot_chosen_param(name);
+     +}
+     +
+    - static int dt_set_rng_seed_sep(int node)
+    - {
+    -     u64 kaslr_seed;
+    + /*
+    +  * A later preparation (the proxy can prepare again, with another device tree or after changing
+    +  * the config) first removes the defaults an earlier one added, so an earlier default never
+     
+      ## src/kboot.h ##
+     @@ src/kboot.h: int kboot_set_uboot(const char *name, const char *value);
+3:  06e6c66 ! 3:  3ac8c17 pcie: t6050: start ANS for the N1 training's storage checks (chosen.asahi,t6050-n1=3|4)
+    @@ Commit message
+         =1 and =2 are unchanged.
+     
+         Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+     
+      ## src/kboot_n1.c ##
+     @@
+    @@ src/nvme.c: bool nvme_shutdown(void)
+     +    }
+     +    /* nvme_stop() goes on below and stops ANS as on M1-M3 */
+     +    if (nvme_type == NVME_T8132 && !nvme_stop_requested) {
+    - #if defined(CHAINLOADING) && !defined(ESP_STAGE2)
+    -         /* Stage 2 and U-Boot adopt this session without servicing its mailbox
+    -          * (only Linux takes RTKit ownership again), so stop the IOP pushing
+    +         nvme_adopt_live_session = true;
+    +         nvme_initialized = false;
+    +         printf("nvme: controller disabled; preserving live RTKit session\n");
+     @@ src/nvme.c: out_preserve:
+          return false;
+      }
+4:  4d50f1f ! 4:  c49ef5d pcie: t6050: pulse the N1 reset through the SMC as on J813 (chosen.asahi,t6050-n1=2|4)
+    @@ Commit message
+         =1 and =3 are unchanged (same register sequence, 500 ms link wait).
+     
+         Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+     
+      ## src/pcie_t6050.c ##
+     @@
+-:  ------- > 5:  561df3a pcie: t6050: handle a warm N1 and a live port 0 at entry (chosen.asahi,t6050-n1=2|4)

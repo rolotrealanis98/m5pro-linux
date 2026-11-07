@@ -1,0 +1,74 @@
+From 47e8282deb8b2f66cde8d3eef455bc4483c6c820 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:54:50 -0500
+Subject: [PATCH 1/2] tests: build the T6050 paths that #26 adds
+
+Three host tests compile production bodies that #26 extends for T6050,
+and stop compiling or matching on its head:
+- test_nvme_adoption and test_smp_handoff_gate: nvme_init() and
+  kboot_boot() now name T6050, and kboot_boot() calls dapf_init().
+  Define T6050 and stub dapf_init() beside the existing stubs.
+- test_t8103_inherited_reservation ends its block at the T8140 heap
+  check, which is now "T8140 || T6050" with a comment line before it.
+  Match both forms.
+
+integration/aurora passes all three before and after; on #26's head
+they fail without this.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ tests/python/test_nvme_adoption.py               | 1 +
+ tests/python/test_smp_handoff_gate.py            | 2 ++
+ tests/python/test_t8103_inherited_reservation.py | 4 +++-
+ 3 files changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/tests/python/test_nvme_adoption.py b/tests/python/test_nvme_adoption.py
+index 66c19b8..65a5f02 100644
+--- a/tests/python/test_nvme_adoption.py
++++ b/tests/python/test_nvme_adoption.py
+@@ -33,6 +33,7 @@ typedef int sart_dev_t;
+ #define USEC_PER_SEC 1000000
+ #define ADT_GETPROP(...) (-1)
+ #define T8140 0x8140
++#define T6050 0x6050
+ static u32 chip_id = T8140;
+ static void *adt;
+ ''' + declarations + r'''
+diff --git a/tests/python/test_smp_handoff_gate.py b/tests/python/test_smp_handoff_gate.py
+index c261e9c..ab95b85 100644
+--- a/tests/python/test_smp_handoff_gate.py
++++ b/tests/python/test_smp_handoff_gate.py
+@@ -29,6 +29,7 @@ typedef uint64_t u64; typedef uint32_t u32;
+ #define MAX_CPUS 4
+ #define T8140 0x8140
+ #define T8142 0x8142
++#define T6050 0x6050
+ #define SZ_16K 16384
+ #define sysop(op) ((void)0)
+ #define bail(...) do { printf(__VA_ARGS__); return -1; } while (0)
+@@ -50,6 +51,7 @@ static int fdt_pack(void *p) { return 0; }
+ static u32 fdt_totalsize(void *p) { return 0x8000; }
+ static int dapf_init_fdt(void *p) { return 0; }
+ static int dapf_init_all(void) { return 0; }
++static int dapf_init(const char *path, int index) { return 0; }
+ static void pcie_shutdown(void) {}
+ static void smp_set_wfe_mode(bool value) {}
+ static int dt_t8140_recheck_display(void)
+diff --git a/tests/python/test_t8103_inherited_reservation.py b/tests/python/test_t8103_inherited_reservation.py
+index 0e871b9..4e38b9e 100644
+--- a/tests/python/test_t8103_inherited_reservation.py
++++ b/tests/python/test_t8103_inherited_reservation.py
+@@ -18,7 +18,9 @@ SOURCE = Path(os.environ.get("DART_DISPLAY_SOURCE", Path(__file__).resolve().par
+ def test_inherited_reservation(tmp_path):
+     text = (SOURCE / "src/kboot.c").read_text()
+     start = text.index("    u64 image_end = (u64)_end;", text.index("int kboot_prepare_dt("))
+-    end = text.index("    if (chip_id == T8140)", start)
++    # The heap block that follows (T8140, and T6050 since it keeps its NVMe session for Linux)
++    end = re.compile(r"(    /\*[^\n]*\*/\n)?    if \(chip_id == T8140( \|\| chip_id == T6050)?\)").search(
++        text, start).start()
+     block = text[start:end]
+     call = re.search(
+         r"    if \(fdt_add_mem_rsv\(dt, \(u64\)_base, image_end - \(u64\)_base\)\)\n"
+-- 
+2.56.0
+

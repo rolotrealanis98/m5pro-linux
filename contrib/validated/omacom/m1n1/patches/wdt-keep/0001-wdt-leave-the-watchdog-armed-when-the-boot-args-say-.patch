@@ -1,0 +1,178 @@
+From aee8488dd7a7871d1562205ab48c5e15da6ca263 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:25:50 -0500
+Subject: [PATCH] wdt: leave the watchdog armed when the boot-args say
+ m1n1.wdt=keep
+
+m1n1 disables the SoC watchdog at start. A chainloading stage 1 that
+arms it before starting its stage 2, so that a stage 2 or kernel that
+hangs resets the machine and iBoot counts a failed boot, loses that
+protection the moment stage 2 runs: on a J716s, a stage 2 that fell
+back to the proxy sat there until someone pressed the power button,
+and the next start booted the same stage 2 again.
+
+With the exact token m1n1.wdt=keep in the boot-args command line,
+wdt_disable() finds the watchdog but leaves both the primary and the
+secondary as they are, and says so. Nothing in m1n1 feeds it; Linux's
+apple_wdt keeps an armed watchdog fed once it probes. wdt_reboot()
+works as before. Without the token nothing changes.
+
+The token is matched by boot_option_present(), like m1n1-debug and
+m1n1-proxy, and in every stage: the stage it matters for is a
+chainloaded one, which may or may not be built with ESP_STAGE2. The
+stage that arms the watchdog appends the token to the next stage's
+command line; docs/boot-options.md says so and why it does not belong
+in the NVRAM boot-args.
+
+Tested on the J716s (MacBook Pro 16-inch, M5 Pro): our A/B stage 1
+arms the watchdog for 150 s and appends the token, and our stage 2
+honours it (there, a substring match of the same token). Payloads that hung or panicked before
+apple_wdt probed (DAILY-NEXT-T1, W3) came back on the fallback payload
+unattended, and every boot that reached Linux kept running with the
+watchdog fed.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ docs/boot-options.md              | 11 ++++++++++
+ src/boot_options.c                |  7 +++++++
+ src/boot_options.h                |  1 +
+ src/wdt.c                         | 11 ++++++++++
+ tests/python/test_boot_options.py | 35 +++++++++++++++++++++++++++++++
+ 5 files changed, 65 insertions(+)
+
+diff --git a/docs/boot-options.md b/docs/boot-options.md
+index eaf61f8..f14f21e 100644
+--- a/docs/boot-options.md
++++ b/docs/boot-options.md
+@@ -11,6 +11,17 @@ The boot-argument tokens are matched exactly:
+ - `m1n1-debug` selects DebugUSB early and prevents CDC from taking its carrier.
+ - `m1n1-proxy` skips Stage 1 payload loading and enters the proxy. It is ignored
+   by an ESP-loaded Stage 2, so a deliberately chainloaded Stage 2 can boot.
++- `m1n1.wdt=keep` leaves the SoC watchdog as this m1n1 found it instead of
++  disabling it at start. It is for a chainloading stage that armed the watchdog
++  before starting this one and appends the token to the next stage's boot-args
++  command line: a hang in this m1n1, in the proxy or in a kernel that never
++  takes the watchdog over then resets the machine, and iBoot counts a failed
++  boot, so that stage can boot its fallback. Linux's `apple_wdt` keeps an armed
++  watchdog fed once it probes. m1n1 itself does not feed it, so everything
++  before that, including waiting in the proxy, has to finish within the timeout
++  the earlier stage chose. Without the token m1n1 disables the watchdog as
++  before. It is honoured by every stage, so it does not belong in the NVRAM
++  boot-args: there it would leave iBoot's watchdog running.
+ 
+ The options may be combined. `m1n1-debug` alone does not request a proxy pause.
+ Normal payload failure still follows the existing recovery fallback.
+diff --git a/src/boot_options.c b/src/boot_options.c
+index 3888a9f..28c7441 100644
+--- a/src/boot_options.c
++++ b/src/boot_options.c
+@@ -3,6 +3,7 @@
+ 
+ static bool debug_enabled;
+ static bool proxy_requested;
++static bool wdt_keep;
+ static bool is_stage1;
+ 
+ static bool boot_space(char c)
+@@ -41,6 +42,7 @@ void boot_options_init(const char *line, size_t capacity)
+ {
+     debug_enabled = boot_option_present(line, capacity, "m1n1-debug");
+     proxy_requested = boot_option_present(line, capacity, "m1n1-proxy");
++    wdt_keep = boot_option_present(line, capacity, "m1n1.wdt=keep");
+     is_stage1 = true;
+ }
+ 
+@@ -58,3 +60,8 @@ bool m1n1_proxy_enabled(void)
+ {
+     return is_stage1 && proxy_requested;
+ }
++
++bool m1n1_wdt_keep_enabled(void)
++{
++    return wdt_keep;
++}
+diff --git a/src/boot_options.h b/src/boot_options.h
+index 802c334..a1950f7 100644
+--- a/src/boot_options.h
++++ b/src/boot_options.h
+@@ -9,4 +9,5 @@ void boot_options_init(const char *line, size_t capacity);
+ bool m1n1_debug_enabled(void);
+ void boot_options_set_stage1(bool stage1);
+ bool m1n1_proxy_enabled(void);
++bool m1n1_wdt_keep_enabled(void);
+ #endif
+diff --git a/src/wdt.c b/src/wdt.c
+index 333c0d4..10fcb03 100644
+--- a/src/wdt.c
++++ b/src/wdt.c
+@@ -2,6 +2,7 @@
+ 
+ #include "wdt.h"
+ #include "adt.h"
++#include "boot_options.h"
+ #include "types.h"
+ #include "utils.h"
+ 
+@@ -27,6 +28,16 @@ void wdt_disable(void)
+     }
+ 
+     printf("Primary WDT register @ 0x%lx\n", wdt_base);
++    /*
++     * A chainloading stage that armed the watchdog for this one passes m1n1.wdt=keep in the
++     * boot-args command line: leave both watchdogs as they are, so a hang before the OS takes the
++     * watchdog over still resets the machine into that stage's fallback. wdt_reboot() works as
++     * usual, since wdt_base is known.
++     */
++    if (m1n1_wdt_keep_enabled()) {
++        printf("Primary WDT left armed (m1n1.wdt=keep)\n");
++        return;
++    }
+     write32(wdt_base + WDT_CTL, 0);
+     printf("Primary WDT disabled\n");
+ 
+diff --git a/tests/python/test_boot_options.py b/tests/python/test_boot_options.py
+index da8922a..4629101 100644
+--- a/tests/python/test_boot_options.py
++++ b/tests/python/test_boot_options.py
+@@ -52,3 +52,38 @@ int main(void) {
+     binary = tmp_path/'test'
+     subprocess.run(shlex.split(os.environ.get('CC', 'cc')) + ['-std=c11','-Wall','-Wextra','-Werror','-I',str(ROOT/'src'),str(test),str(ROOT/'src/boot_options.c'),'-o',str(binary)],check=True)
+     subprocess.run([str(binary)],check=True)
++
++
++def test_wdt_keep_option(tmp_path):
++    test = tmp_path / 'test.c'
++    test.write_text(r'''
++#include "boot_options.h"
++#include <assert.h>
++#include <string.h>
++int main(void) {
++    const char *yes[] = {"m1n1.wdt=keep", "-v m1n1.wdt=keep", "chainload.x=1\tm1n1.wdt=keep\n"};
++    const char *no[] = {"", "m1n1.wdt", "m1n1.wdt=", "m1n1.wdt=keeps", "m1n1.wdt=off",
++                        "xm1n1.wdt=keep", "m1n1-debug m1n1-proxy"};
++    for (unsigned i=0; i<sizeof(yes)/sizeof(*yes); i++) {
++        boot_options_init(yes[i], strlen(yes[i])+1);
++        assert(m1n1_wdt_keep_enabled());
++    }
++    for (unsigned i=0; i<sizeof(no)/sizeof(*no); i++) {
++        boot_options_init(no[i], strlen(no[i])+1);
++        assert(!m1n1_wdt_keep_enabled());
++    }
++    /* Independent of the stage: a chainloaded stage 2 is where it matters */
++    boot_options_init("m1n1.wdt=keep m1n1-proxy", 25);
++    boot_options_set_stage1(false);
++    assert(m1n1_wdt_keep_enabled() && !m1n1_proxy_enabled());
++    char truncated[] = {'m','1','n','1','.','w','d','t','=','k','e','e','p'};
++    boot_options_init(truncated, sizeof(truncated));
++    assert(!m1n1_wdt_keep_enabled());
++    boot_options_init(0, 0);
++    assert(!m1n1_wdt_keep_enabled());
++    return 0;
++}
++''')
++    binary = tmp_path/'test'
++    subprocess.run(shlex.split(os.environ.get('CC', 'cc')) + ['-std=c11','-Wall','-Wextra','-Werror','-I',str(ROOT/'src'),str(test),str(ROOT/'src/boot_options.c'),'-o',str(binary)],check=True)
++    subprocess.run([str(binary)],check=True)
+-- 
+2.56.0
+

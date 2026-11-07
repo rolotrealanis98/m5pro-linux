@@ -1,0 +1,53 @@
+From b87cfab000409f4bfc9c76a3c73b64b05c5f0310 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:58:27 -0500
+Subject: [PATCH 1/4] firmware: add the 27.2 and 27.3 beta 1 stub iBoot strings
+
+On the J716s the 27.3 beta 1 stub (26C5035r) reports
+mBoot-20457.60.65.0.1, which is not in the table, so os_firmware is
+"unknown" and m1n1 publishes no usable firmware version for anything
+that needs one. Add it as V27_3B1 (27.2.98.1, the usual beta numbering)
+and the 27.2 stub's mBoot-20457.41.3 as V27_2.
+
+Of the os_firmware.version users, none takes a new branch on T6050:
+the GPU path takes dt_set_gpu_t6050() before its firmware switch,
+the ISP and iBoot DCP paths only match older versions, and the 26.6.2
+checks (J613, payload ranking) do not match.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ src/firmware.c | 4 ++++
+ src/firmware.h | 2 ++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/src/firmware.c b/src/firmware.c
+index 26e4fb4..9a9fe85 100644
+--- a/src/firmware.c
++++ b/src/firmware.c
+@@ -215,6 +215,10 @@ const struct fw_version_info fw_versions[NUM_FW_VERSIONS] = {
+     // Same iBoot string as 27.0: detect_firmware() always picks V27_0. Verified from the J575D
+     // (M3 Ultra) 27.0.1 iBoot (26A434): both report "mBoot-20457.1.29", so no V27_0_1 exists.
+     [V27_0]      = {V27_0,      "27.0",        {27, 0, 0},     3, "mBoot-20457.1.29"},
++    // Aura (aurora-silicon/aura PR #61): the 27.2 stub's iBoot string.
++    [V27_2]      = {V27_2,      "27.2",        {27, 2, 0},     3, "mBoot-20457.41.3"},
++    // J716s stub 26C5035r (27.3 beta 1); its DCP firmware is AppleDCP-1317.60.10, SDK 27.3.
++    [V27_3B1]    = {V27_3B1,    "27.3 beta",   {27, 2, 98, 1}, 4, "mBoot-20457.60.65.0.1"},
+     // clang-format on
+ };
+ 
+diff --git a/src/firmware.h b/src/firmware.h
+index 77fee49..6170a87 100644
+--- a/src/firmware.h
++++ b/src/firmware.h
+@@ -192,6 +192,8 @@ enum fw_version {
+     V26_7,
+     V26_7_1,
+     V27_0,
++    V27_2,
++    V27_3B1,
+     NUM_FW_VERSIONS,
+ };
+ 
+-- 
+2.56.0
+
