@@ -1,0 +1,54 @@
+From 3939d0c0c9340b671a5b4f54fc0667dc4f3d9d9d Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:52:43 -0500
+Subject: [PATCH 15/15] arm64: configs: j716s: Add USB4/Thunderbolt
+
+Build in what the J716s routers need: the USB4 core and the Apple router
+and NHI driver, the CIO reconfig request, the DARTs and the PCIe-C tunnel
+root ports (PCIE_APPLE). The combo PHY's CIO mode is already in
+PHY_APPLE_T6050_DP.
+
+For a dock behind the tunnel: PCIe hotplug on its switch ports, its xHCI,
+NVMe, and the NICs docks and adapters commonly carry (igc, r8169, tg3,
+atlantic). Built in, as the rest of the fragment, so that a root file
+system without modules still sees them.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/configs/j716s.config | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index caa69196ae0d..045d96418ccd 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -49,6 +49,25 @@ CONFIG_PHY_APPLE_T6050_DP=y
+ CONFIG_USB_DWC3_APPLE=y
+ CONFIG_USB_UAS=y
+ 
++# USB4/Thunderbolt on the right and left-front ports: the routers and their
++# NHIs, the CIO reconfig request, the routers' and PCIe-C tunnels' DARTs and
++# the tunnel root ports. The combo PHY's CIO mode is PHY_APPLE_T6050_DP.
++CONFIG_USB4=y
++CONFIG_USB4_APPLE_SOC=y
++CONFIG_RESET_APPLE_CIO=y
++CONFIG_APPLE_DART=y
++CONFIG_PCIE_APPLE=y
++
++# Behind a USB4/Thunderbolt dock: hotplug on its PCIe switch ports, its xHCI,
++# NVMe enclosures and the usual dock and adapter NICs
++CONFIG_HOTPLUG_PCI_PCIE=y
++CONFIG_USB_XHCI_PCI=y
++CONFIG_BLK_DEV_NVME=y
++CONFIG_IGC=y
++CONFIG_R8169=y
++CONFIG_TIGON3=y
++CONFIG_ATLANTIC=y
++
+ # USB network adapters used for bring-up
+ CONFIG_USB_USBNET=y
+ CONFIG_USB_NET_CDCETHER=y
+-- 
+2.56.0
+

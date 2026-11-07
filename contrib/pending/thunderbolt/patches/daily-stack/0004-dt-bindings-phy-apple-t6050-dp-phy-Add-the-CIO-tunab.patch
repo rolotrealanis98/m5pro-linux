@@ -1,0 +1,52 @@
+From 332e665c3a3e5a2338723646d5ea40bd78bf5d85 Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Wed, 4 Nov 2026 18:08:07 -0500
+Subject: [PATCH 04/16] dt-bindings: phy: apple,t6050-dp-phy: Add the CIO
+ tunables
+
+The CIO (USB4/Thunderbolt) mode has its own firmware register and
+receiver tunables. They are optional: an absent one is skipped.
+
+Developed with Claude Code.
+
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ .../bindings/phy/apple,t6050-dp-phy.yaml      | 22 +++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml b/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml
+index 8cbfe94b62ec..3b22c3f19ee9 100644
+--- a/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml
++++ b/Documentation/devicetree/bindings/phy/apple,t6050-dp-phy.yaml
+@@ -126,6 +126,28 @@ properties:
+     $ref: /schemas/types.yaml#/definitions/uint32-array
+     description: Offset, mask and value tuples within the named bank
+ 
++  apple,tunable-uc-regs-cio:
++    $ref: /schemas/types.yaml#/definitions/uint32-array
++    description:
++      Offset, mask and value tuples for the PHY firmware's registers in CIO
++      (USB4/Thunderbolt) mode. Optional; an absent CIO tunable is skipped.
++
++  apple,tunable-lane0-rx-top-cio:
++    $ref: /schemas/types.yaml#/definitions/uint32-array
++    description: As apple,tunable-uc-regs-cio, for lane 0's receiver top bank
++
++  apple,tunable-lane1-rx-top-cio:
++    $ref: /schemas/types.yaml#/definitions/uint32-array
++    description: As apple,tunable-uc-regs-cio, for lane 1's receiver top bank
++
++  apple,tunable-lane0-rx-eq-cio:
++    $ref: /schemas/types.yaml#/definitions/uint32-array
++    description: As apple,tunable-uc-regs-cio, for lane 0's receiver equalizer
++
++  apple,tunable-lane1-rx-eq-cio:
++    $ref: /schemas/types.yaml#/definitions/uint32-array
++    description: As apple,tunable-uc-regs-cio, for lane 1's receiver equalizer
++
+ patternProperties:
+   '^apple,dp-training-table(-rbr|-hbr|-hbr2|-hbr3)?$':
+     $ref: /schemas/types.yaml#/definitions/uint32-array
+-- 
+2.56.0
+

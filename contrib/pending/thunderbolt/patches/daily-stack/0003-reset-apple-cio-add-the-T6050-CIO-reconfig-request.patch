@@ -1,0 +1,177 @@
+From efc4efc580c9c39f6384bf5f6cd3ab8225c1ecf1 Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Mon, 2 Nov 2026 23:41:32 -0500
+Subject: [PATCH 03/16] reset: apple-cio: add the T6050 CIO reconfig request
+
+On T6050 the CPU wrapper of each USB4 router is clocked through the CIO
+reconfig request (the router CPU's clock gate CIOn_RECONFIG_V). Until it
+has run, any access to the wrapper faults.
+
+The request register uses the T8142 bit positions (request BIT(2 * port),
+four ports) and sits at offset 0x60 of a page in the die's PMGR block,
+0x280620000 on die 0. Its odd bit is a done flag rather than a busy
+flag: it is set once the request is taken, then request and done clear
+by themselves about 4 ms later. The wrapper takes an SError when it is
+accessed before they clear.
+
+Wait for both bits to clear (a reconfiguration still under way), store
+the request, wait for the done flag, then wait for both bits to clear
+again.
+
+Developed with Claude Code.
+
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ .../bindings/reset/apple,t8103-cio-reset.yaml |  4 ++
+ drivers/reset/reset-apple-cio.c               | 65 +++++++++++++++++--
+ 2 files changed, 65 insertions(+), 4 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/reset/apple,t8103-cio-reset.yaml b/Documentation/devicetree/bindings/reset/apple,t8103-cio-reset.yaml
+index 21ed54f3e015..65b62eaf5951 100644
+--- a/Documentation/devicetree/bindings/reset/apple,t8103-cio-reset.yaml
++++ b/Documentation/devicetree/bindings/reset/apple,t8103-cio-reset.yaml
+@@ -22,6 +22,9 @@ description: |
+   On t8142, a standalone register page contains a shared request register
+   with alternating request and busy bits for four ports.
+ 
++  On t6050 the same request register sits at offset 0x60 of a page in the
++  die's PMGR block.
++
+   In all cases the reset id is the CIO port index on the die.
+ 
+ properties:
+@@ -30,6 +33,7 @@ properties:
+       - enum:
+           - apple,t8103-cio-reset
+           - apple,t8142-cio-reset
++          - apple,t6050-cio-reset
+           - apple,t6000-cio-reset
+       - items:
+           - const: apple,t8112-cio-reset
+diff --git a/drivers/reset/reset-apple-cio.c b/drivers/reset/reset-apple-cio.c
+index af299473a6c8..e5755ebb39af 100644
+--- a/drivers/reset/reset-apple-cio.c
++++ b/drivers/reset/reset-apple-cio.c
+@@ -37,7 +37,12 @@
+  * separate 16 KiB page at 0x350780000, so the register is 0x350780008. The
+  * device tree describes that page as its own syscon. t8122 is unresolved.
+  *
+- * On t8142, RegMap 0x62 is a separate MMIO region at 0x380780000.
++ * On t8142, RegMap 0x62 is a separate MMIO region at 0x380780000. On t6050
++ * the register is at +0x60 in a page of the die's PMGR block (0x280620000
++ * on die 0). There the odd bit is a done flag rather than a busy flag: it
++ * is set once the request is taken, then request and done clear by
++ * themselves within a few ms. Only after that is the port's CPU wrapper
++ * accessible.
+  * The t8132 layout has not been decoded.
+  *
+  * Reference firmware polls the busy bits, stores the request, then polls
+@@ -56,6 +61,8 @@
+ 
+ #define APPLE_CIO_RESET_POLL_US 100
+ #define APPLE_CIO_RESET_TIMEOUT_US 100000
++/* A t6050 reconfiguration takes a few ms; allow ample margin. */
++#define APPLE_CIO_RESET_T6050_TIMEOUT_US 192000
+ 
+ #define T8103_CIO_CTRL_STRIDE 0x4000
+ #define T8103_CIO_CTRL_INIT_REQ BIT(0)
+@@ -75,6 +82,7 @@ struct apple_cio_reset;
+ struct apple_cio_reset_variant {
+ 	unsigned int nr_resets;
+ 	bool pmgr_child;
++	u32 ctrl;	/* request register, t8142 layout */
+ 	int (*deassert)(struct apple_cio_reset *priv, unsigned long id);
+ };
+ 
+@@ -174,19 +182,19 @@ static int t8142_cio_deassert(struct apple_cio_reset *priv, unsigned long id)
+ 	guard(mutex)(&priv->lock);
+ 
+ 	/* Serialize all four ports sharing the request register. */
+-	ret = regmap_read_poll_timeout(priv->regmap, T8142_CIO_CTRL, val,
++	ret = regmap_read_poll_timeout(priv->regmap, priv->variant->ctrl, val,
+ 				       !(val & T8142_CIO_CTRL_BUSY_MASK),
+ 				       APPLE_CIO_RESET_POLL_US,
+ 				       APPLE_CIO_RESET_TIMEOUT_US);
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = regmap_write(priv->regmap, T8142_CIO_CTRL,
++	ret = regmap_write(priv->regmap, priv->variant->ctrl,
+ 			   T8142_CIO_CTRL_INIT_REQ(id));
+ 	if (ret)
+ 		return ret;
+ 
+-	return regmap_read_poll_timeout(priv->regmap, T8142_CIO_CTRL, val,
++	return regmap_read_poll_timeout(priv->regmap, priv->variant->ctrl, val,
+ 				       !(val & T8142_CIO_CTRL_INIT_BUSY(id)),
+ 				       APPLE_CIO_RESET_POLL_US,
+ 				       APPLE_CIO_RESET_TIMEOUT_US);
+@@ -194,9 +202,54 @@ static int t8142_cio_deassert(struct apple_cio_reset *priv, unsigned long id)
+ 
+ static const struct apple_cio_reset_variant apple_t8142_cio_reset = {
+ 	.nr_resets = 4,
++	.ctrl = T8142_CIO_CTRL,
+ 	.deassert = t8142_cio_deassert,
+ };
+ 
++static int t6050_cio_deassert(struct apple_cio_reset *priv, unsigned long id)
++{
++	u32 mask = T8142_CIO_CTRL_INIT_REQ(id) | T8142_CIO_CTRL_INIT_BUSY(id);
++	u32 val;
++	int ret;
++
++	guard(mutex)(&priv->lock);
++
++	/* Let a reconfiguration still under way finish first. */
++	ret = regmap_read_poll_timeout(priv->regmap, priv->variant->ctrl, val,
++				       !(val & mask), APPLE_CIO_RESET_POLL_US,
++				       APPLE_CIO_RESET_T6050_TIMEOUT_US);
++	if (ret)
++		return ret;
++
++	ret = regmap_write(priv->regmap, priv->variant->ctrl,
++			   T8142_CIO_CTRL_INIT_REQ(id));
++	if (ret)
++		return ret;
++
++	ret = regmap_read_poll_timeout(priv->regmap, priv->variant->ctrl, val,
++				       val & T8142_CIO_CTRL_INIT_BUSY(id),
++				       APPLE_CIO_RESET_POLL_US,
++				       APPLE_CIO_RESET_T6050_TIMEOUT_US);
++	if (ret)
++		return ret;
++
++	/*
++	 * The CPU wrapper is usable only once the reconfiguration is over, when
++	 * the request and done bits clear again, a few ms later. An access
++	 * before that takes an SError.
++	 */
++	return regmap_read_poll_timeout(priv->regmap, priv->variant->ctrl, val,
++				       !(val & mask), APPLE_CIO_RESET_POLL_US,
++				       APPLE_CIO_RESET_T6050_TIMEOUT_US);
++}
++
++/* The t8142 bit layout in a register mapped on its own, with a done flag. */
++static const struct apple_cio_reset_variant apple_t6050_cio_reset = {
++	.nr_resets = 4,
++	.ctrl = 0x60,
++	.deassert = t6050_cio_deassert,
++};
++
+ static const struct apple_cio_reset_variant apple_t8103_cio_reset = {
+ 	.nr_resets = 2,
+ 	.deassert = t8103_cio_deassert,
+@@ -277,6 +330,10 @@ static int apple_cio_reset_probe(struct platform_device *pdev)
+ }
+ 
+ static const struct of_device_id apple_cio_reset_match[] = {
++	{
++		.compatible = "apple,t6050-cio-reset",
++		.data = &apple_t6050_cio_reset,
++	},
+ 	{
+ 		.compatible = "apple,t8142-cio-reset",
+ 		.data = &apple_t8142_cio_reset,
+-- 
+2.56.0
+

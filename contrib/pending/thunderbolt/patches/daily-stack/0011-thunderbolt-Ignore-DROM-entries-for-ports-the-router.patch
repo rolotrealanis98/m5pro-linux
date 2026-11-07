@@ -1,0 +1,39 @@
+From 3833090dc6dd8bdd63dfae08393af7fb702f0acf Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Wed, 4 Nov 2026 10:49:52 -0500
+Subject: [PATCH 11/16] thunderbolt: Ignore DROM entries for ports the router
+ does not implement
+
+The host DROM of the M5 Max USB4 router lists port 8, which the router
+reports as not implemented. Reading its port config fails with -ENODEV,
+which made the whole DROM unusable and left the host router without
+one, so the NHI failed to probe.
+
+Skip such entries, as is already done for entries past the last port.
+
+Developed with Claude Code.
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ drivers/thunderbolt/eeprom.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/thunderbolt/eeprom.c b/drivers/thunderbolt/eeprom.c
+index 389de7df84f6..f2d56acb21a1 100644
+--- a/drivers/thunderbolt/eeprom.c
++++ b/drivers/thunderbolt/eeprom.c
+@@ -381,6 +381,12 @@ static int tb_drom_parse_entry_port(struct tb_switch *sw,
+ 		return 0;
+ 
+ 	res = tb_port_read(port, &type, TB_CFG_PORT, 2, 1);
++	/* Listed, but not implemented by this router: skip it as well */
++	if (res == -ENODEV) {
++		tb_sw_dbg(sw, "DROM entry for unimplemented port %u ignored\n",
++			  header->index);
++		return 0;
++	}
+ 	if (res)
+ 		return res;
+ 	type &= 0xffffff;
+-- 
+2.56.0
+

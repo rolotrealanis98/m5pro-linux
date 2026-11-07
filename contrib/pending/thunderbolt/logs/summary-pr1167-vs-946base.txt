@@ -1,0 +1,17 @@
+nodes added (14):
+  + /pcie-tunnel-2
+  + /pcie-tunnel-2/iommu@384000000
+  + /pcie-tunnel-2/pcie@1c70000000
+  + /pcie-tunnel-2/pcie@1c70000000/pci@0,0
+  + /soc@200000000/acio@381ac0000
+  + /soc@200000000/acio@381ac0000/iommu@a80000
+  + /soc@200000000/acio@381ac0000/nhi@f00000
+  + /soc@200000000/mailbox@381108000
+  + /soc@200000000/pinctrl@290824000/acio2-lstx-pins
+  + /soc@200000000/power-management@280600000/power-controller@2e8
+  + /soc@200000000/power-management@280600000/power-controller@2f0
+  + /soc@200000000/power-management@280600000/power-controller@3f8
+  + /soc@200000000/power-management@280600000/power-controller@400
+  + /soc@200000000/power-management@280600000/power-controller@408
+nodes removed (0):
+properties changed in common nodes:

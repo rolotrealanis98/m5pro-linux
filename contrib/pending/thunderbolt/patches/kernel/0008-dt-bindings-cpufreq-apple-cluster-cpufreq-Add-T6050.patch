@@ -1,0 +1,38 @@
+From bf3211f7ea6ae1e721c5cc6c9f2b953610222f58 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Fri, 6 Nov 2026 20:56:12 -0500
+Subject: [PATCH 08/15] dt-bindings: cpufreq: apple,cluster-cpufreq: Add T6050
+
+The T6050 (M5 Pro/Max) cluster DVFS block has the T8112 register layout:
+on the J716s the status register at +0x50 carries the current p-state in
+bits 9:5 and the target in bits 4:0, as on T8112, and apple-soc-cpufreq
+drives all three clusters through the "apple,t8112-cluster-cpufreq"
+fallback with max_pstate 31.
+
+Allow "apple,t6050-cluster-cpufreq" with that fallback, as for T6020,
+T6030, T6031, T6041 and T8122. A driver entry for T6050 itself (the
+t6050/cpufreq branch has one, with transition verification and a
+firmware thermal requirement) matches the first string and takes
+precedence without a device tree change.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ .../devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml       | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml b/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
+index 956ddee5d0e9..c1dc30da1d1f 100644
+--- a/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
++++ b/Documentation/devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml
+@@ -44,6 +44,7 @@ properties:
+           - enum:
+               - apple,t6020-cluster-cpufreq
+               - apple,t6041-cluster-cpufreq
++              - apple,t6050-cluster-cpufreq
+           - const: apple,t8112-cluster-cpufreq
+ 
+   reg:
+-- 
+2.56.0
+

@@ -1,0 +1,308 @@
+From d2f9330194561d56c406b244daa95128ac103b5b Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:50:24 -0500
+Subject: [PATCH 13/15] arm64: dts: apple: t6050-max: Add ATC1's
+ USB4/Thunderbolt router and PCIe tunnel
+
+Describe the second die-0 router the way "arm64: dts: apple: j716c: Add
+the right port's USB4/Thunderbolt router" and "...: Add the right port's
+PCIe tunnel" describe ATC2's: the router (acio1, acio-cpu1), its DART and
+NHI, the CIO power states, the LSTX pin and the PCIe-C tunnel (apciec1,
+dart-apciec1, ATC1_PCIE).
+
+The values are the J716s ADT's: acio1 reg[0..5], acio-cpu1 reg[0..1] and
+the __DATA segment of its RTKit nub (the SRAM), the NHI's ring and parity
+interrupts, dart-acio1 (interrupt 1638, 28 streams, bypass-15), the pmgr
+states ATC1_CIO (+0x290), _CIO_PCIE (+0x350), _CIO_USB (+0x358),
+_CIO_AUSS (+0x360) and ATC1_PCIE (+0x298) with their ADT parents,
+CIO1_RECONFIG_V as reset 1 of cio_reconfig0, gpio-lstx (AOP pin 79,
+function 1), and apciec1's registers, interrupt, domain-id 2 and ranges.
+The MSI slice, 160-191, follows ATC2's 192-223 (128 + 32 per PCIe-C
+bridge); the ADT gives only the shared base.
+
+The router stays disabled: only a board that wires up ATC1's Type-C
+connector enables it.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/boot/dts/apple/t6050-max.dtsi | 266 +++++++++++++++++++++++
+ 1 file changed, 266 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-max.dtsi b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+index 14c05a96068d..e78894faf4ac 100644
+--- a/arch/arm64/boot/dts/apple/t6050-max.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+@@ -403,3 +403,269 @@ apciec2_port: pci@0,0 {
+ 		};
+ 	};
+ };
++
++/*
++ * ATC1's USB4/Thunderbolt router (ADT /arm-io/acio1, acio-cpu1 and dart-acio1), the left-front
++ * port of the J716s, in the shape of ATC2's above. Every address, interrupt and power state is
++ * the ADT's: acio1 reg[0..5], acio-cpu1 reg[0..1] and its iop-acio1-nub __DATA segment (the
++ * SRAM), power-gates [98, 72, 96, 97] (ATC1_CIO_AUSS, ATC1_CIO, ATC1_CIO_PCIE, ATC1_CIO_USB),
++ * clock gate CIO1_RECONFIG_V (cio_reconfig0's reset 1) and gpio-lstx, AOP GPIO pin 79 (0x4f),
++ * function 1. Disabled here: a board that wires up ATC1's Type-C chain enables it.
++ */
++&pmgr0 {
++	ps_atc1_cio: power-controller@290 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x290 4>;
++		label = "atc1_cio";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc1_common>;
++	};
++
++	ps_atc1_cio_pcie: power-controller@350 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x350 4>;
++		label = "atc1_cio_pcie";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc1_cio>;
++	};
++
++	ps_atc1_cio_usb: power-controller@358 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x358 4>;
++		label = "atc1_cio_usb";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc1_cio>;
++	};
++
++	ps_atc1_cio_auss: power-controller@360 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x360 4>;
++		label = "atc1_cio_auss";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc1_cio>, <&ps_auss>;
++	};
++};
++
++/* LSTX: /arm-io/acio1 gpio-lstx, AOP GPIO pin 79 (0x4f), function 1 for the router */
++&pinctrl_aop {
++	acio1_lstx_pins: acio1-lstx-pins {
++		pinmux = <0x1004f>;	/* APPLE_PINMUX(79, 1) */
++	};
++};
++
++&die0 {
++	/* /arm-io/acio-cpu1 reg[0]: the router CPU's mailbox, inside its wrapper */
++	acio1_mbox: mailbox@2a9108000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x2 0xa9108000 0x0 0x4000>;
++		interrupts = <AIC_IRQ 0 847 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 848 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 849 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 850 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++	};
++
++	/*
++	 * /arm-io/acio1: rc (reg[1]), the RTKit data segment in its SRAM, the PCIe adapter,
++	 * acio-cpu1 reg[1] (the CPU wrapper) and the PCIe router AP firmware block.
++	 */
++	acio1: acio@2a9ac0000 {
++		compatible = "apple,t6050-usb4-acio";
++		reg = <0x2 0xa9ac0000 0x0 0xc000>,
++		      <0x2 0xa9080000 0x0 0x26000>,
++		      <0x2 0xa9e44000 0x0 0x4000>,
++		      <0x2 0xa9100000 0x0 0x4000>,
++		      <0x2 0xa9c80000 0x0 0x4000>;
++		reg-names = "rc", "sram", "pcie-adapter", "cpu", "router-ap-fw";
++		mboxes = <&acio1_mbox>;
++		resets = <&cio_reconfig0 1>;
++		/* ATC1_PCIE last: the PCIe tunnel root port, set up before it is populated */
++		power-domains = <&ps_atc1_cio>, <&ps_atc1_cio_pcie>,
++				<&ps_atc1_cio_usb>, <&ps_atc1_cio_auss>, <&ps_atc1_pcie>;
++		thunderbolt-switch;
++		apple,pcie-tunnel = <&acio1_pcie_tunnel>;
++		pinctrl-0 = <&acio1_lstx_pins>;
++		pinctrl-names = "lstx";
++		lstx-gpios = <&pinctrl_aop 79 GPIO_ACTIVE_HIGH>;
++
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges = <0x0 0x2 0xa9000000 0x1000000>;
++		nonposted-mmio;
++		status = "disabled";
++
++		/*
++		 * /arm-io/dart-acio1 (interrupt 1638, sid-count 28, vm-base 0x100_0000_0000,
++		 * bypass-15), set up as ATC2's.
++		 */
++		acio1_dart: iommu@a80000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0xa80000 0xc000>;
++			interrupts = <AIC_IRQ 0 1638 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_atc1_cio>;
++			#iommu-cells = <1>;
++			apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++			apple,bypass-sids = <15>;
++			apple,full-error-reporting;
++			apple,ctc-flush;
++		};
++
++		/* Interrupts 0x64b.. are the TX rings and 0x657.. the RX rings */
++		acio1_nhi: nhi@f00000 {
++			compatible = "apple,t6050-usb4-nhi";
++			reg = <0xf00000 0x100000>;
++			reg-names = "nhi";
++			interrupts = <AIC_IRQ 0 1611 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1612 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1613 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1614 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1615 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1616 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1617 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1618 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1619 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1620 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1621 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1622 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1623 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1624 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1625 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1626 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1627 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1628 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1629 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1630 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1631 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1632 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1633 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1634 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 1640 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "txring0", "txring1", "txring2", "txring3",
++					  "txring4", "txring5", "txring6", "txring7",
++					  "txring8", "txring9", "txring10", "txring11",
++					  "rxring0", "rxring1", "rxring2", "rxring3",
++					  "rxring4", "rxring5", "rxring6", "rxring7",
++					  "rxring8", "rxring9", "rxring10", "rxring11",
++					  "parity";
++			iommus = <&acio1_dart 0>,
++				 <&acio1_dart 1>,
++				 <&acio1_dart 2>,
++				 <&acio1_dart 3>,
++				 <&acio1_dart 4>,
++				 <&acio1_dart 5>,
++				 <&acio1_dart 6>,
++				 <&acio1_dart 7>,
++				 <&acio1_dart 8>,
++				 <&acio1_dart 9>,
++				 <&acio1_dart 10>,
++				 <&acio1_dart 11>,
++				 <&acio1_dart 16>,
++				 <&acio1_dart 17>,
++				 <&acio1_dart 18>,
++				 <&acio1_dart 19>,
++				 <&acio1_dart 20>,
++				 <&acio1_dart 21>,
++				 <&acio1_dart 22>,
++				 <&acio1_dart 23>,
++				 <&acio1_dart 24>,
++				 <&acio1_dart 25>,
++				 <&acio1_dart 26>,
++				 <&acio1_dart 27>;
++		};
++	};
++};
++
++/*
++ * ATC1's PCIe tunnel: /arm-io/apciec1 and dart-apciec1, as ATC2's. apciec1 domain-id 2; its
++ * ranges are the ADT's. MSIs: the 32-vector slice 160-191 (AIC 1984), next to ATC2's 192-223 in
++ * the window shared with the internal host (128 + 32 per PCIe-C bridge, by ATC2's slice).
++ */
++&pmgr0 {
++	/* With the ATC1 USB always-on clock gate (AUSB1_AONPCIE_V), which has no state register */
++	ps_atc1_pcie: power-controller@298 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x298 4>;
++		label = "atc1_pcie";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc1_common>, <&ps_atc1_usb_aon>;
++	};
++};
++
++/ {
++	acio1_pcie_tunnel: pcie-tunnel-1 {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++		nonposted-mmio;
++
++		apciec1_dart: iommu@2ac000000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0x2 0xac000000 0x0 0x20000>;
++			interrupts = <AIC_IRQ 0 1438 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_atc1_pcie>;
++			#iommu-cells = <1>;
++			apple,bypass-sids = <253 255>;
++			apple,full-error-reporting;
++			apple,ctc-flush;
++		};
++
++		apciec1: pcie@1c60000000 {
++			compatible = "apple,t6050-pciec";
++			device_type = "pci";
++			reg = <0x1c 0x60000000 0x0 0x10000000>,
++			      <0x2 0xac034000 0x0 0x4000>,
++			      <0x2 0xac020000 0x0 0x8000>,
++			      <0x2 0xac038000 0x0 0x4000>,
++			      <0x2 0xac060000 0x0 0x4000>,
++			      <0x2 0xac02c000 0x0 0x4000>,
++			      <0x2 0xac028000 0x0 0x4000>;
++			reg-names = "config", "rc", "port0", "fabric", "debug", "ltssm", "intr2axi";
++			/* The port's: link events and INTx */
++			interrupts = <AIC_IRQ 0 1437 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "port0";
++			power-domains = <&ps_atc1_pcie>;
++			/* No boot loader hands the port over: the kernel cold-initializes it. */
++			apple,pciec-kernel-init;
++
++			msi-controller;
++			msi-parent = <&apciec1>;
++			msi-ranges = <&aic AIC_IRQ 0 1984 IRQ_TYPE_EDGE_RISING 32>;
++			apple,msi-vector-base = <160>;
++
++			iommu-map = <0x0 &apciec1_dart 0x0 0x40>;
++			iommu-map-mask = <0x3f>;
++			linux,pci-domain = <2>;
++			bus-range = <0x0 0x7f>;
++			#address-cells = <3>;
++			#size-cells = <2>;
++			ranges = <0x43000000 0xc 0x0 0xc 0x0 0x2 0x0>,
++				 <0x02000000 0x0 0x00100000 0xe 0x00100000 0x0 0x3ff00000>,
++				 <0x42000000 0x0 0x40000000 0xe 0x40000000 0x0 0x40000000>;
++
++			apciec1_port: pci@0,0 {
++				device_type = "pci";
++				reg = <0x0 0x0 0x0 0x0 0x0>;
++				external-facing;
++
++				#address-cells = <3>;
++				#size-cells = <2>;
++				ranges;
++
++				interrupt-controller;
++				#interrupt-cells = <1>;
++				interrupt-map-mask = <0 0 0 7>;
++				interrupt-map = <0 0 0 1 &apciec1_port 0 0 0 0>,
++						<0 0 0 2 &apciec1_port 0 0 0 1>,
++						<0 0 0 3 &apciec1_port 0 0 0 2>,
++						<0 0 0 4 &apciec1_port 0 0 0 3>;
++			};
++		};
++	};
++};
+-- 
+2.56.0
+

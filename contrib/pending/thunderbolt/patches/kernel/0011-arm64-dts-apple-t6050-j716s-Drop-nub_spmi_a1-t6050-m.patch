@@ -1,0 +1,52 @@
+From 8721daf9bbb2e898294591624ae33fd5509a1613 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:42:16 -0500
+Subject: [PATCH 11/15] arm64: dts: apple: t6050-j716s: Drop nub_spmi_a1,
+ t6050-max.dtsi has it
+
+"arm64: dts: apple: j716c: Add the right port's USB4/Thunderbolt router"
+moved the right-hand port's HPM bus, nub-spmi-a1, into t6050-max.dtsi with
+the same unit address, compatible and registers. dtc merges the two nodes,
+so the board's copy only repeats it. Drop it; the DTB is unchanged.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 14 +-------------
+ 1 file changed, 1 insertion(+), 13 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 54b75345f2bb..8411980cc50e 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -62,7 +62,7 @@ led-0 {
+ 	};
+ };
+ 
+-/* Blocks t6050-die0.dtsi does not describe yet: the keyboard backlight PWM and the third HPM bus */
++/* A block t6050-die0.dtsi does not describe yet: the keyboard backlight PWM */
+ &die0 {
+ 	/* ADT pwm0: 0x505040000, clock gate FPWM0 */
+ 	fpwm0: pwm@505040000 {
+@@ -72,18 +72,6 @@ fpwm0: pwm@505040000 {
+ 		clocks = <&clkref>;
+ 		#pwm-cells = <2>;
+ 	};
+-
+-	/*
+-	 * ADT nub-spmi-a1, the right-hand port's HPM bus (hpm2). Polled like a0:
+-	 * the generation 4 driver takes no interrupt. pmgr NUB_SPMI_A1 is
+-	 * critical, as NUB_SPMI_A0, so no power-domains.
+-	 */
+-	nub_spmi_a1: spmi@28a1a8000 {
+-		compatible = "apple,t6050-spmi", "apple,t8142-spmi";
+-		reg = <0x2 0x8a1a8000 0x0 0x4000>;
+-		#address-cells = <2>;
+-		#size-cells = <0>;
+-	};
+ };
+ 
+ /* pmgr FPWM0, group 1 + 0x2a8; its SIO parent is left undescribed, as for ps_i2c1/2 */
+-- 
+2.56.0
+

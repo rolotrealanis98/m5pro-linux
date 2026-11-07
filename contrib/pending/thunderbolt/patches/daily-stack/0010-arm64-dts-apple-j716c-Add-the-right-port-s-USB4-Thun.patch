@@ -1,0 +1,454 @@
+From a21de47f1e8eb176d29659fa687db54dc3213204 Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Tue, 3 Nov 2026 22:35:02 -0500
+Subject: [PATCH 10/16] arm64: dts: apple: j716c: Add the right port's
+ USB4/Thunderbolt router
+
+Describe the USB4/Thunderbolt host router behind the right-hand USB-C
+port (ADT /arm-io/acio2, acio-cpu2 and dart-acio2). In t6050-max.dtsi:
+
+- the ATC2_CIO, ATC2_CIO_PCIE, ATC2_CIO_USB and ATC2_CIO_AUSS power
+  domains;
+- the router CPU's mailbox and the router's LSTX pin function on the
+  AOP GPIO controller;
+- the router itself, with its DART and NHI as children, so that both
+  are populated only once the router runs: nothing is touched at boot;
+- the DART's stream 15 in bypass, full error reporting and the context
+  cache flush.
+
+In the board: AUSS, kept as the boot loader leaves it, the CIO reconfig
+request (port 2 of the die's CIO reset), the AOP GPIO controller with
+only the LSTX pin exposed, the PHY's CIO80 RX_TOP tunables, the link
+from the PD controller to the router, and, until the boot loader fills
+them, this board's router, NHI and DART tunables and host DROM, from its
+ADT.
+
+The router node is named acio@: the boot loader disables a cio@ node
+unless its first register is the third register of the matching
+/arm-io/acioN, which on T6050 is not the router's rc block.
+
+Developed with Claude Code.
+
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ arch/arm64/boot/dts/apple/t6050-j716c.dts | 221 ++++++++++++++++++++++
+ arch/arm64/boot/dts/apple/t6050-max.dtsi  | 177 +++++++++++++++++
+ 2 files changed, 398 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716c.dts b/arch/arm64/boot/dts/apple/t6050-j716c.dts
+index 3cb9335c89ee..ab4ab9f4a2c9 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716c.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716c.dts
+@@ -341,3 +341,224 @@ hpm2_dp: endpoint {
+ 		};
+ 	};
+ };
++
++/*
++ * ==== The right USB-C port's USB4/Thunderbolt router (ATC2) ====
++ *
++ * Until the boot loader fills them, the router, NHI, PHY CIO and DART tunables and the host
++ * DROM are this board's, from its ADT (the DROM's router UUID from an earlier boot).
++ */
++/* ATC2_CIO_AUSS's other parent; kept as the boot loader leaves it */
++&ps_auss {
++	status = "okay";
++};
++
++/* The CIO reconfig request, port 2 (clock gate CIO2_RECONFIG_V) */
++&cio_reconfig0 {
++	status = "okay";
++};
++
++/* The PHY's CIO80 RX_TOP tunables (ADT tunable_LN0/LN1_RX_TOP_CIO_DFLT); the other three are empty */
++&atc2_phy {
++	apple,tunable-lane0-rx-top-cio = <0x35c 0xe00 0x0>;
++	apple,tunable-lane1-rx-top-cio = <0x35c 0xe00 0x0>;
++};
++
++/* Only the router's LSTX pin (81) of the AOP GPIO controller is exposed. */
++&pinctrl_aop {
++	gpio-reserved-ranges = <0 81>, <82 3>;
++	status = "okay";
++};
++
++&hpm2 {
++	connector {
++		ports {
++			port@3 {
++				reg = <3>;
++				hpm2_usb4: endpoint {
++					remote-endpoint = <&acio2_tbt>;
++				};
++			};
++		};
++	};
++};
++
++&acio2 {
++	apple,tunable-rc = <0x0 0xfff0 0x4020>,
++			<0x2c 0x4 0x0>,
++			<0x4004 0x1ff01ff 0x1000100>,
++			<0x4008 0x801f 0x4>,
++			<0x4010 0x7f 0x40>,
++			<0x4014 0x801f 0x4>,
++			<0x401c 0x7f 0x40>,
++			<0x4024 0x801f 0x4>,
++			<0x402c 0x7f 0x40>,
++			<0x4030 0x801f 0x4>,
++			<0x4038 0xffffffff 0x1010101>,
++			<0x403c 0xffff 0x101>,
++			<0x4040 0x1 0x1>,
++			<0x4044 0xffffffff 0x1010101>,
++			<0x4048 0x1 0x1>,
++			<0x404c 0x801f 0x4>,
++			<0x8004 0x70007 0x40004>,
++			<0x8008 0x801f 0x4>,
++			<0x8010 0x70007 0x40004>,
++			<0x8018 0x801f 0x4>,
++			<0x8020 0x70007 0x40004>,
++			<0x8028 0x801f 0x4>,
++			<0x8030 0x801f 0x4>,
++			<0x8038 0x801f 0x4>,
++			<0x8040 0x801f 0x4>,
++			<0x8048 0x801f 0x4>,
++			<0x8050 0x801f 0x4>,
++			<0x8058 0x801f 0x4>,
++			<0x8060 0x801f 0x4>;
++	apple,tunable-pcie-adapter = <0x1008 0x6 0x6>;
++	apple,tunable-router-ap-fw = <0x8 0xff2 0x482>;
++
++	ports {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		port@1 {
++			reg = <1>;
++			acio2_tbt: endpoint {
++				remote-endpoint = <&hpm2_usb4>;
++			};
++		};
++	};
++};
++
++&acio2_dart {
++	apple,tunable = <0x20c 0x80000121 0x80000121>,
++		<0x220 0xf0f 0xf0f>,
++		<0x224 0xffff 0x909>,
++		<0x300 0x1f31 0x1>,
++		<0x308 0x3ffffffc 0x10000000>,
++		<0x310 0x3ffffffc 0x3ffffffc>,
++		<0x800 0xf003f 0x10000>,
++		<0x804 0xf003f 0x10002>,
++		<0x808 0xf003f 0x10004>,
++		<0x80c 0xf003f 0x20006>,
++		<0x810 0xf003f 0x2000a>,
++		<0x814 0xf003f 0x2000e>,
++		<0x818 0xf003f 0x20012>,
++		<0x81c 0xf003f 0x20016>,
++		<0x820 0xf003f 0x2001a>,
++		<0x824 0xf003f 0x2001e>,
++		<0x828 0xf003f 0x20022>,
++		<0x82c 0xf003f 0x20026>,
++		<0x830 0xf003f 0x2002a>,
++		<0x834 0xf003f 0x2002e>,
++		<0x838 0xf003f 0x20032>,
++		<0x83c 0xf003f 0x10036>;
++};
++
++&acio2_nhi {
++	apple,tunable-nhi = <0xf8004 0xff 0x80>,
++			<0xf8008 0x801f 0x4>,
++			<0xf8010 0x3f 0x20>,
++			<0xf8014 0x801f 0x4>,
++			<0xf801c 0x1f 0x10>,
++			<0xf8020 0x801f 0x4>,
++			<0xf8028 0xff 0x80>,
++			<0xf802c 0x801f 0x4>,
++			<0xf8034 0xff 0x80>,
++			<0xf8038 0x801f 0x4>,
++			<0xf8040 0x3f 0x20>,
++			<0xf8044 0x801f 0x4>,
++			<0xf804c 0x8007 0x1>,
++			<0xfc004 0x3 0x2>,
++			<0xfc008 0x801f 0x4>,
++			<0xfc010 0x7 0x4>,
++			<0xfc014 0x801f 0x4>,
++			<0xfc01c 0x7 0x4>,
++			<0xfc020 0x801f 0x4>,
++			<0xfc028 0x7 0x4>,
++			<0xfc02c 0x801f 0x4>,
++			<0xfc034 0x7 0x4>,
++			<0xfc038 0x801f 0x4>,
++			<0xfc040 0x3 0x2>,
++			<0xfc044 0x801f 0x4>,
++			<0xfc04c 0x8007 0x1>,
++			<0x4000 0x1000000f 0x10000002>,
++			<0x4004 0x1000000f 0x10000002>,
++			<0x4008 0x1000000f 0x10000002>,
++			<0x400c 0x1000000f 0x10000002>,
++			<0x4010 0x1000000f 0x10000002>,
++			<0x4014 0x1000000f 0x10000002>,
++			<0x4018 0x1000000f 0x10000002>,
++			<0x401c 0x1000000f 0x10000002>,
++			<0x4020 0x1000000f 0x10000002>,
++			<0x4024 0x1000000f 0x10000002>,
++			<0x4028 0x1000000f 0x10000002>,
++			<0x402c 0x1000000f 0x10000002>,
++			<0x4040 0x1000000f 0x10000002>,
++			<0x4044 0x1000000f 0x10000002>,
++			<0x4048 0x1000000f 0x10000002>,
++			<0x404c 0x1000000f 0x10000002>,
++			<0x4050 0x1000000f 0x10000002>,
++			<0x4054 0x1000000f 0x10000002>,
++			<0x4058 0x1000000f 0x10000002>,
++			<0x405c 0x1000000f 0x10000002>,
++			<0x4060 0x1000000f 0x10000002>,
++			<0x4064 0x1000000f 0x10000002>,
++			<0x4068 0x1000000f 0x10000002>,
++			<0x406c 0x1000000f 0x10000002>,
++			<0x4080 0x1000000f 0x10000002>,
++			<0x4084 0x1000000f 0x10000002>,
++			<0x4088 0x1000000f 0x10000002>,
++			<0x408c 0x1000000f 0x10000002>,
++			<0x4090 0x1000000f 0x10000002>,
++			<0x4094 0x1000000f 0x10000002>,
++			<0x4098 0x1000000f 0x10000002>,
++			<0x409c 0x1000000f 0x10000002>,
++			<0x40a0 0x1000000f 0x10000002>,
++			<0x40a4 0x1000000f 0x10000002>,
++			<0x40a8 0x1000000f 0x10000002>,
++			<0x40ac 0x1000000f 0x10000002>,
++			<0x40c0 0x1000000f 0x10000002>,
++			<0x40c4 0x1000000f 0x10000002>,
++			<0x40c8 0x1000000f 0x10000002>,
++			<0x40cc 0x1000000f 0x10000002>,
++			<0x40d0 0x1000000f 0x10000002>,
++			<0x40d4 0x1000000f 0x10000002>,
++			<0x40d8 0x1000000f 0x10000002>,
++			<0x40dc 0x1000000f 0x10000002>,
++			<0x40e0 0x1000000f 0x10000002>,
++			<0x40e4 0x1000000f 0x10000002>,
++			<0x40e8 0x1000000f 0x10000002>,
++			<0x40ec 0x1000000f 0x10000002>,
++			<0x4100 0x1000000f 0x10000002>,
++			<0x4104 0x1000000f 0x10000002>,
++			<0x4108 0x1000000f 0x10000002>,
++			<0x410c 0x1000000f 0x10000002>,
++			<0x4110 0x1000000f 0x10000002>,
++			<0x4114 0x1000000f 0x10000002>,
++			<0x4118 0x1000000f 0x10000002>,
++			<0x411c 0x1000000f 0x10000002>,
++			<0x4120 0x1000000f 0x10000002>,
++			<0x4124 0x1000000f 0x10000002>,
++			<0x4128 0x1000000f 0x10000002>,
++			<0x412c 0x1000000f 0x10000002>,
++			<0x4140 0x1000000f 0x10000002>,
++			<0x4144 0x1000000f 0x10000002>,
++			<0x4148 0x1000000f 0x10000002>,
++			<0x414c 0x1000000f 0x10000002>,
++			<0x4150 0x1000000f 0x10000002>,
++			<0x4154 0x1000000f 0x10000002>,
++			<0x4158 0x1000000f 0x10000002>,
++			<0x415c 0x1000000f 0x10000002>,
++			<0x4160 0x1000000f 0x10000002>,
++			<0x4164 0x1000000f 0x10000002>,
++			<0x4168 0x1000000f 0x10000002>,
++			<0x416c 0x1000000f 0x10000002>,
++			<0x43e4 0x7 0x7>;
++	apple,thunderbolt-drom = [ff 92 e6 6e ee 18 7c ac 05 90 19 c3 8c 00 5c 00
++			00 00 00 00 00 00 08 81 82 02 82 00 00 00 08 82
++			92 01 82 00 00 00 03 83 20 08 84 00 00 00 00 00
++			00 08 85 00 00 00 00 00 00 05 86 09 01 00 08 87
++			00 00 00 00 00 00 05 88 09 01 00 05 89 09 01 00
++			05 8a 09 01 00 0e 01 41 70 70 6c 65 2c 20 49 6e
++			63 2e 00 06 02 69 4f 53 00 00 00 00];
++};
+diff --git a/arch/arm64/boot/dts/apple/t6050-max.dtsi b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+index fc49321bb109..cc099ac6b31f 100644
+--- a/arch/arm64/boot/dts/apple/t6050-max.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+@@ -126,3 +126,180 @@ nub_spmi_a1: spmi@28a1a8000 {
+ 		#size-cells = <0>;
+ 	};
+ };
++
++/*
++ * ATC2's USB4/Thunderbolt router (ADT /arm-io/acio2, acio-cpu2 and dart-acio2), powered per
++ * connection: the PHY enters CIO mode, then the router's domains come on (ATC2_CIO, _PCIE, _USB,
++ * _AUSS), the CIO reset (reconfig request) clocks the CPU wrapper, the CPU runs from the image the
++ * boot loader left in its SRAM, and once its firmware is ready the DART and the NHI are populated.
++ * Nothing here is touched at boot. The router is named acio@: the boot loader disables a cio@ node
++ * unless its first register is the third register of the matching /arm-io/acioN, which on T6050
++ * is not the router's rc block. The board gives the tunables and the host DROM until the boot
++ * loader fills them.
++ */
++&pmgr0 {
++	ps_atc2_cio: power-controller@2e8 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x2e8 4>;
++		label = "atc2_cio";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc2_common>;
++	};
++
++	ps_atc2_cio_pcie: power-controller@3f8 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x3f8 4>;
++		label = "atc2_cio_pcie";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc2_cio>;
++	};
++
++	ps_atc2_cio_usb: power-controller@400 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x400 4>;
++		label = "atc2_cio_usb";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc2_cio>;
++	};
++
++	ps_atc2_cio_auss: power-controller@408 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x408 4>;
++		label = "atc2_cio_auss";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_atc2_cio>, <&ps_auss>;
++	};
++};
++
++/* LSTX: /arm-io/acio2 gpio-lstx, AOP GPIO pin 81 (0x51), function 1 for the router */
++&pinctrl_aop {
++	acio2_lstx_pins: acio2-lstx-pins {
++		pinmux = <0x10051>;	/* APPLE_PINMUX(81, 1) */
++	};
++};
++
++&die0 {
++	/* /arm-io/acio-cpu2 reg[0]: the router CPU's mailbox, inside its wrapper */
++	acio2_mbox: mailbox@381108000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x3 0x81108000 0x0 0x4000>;
++		interrupts = <AIC_IRQ 0 857 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 858 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 859 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 860 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++	};
++
++	/*
++	 * /arm-io/acio2: rc (reg[1]), the RTKit data segment in its SRAM, the PCIe adapter,
++	 * acio-cpu2 reg[1] (the CPU wrapper) and the PCIe router AP firmware block.
++	 */
++	acio2: acio@381ac0000 {
++		compatible = "apple,t6050-usb4-acio";
++		reg = <0x3 0x81ac0000 0x0 0xc000>,
++		      <0x3 0x81080000 0x0 0x26000>,
++		      <0x3 0x81e44000 0x0 0x4000>,
++		      <0x3 0x81100000 0x0 0x4000>,
++		      <0x3 0x81c80000 0x0 0x4000>;
++		reg-names = "rc", "sram", "pcie-adapter", "cpu", "router-ap-fw";
++		mboxes = <&acio2_mbox>;
++		resets = <&cio_reconfig0 2>;
++		power-domains = <&ps_atc2_cio>, <&ps_atc2_cio_pcie>,
++				<&ps_atc2_cio_usb>, <&ps_atc2_cio_auss>;
++		thunderbolt-switch;
++		pinctrl-0 = <&acio2_lstx_pins>;
++		pinctrl-names = "lstx";
++		lstx-gpios = <&pinctrl_aop 81 GPIO_ACTIVE_HIGH>;
++
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges = <0x0 0x3 0x81000000 0x1000000>;
++		nonposted-mmio;
++
++		/*
++		 * /arm-io/dart-acio2, populated with the NHI once the router runs, so that it is
++		 * first read with the router up. Nothing initialises it before Linux: its tunables
++		 * (dart-tunables-instance-0), stream 15 (bypass-15) in bypass, every error
++		 * reported and the context cache flushed. vm-base 0x100_0000_0000.
++		 */
++		acio2_dart: iommu@a80000 {
++			compatible = "apple,t6050-dart", "apple,t8110-dart";
++			reg = <0xa80000 0xc000>;
++			interrupts = <AIC_IRQ 0 1670 IRQ_TYPE_LEVEL_HIGH>;
++			power-domains = <&ps_atc2_cio>;
++			#iommu-cells = <1>;
++			apple,dma-range = <0x100 0x4000 0x0 0xffff0000>;
++			apple,bypass-sids = <15>;
++			apple,full-error-reporting;
++			apple,ctc-flush;
++		};
++
++		/* Interrupts 0x66b.. are the TX rings and 0x677.. the RX rings */
++		acio2_nhi: nhi@f00000 {
++			compatible = "apple,t6050-usb4-nhi";
++			reg = <0xf00000 0x100000>;
++			reg-names = "nhi";
++			interrupts = <AIC_IRQ 0 1643 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1644 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1645 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1646 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1647 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1648 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1649 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1650 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1651 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1652 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1653 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1654 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1655 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1656 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1657 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1658 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1659 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1660 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1661 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1662 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1663 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1664 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1665 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1666 IRQ_TYPE_LEVEL_HIGH>,
++					     <AIC_IRQ 0 1672 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "txring0", "txring1", "txring2", "txring3", "txring4", "txring5",
++						  "txring6", "txring7", "txring8", "txring9", "txring10", "txring11",
++						  "rxring0", "rxring1", "rxring2", "rxring3", "rxring4", "rxring5",
++						  "rxring6", "rxring7", "rxring8", "rxring9", "rxring10", "rxring11",
++						  "parity";
++			iommus = <&acio2_dart 0>,
++				 <&acio2_dart 1>,
++				 <&acio2_dart 2>,
++				 <&acio2_dart 3>,
++				 <&acio2_dart 4>,
++				 <&acio2_dart 5>,
++				 <&acio2_dart 6>,
++				 <&acio2_dart 7>,
++				 <&acio2_dart 8>,
++				 <&acio2_dart 9>,
++				 <&acio2_dart 10>,
++				 <&acio2_dart 11>,
++				 <&acio2_dart 16>,
++				 <&acio2_dart 17>,
++				 <&acio2_dart 18>,
++				 <&acio2_dart 19>,
++				 <&acio2_dart 20>,
++				 <&acio2_dart 21>,
++				 <&acio2_dart 22>,
++				 <&acio2_dart 23>,
++				 <&acio2_dart 24>,
++				 <&acio2_dart 25>,
++				 <&acio2_dart 26>,
++				 <&acio2_dart 27>;
++		};
++	};
++};
++
+-- 
+2.56.0
+

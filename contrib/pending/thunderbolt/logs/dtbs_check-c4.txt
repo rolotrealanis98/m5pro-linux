@@ -1,0 +1,65 @@
+/pcie-tunnel-1/pcie@1c60000000: failed to match any schema with compatible: ['apple,t6050-pciec']
+/pcie-tunnel-2/pcie@1c70000000: failed to match any schema with compatible: ['apple,t6050-pciec']
+/pcie@1cb0000000: failed to match any schema with compatible: ['apple,t6050-pcie']
+/soc@200000000/aop@290c00000/audio: failed to match any schema with compatible: ['apple,t6050-aop-audio']
+/soc@200000000/aop@290c00000: failed to match any schema with compatible: ['apple,t6050-aop', 'apple,t8152-aop']
+/soc@200000000/dcp@2b2e00000: failed to match any schema with compatible: ['apple,t6050-dcpext', 'apple,dcpext']
+/soc@200000000/dma-controller@293800000: failed to match any schema with compatible: ['apple,t6050-admac', 'apple,t8140-admac']
+/soc@200000000/fifo@294b14000: failed to match any schema with compatible: ['apple,t6050-dockchannel', 'apple,dockchannel']
+/soc@200000000/i2c@505014000: failed to match any schema with compatible: ['apple,t6050-i2c', 'apple,t8103-i2c']
+/soc@200000000/i2c@505018000: failed to match any schema with compatible: ['apple,t6050-i2c', 'apple,t8103-i2c']
+/soc@200000000/mtp@294600000: failed to match any schema with compatible: ['apple,t6050-mtp', 'apple,mtp', 'apple,rtk-helper-asc4']
+/soc@200000000/pinctrl@290824000: failed to match any schema with compatible: ['apple,t6050-pinctrl', 'apple,t8132-pinctrl']
+/soc@200000000/pinctrl@29c000000: failed to match any schema with compatible: ['apple,t6050-pinctrl', 'apple,t8103-pinctrl']
+/soc@200000000/power-management@286806000/performance-controller@1: failed to match any schema with compatible: ['apple,t6050-clpc', 'apple,t6041-clpc']
+/soc@200000000/power-management@286806000: failed to match any schema with compatible: ['apple,t6050-pmc']
+acio@2a9ac0000 (apple,t6050-usb4-acio): nhi@f00000: 'apple,thunderbolt-drom' is a required property
+acio@381ac0000 (apple,t6050-usb4-acio): nhi@f00000: 'apple,thunderbolt-drom' is a required property
+cio@389ac0000 (apple,t6050-usb4-acio): reg-names: ['rc', 'sram', 'cpu'] is too short
+cio@389ac0000 (apple,t6050-usb4-acio): reg-names:2: 'pcie-adapter' was expected
+cio@389ac0000 (apple,t6050-usb4-acio): reg: [[3, 2309750784, 0, 49152], [3, 2299002880, 0, 155648], [3, 2299527168, 0, 16384]] is too short
+dcp@2b2e00000 (apple,t6050-dcpext): compatible: 'oneOf' conditional failed, one must be fixed:
+dma-controller@293800000 (apple,t6050-admac): compatible: 'oneOf' conditional failed, one must be fixed:
+fifo@294b14000 (apple,t6050-dockchannel): compatible:0: 'apple,t6050-dockchannel' is not one of ['apple,t6020-dockchannel', 'apple,t6030-dockchannel', 'apple,t6031-dockchannel', 'apple,t6041-dockchannel', 'apple,t8112-dockchannel', 'apple,t8122-dockchannel', 'apple,t8132-dockchannel', 'apple,t8140-dockchannel', 'apple,t8142-dockchannel']
+i2c@505014000 (apple,t6050-i2c): compatible: 'oneOf' conditional failed, one must be fixed:
+i2c@505018000 (apple,t6050-i2c): compatible: 'oneOf' conditional failed, one must be fixed:
+mtp@294600000 (apple,t6050-mtp): compatible: ['apple,t6050-mtp', 'apple,mtp', 'apple,rtk-helper-asc4'] is too short
+mtp@294600000 (apple,t6050-mtp): compatible:0: 'apple,t6050-mtp' is not one of ['apple,t6020-mtp', 'apple,t6030-mtp', 'apple,t6031-mtp', 'apple,t6041-mtp', 'apple,t8112-mtp', 'apple,t8122-mtp', 'apple,t8132-mtp', 'apple,t8140-mtp', 'apple,t8142-mtp']
+mtp@294600000 (apple,t6050-mtp): compatible:1: 'apple,mtp' is not one of ['apple,t6020-rtk-helper-asc4', 'apple,t6030-rtk-helper-asc4', 'apple,t6041-rtk-helper-asc4', 'apple,t8112-rtk-helper-asc4', 'apple,t8122-rtk-helper-asc4', 'apple,t8132-rtk-helper-asc4', 'apple,t8140-rtk-helper-asc4', 'apple,t8142-rtk-helper-asc4']
+mtp@294600000 (apple,t6050-mtp): compatible:2: 'apple,mtp' was expected
+mux@38324c000 (apple,t6050-display-crossbar): compatible: ['apple,t6050-display-crossbar', 'apple,t8142-display-crossbar'] is too long
+nhi@f00000 (apple,t6050-usb4-nhi): 'apple,thunderbolt-drom' is a required property
+pcie@1c60000000 (apple,t6050-pciec): apple,msi-vector-base: b'\x00\x00\x00\xa0' is not of type 'object', 'integer', 'array', 'boolean', 'null'
+pcie@1c70000000 (apple,t6050-pciec): apple,msi-vector-base: b'\x00\x00\x00\xc0' is not of type 'object', 'integer', 'array', 'boolean', 'null'
+pcie@1cb0000000 (apple,t6050-pcie): apple,msi-vector-base: b'\x00\x00\x00@' is not of type 'object', 'integer', 'array', 'boolean', 'null'
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-aus40cmn-shm' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-auspll' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-axi2af' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-cio4pll' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-common-cfg' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-fabric' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-lane0-rx-clock' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-lane0-rx-eq' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-lane1-rx-clock' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-lane1-rx-eq' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-lioa' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-pipe-default' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-usb2-default' is a required property
+phy@2ab000000 (apple,t6050-combo-phy): 'apple,tunable-usb2-host' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-aus40cmn-shm' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-auspll' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-axi2af' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-cio4pll' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-common-cfg' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-fabric' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-lane0-rx-clock' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-lane0-rx-eq' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-lane1-rx-clock' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-lane1-rx-eq' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-lioa' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-pipe-default' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-usb2-default' is a required property
+phy@383000000 (apple,t6050-combo-phy): 'apple,tunable-usb2-host' is a required property
+pinctrl@290824000 (apple,t6050-pinctrl): compatible: 'oneOf' conditional failed, one must be fixed:
+pinctrl@29c000000 (apple,t6050-pinctrl): compatible: 'oneOf' conditional failed, one must be fixed:
+smc@28c600000 (apple,t6050-smc): 'gpio-low' does not match any of the regexes: '^pinctrl-[0-9]+$'

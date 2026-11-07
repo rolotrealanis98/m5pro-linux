@@ -1,0 +1,39 @@
+From 7a959669de544fc530771998d77cc879492e4106 Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Wed, 4 Nov 2026 18:08:07 -0500
+Subject: [PATCH 13/16] dt-bindings: pci: apple,pcie: Add the T6050 PCIe-C
+ tunnel
+
+The T6050 PCIe-C root port has the T600x register layout and is always
+initialized by the kernel.
+
+Developed with Claude Code.
+
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ Documentation/devicetree/bindings/pci/apple,pcie.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/pci/apple,pcie.yaml b/Documentation/devicetree/bindings/pci/apple,pcie.yaml
+index d6570e35974a..afb7bba48ac2 100644
+--- a/Documentation/devicetree/bindings/pci/apple,pcie.yaml
++++ b/Documentation/devicetree/bindings/pci/apple,pcie.yaml
+@@ -75,6 +75,7 @@ properties:
+           - const: apple,t8112-pciec
+           - const: apple,t8103-pciec
+       - const: apple,t6000-pciec
++      - const: apple,t6050-pciec
+       - items:
+           - const: apple,t8132-pciec
+           - const: apple,t8122-pciec
+@@ -328,6 +329,7 @@ allOf:
+             enum:
+               - apple,t8103-pciec
+               - apple,t6000-pciec
++              - apple,t6050-pciec
+     then:
+       properties:
+         reg:
+-- 
+2.56.0
+

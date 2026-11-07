@@ -1,0 +1,82 @@
+From 7d0ad872f490530365e89246ed95af57b672e519 Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Wed, 4 Nov 2026 12:54:13 -0500
+Subject: [PATCH 15/16] thunderbolt: apple: recognize the T6050 PCIe-C host
+
+A router finds its PCIe-C host among the children of its
+apple,pcie-tunnel node by compatible: to tell whether the port gets
+initialized, to map its Intr2AXI bridge, to find its reset and to find
+the bound host once a tunnel is up. Accept apple,t6050-pciec there too.
+
+The T6050 port has no reset of its own, and the kernel cold-initializes
+it, which apple_pcie_tunnel_needs_cold_init() reports. Other SoCs see no
+change.
+
+Developed with Claude Code.
+
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ drivers/thunderbolt/apple.c | 20 ++++++++++++--------
+ 1 file changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/thunderbolt/apple.c b/drivers/thunderbolt/apple.c
+index a087c07212a3..9e036ec81a11 100644
+--- a/drivers/thunderbolt/apple.c
++++ b/drivers/thunderbolt/apple.c
+@@ -920,14 +920,21 @@ static void apple_cio_of_node_put(void *data)
+ 	of_node_put(data);
+ }
+ 
++/* The PCIe-C host among the children of an ACIO's PCIe tunnel node */
++static bool apple_cio_is_pciec(struct device_node *np)
++{
++	return of_device_is_compatible(np, "apple,t8103-pciec") ||
++	       of_device_is_compatible(np, "apple,t6000-pciec") ||
++	       of_device_is_compatible(np, "apple,t6050-pciec");
++}
++
+ static bool
+ apple_cio_pcie_tunnel_is_preinitialized(struct device_node *parent)
+ {
+ 	for_each_available_child_of_node_scoped(parent, child) {
+ 		u32 status;
+ 
+-		if (!of_device_is_compatible(child, "apple,t8103-pciec") &&
+-		    !of_device_is_compatible(child, "apple,t6000-pciec"))
++		if (!apple_cio_is_pciec(child))
+ 			continue;
+ 
+ 		if (!of_property_read_u32(child, "apple,pciec-preinit-status",
+@@ -956,8 +963,7 @@ static int apple_cio_get_pcie_reset(struct apple_cio *acio)
+ 	struct reset_control *rst = NULL;
+ 
+ 	for_each_available_child_of_node_scoped(acio->pcie_tunnel_np, child) {
+-		if (!of_device_is_compatible(child, "apple,t8103-pciec") &&
+-		    !of_device_is_compatible(child, "apple,t6000-pciec"))
++		if (!apple_cio_is_pciec(child))
+ 			continue;
+ 		if (!of_property_read_bool(child, "apple,pciec-kernel-init"))
+ 			break;
+@@ -989,8 +995,7 @@ static int apple_cio_map_pcie_intr2axi(struct apple_cio *acio)
+ 	int index, ret;
+ 
+ 	for_each_available_child_of_node_scoped(acio->pcie_tunnel_np, child) {
+-		if (!of_device_is_compatible(child, "apple,t8103-pciec") &&
+-		    !of_device_is_compatible(child, "apple,t6000-pciec"))
++		if (!apple_cio_is_pciec(child))
+ 			continue;
+ 
+ 		index = of_property_match_string(child, "reg-names", "intr2axi");
+@@ -2534,8 +2539,7 @@ static struct platform_device *apple_cio_find_pcie_tunnel(struct apple_cio *acio
+ 		return NULL;
+ 
+ 	for_each_available_child_of_node_scoped(acio->pcie_tunnel_np, child) {
+-		if (!of_device_is_compatible(child, "apple,t8103-pciec") &&
+-		    !of_device_is_compatible(child, "apple,t6000-pciec"))
++		if (!apple_cio_is_pciec(child))
+ 			continue;
+ 
+ 		pdev = of_find_device_by_node(child);
+-- 
+2.56.0
+

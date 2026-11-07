@@ -1,0 +1,122 @@
+From bb274856bdc59078b1cd1b8a286b1598094fdb88 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:53:53 -0500
+Subject: [PATCH 01/16] Revert "reset: apple-cio: Add the T6050 reconfiguration
+ register"
+
+This reverts commit 14e7655c3ff6. "reset: apple-cio: add the T6050 CIO reconfig
+request" from aurora-silicon/linux#946 replaces it: on T6050 the odd bit
+is a done flag, and request and done must both clear before the CPU
+wrapper is touched.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ .../bindings/reset/apple,t8103-cio-reset.yaml |  4 +---
+ drivers/reset/reset-apple-cio.c               | 23 ++++---------------
+ 2 files changed, 5 insertions(+), 22 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/reset/apple,t8103-cio-reset.yaml b/Documentation/devicetree/bindings/reset/apple,t8103-cio-reset.yaml
+index 39275d349584..21ed54f3e015 100644
+--- a/Documentation/devicetree/bindings/reset/apple,t8103-cio-reset.yaml
++++ b/Documentation/devicetree/bindings/reset/apple,t8103-cio-reset.yaml
+@@ -20,8 +20,7 @@ description: |
+   syscon with reg used as an offset into it.
+ 
+   On t8142, a standalone register page contains a shared request register
+-  with alternating request and busy bits for four ports. t6050 has the
+-  same register at offset 0x60 of its page.
++  with alternating request and busy bits for four ports.
+ 
+   In all cases the reset id is the CIO port index on the die.
+ 
+@@ -32,7 +31,6 @@ properties:
+           - apple,t8103-cio-reset
+           - apple,t8142-cio-reset
+           - apple,t6000-cio-reset
+-          - apple,t6050-cio-reset
+       - items:
+           - const: apple,t8112-cio-reset
+           - const: apple,t8103-cio-reset
+diff --git a/drivers/reset/reset-apple-cio.c b/drivers/reset/reset-apple-cio.c
+index 68734df4528f..af299473a6c8 100644
+--- a/drivers/reset/reset-apple-cio.c
++++ b/drivers/reset/reset-apple-cio.c
+@@ -66,7 +66,6 @@
+ #define T6000_CIO_CTRL_INIT_BUSY(port) BIT(16 + (port))
+ 
+ #define T8142_CIO_CTRL 0x30
+-#define T6050_CIO_CTRL 0x60
+ #define T8142_CIO_CTRL_INIT_REQ(port) BIT(2 * (port))
+ #define T8142_CIO_CTRL_INIT_BUSY(port) BIT(2 * (port) + 1)
+ #define T8142_CIO_CTRL_BUSY_MASK 0xaa
+@@ -76,8 +75,6 @@ struct apple_cio_reset;
+ struct apple_cio_reset_variant {
+ 	unsigned int nr_resets;
+ 	bool pmgr_child;
+-	/* Offset of the shared request register (t8142 layout only) */
+-	u32 ctrl;
+ 	int (*deassert)(struct apple_cio_reset *priv, unsigned long id);
+ };
+ 
+@@ -169,28 +166,27 @@ static int t6000_cio_deassert(struct apple_cio_reset *priv, unsigned long id)
+ 					APPLE_CIO_RESET_TIMEOUT_US);
+ }
+ 
+-/* Also t6050, whose register has the same bits at another offset. */
+ static int t8142_cio_deassert(struct apple_cio_reset *priv, unsigned long id)
+ {
+-	u32 ctrl = priv->variant->ctrl;
+ 	u32 val;
+ 	int ret;
+ 
+ 	guard(mutex)(&priv->lock);
+ 
+ 	/* Serialize all four ports sharing the request register. */
+-	ret = regmap_read_poll_timeout(priv->regmap, ctrl, val,
++	ret = regmap_read_poll_timeout(priv->regmap, T8142_CIO_CTRL, val,
+ 				       !(val & T8142_CIO_CTRL_BUSY_MASK),
+ 				       APPLE_CIO_RESET_POLL_US,
+ 				       APPLE_CIO_RESET_TIMEOUT_US);
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = regmap_write(priv->regmap, ctrl, T8142_CIO_CTRL_INIT_REQ(id));
++	ret = regmap_write(priv->regmap, T8142_CIO_CTRL,
++			   T8142_CIO_CTRL_INIT_REQ(id));
+ 	if (ret)
+ 		return ret;
+ 
+-	return regmap_read_poll_timeout(priv->regmap, ctrl, val,
++	return regmap_read_poll_timeout(priv->regmap, T8142_CIO_CTRL, val,
+ 				       !(val & T8142_CIO_CTRL_INIT_BUSY(id)),
+ 				       APPLE_CIO_RESET_POLL_US,
+ 				       APPLE_CIO_RESET_TIMEOUT_US);
+@@ -198,13 +194,6 @@ static int t8142_cio_deassert(struct apple_cio_reset *priv, unsigned long id)
+ 
+ static const struct apple_cio_reset_variant apple_t8142_cio_reset = {
+ 	.nr_resets = 4,
+-	.ctrl = T8142_CIO_CTRL,
+-	.deassert = t8142_cio_deassert,
+-};
+-
+-static const struct apple_cio_reset_variant apple_t6050_cio_reset = {
+-	.nr_resets = 4,
+-	.ctrl = T6050_CIO_CTRL,
+ 	.deassert = t8142_cio_deassert,
+ };
+ 
+@@ -292,10 +281,6 @@ static const struct of_device_id apple_cio_reset_match[] = {
+ 		.compatible = "apple,t8142-cio-reset",
+ 		.data = &apple_t8142_cio_reset,
+ 	},
+-	{
+-		.compatible = "apple,t6050-cio-reset",
+-		.data = &apple_t6050_cio_reset,
+-	},
+ 	{
+ 		.compatible = "apple,t8103-cio-reset",
+ 		.data = &apple_t8103_cio_reset,
+-- 
+2.56.0
+

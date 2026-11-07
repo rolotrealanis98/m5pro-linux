@@ -1,0 +1,180 @@
+From 870a74bcca275f99703f7c9a7eb0bdd41baa2ebe Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Tue, 3 Nov 2026 22:22:09 -0500
+Subject: [PATCH 02/16] arm64: dts: apple: j716c: Add the right USB-C port
+ (ATC2)
+
+Describe the right-hand USB-C port: its SN201202x PD controller, the
+ATC2 combo PHY, usb-drd2 and its DARTs, and their power domains.
+
+On J716c the port's HPM is ADT /arm-io/nub-spmi-a1/hpm2 (SPMI address
+0xc, port-location "right"), on its own SPMI bus, not on nub-spmi-a0
+at address 8 as on J775D; on J716c that address is hpm5 (port-type
+0x11), not a port's controller. Add nub-spmi-a1 to t6050-max.dtsi,
+polled as nub-spmi-a0 is, put the HPM on it, and enable the ATC2 chain
+that J775D leaves to the display handoff.
+
+Add the atcphy2 alias so that the boot loader fills the PHY's tunables
+from /arm-io/atc-phy2, and turn dcpext0's Type-C route off with
+dcpext0: a mode-switch endpoint whose mux is never registered would
+defer the PD controller forever.
+
+Developed with Claude Code.
+
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ arch/arm64/boot/dts/apple/t6050-j716c.dts | 120 ++++++++++++++++++++++
+ arch/arm64/boot/dts/apple/t6050-max.dtsi  |  11 ++
+ 2 files changed, 131 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716c.dts b/arch/arm64/boot/dts/apple/t6050-j716c.dts
+index da061edcb7b2..3cb9335c89ee 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716c.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716c.dts
+@@ -221,3 +221,123 @@ stm {
+ &smc_pcio {
+ 	apple,output-commands = /bits/ 64 <0x001a000000000000 0x000f000000800000 0x011c000000010000>;
+ };
++
++/*
++ * ==== The right USB-C port (ATC2) ====
++ *
++ * ADT /arm-io/nub-spmi-a1/hpm2 (SN201202x, SPMI address 0xc, port-number 3, port-location
++ * "right", acio-parent acio2), atc-phy2, usb-drd2 and dart-usb2. The HPM is on its own bus,
++ * nub-spmi-a1, and nothing hands the port off, so the chain is enabled outright. Aura's
++ * kboot_setup_atc() fills the PHY's tunables through the atcphy2 alias.
++ */
++/ {
++	aliases {
++		atcphy2 = &atc2_phy;
++	};
++};
++
++&ps_atc2_common {
++	status = "okay";
++};
++
++&ps_atc2_usb_aon {
++	status = "okay";
++};
++
++&ps_atc2_phymxwrap {
++	status = "okay";
++};
++
++&ps_atc2_usb {
++	status = "okay";
++};
++
++&atc2_phy_mbox {
++	status = "okay";
++};
++
++&atc2_phy {
++	status = "okay";
++
++	port {
++		atc2_phy_ep: endpoint {
++			remote-endpoint = <&hpm2_ss>;
++		};
++	};
++};
++
++&usb_drd2 {
++	status = "okay";
++
++	port {
++		usb_drd2_hs: endpoint {
++			remote-endpoint = <&hpm2_hs>;
++		};
++	};
++};
++
++&usb_drd2_dart_0 {
++	status = "okay";
++};
++
++&usb_drd2_dart_1 {
++	status = "okay";
++};
++
++/*
++ * dcpext0's Type-C route stays off with dcpext0: a mode-switch endpoint whose mux is never
++ * registered would defer the PD controller forever.
++ */
++&dcpext0 {
++	typec-routes {
++		route@0 {
++			status = "disabled";
++
++			port {
++				dcpext0_typec: endpoint {
++					remote-endpoint = <&hpm2_dp>;
++				};
++			};
++		};
++	};
++};
++
++&nub_spmi_a1 {
++	hpm2: usb-pd@c {
++		compatible = "apple,sn201202x";
++		reg = <0xc SPMI_USID>;
++
++		connector {
++			compatible = "usb-c-connector";
++			label = "USB-C Right";
++			power-role = "dual";
++			data-role = "dual";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					hpm2_hs: endpoint {
++						remote-endpoint = <&usb_drd2_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++					hpm2_ss: endpoint {
++						remote-endpoint = <&atc2_phy_ep>;
++					};
++				};
++
++				port@2 {
++					reg = <2>;
++					hpm2_dp: endpoint {
++						remote-endpoint = <&dcpext0_typec>;
++					};
++				};
++			};
++		};
++	};
++};
+diff --git a/arch/arm64/boot/dts/apple/t6050-max.dtsi b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+index d3b0a1f7b80a..fc49321bb109 100644
+--- a/arch/arm64/boot/dts/apple/t6050-max.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+@@ -114,4 +114,15 @@ mtp_dockchannel: fifo@294b14000 {
+ 		interrupt-controller;
+ 		#interrupt-cells = <2>;
+ 	};
++
++	/*
++	 * /arm-io/nub-spmi-a1: reg[0] 0x8a1a8000, generation 4, a bus of USB-C PD controllers (the
++	 * board's). They are polled, as on nub-spmi-a0, so the bus takes no interrupt.
++	 */
++	nub_spmi_a1: spmi@28a1a8000 {
++		compatible = "apple,t6050-spmi", "apple,t8142-spmi";
++		reg = <0x2 0x8a1a8000 0x0 0x4000>;
++		#address-cells = <2>;
++		#size-cells = <0>;
++	};
+ };
+-- 
+2.56.0
+

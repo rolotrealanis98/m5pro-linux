@@ -1,0 +1,226 @@
+From b53b165f279a409c7adf5eac6de5fe9b9de3607b Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:58:35 -0500
+Subject: [PATCH 30/31] kboot: T6050: fill the USB4 routers', NHIs', DARTs' and
+ PCIe-C tunnels' tables
+
+The T6050 USB4 router driver (aurora-silicon/linux#946) refuses to probe
+without the boot loader's router and NHI tables, and its DARTs and PCIe-C
+tunnels start untouched. Fill all of them from the ADT for a T6050/T6051
+DT that names the nodes through the usb4-N-* aliases:
+
+- the NHI: the ADT (acio,v2) has only the two merge tables and the
+  firmware interrupt control table, so the four per-direction tables are
+  optional here, as on T8142;
+- the router's PCIe router AP firmware block: pcie_router_ap_fw to
+  apple,tunable-router-ap-fw on the router node;
+- the router's DART (the NHI's first IOMMU) and the tunnel's DART (the
+  host's iommu-map): dart-tunables-instance-0 to apple,tunable, unless
+  the board already gives it;
+- usb4-N-pcie-adapter and usb4-N-pcie as alias fallbacks for the
+  underscore names, which are not valid DT alias names.
+
+Ports without an ADT router or without the DT aliases are skipped
+quietly. The rc, adapter, NHI, DROM and tunnel copies are unchanged for
+other SoCs.
+
+On the J716s every value this produces for acio1/acio2 matches the
+tables aurora-silicon/linux#946 carries literally for the J716c, except
+the host DROM's router UUID, which this generates as before.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ src/kboot.c | 142 ++++++++++++++++++++++++++++++++++++++++++++--------
+ 1 file changed, 122 insertions(+), 20 deletions(-)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index 2ec46164..32ac603e 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -1178,6 +1178,50 @@ static const struct adt_tunable_info usb4_pcie_adapter_tunables[] = {
+     {"pcie_adapter_regs_tunables", "apple,tunable-pcie-adapter", 0x0, 0x4000, true},
+ };
+ 
++/*
++ * T6050/T6051 routers (acio,v2): the ADT has no per-direction host interface fabric tables,
++ * only the two merge tables and the firmware interrupt control table. The PCIe router AP
++ * firmware block's table (pcie_router_ap_fw) goes to apple,tunable-router-ap-fw.
++ */
++static const struct adt_tunable_info usb4_t6050_nhi_tunables[] = {
++    {"hi_up_tx_desc_fabric_tunables", "apple,tunable-nhi", 0xf0000, 0x4000, false},
++    {"hi_up_tx_data_fabric_tunables", "apple,tunable-nhi", 0xec000, 0x4000, false},
++    {"hi_up_rx_desc_fabric_tunables", "apple,tunable-nhi", 0xe8000, 0x4000, false},
++    {"hi_up_wr_fabric_tunables", "apple,tunable-nhi", 0xf4000, 0x4000, false},
++    {"hi_up_merge_fabric_tunables", "apple,tunable-nhi", 0xf8000, 0x4000, true},
++    {"hi_dn_merge_fabric_tunables", "apple,tunable-nhi", 0xfc000, 0x4000, true},
++    {"fw_int_ctl_management_tunables", "apple,tunable-nhi", 0x4000, 0x4000, true},
++};
++
++static const struct adt_tunable_info usb4_router_ap_fw_tunables[] = {
++    {"pcie_router_ap_fw", "apple,tunable-router-ap-fw", 0x0, 0x4000, true},
++};
++
++/* A T8110 DART that nothing initialises before Linux: the router's and the PCIe-C tunnel's. */
++static const struct adt_tunable_info usb4_dart_tunable = {
++    .adt_name = "dart-tunables-instance-0",
++    .fdt_name = "apple,tunable",
++    .reg_offset = 0,
++    .reg_size = 0x4000,
++    .required = true,
++};
++
++static bool usb4_is_t6050(void)
++{
++    return chip_id == T6050 || chip_id == T6051;
++}
++
++/* The first alias of @names (NULL-terminated) that the DT has, written to @buf. */
++static const char *usb4_alias(char *buf, size_t len, int port, const char *const *names)
++{
++    for (; *names; names++) {
++        snprintf(buf, len, *names, port);
++        if (fdt_get_alias(dt, buf))
++            return buf;
++    }
++    return NULL;
++}
++
+ struct acio_tunable {
+     u32 offset;
+     u32 size;
+@@ -1319,35 +1363,84 @@ err:
+     return -1;
+ }
+ 
++/*
++ * Copy a DART's ADT tunables to its DT node, unless the board already gives them. The DART is
++ * named by phandle: the first entry of @prop ("iommus" or "iommu-map") of @fdt_node.
++ */
++static int dt_copy_usb4_dart_tunables(const char *adt_path, int fdt_node, const char *prop,
++                                      int phandle_cell)
++{
++    int len;
++    const fdt32_t *ref = fdt_getprop(dt, fdt_node, prop, &len);
++
++    if (!ref || len < (int)((phandle_cell + 1) * sizeof(*ref)))
++        return -1;
++    int dart = fdt_node_offset_by_phandle(dt, fdt32_ld(&ref[phandle_cell]));
++    if (dart < 0 || fdt_node_check_compatible(dt, dart, "apple,t8110-dart"))
++        return -1;
++    if (fdt_getprop(dt, dart, usb4_dart_tunable.fdt_name, NULL))
++        return 0;
++
++    int adt_node = adt_path_offset(adt, adt_path);
++    if (adt_node < 0)
++        return -1;
++    if (dt_append_acio_tunable(adt_node, dart, &usb4_dart_tunable)) {
++        fdt_delprop(dt, dart, usb4_dart_tunable.fdt_name);
++        printf("ADT: %s: unable to convert the DART tunables\n", adt_path);
++        return -1;
++    }
++    return 0;
++}
++
+ static int dt_set_acio_tunables(void)
+ {
++    static const char *const rc_aliases[] = {"usb4_%d_rc", "usb4-%d-acio", NULL};
++    static const char *const adapter_aliases[] = {"usb4_%d_pcie_adapter", "usb4-%d-pcie-adapter",
++                                                  NULL};
++    static const char *const nhi_aliases[] = {"usb4_%d_nhi", "usb4-%d-nhi", NULL};
+     char adt_path[32];
+     char fdt_alias[32];
+     u64 router_uuid = rust_usb4_router_uuid();
++    const struct adt_tunable_info *nhi_tunables = usb4_nhi_tunables;
++    size_t n_nhi_tunables = ARRAY_SIZE(usb4_nhi_tunables);
++
++    if (usb4_is_t6050()) {
++        nhi_tunables = usb4_t6050_nhi_tunables;
++        n_nhi_tunables = ARRAY_SIZE(usb4_t6050_nhi_tunables);
++    }
+ 
+     if (!router_uuid)
+         bail("ADT: unable to generate USB4 router UUID\n");
+ 
+     for (int i = 0; i < MAX_CIO_DEVS; ++i) {
+         snprintf(adt_path, sizeof(adt_path), "/arm-io/acio%d", i);
++        if (adt_path_offset(adt, adt_path) < 0)
++            continue;
++
++        if (usb4_alias(fdt_alias, sizeof(fdt_alias), i, rc_aliases)) {
++            dt_copy_acio_tunables(adt_path, fdt_alias, usb4_rc_tunables,
++                                  ARRAY_SIZE(usb4_rc_tunables));
++            if (usb4_is_t6050())
++                dt_copy_acio_tunables(adt_path, fdt_alias, usb4_router_ap_fw_tunables,
++                                      ARRAY_SIZE(usb4_router_ap_fw_tunables));
++        }
+ 
+-        snprintf(fdt_alias, sizeof(fdt_alias), "usb4_%d_rc", i);
+-        if (!fdt_get_alias(dt, fdt_alias))
+-            snprintf(fdt_alias, sizeof(fdt_alias), "usb4-%d-acio", i);
+-        dt_copy_acio_tunables(adt_path, fdt_alias, usb4_rc_tunables,
+-                              sizeof(usb4_rc_tunables) / sizeof(*usb4_rc_tunables));
+-
+-        snprintf(fdt_alias, sizeof(fdt_alias), "usb4_%d_pcie_adapter", i);
+-        dt_copy_acio_tunables(adt_path, fdt_alias, usb4_pcie_adapter_tunables,
+-                              sizeof(usb4_pcie_adapter_tunables) /
+-                                  sizeof(*usb4_pcie_adapter_tunables));
+-
+-        snprintf(fdt_alias, sizeof(fdt_alias), "usb4_%d_nhi", i);
+-        if (!fdt_get_alias(dt, fdt_alias))
+-            snprintf(fdt_alias, sizeof(fdt_alias), "usb4-%d-nhi", i);
+-        dt_copy_acio_tunables(adt_path, fdt_alias, usb4_nhi_tunables,
+-                              sizeof(usb4_nhi_tunables) / sizeof(*usb4_nhi_tunables));
++        if (usb4_alias(fdt_alias, sizeof(fdt_alias), i, adapter_aliases))
++            dt_copy_acio_tunables(adt_path, fdt_alias, usb4_pcie_adapter_tunables,
++                                  ARRAY_SIZE(usb4_pcie_adapter_tunables));
++
++        if (!usb4_alias(fdt_alias, sizeof(fdt_alias), i, nhi_aliases))
++            continue;
++        dt_copy_acio_tunables(adt_path, fdt_alias, nhi_tunables, n_nhi_tunables);
+         dt_copy_usb4_drom(adt_path, fdt_alias, router_uuid | i);
++
++        /* T6050: the router's DART is the NHI's first IOMMU; nothing sets it up before Linux. */
++        if (usb4_is_t6050()) {
++            int nhi = fdt_path_offset(dt, fdt_get_alias(dt, fdt_alias));
++            snprintf(adt_path, sizeof(adt_path), "/arm-io/dart-acio%d", i);
++            if (nhi >= 0)
++                dt_copy_usb4_dart_tunables(adt_path, nhi, "iommus", 0);
++        }
+     }
+ 
+     return 0;
+@@ -1408,17 +1501,26 @@ err:
+ 
+ static int dt_set_pcie_tunables(void)
+ {
++    static const char *const pcie_aliases[] = {"usb4_%d_pcie", "usb4-%d-pcie", NULL};
+     char adt_path[32];
+     char fdt_alias[32];
+ 
+     for (int i = 0; i < MAX_CIO_DEVS; ++i) {
+-        memset(adt_path, 0, sizeof(adt_path));
+         snprintf(adt_path, sizeof(adt_path), "/arm-io/apciec%d", i);
+-
+-        memset(fdt_alias, 0, sizeof(adt_path));
+-        snprintf(fdt_alias, sizeof(fdt_alias), "usb4_%d_pcie", i);
++        if (adt_path_offset(adt, adt_path) < 0)
++            continue;
++        if (!usb4_alias(fdt_alias, sizeof(fdt_alias), i, pcie_aliases))
++            continue;
+ 
+         dt_copy_pciec_tunables(adt_path, fdt_alias);
++
++        /* T6050: the tunnel's DART (iommu-map <rid &dart sid len>) starts untouched too. */
++        if (usb4_is_t6050()) {
++            int host = fdt_path_offset(dt, fdt_get_alias(dt, fdt_alias));
++            snprintf(adt_path, sizeof(adt_path), "/arm-io/dart-apciec%d", i);
++            if (host >= 0)
++                dt_copy_usb4_dart_tunables(adt_path, host, "iommu-map", 1);
++        }
+     }
+ 
+     return 0;
+-- 
+2.56.0
+

@@ -1,0 +1,73 @@
+From ed7099649a21a72b2e84825cb9174fd297afc354 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:58:35 -0500
+Subject: [PATCH 31/31] kboot: atc: T6050: pass the combo PHY's CIO tunables
+
+The T6050 combo PHY's CIO (USB4/Thunderbolt) mode takes five optional
+tables (apple,tunable-uc-regs-cio, -lane0/1-rx-top-cio and
+-lane0/1-rx-eq-cio), each applied at the base of one core bank (3, 16,
+25, 18, 27). Copy them from the ADT's tunable_UC_REGS_CIO_DFLT,
+tunable_LN0/1_RX_TOP_CIO_DFLT and tunable_LN0/1_RX_EQ_CIO_DFLT after the
+USB set has passed. They are optional: an empty ADT table leaves the
+property absent, and a bad one is dropped without touching the USB set.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ src/kboot_atc.c | 33 +++++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/src/kboot_atc.c b/src/kboot_atc.c
+index 7c38380c..c48a22b2 100644
+--- a/src/kboot_atc.c
++++ b/src/kboot_atc.c
+@@ -626,6 +626,38 @@ static int t6050_find_phy(void *dt, u64 core)
+     return -1;
+ }
+ 
++/*
++ * The CIO (USB4/Thunderbolt) mode's tables, optional in the binding: the driver skips an absent
++ * one and the USB and DisplayPort modes never use them. The ADT carries all five per port; on
++ * the J716s and J716c only the two RX_TOP ones have entries. Banks as above: 3 (core + 0x400),
++ * 16 and 25 (the lanes' RX top), 18 and 27 (the lanes' RX equalizers).
++ */
++static const struct t6050_atc_tunable t6050_atc_cio_tunables[] = {
++    {"tunable_UC_REGS_CIO_DFLT", "apple,tunable-uc-regs-cio", false, "core", 0x400},
++    {"tunable_LN0_RX_TOP_CIO_DFLT", "apple,tunable-lane0-rx-top-cio", false, "core", 0x9000},
++    {"tunable_LN1_RX_TOP_CIO_DFLT", "apple,tunable-lane1-rx-top-cio", false, "core", 0x19000},
++    {"tunable_LN0_RX_EQ_CIO_DFLT", "apple,tunable-lane0-rx-eq-cio", false, "core", 0xb000},
++    {"tunable_LN1_RX_EQ_CIO_DFLT", "apple,tunable-lane1-rx-eq-cio", false, "core", 0x1b000},
++};
++
++static void dt_copy_atc_t6050_cio_tunables(void *dt, const char *atc_path, int atc, int phy)
++{
++    for (size_t i = 0; i < ARRAY_SIZE(t6050_atc_cio_tunables); i++) {
++        const struct t6050_atc_tunable *t = &t6050_atc_cio_tunables[i];
++        u64 addr, size;
++
++        /* Producer-owned, as the USB set; an empty ADT table leaves the property absent. */
++        fdt_delprop(dt, phy, t->fdt_name);
++        if (t6050_fdt_reg(dt, phy, t->resource, &addr, &size) || t->bank_offset + 4 > size)
++            continue;
++        struct adt_tunable_info info = {t->adt_name, t->fdt_name, 0, size - t->bank_offset, false};
++        if (dt_append_atc_tunable(dt, atc, phy, &info)) {
++            fdt_delprop(dt, phy, t->fdt_name);
++            printf("kboot: %s: dropped %s; CIO mode runs without it\n", atc_path, t->fdt_name);
++        }
++    }
++}
++
+ static void dt_copy_atc_t6050_tunables(void *dt, int port)
+ {
+     char atc_path[32], drd_path[32];
+@@ -669,6 +701,7 @@ static void dt_copy_atc_t6050_tunables(void *dt, int port)
+             goto cleanup;
+     }
+     printf("kboot: %s: T6050 combo PHY tunables passed\n", atc_path);
++    dt_copy_atc_t6050_cio_tunables(dt, atc_path, atc, phy);
+     return;
+ 
+ cleanup:
+-- 
+2.56.0
+

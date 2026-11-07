@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: GPL-2.0+ OR MIT
+/*
+ * J716s USB4/Thunderbolt test delta for the daily device tree: the same board
+ * wiring as tb/j716s ("Add the right port's ..." and "Add the left-front
+ * port's USB4/Thunderbolt router"), on top of the daily t6050-j716s.dts.
+ * Every tunable and the host DROM come from the boot loader.
+ */
+
+/ {
+	aliases {
+		atcphy2 = &atc2_phy;
+		usb4-2-acio = &acio2;
+		usb4-2-pcie-adapter = &acio2;
+		usb4-2-nhi = &acio2_nhi;
+		usb4-2-pcie = &apciec2;
+		usb4-1-acio = &acio1;
+		usb4-1-pcie-adapter = &acio1;
+		usb4-1-nhi = &acio1_nhi;
+		usb4-1-pcie = &apciec1;
+	};
+};
+
+&ps_auss {
+	status = "okay";
+};
+
+&cio_reconfig0 {
+	status = "okay";
+};
+
+&pinctrl_aop {
+	gpio-reserved-ranges = <0 79>, <80 1>, <82 3>;
+	status = "okay";
+};
+
+&typec2 {
+	ports {
+		port@3 {
+			reg = <3>;
+			typec2_usb4: endpoint {
+				remote-endpoint = <&acio2_tbt>;
+			};
+		};
+	};
+};
+
+&acio2 {
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@1 {
+			reg = <1>;
+			acio2_tbt: endpoint {
+				remote-endpoint = <&typec2_usb4>;
+			};
+		};
+	};
+};
+
+#ifndef J716S_USB4_NO_ATC1
+&typec1 {
+	ports {
+		port@3 {
+			reg = <3>;
+			typec1_usb4: endpoint {
+				remote-endpoint = <&acio1_tbt>;
+			};
+		};
+	};
+};
+
+&acio1 {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@1 {
+			reg = <1>;
+			acio1_tbt: endpoint {
+				remote-endpoint = <&typec1_usb4>;
+			};
+		};
+	};
+};
+#endif

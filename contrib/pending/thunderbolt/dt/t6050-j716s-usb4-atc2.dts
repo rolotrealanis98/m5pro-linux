@@ -1,0 +1,4 @@
+/* Daily J716s DT + USB4 on the right port (ATC2) only */
+#define J716S_USB4_NO_ATC1
+#include "t6050-j716s.dts"
+#include "t6050-j716s-usb4.dtsi"

@@ -1,0 +1,53 @@
+/pcie@1cb0000000: failed to match any schema with compatible: ['apple,t6050-pcie']
+/soc@200000000/aop@290c00000/audio: failed to match any schema with compatible: ['apple,t6050-aop-audio']
+/soc@200000000/aop@290c00000: failed to match any schema with compatible: ['apple,t6050-aop', 'apple,t8152-aop']
+/soc@200000000/cio@389ac0000/nhi@f00000: failed to match any schema with compatible: ['apple,t6050-usb4-nhi']
+/soc@200000000/cio@389ac0000: failed to match any schema with compatible: ['apple,t6050-usb4-acio']
+/soc@200000000/dcp@2b2e00000: failed to match any schema with compatible: ['apple,t6050-dcpext', 'apple,dcpext']
+/soc@200000000/dma-controller@293800000: failed to match any schema with compatible: ['apple,t6050-admac', 'apple,t8140-admac']
+/soc@200000000/fifo@294b14000: failed to match any schema with compatible: ['apple,t6050-dockchannel', 'apple,dockchannel']
+/soc@200000000/i2c@505014000: failed to match any schema with compatible: ['apple,t6050-i2c', 'apple,t8103-i2c']
+/soc@200000000/i2c@505018000: failed to match any schema with compatible: ['apple,t6050-i2c', 'apple,t8103-i2c']
+/soc@200000000/iommu@41dc50000: failed to match any schema with compatible: ['apple,t6050-sart']
+/soc@200000000/mtp@294600000: failed to match any schema with compatible: ['apple,t6050-mtp', 'apple,mtp', 'apple,rtk-helper-asc4']
+/soc@200000000/mux@38324c000: failed to match any schema with compatible: ['apple,t6050-display-crossbar', 'apple,t8142-display-crossbar']
+/soc@200000000/nvme@45dcc0000: failed to match any schema with compatible: ['apple,t6050-nvme-ans2']
+/soc@200000000/phy@2ab000000: failed to match any schema with compatible: ['apple,t6050-combo-phy']
+/soc@200000000/phy@383000000: failed to match any schema with compatible: ['apple,t6050-combo-phy']
+/soc@200000000/phy@38b000000: failed to match any schema with compatible: ['apple,t6050-combo-phy']
+/soc@200000000/pinctrl@290824000: failed to match any schema with compatible: ['apple,t6050-pinctrl', 'apple,t8132-pinctrl']
+/soc@200000000/pinctrl@29c000000: failed to match any schema with compatible: ['apple,t6050-pinctrl', 'apple,t8103-pinctrl']
+/soc@200000000/power-management@286806000/performance-controller@1: failed to match any schema with compatible: ['apple,t6050-clpc', 'apple,t6041-clpc']
+/soc@200000000/power-management@286806000: failed to match any schema with compatible: ['apple,t6050-pmc']
+/soc@200000000/reset-controller@280620000: failed to match any schema with compatible: ['apple,t6050-cio-reset']
+/soc@200000000/smc@28c600000: failed to match any schema with compatible: ['apple,t6050-smc']
+/soc@200000000/usb@2aa280000: failed to match any schema with compatible: ['apple,t6050-dwc3', 'apple,t8103-dwc3']
+/soc@200000000/usb@382280000: failed to match any schema with compatible: ['apple,t6050-dwc3', 'apple,t8103-dwc3']
+/soc@200000000/usb@38a280000: failed to match any schema with compatible: ['apple,t6050-dwc3', 'apple,t8103-dwc3']
+control@0,0 (pci106b,1900): apple,centauri-platform-id: b'\x00\x0c`P' is not of type 'object', 'integer', 'array', 'boolean', 'null'
+control@0,0 (pci106b,1900): apple,centauri-protocol: b'\x00\x00\x00\x1b' is not of type 'object', 'integer', 'array', 'boolean', 'null'
+dcp@2b2e00000 (apple,t6050-dcpext): compatible: 'oneOf' conditional failed, one must be fixed:
+dma-controller@293800000 (apple,t6050-admac): compatible: 'oneOf' conditional failed, one must be fixed:
+fifo@294b14000 (apple,t6050-dockchannel): compatible:0: 'apple,t6050-dockchannel' is not one of ['apple,t6020-dockchannel', 'apple,t6030-dockchannel', 'apple,t6031-dockchannel', 'apple,t6041-dockchannel', 'apple,t8112-dockchannel', 'apple,t8122-dockchannel', 'apple,t8132-dockchannel', 'apple,t8140-dockchannel', 'apple,t8142-dockchannel']
+i2c@505014000 (apple,t6050-i2c): compatible: 'oneOf' conditional failed, one must be fixed:
+i2c@505018000 (apple,t6050-i2c): compatible: 'oneOf' conditional failed, one must be fixed:
+mtp@294600000 (apple,t6050-mtp): compatible: ['apple,t6050-mtp', 'apple,mtp', 'apple,rtk-helper-asc4'] is too short
+mtp@294600000 (apple,t6050-mtp): compatible:0: 'apple,t6050-mtp' is not one of ['apple,t6020-mtp', 'apple,t6030-mtp', 'apple,t6031-mtp', 'apple,t6041-mtp', 'apple,t8112-mtp', 'apple,t8122-mtp', 'apple,t8132-mtp', 'apple,t8140-mtp', 'apple,t8142-mtp']
+mtp@294600000 (apple,t6050-mtp): compatible:1: 'apple,mtp' is not one of ['apple,t6020-rtk-helper-asc4', 'apple,t6030-rtk-helper-asc4', 'apple,t6041-rtk-helper-asc4', 'apple,t8112-rtk-helper-asc4', 'apple,t8122-rtk-helper-asc4', 'apple,t8132-rtk-helper-asc4', 'apple,t8140-rtk-helper-asc4', 'apple,t8142-rtk-helper-asc4']
+mtp@294600000 (apple,t6050-mtp): compatible:2: 'apple,mtp' was expected
+performance-controller@210e20000 (apple,t6050-cluster-cpufreq): 'apple,firmware-managed-thermal' does not match any of the regexes: '^pinctrl-[0-9]+$'
+performance-controller@211e20000 (apple,t6050-cluster-cpufreq): 'apple,firmware-managed-thermal' does not match any of the regexes: '^pinctrl-[0-9]+$'
+performance-controller@212e20000 (apple,t6050-cluster-cpufreq): 'apple,firmware-managed-thermal' does not match any of the regexes: '^pinctrl-[0-9]+$'
+phy@2ab000000 (apple,t6050-combo-phy): apple,port-index: b'\x00\x00\x00\x01' is not of type 'object', 'integer', 'array', 'boolean', 'null'
+phy@383000000 (apple,t6050-combo-phy): apple,port-index: b'\x00\x00\x00\x02' is not of type 'object', 'integer', 'array', 'boolean', 'null'
+phy@38b000000 (apple,t6050-combo-phy): apple,port-index: b'\x00\x00\x00\x03' is not of type 'object', 'integer', 'array', 'boolean', 'null'
+pinctrl@290824000 (apple,t6050-pinctrl): compatible: 'oneOf' conditional failed, one must be fixed:
+pinctrl@29c000000 (apple,t6050-pinctrl): compatible: 'oneOf' conditional failed, one must be fixed:
+reboot (apple,smc-reboot): nvmem-cell-names: ['shutdown_flag', 'boot_stage', 'boot_error_count', 'panic_count', 'pm_setting'] is too long
+reboot (apple,smc-reboot): nvmem-cells: [[33], [34], [35], [36], [37]] is too long
+serial@288e3c000 (apple,dockchannel-uart): Unevaluated properties are not allowed ('apple,tx-never-wait' was unexpected)
+usb@2aa280000 (apple,t6050-dwc3): Unevaluated properties are not allowed ('apple,tunable-cio' was unexpected)
+usb@2aa280000 (apple,t6050-dwc3): compatible: 'oneOf' conditional failed, one must be fixed:
+usb@382280000 (apple,t6050-dwc3): Unevaluated properties are not allowed ('apple,tunable-cio' was unexpected)
+usb@382280000 (apple,t6050-dwc3): compatible: 'oneOf' conditional failed, one must be fixed:
+usb@38a280000 (apple,t6050-dwc3): compatible: 'oneOf' conditional failed, one must be fixed:

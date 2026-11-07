@@ -1,0 +1,3 @@
+/* Daily J716s DT + USB4 on both ports */
+#include "t6050-j716s.dts"
+#include "t6050-j716s-usb4.dtsi"
