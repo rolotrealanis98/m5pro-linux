@@ -465,7 +465,7 @@ decompiled DTS (`../aurora/tools/reorder-cpus.py` and hand edits):
 | R3-O | `454b7434` | R3-N plus m1n1 0020 (T6050 PIPE park); same kernel, DTB fixed7 | PIPE check passed, dwc3-apple and xhci probed, hub enumerated at 1.1 s as `usb 1-1`. Then the SN201202x entered COMBO_DP2 ("mode 3", the hub's DP billboard), tipd dropped the USB role, xhci was removed, the PHY firmware restarted and `bank2+260 timeout: 881 & 400 != 400` (UC_TNBL_DONE never set: the firmware restarted on stale preloaded data), `start of mode 3 failed (-110)`, `sn201202x: failed to configure Type-C connection`, mux safe-mode failures, cable revalidation failed. Self-reverted automatically. Analysis: `../aurora/pipe-park/ANALYSIS-R3O.md` |
 | R3-Q | `4083b7df` | R3-O's m1n1 (`a28b1815`) and DTB fixed7, kernel rebuilt with Aurora's three `j716c/thunderbolt` PHY commits (`b8f2be0fef93` restart the PHY firmware on its original data, `e604b7f414b4` carry on when the PIPE lock is not acknowledged, `6f93def30893` park the PIPE from a dummy producer on any clock); tree tip `4504ef7485be` | **WORKS**, see Result below. Installed as `boot.bin`, R2-B as `boot.bin.prev`; the selftest flag stays in the cmdline (inert while the network is up) |
 | R3-R | `b457425e` | R3-Q's m1n1 (`a28b1815`) and initramfs; kernel tree `aurora-j716s` tip `6d9f1ec652a6` = R3-Q tree + r3r 0001-0004 (AFE settle 50 ms with a log line; hwmon fan port of our 0003; INIT_WORK-before-notifier port of our 0004; battery identity reads at key size); config `HID_MAGICMOUSE=y`, `HID_APPLE_MTP_HAPTIC=n`, `HIDRAW=y`; DTB fixed8 = fixed7 minus the unused `apple,smc-pcio-gpio` node; blacklist still on | **WORKS, trackpad included**, see Result (R3-R). Installed as `boot.bin` (self-revert loop, nobody at the machine); R2-B stays as `boot.bin.prev` |
-| R3-S | not run | R3-R's payload without `initcall_blacklist=macsmc_power_driver_init` (battery) | Deliberately **not** put through the autonomous loop: a probe hang is not self-recoverable without the A/B stage-1 watchdog. Needs Rolando at the machine |
+| R3-S | `0d77e6f1` | R3-SERIES without `initcall_blacklist=macsmc_power_driver_init` (battery driver on), built by `mk-daily.py --battery` | **WORKS** (2026-11-07 09:17 UTC, self-revert loop with the A/B stage-1 as the second net, nobody at the machine), see Result (R3-S). The battery build is the daily payload from here on (`daily-20261107-ce3f10af`, self-test flag off) |
 | R3-T | `08902f08` | m1n1 `pipepark-atc` (`f7555558` = 0020 + 0021; sha256 prefix `28b26ebc`), kernel `6d9f1ec652a6` (R3-R's), DT **without** baked tunables (`../aurora/dt/t6050-j716s-aurora-decompiled.dts`) | **WORKS** with USB3, trackpad and network (2026-11-07 about 02:00, self-revert loop, nobody at the machine). The live DT showed the 14 combo-PHY tunables filled by m1n1 0021, so the J716s DT is publishable (see "Publishable DT" below). Closes R3-P / open item 5 |
 | R3-V | `8864d45e` | kernel tip `302945c1ecb3` = `6d9f1ec652a6` + PR #937 (PCIe) + PR #938 (T6050 centauri, 16 patches); config adds `SECURITY_LANDLOCK`, `ZRAM`, `PINCTRL_APPLE_GPIO`, `RFKILL`, `CFG80211`, `APPLE_CENTAURI`, `BT_HCICENTAURI`, `BACKLIGHT_CLASS_DEVICE`; same m1n1 and DT as R3-T | **WORKS** (2026-11-07, self-revert loop). pacman works again (Landlock was missing), trackpad, USB3 and network OK. `pcie-apple 1cb0000000.pcie: probe failed -22` is expected: the port is untrained (m1n1 0023 is opt-in, W1/W2) and the failure is harmless. Wi-Fi itself is not tested |
 | R3-X | `734594ed` | R3-V plus our simpledrm eDP patch 0029 and `apple,internal-panel` on the framebuffer node | **WORKS** (2026-11-07 morning, self-revert loop): `card0-eDP-1` is back, so the Hyprland config has a DRM connector again; trackpad, USB3 and network as on R3-V. Became `boot.bin`, then `boot.bin.prev` once R3-SERIES was installed |
@@ -574,7 +574,7 @@ up; every self-revert also stores a 25 MB `boot.bin.failed`, so spares need prun
 
 **Still missing on the Aurora kernel after R3-R:**
 
-- **Battery** (R3-S, same payload without the blacklist): needs Rolando at the machine, see the table above.
+- **Battery** (R3-S, same payload without the blacklist): **works** through the loop once the A/B stage-1 was in place, see Result (R3-S).
   Whether r3r 0004 (battery identity reads at key size, Aurora's code) cures the probe hang at about 7.8 s is
   unknown; our 0003/0004 were already in the 7.2 B2 payload and it still hung.
 - **USB replug** (hot-plug after boot) not tested on this kernel.
@@ -692,3 +692,26 @@ Honest account, because the evening cost more reboots than it needed to:
 6. Re-check on this kernel what Round R1/R2 established on ours: S1, power-off, USB replug. Not run on the Aurora
    kernel. (cpuidle and cpufreq are covered by R3-Q: `apple_idle` and `schedutil` work; deeper idle than WFI
    needs m1n1 to stop appending `idle=nop`.)
+
+### Result (R3-S, 2026-11-07 09:17 UTC, self-revert loop + A/B stage-1, nobody at the machine)
+
+Payload `r3-s-battery-20261107-0d77e6f1.bin`: the R3-SERIES ingredients (series kernel `7.3.0-g4f630b11270d`,
+series DT, m1n1 `pipepark-atc` `28b26ebc`, `initramfs-selftest`) with the `macsmc_power` blacklist dropped and
+`m5.selftest=1` kept. `boot.bin.prev` was R2-B (our 7.2 kernel, networked), the A/B stage-1 watchdog armed.
+
+- **Boot:** network up at 23 s; boot slot `primary`; `m5-selftest` finished (no revert, no marker); uptime past
+  160 s with the kernel feeding the 150 s watchdog; `dmesg -l err` empty apart from the expected untrained
+  `pcie-apple` probe.
+- **Battery (`macsmc-battery`):** `status=Full capacity=100 capacity_level=Full voltage_now=13.034 V
+  current_now=0 charge_now=7.950 Ah charge_full=8.001 Ah charge_full_design=8.579 Ah cycle_count=33 temp=27.5 C
+  health=Good present=1 charge_behaviour=[auto] auto-discharge`.
+- **AC (`macsmc-ac`):** `ONLINE=1`, `INPUT_POWER_LIMIT=64.8 W` (the MagSafe brick in use).
+- **SMC:** RTKit protocol 12 at 0.10 s; power/lid input device; reboot/poweroff via SMC. No probe hang: the
+  R1-era 7.8 s hang is gone with the work-init patch (series 0048) on the Aurora kernel too.
+- **Not exercised:** discharge (the brick stayed in), MagSafe unplug/replug events, `tps6598x` source role.
+
+**Promotion:** `daily-20261107-ce3f10af.bin` = the same ingredients, `--daily --battery --force` (self-test flag
+off, battery on) installed as `boot.bin`; `boot.bin.prev` stays R2-B `5091e1fe`; the ESP was pruned to four
+payloads (`boot.bin`, `boot.bin.prev`, `boot.bin.known-good`, `boot.bin.b2`). The verification reboot of the new
+daily is recorded in `aurora/STATE.md`.
+

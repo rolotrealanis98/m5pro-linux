@@ -7,7 +7,14 @@ the canonical recipe for it is `series/SERIES.md`. R3-V, R3-R and R3-Q follow be
 Results and the boot tables: `../integration/RESULTS.md` ("Round R3"). Per-unit values (PHY tunables) are no longer
 in the DT at all: m1n1 0021 fills them at boot.
 
-# Current (R3-SERIES, 2026-11-07)
+# Current (daily battery build, 2026-11-07 09:30 UTC)
+
+`boot.bin` = `daily-20261107-ce3f10af.bin`: R3-SERIES's ingredients with the battery driver on and the self-test
+flag off (after R3-S `0d77e6f1` passed through the loop, see `../../integration/RESULTS.md` Result (R3-S)).
+`boot.bin.prev` = R2-B `5091e1fe` (our 7.2 kernel). ESP: `boot.bin`, `boot.bin.prev`, `boot.bin.known-good`,
+`boot.bin.b2`. Stage-1 is the A/B image (`chainload.fallback`, 150 s watchdog), slot reported as `primary`.
+
+# R3-SERIES (2026-11-07), superseded as the daily by the battery build above
 
 Payload sha256 prefix `8c8dd836`, booted by the self-revert loop (nobody at the machine) at about 10:10: network,
 `card0-eDP-1`, trackpad (`Touch MT ready` at 1.34 s), `apple_idle`, `macsmc` bound through the native `apple,t6050-smc`
@@ -37,7 +44,7 @@ ESP layout (500 MB, prune `boot.bin.failed` after each self-revert):
 
 **Open points from the series work:** ask Aurora how their m1n1 boots J716c with the old CPU order; cpufreq
 fallback (`apple,t8112-cluster-cpufreq`) against a `t6050` soc info; `dtbs_check` not run; `apple,internal-panel` on
-simpledrm needs a binding patch; hwmon disabled in the DT until `F0md`/`F1md` are read; battery still blacklisted.
+simpledrm needs a binding patch; hwmon disabled in the DT until `F0md`/`F1md` are read; battery no longer blacklisted (R3-S).
 
 **Attended queue** (details: `../integration/RESULTS.md`): R3-U (m1n1 0024 + opt-in DCP handoff), W0/W1/W2 Wi-Fi
 (`n1-wifi/R3-W-RECIPE.md`), R3-S battery, audio (`audio/R3-AUDIO-RECIPE.md`: R3-AUDIO-A `a7c05d1a` mic and jack,

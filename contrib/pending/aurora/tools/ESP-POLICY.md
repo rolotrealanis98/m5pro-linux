@@ -70,7 +70,8 @@ does nothing (the files stay installed but inert).
   promoted by rebuilding the same ingredients with `--daily` and deploying that. The deploy runs from the test
   boot, so by the rule above prev stays on the old daily; the daily has no watchdog, and its rollback is that
   older, known-good prev.
-- **Battery:** `--battery` payloads are attended only (R3-S: the probe hang is not self-recoverable). `--daily
-  --battery` is refused without `--force`.
+- **Battery:** `--battery` was attended-only until the A/B stage-1 existed; R3-S then passed through the loop
+  (2026-11-07) and the daily payload has carried the battery driver since. `--daily --battery` still asks for
+  `--force` so the choice stays explicit.
 - **Audio:** the audio DTBs need the audio (Rust) kernel; `--dtb audio` picks it, and a mismatch is refused.
   `audio-spk` adds `snd_soc_macaudio.speaker_max_db=-40` for the first speaker boot.
