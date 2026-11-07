@@ -1413,3 +1413,14 @@ declines G17S/G17C, the wrapper and the GPU session set `MESA_LOADER_DRIVER_OVER
   Which renderer Hyprland picked (zink on the GPU vs software) is not yet confirmed from its log; the next GPU boot
   copies the runtime Hyprland log before the restore.
 
+### Result (GPU soak with Hyprland on the GPU, 2026-11-07 20:04-20:35 UTC, loop)
+
+E2b payload, Hyprland started in the GPU session (`/run/hypr-gpu`, zink). The runtime Hyprland log settles the
+renderer question: aquamarine `No matching render node for .../framebuffer, falling back to sole renderD on the system:
+/dev/dri/renderD128`, `Creating CDRMRenderer on gpu /dev/dri/renderD128`, `Vendor: Mesa`, **`Renderer: zink Vulkan
+1.4(Apple M5 Pro (G17S B1) (AURORA_BOREALIS))`**. The desktop is GPU-rendered; scanout stays on simpledrm (CPU copy)
+until the DCP driver lands. glmark2-wayland inside the session every 5 minutes: scores 597, 613, 612, 846, 890 (the
+GPU is warming up its clocks; no throttling signs), zero GPU kernel errors over the soak, Hyprland pid stable, battery
+Full on the charger. The GPU kernel `7.3.0-g3671d907d570` is being promoted to the daily (daily twin of E2b being
+built; the GPU session becomes the automatic default when the aurora card exists).
+
