@@ -1,0 +1,28 @@
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Subject: [PATCH 2/2] HID: magicmouse: round the MTP sensor resolution
+
+The resolution published for ABS_MT_POSITION_X/Y is 100 * span / size in
+hundredths of a millimetre, truncated. On the J716s the result is 98
+units/mm, so anything between 98.0 and 98.99 lands on 98 and user space
+computes a pad up to 1 % larger than it is (157.5 x 96.4 mm today).
+libinput derives its thumb lines, scroll and gesture distances and its
+disable-while-typing travel limit from this value. Round to nearest.
+
+Base: j716s-series a0f2f30c967b, on top of 1/2. Not built.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+--- a/drivers/hid/hid-magicmouse.c
++++ b/drivers/hid/hid-magicmouse.c
+@@ -416,8 +416,9 @@
+ 		    !le32_to_cpu(dim.width) || !le32_to_cpu(dim.height))
+ 			goto err_dimensions;
+ 
+-		x_res = 100 * x_span / le32_to_cpu(dim.width);
+-		y_res = 100 * y_span / le32_to_cpu(dim.height);
++		/* Round, so a 98.9 units/mm sensor is not published as 98. */
++		x_res = DIV_ROUND_CLOSEST((u32)(100 * x_span), le32_to_cpu(dim.width));
++		y_res = DIV_ROUND_CLOSEST((u32)(100 * y_span), le32_to_cpu(dim.height));
+ 		if (!x_res || !y_res)
+ 			goto err_dimensions;
+ 

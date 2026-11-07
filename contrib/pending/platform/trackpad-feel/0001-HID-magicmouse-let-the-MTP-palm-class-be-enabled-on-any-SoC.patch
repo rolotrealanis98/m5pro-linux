@@ -1,0 +1,56 @@
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Subject: [PATCH 1/2] HID: magicmouse: let the MTP palm class be enabled on any SoC
+
+The standard MTP finger record carries the controller's contact class in
+the low byte of its second word (1 thumb, 2-3 finger, 6+ palm, recorded on
+a T6041 J616C). The driver turns it into MT_TOOL_PALM only on T6041, so on
+T6050 (J716s) libinput gets no palm flag at all: pressure is unusable
+(INPUT_PROP_PRESSUREPAD), edge palm zones are off for Apple touchpads, and
+the contact-size threshold is the only palm signal left.
+
+Add mtp_palm_class (read at probe, kernel command line
+hid_magicmouse.mtp_palm_class=N): -1 keeps today's behaviour (T6041 only),
+0 turns it off everywhere, 1 turns it on for every standard-layout MTP
+trackpad so a SoC whose records have not been checked can be tried
+without a rebuild. Once the J716s records are confirmed to use the same
+classes (trackpad-feel/tp-contacts.py), a follow-up adds "apple,t6050" to
+the -1 list.
+
+With it on, the touch/approach ranges become 0..65534 (the T6041 setting)
+and ABS_MT_TOOL_TYPE appears; libinput then marks such contacts as palms
+(tp_palm_detect_tool_triggered) before any size check.
+
+Base: j716s-series a0f2f30c967b (the running kernel). Not built.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+--- a/drivers/hid/hid-magicmouse.c
++++ b/drivers/hid/hid-magicmouse.c
+@@ -56,6 +56,16 @@
+ static bool report_undeciphered;
+ module_param(report_undeciphered, bool, 0644);
+ MODULE_PARM_DESC(report_undeciphered, "Report undeciphered multi-touch state field using a MSC_RAW event");
++
++/*
++ * Whether the contact class in the standard MTP finger record is passed on
++ * as MT_TOOL_PALM. -1 picks the SoCs whose records were checked (T6041),
++ * 0 never does it, 1 does it on every standard-layout MTP trackpad, to try
++ * a SoC that has not been checked yet (hid_magicmouse.mtp_palm_class=1).
++ */
++static int mtp_palm_class = -1;
++module_param(mtp_palm_class, int, 0444);
++MODULE_PARM_DESC(mtp_palm_class, "report the MTP controller's palm class as MT_TOOL_PALM: -1 checked SoCs only (T6041), 0 never, 1 every MTP trackpad (default -1)");
+ 
+ /*
+  * Waveform shaping, writable at runtime and applied on the next effect
+@@ -2394,7 +2404,9 @@
+ 		np = of_get_child_by_name(dev_of_node(hdev->dev.parent), "multi-touch");
+ 		msc->mtp_c1fe = of_device_is_compatible(np, "apple,j700-multitouch");
+ 		msc->mtp_palms = !msc->mtp_c1fe &&
+-				 of_machine_is_compatible("apple,t6041");
++				 (mtp_palm_class > 0 ||
++				  (mtp_palm_class < 0 &&
++				   of_machine_is_compatible("apple,t6041")));
+ 		of_node_put(np);
+ 
+ 		msc->input_ops.raw_event = magicmouse_raw_event_mtp;
