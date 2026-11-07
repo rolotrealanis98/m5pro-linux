@@ -1,0 +1,109 @@
+/*
+ * Video test fragment for the J716s daily DTB: appended to its decompiled
+ * DTS (no labels needed from the base). Same nodes as t6050-media.dtsi,
+ * numeric: AIC_IRQ 0, IRQ_TYPE_LEVEL_HIGH 4, die 0. JPEG_STATUS is "okay"
+ * for stage V2 and "disabled" for stage V1.
+ */
+/ {
+	soc@2280000000 {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges = <0x22 0x80000000 0x22 0x80000000 0x0 0x4000000>,
+			 <0x23 0x08000000 0x23 0x08000000 0x0 0x1404000>,
+			 <0x23 0x80600000 0x23 0x80600000 0x0 0xc000>;
+		nonposted-mmio;
+
+		power-management@2380600000 {
+			compatible = "apple,t6050-pmgr", "apple,t8103-pmgr", "syscon", "simple-mfd";
+			reg = <0x23 0x80600000 0x0 0xc000>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			vt_fab0_soc: power-controller@1a8 {
+				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+				reg = <0x1a8 4>;
+				label = "fab0_soc";
+				#power-domain-cells = <0>;
+				#reset-cells = <0>;
+				apple,always-on;
+			};
+
+			vt_fab1_soc: power-controller@1b0 {
+				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+				reg = <0x1b0 4>;
+				label = "fab1_soc";
+				#power-domain-cells = <0>;
+				#reset-cells = <0>;
+				apple,always-on;
+			};
+
+			vt_jpg: power-controller@1d0 {
+				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+				reg = <0x1d0 4>;
+				label = "jpg";
+				#power-domain-cells = <0>;
+				#reset-cells = <0>;
+				power-domains = <&vt_fab0_soc>;
+			};
+
+			vt_avd_sys: power-controller@1d8 {
+				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+				reg = <0x1d8 4>;
+				label = "avd_sys";
+				#power-domain-cells = <0>;
+				#reset-cells = <0>;
+				power-domains = <&vt_fab1_soc>;
+			};
+		};
+
+		jpeg@2281000000 {
+			compatible = "apple,t6050-jpeg";
+			reg = <0x22 0x81000000 0x0 0x4000>;
+			interrupts = <0 0 1355 4>;
+			iommus = <&vt_jpeg_dart 0>;
+			power-domains = <&vt_jpg>;
+			status = JPEG_STATUS;
+		};
+
+		vt_jpeg_dart: iommu@2281020000 {
+			compatible = "apple,t6050-dart", "apple,t8110-dart";
+			reg = <0x22 0x81020000 0x0 0xc000>;
+			#iommu-cells = <1>;
+			interrupts = <0 0 1356 4>;
+			apple,dma-range = /bits/ 64 <0x10000000000 0x30000000000>;
+			power-domains = <&vt_jpg>;
+			status = JPEG_STATUS;
+		};
+
+		jpeg@2281060000 {
+			compatible = "apple,t6050-jpeg";
+			reg = <0x22 0x81060000 0x0 0x4000>;
+			interrupts = <0 0 1358 4>;
+			iommus = <&vt_jpeg_dart 1>;
+			power-domains = <&vt_jpg>;
+			status = JPEG_STATUS;
+		};
+
+		avd@2309080000 {
+			compatible = "apple,t6050-avd", "apple,t8142-avd";
+			reg = <0x23 0x09080000 0x0 0x14000>,
+			      <0x23 0x09094000 0x0 0x14000>,
+			      <0x23 0x090a8000 0x0 0x4000>,
+			      <0x23 0x09100000 0x0 0x10000>;
+			reg-names = "code", "sram", "mbox", "ctrl";
+			interrupts = <0 0 2417 4>, <0 0 2418 4>;
+			power-domains = <&vt_avd_sys>;
+			resets = <&vt_avd_sys>;
+			iommus = <&vt_avd_dart 0>, <&vt_avd_dart 1>, <&vt_avd_dart 2>;
+		};
+
+		vt_avd_dart: iommu@2309020000 {
+			compatible = "apple,t6050-dart", "apple,t8110-dart";
+			reg = <0x23 0x09020000 0x0 0x20000>;
+			#iommu-cells = <1>;
+			interrupts = <0 0 2424 4>;
+			power-domains = <&vt_avd_sys>;
+		};
+	};
+};
