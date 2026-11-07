@@ -1621,3 +1621,33 @@ daily (primary, pmu `300030`). Primary slot first pass, 75 s to SSH, Wi-Fi up. S
   restart) even with `esp-put.sh`: third 0x00/0x30 fallback today; the sessions whose restart got counted were the two
   omacom-loader sessions and this power-kernel session, while the daily, K1/K2, stage C and camera sessions restarted
   cleanly. Root-cause agent has all three data points.
+
+## GL-NATIVE A/B: the native Gallium driver runs on the G17S (2026-11-07 22:18 UTC) — PARTIAL
+
+/opt/mesa-aurora-gl (agx3c a8e86a80cdc + the 3 patches in `contrib/pending/gpu/gl-native/`), kernel `7.3.0-g3671d907d570`,
+no reboot, zink tree untouched.
+- Every GL submit is accepted by the M5 kernel (no EINVAL, no `submit failed`, no GPU errors): the storage lists and the
+  M5 encodings are right in structure. Renderer `Apple M5 Pro (G17S B1)` on EGL surfaceless, GLES and desktop GL
+  (3.2 core).
+- gl-native-smoke 11/12 scenes pass with pixel checks (triangle, depth D32F/D24S8, texture, MRT, MSAA resolve, compute
+  with and without shared memory, many draws, geometry shader, mipmaps, large scissor); FAIL stencil-blend (alpha 0x40
+  instead of 0xff, RGB right). egl-offscreen-test PASS (first accelerated GLES frame, pixels right).
+- gbm-scanout-test FAIL: the LINEAR scanout buffer imported into simpledrm reads black (render into a linear GBM target
+  does not land); first-frame suite 1-3 pass, 4a fails the same way. gpubench-gl refused ("need desktop GL 3.3 or GLES
+  3.0"): the native tree exposes GL 3.2 core.
+- Open: the blend alpha, the linear render target, the GL version gate. Agent on it. zink stays the session default.
+
+## Fallback analysis update (`contrib/pending/boot-ab/firstboot/`, f1506d7)
+
+The 0x30 cases are the new payload panicking in its first ~5 s of Linux followed by `CONFIG_PANIC_TIMEOUT=10`
+(reset 10-15 s after the attempted kernel started; calibrated against the deliberate sysrq panic: 22-26 s from reset to
+the next kernel), not a reset a minute in; DCP-A at 18:38 had the same signature with no omacom session before it. iBoot
+sets boot_stage 0x30 before stage 1, macsmc-reboot rewrites 0x30 at probe and 0x00 from its reboot notifier, so 0x30 =
+died anywhere between hand-over and an orderly restart; 0x00 = died inside its own restart. Nothing inside the SoC
+survives the SMC restart; what does: the N1 (warm), the USB-C PD controllers, SMC state, the PMU scratchpad. Main
+suspect for the early panic: the warm N1 taken over in the first second (every payload ran `n1=4`). Installed on the
+root: `m5-stage-mark.sh` with two oneshot units (boot_stage 0x33 after local-fs, 0x34 after network-online) so a
+fallback's error stage tells kernel/initramfs (30) from after-root (33) from after-network (34); `firstboot-probe.sh`
+recalibrated (first-pass <= 35 s, m1n1 reboot 36-54, Linux panic 55-74, apple_wdt 75-169, stage-1 wdt >= 170).
+Experiment running: omacom #30 session -> esp-put daily -> idle 5 min -> reboot, 3 rounds, then omacom -> plain reboot
+x3 (no writes); then the same without `n1` in the omacom payload if the first set reproduces.
