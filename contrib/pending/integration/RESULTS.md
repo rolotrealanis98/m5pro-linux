@@ -466,6 +466,9 @@ decompiled DTS (`../aurora/tools/reorder-cpus.py` and hand edits):
 | R3-Q | `4083b7df` | R3-O's m1n1 (`a28b1815`) and DTB fixed7, kernel rebuilt with Aurora's three `j716c/thunderbolt` PHY commits (`b8f2be0fef93` restart the PHY firmware on its original data, `e604b7f414b4` carry on when the PIPE lock is not acknowledged, `6f93def30893` park the PIPE from a dummy producer on any clock); tree tip `4504ef7485be` | **WORKS**, see Result below. Installed as `boot.bin`, R2-B as `boot.bin.prev`; the selftest flag stays in the cmdline (inert while the network is up) |
 | R3-R | `b457425e` | R3-Q's m1n1 (`a28b1815`) and initramfs; kernel tree `aurora-j716s` tip `6d9f1ec652a6` = R3-Q tree + r3r 0001-0004 (AFE settle 50 ms with a log line; hwmon fan port of our 0003; INIT_WORK-before-notifier port of our 0004; battery identity reads at key size); config `HID_MAGICMOUSE=y`, `HID_APPLE_MTP_HAPTIC=n`, `HIDRAW=y`; DTB fixed8 = fixed7 minus the unused `apple,smc-pcio-gpio` node; blacklist still on | **WORKS, trackpad included**, see Result (R3-R). Installed as `boot.bin` (self-revert loop, nobody at the machine); R2-B stays as `boot.bin.prev` |
 | R3-S | not run | R3-R's payload without `initcall_blacklist=macsmc_power_driver_init` (battery) | Deliberately **not** put through the autonomous loop: a probe hang is not self-recoverable without the A/B stage-1 watchdog. Needs Rolando at the machine |
+| R3-T | `08902f08` | m1n1 `pipepark-atc` (`f7555558` = 0020 + 0021; sha256 prefix `28b26ebc`), kernel `6d9f1ec652a6` (R3-R's), DT **without** baked tunables (`../aurora/dt/t6050-j716s-aurora-decompiled.dts`) | **WORKS** with USB3, trackpad and network (2026-11-07 about 02:00, self-revert loop, nobody at the machine). The live DT showed the 14 combo-PHY tunables filled by m1n1 0021, so the J716s DT is publishable (see "Publishable DT" below). Closes R3-P / open item 5 |
+| R3-V | `8864d45e` | kernel tip `302945c1ecb3` = `6d9f1ec652a6` + PR #937 (PCIe) + PR #938 (T6050 centauri, 16 patches); config adds `SECURITY_LANDLOCK`, `ZRAM`, `PINCTRL_APPLE_GPIO`, `RFKILL`, `CFG80211`, `APPLE_CENTAURI`, `BT_HCICENTAURI`, `BACKLIGHT_CLASS_DEVICE`; same m1n1 and DT as R3-T | **WORKS** (2026-11-07, self-revert loop). pacman works again (Landlock was missing), trackpad, USB3 and network OK. `pcie-apple 1cb0000000.pcie: probe failed -22` is expected: the port is untrained (m1n1 0023 is opt-in, W1/W2) and the failure is harmless. Wi-Fi itself is not tested |
+| R3-X | in flight | R3-V plus our simpledrm eDP patch 0029 and `apple,internal-panel` on the framebuffer node | Goal: `card0-eDP-1` back so the desktop config (Hyprland) has a DRM connector again. Not reported yet |
 
 Built but not individually reported here: R3-A (J716c DT), R3-C, R3-D, R3-F, R3-G (intermediate
 DT/diag variants) and R3-L (`9ef02cfd`, R3-K with a handoff variant). Hashes are in
@@ -575,6 +578,39 @@ up; every self-revert also stores a 25 MB `boot.bin.failed`, so spares need prun
 - **m1n1 0021** (R3-P, built, not booted): the DTB still carries this unit's PHY tunables.
 - S1 and power-off on this kernel (not run).
 
+### Result (R3-T and R3-V, 2026-11-07 02:00-05:30, self-revert loop, nobody at the machine)
+
+- **R3-T (`08902f08`):** m1n1 `pipepark-atc` (`f7555558`, 0020 + 0021) with the DT that has no `apple,tunable-*`
+  lists. USB3, trackpad and network came up as on R3-R, and the live device tree showed the 14 tunables filled by
+  m1n1. 0021 is therefore verified on hardware, and the "per-unit tunables" caveat of R3-Q/R3-R no longer applies.
+- **R3-V (`8864d45e`):** kernel `302945c1ecb3` (R3-R's tree + PR #937 + PR #938 centauri, 16 patches) and the config
+  additions listed in the table. Landlock fixes pacman (it needs `CONFIG_SECURITY_LANDLOCK` for its download
+  sandbox). Trackpad, USB3 and network unchanged. `pcie-apple 1cb0000000.pcie: probe failed -22` is the PCIe
+  driver finding an untrained port; nothing depends on it and nothing broke.
+- **R3-X** (R3-V + simpledrm eDP patch 0029 + `apple,internal-panel` on the framebuffer node) is in flight.
+- Desktop: an Omarchy-style Hyprland setup from Arch ARM repo packages is installed on the machine
+  (`../desktop/omarchy/`). The idle lock stays disabled until `passwd rolo` has been run.
+
+### Publishable DT
+
+`../aurora/dt/t6050-j716s-aurora-decompiled.dts` (and its `.dtb`) is the J716s device tree for the Aurora kernel
+with **no per-unit values**: the combo-PHY tunables are filled in by m1n1 0021 at boot, as R3-T showed. It is the
+decompiled PR #945 J716c DT plus the J716s edits of this round. A source-form `t6050-j716s.dts` against Aurora's
+dtsi files is still to be written (`../aurora/J716S-DELTA.dts.md` is the draft).
+
+### Attended queue (needs Rolando at the machine; reason in parentheses)
+
+1. **R3-U**: m1n1 0024 (coprocessor-log reservations) plus the opt-in DCP handoff (new loader code; a stage-2
+   failure needs a power-hold to recover).
+2. **W0 / W1 / W2** Wi-Fi steps (`../aurora/n1-wifi/R3-W-RECIPE.md`). W0 is a read-only port status. W1 and W2
+   train apcie0 port 0 and may disturb NVMe, which sits on the same controller; the FTAB firmware has no ticket yet.
+3. **R3-S** battery (the probe hang history: a hang is not self-recoverable without the A/B stage-1 watchdog).
+4. **Audio mic boot** (needs a `CONFIG_RUST` build; the AOP setup mailbox may SError).
+
+Status lines for the rest: DCP is **no-go for scanout** until a 27.3 method table exists (firmware
+AppleDCP-1317.60.10, SDK 27.3, against the driver's exact `"27.0.0"`; `../aurora/dcp/ANALYSIS.md`); GPU is gated off
+in Aurora's tree.
+
 ### Process: what went wrong and what we changed
 
 Honest account, because the evening cost more reboots than it needed to:
@@ -598,6 +634,8 @@ Honest account, because the evening cost more reboots than it needed to:
   on the ESP to hold the last known-good payload.
 
 ### Still open
+
+**Update 2026-11-07:** item 5 is closed by R3-T (m1n1 0021 verified, publishable DT). Items 2 and 3 and the DCP part of 4 are now the "Attended queue" above.
 
 1. ~~Trackpad multi-touch~~ **resolved by R3-R** (`HID_MAGICMOUSE=y`; see the Result above).
 2. **Battery.** R3-S (R3-R without `initcall_blacklist=macsmc_power_driver_init`), with Rolando present. r3r
