@@ -7,60 +7,113 @@ as the build and USB host. Started 2026-10-20.
 This repo holds only what was made or changed here. Upstream sources are pinned in
 [`SOURCES.md`](SOURCES.md), not vendored.
 
-## Status (2026-11-06)
+## Status (2026-11-07)
 
-Summary with test labels and repro steps: [`docs/status-2026-11-06.md`](docs/status-2026-11-06.md) (previous: [`2026-11-05`](docs/status-2026-11-05.md)).
-Per-feature designs, patches and test plans: `contrib/pending/<feature>/`; hardware results: [`contrib/pending/integration/RESULTS.md`](contrib/pending/integration/RESULTS.md).
+The daily kernel is now **Aurora Silicon's `integration/aurora` (Linux 7.3.0) plus a 60-patch J716s
+series**. It boots untethered from the ESP on all 18 CPUs with NVMe root, battery, SMC sensors, both
+Type-C ports as USB hosts, the trackpad and a Hyprland desktop (software rendering). The microphone works
+on a separate audio kernel. WFI idle is in test. The older asahi-wip 7.2 stack is kept as the fallback
+payload; everything it proved (SMP, boot chain, NVMe, trackpad, battery, cpufreq) carried over.
+
+Hardware results, round by round: [`contrib/pending/integration/RESULTS.md`](contrib/pending/integration/RESULTS.md).
+Exact ingredients of the current payload: [`contrib/pending/aurora/STATE.md`](contrib/pending/aurora/STATE.md).
+Last full write-up with test labels and repro steps: [`docs/status-2026-11-06.md`](docs/status-2026-11-06.md).
+
+### Works (tested on hardware)
 
 | Area | State |
 |---|---|
-| m1n1 installed as the stub's boot object (macOS on Macintosh HD stays at Full Security) | works |
-| m1n1 proxy over USB-C to the Studio, through the CalDigit TS5 Plus | works |
-| Chainloading m1n1 builds (`chainload.py -r -n`) | works |
-| Linux 7.2 (asahi-wip-7.2 + omarchy-m5 patches), J716s device tree | boots untethered from the ESP, 18 CPUs; since 2026-11-06 evening the Linux side is reachable from the Studio over Tailscale and payloads are swapped from Linux |
-| Aurora Silicon kernel (`integration/aurora`, Linux 7.3.0) on the J716s | **daily: clean series on integration/aurora (USB3/Ethernet/trackpad/desktop); battery, Wi-Fi, audio pending** (2026-11-07, round R3-SERIES, kernel built from the 58-patch series in `contrib/pending/aurora/series/`): NVMe root, 18 CPUs, cpuidle and schedutil cpufreq, SuperSpeed hub and RTL8153, keyboard, trackpad (`Touch MT ready` at 1.7 s), pacman, Hyprland on llvmpipe, a publishable device tree with no per-unit values. The main stack above is unchanged. [`RESULTS.md`](contrib/pending/integration/RESULTS.md) ("Round R3"), [`contrib/pending/aurora/`](contrib/pending/aurora/) |
-| Framebuffer console, built-in keyboard, NVMe read/write, USB gadget network | works |
-| NVMe at boot | **works** (2026-11-05) with kernel patch 0016: the ANS firmware sometimes needs ~3 s for the RTKit handshake, the 1 s wait gave `ANS did not boot` and no root; 10 s wait, NVMe up at 8.3-10.7 s on 3/3 boots |
-| Kernel built with LLVM/clang on the Studio's macOS | works (2026-11-05): 18 CPUs, SSH, trackpad |
-| Arch Linux ARM root on the internal SSD (GPT entry 5 = `nvme0n1p5`) | works, systemd `running` |
-| SMP (secondary cores) | **works, 18 cores** (2026-11-04): stub rebuilt on macOS 27.3 beta 1, whose stage-2 mBoot carries Apple's fix for raw boot objects on M5 Pro/Max/Ultra (release notes, mBoot > Resolved Issues). No m1n1 or kernel change needed; `maxcpus=1` dropped. Any stub must be built from macOS >= 27.3 beta 1. [`docs/smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) |
-| Trackpad | **works** (2026-11-05, 3/3 boots): the MTP firmware never drives the trackpad AFE reset; dockchannel-hid now drives it on SMC low GPIO `gp1c` (line 28, active-low), `Touch MT ready`, events flowing. [`contrib/pending/trackpad/`](contrib/pending/trackpad/) |
-| iBoot boot-failure counter | **fixed, verified over four boots** (2026-11-05, kernel patch 0017): macsmc-reboot built in, poweroff-only, Abbey scratchpad cells. The first Linux reboot reported and cleared 1 boot error; the "B2" payload (old DTB, sha256 `55d95928...`) then survived three consecutive Linux (watchdog) reboots with zero PMU boot errors, NVMe and trackpad up and 18 CPUs each time. This was the cause of the "needs to be reinstalled" recovery after repeated Linux restarts. |
-| Battery and charger (`macsmc-power`) | **works** (2026-11-06, 3/3 boots): the round-3 hang at ~7.8 s is gone with integration patches 0018-0027; status, capacity, voltage, current, charge, cycle count, temperature and MagSafe plug events read correctly. Which patch cured it is not known. [`RESULTS.md`](contrib/pending/integration/RESULTS.md) |
-| Keyboard backlight, eDP connector | **work** (2026-11-06): `kbd_backlight` 0/32/255/0, `card0-eDP-1` connected. |
-| Notch rows | **works** (2026-11-06 evening): the stage-2 m1n1 rebuild (patch 0017) keeps the rows behind the notch, `fb0` 3456x2234. |
-| SMC core, cpufreq (all three clusters, schedutil default) | **work** (2026-11-06): hwmon, RTC, poweroff, low-GPIO; a loaded cluster reaches 4308000. The "idle stays high" reading was a measurement artifact (the read wakes the cluster; `time_in_state` shows the floor). Open: states above `cpuinfo_max_freq` in policy12's table. |
-| USB host (left-front port), USB Ethernet | **works if plugged in before boot** (2026-11-06 evening): stage-2 m1n1 patch 0018 restores the USB-PD controller S0 setup (our 0005 had skipped it, so no VBUS). Hub chain, Logitech Bolt mouse, card reader and an RTL8153 (`r8152`, DHCP, ping) enumerate. No re-enumeration after an unplug: the kernel has no `tipd`/`cd321x` driver yet. `contrib/pending/usb/`, [`RESULTS.md`](contrib/pending/integration/RESULTS.md) ("Round R2") |
-| Power off, S1 sleep step | **power off works** (`systemctl poweroff`, no PMU boot error next boot); **S1 freezer-only step passes**. Real s2idle not tested. |
-| Thermal zones | design only, compile-checked (`contrib/pending/platform/`) |
-| GPU, display driver (DCP), Wi-Fi/BT (N1), audio, camera, Thunderbolt | not working; design reports only (`contrib/pending/{gpu,dcp,wireless,audio,isp-tb}/`) |
-| Untethered boot (kernel on the ESP) | **works on all 18 CPUs** (2026-11-04 18:08): stage-1 = CHAINLOADING m1n1 (0013+0014, chainload variable, 64 KiB-aligned) installed once; stage-2 on the ESP = m1n1 with patch 0015 (reset-vector trampoline for a relocated image) + kernel + DTB + initramfs. Kernel updates are an ESP file copy over the SSH bridge. [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md) |
+| Aurora kernel, the daily | **works**: NVMe root, 18 CPUs, `apple_idle` cpuidle, schedutil cpufreq on all three clusters, USB Ethernet, keyboard, trackpad, Hyprland on llvmpipe over simpledrm (`card0-eDP-1`, notch rows). The device tree is source-form, has no per-unit values, and builds with the kernel. |
+| Battery and charger (`macsmc-power`) | **works** (R3-S): status, capacity, voltage, current, charge, cycle count, temperature, charge behaviour, AC input power. Not exercised on this kernel: discharging and MagSafe unplug events. |
+| SMC sensors (`macsmc_hwmon`) | **works** (HWMON-T1): 60+ temperature channels, both fans (0 rpm when cool), power and current rails. Fan control is not available (the T6050 SMC has no `Ftst` unlock key). |
+| USB, left-front port | **works**: SuperSpeed hub, RTL8153 Ethernet, receiver dongle, card reader. |
+| USB, right port | **works** (probe test and a live plug test): hub at SuperSpeed Plus (10 Gb/s), keyboard, mouse, Ethernet. DisplayPort on it is not tested. |
+| Trackpad | **works** on both stacks: the host drives the AFE reset on SMC low GPIO `gp1c`; `Touch MT ready` on every boot since R3-R. |
+| Microphone | **works** (audio kernel only, not yet in the daily): three capsules, speech tracks the voice. Jack switches register; headphones are not tested. |
+| Boot safety | **works**: two-stage m1n1 with an A/B stage-1 (falls back to the previous payload after a failed boot, 150 s watchdog), a self-reverting test payload, a four-payload ESP policy. The A/B fallback has fired for real once. |
+| Power off, S1 freezer step | **work** on the 7.2 stack (`systemctl poweroff`, no boot error next boot; `pm_test=freezer`). Real s2idle is not tested. |
+| Desktop | **works**: Hyprland, Waybar, foot, Xwayland on stock Arch Linux ARM packages, software rendered. |
 
-## Layout
+### In test
 
-| Path | What |
+| Area | State |
 |---|---|
-| `patches/m1n1/` | `git format-patch` series on upstream m1n1 (see SOURCES.md). 0001-0007: omarchy-m5's T6050 patches, rebased (author kept). 0008-0015: written here (0013: chainload relocation above the CTRR window, for stage-2 from the ESP; 0014: MAX_CPUS 24 so a chainloading stage-1 stays under the T6050 raw-image size cliff; 0015: a relocated m1n1 plants a trampoline at the locked RVBAR so secondaries reach it, and reserves it in the FDT). |
-| `patches/omarchy-m5/` | Changes to the omarchy-m5 checkout: J716s board DT, measured PMGR boot state, `GCC=1` kernel builds; `0002` adds `finish-install.sh --macho`. |
-| `dt/` | The J716s board DTS and its measured PMGR power-state table, also inside the patch above. |
-| `host/macos/` | The same tether from the Studio booted into macOS: `m5.sh`, stub refresh/recreate, ESP installer, Omarchy-volume reader. |
-| `host/` | Studio-side (Omarchy) config: udev rules for the m1n1 device and the M5's USB network, the NAT script. |
-| `scripts/` | Tether helpers used on the Studio (tmux-driven proxy sessions, watchdog-guarded rounds). They expect the omarchy-m5 checkout at `~/Work/omarchy-m5`. `scripts/probes/` are the SMP hardware probes, `scripts/kc/` the kernelcache/SPTM disassembly helpers. |
-| `docs/` | [`boot-and-recovery.md`](docs/boot-and-recovery.md) (rebuild, boot, provision, recover), [`smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md) (the SMP investigation), [`status-2026-11-06.md`](docs/status-2026-11-06.md) (status with test labels; the 2026-11-05 version is kept beside it), [`logs/`](docs/logs/) (redacted log excerpts). |
+| WFI idle | **WFI-T1 passes** (one boot): the cores really sleep now and idle power on the charger drops from 16.4 W to 8.6 W. m1n1 has been appending `idle=nop` since its "disable wfi if it loses state" change; the patch ignores it. The 1 h soak, the per-CPU register check and promotion to the daily are open. [`contrib/pending/wfi-idle/`](contrib/pending/wfi-idle/) |
+| Aurora PRs | Three are open on `aurora-silicon/linux`: **#1082** rtkit handshake wait 1 s to 10 s, **#1083** dockchannel-hid 50 ms settle after the AFE reset, **#1084** macsmc hwmon keeps a fan whose optional keys are missing. Held: CIO reset (#946 replaces it), cpufreq binding (#481), SMC match (#941), the J716s board DT. [`contrib/pending/aurora/prs/`](contrib/pending/aurora/prs/) |
 
-## Rebuild m1n1
+### Blocked or not working
+
+| Area | Why |
+|---|---|
+| GPU | No public driver for the 27.x GPU firmware interface; the M5 Pro is gated off in Aurora's tree. The desktop is software rendered. [`contrib/pending/gpu/`](contrib/pending/gpu/) |
+| Display driver (DCP) | The firmware here is 27.3; Aurora's driver matches the method table of exactly 27.0.0. No scanout, no brightness control. [`contrib/pending/aurora/dcp/`](contrib/pending/aurora/dcp/) |
+| Speakers | The machine boots safely with a volume ceiling and the protection daemon. The first tone makes every amplifier report `bad TDM clock`. The stop-time faults are fixed; a burst at stream start remains. Attended tests only. [`contrib/pending/aurora/audio/`](contrib/pending/aurora/audio/) |
+| Wi-Fi and Bluetooth (N1) | The PCIe adoption, N1 transport, Wi-Fi and Bluetooth patches (16 of them) are in the series; the hardware steps have not been run. The firmware is personalised per unit and is not published. [`contrib/pending/aurora/n1-wifi/`](contrib/pending/aurora/n1-wifi/) |
+| Camera, Thunderbolt/USB4, thermal zones | Design reports only. [`contrib/pending/isp-tb/`](contrib/pending/isp-tb/), [`contrib/pending/platform/`](contrib/pending/platform/) |
+
+### The base (unchanged since 2026-11-05)
+
+- **SMP, 18 cores**: needs a stub built from macOS 27.3 beta 1 or later, whose stage-2 mBoot carries Apple's
+  fix for raw boot objects. No m1n1 or kernel change. [`docs/smp-t6050-raw-path.md`](docs/smp-t6050-raw-path.md)
+- **Untethered boot**: stage 1 (in the stub) is a CHAINLOADING m1n1; stage 2 on the ESP is m1n1, kernel,
+  device tree and initramfs in one file. Kernel updates are a file copy. [`docs/boot-and-recovery.md`](docs/boot-and-recovery.md)
+- **NVMe** needs a 10 s RTKit handshake wait (the ANS firmware sometimes takes about 3 s).
+- **iBoot's boot-failure counter** is cleared by Linux on reboot and by the A/B stage-1, so repeated Linux
+  restarts no longer end in the "needs to be reinstalled" recovery.
+
+## Quick start: build and install a payload
+
+The payload is one file: m1n1 (0x400000 bytes) | boot arguments | `Image.gz` | device tree | initramfs.
+[`mk-daily.py`](contrib/pending/aurora/tools/mk-daily.py) builds it from named, hash-pinned ingredients and
+prints the commands for the swap; it never touches the machine. What may sit on the ESP, and how a failed test
+returns to the last good payload, is in [`ESP-POLICY.md`](contrib/pending/aurora/tools/ESP-POLICY.md): read it first.
+
+```bash
+# 1. kernel: a worktree of aurora-silicon/linux at 33bec4016c46 + the series, then build it (recipe: series/SERIES.md)
+git am contrib/pending/aurora/series/patches/*.patch
+make LLVM=1 ARCH=arm64 defconfig asahi.config j716s.config && make LLVM=1 ARCH=arm64 -j Image.gz dtbs
+
+# 2. check the ingredients, then build a test payload (it reverts itself if the network does not come up)
+python3 -I contrib/pending/aurora/tools/mk-daily.py --list      # edit INGREDIENTS (paths, pins) for your machine first
+python3 -I contrib/pending/aurora/tools/mk-daily.py --out DIR --label my-test
+
+# 3. print the ESP swap, read it, run it yourself; boot the test with the Ethernet adapter attached
+python3 -I contrib/pending/aurora/tools/mk-daily.py --deploy-plan --payload DIR/my-test-<date>-<hash>.bin --host root@<linux-ip>
+
+# 4. once it reached the network, rebuild the same ingredients as the daily (no self-revert, battery on)
+python3 -I contrib/pending/aurora/tools/mk-daily.py --out DIR --daily --battery --force
+```
+
+The stage-2 m1n1 of the daily is upstream plus `patches/m1n1/` (toolchain and recipe: [`m1n1-BUILD.md`](contrib/pending/integration/m1n1-BUILD.md)):
 
 ```bash
 git -C ~/Work/m1n1 checkout -b m5-t6050 7cde7d1a && git -C ~/Work/m1n1 am ~/Work/m5pro-linux/patches/m1n1/*.patch
 ```
 
-The result is byte-identical to the branch the Mac was booted with.
+The stage-1 A/B patch is separate (`patches/m1n1-stage1/`): it only belongs in a CHAINLOADING build.
+
+## Layout
+
+| Path | What |
+|---|---|
+| `patches/m1n1/` | `git format-patch` series on upstream m1n1 (see SOURCES.md), the stage-2 build of the daily. 0001-0007: omarchy-m5's T6050 patches, rebased (author kept). 0008-0015: written here (0013-0015: chainload and SMP for a stage 2 on the ESP). 0017, 0018, 0020, 0021: notch rows, USB-PD controllers into S0, PIPE park, and the combo-PHY tunables produced from the ADT at boot, so the device tree carries no per-unit values. |
+| `patches/m1n1-stage1/` | 0016: the A/B fallback and watchdog of the CHAINLOADING stage 1. |
+| `patches/omarchy-m5/` | Changes to the omarchy-m5 checkout (the 7.2 stack): J716s board DT, measured PMGR boot state, `GCC=1` builds, `finish-install.sh --macho`. |
+| `contrib/validated/aurora/` | The Aurora kernel work that has run on the machine: `series/` (the 60 patches and the rebuild recipe), `tools/` (`mk-daily.py`, `ESP-POLICY.md`), `atc-tunables/`, `pipe-park/`, `trackpad/`, `prs/` (upstream PRs), `STATE.md`. |
+| `contrib/validated/integration/` | Hardware results (`RESULTS.md`), test kits and the patch set of the 7.2 stack. |
+| `contrib/validated/desktop/`, `contrib/validated/legacy-7.2/` | Desktop setup; trackpad, SMC, cpufreq and USB-host work that ran on the 7.2 stack (what the fallback payload is made of). |
+| `contrib/pending/` | Not proven yet, or design only: `audio` (with the Aurora audio kernel patches), `dcp`, `gpu`, `wireless` (with the N1 patches), `wfi-idle`, `boot-ab`, `dt-prep`, `platform`, `isp-tb`. |
+| `contrib/distro/` | Design and prototypes for an installable distribution; not run on the machine. |
+| `dt/` | The 7.2-stack J716s board DTS and its measured PMGR power-state table. |
+| `host/macos/`, `host/`, `scripts/` | Studio-side tether and deploy helpers (macOS and Omarchy), udev rules, the NAT script, m1n1 proxy helpers. |
+| `docs/` | Boot and recovery, the SMP investigation, status snapshots, redacted log excerpts, the plan. |
 
 ## Not in this repo, on purpose
 
-- Apple boot objects (kernelcache, SPTM, TXM) and anything extracted from macOS.
-- The Mac's ADT dump (`adt-runtime-j716s.bin`): it carries the serial number and MAC addresses.
-- Disk images, the Arch/Alpine tarballs, initramfs and kernel builds.
+- Apple boot objects (kernelcache, SPTM, TXM), firmware, and anything extracted from macOS.
+- The Mac's ADT dump: it carries the serial number and MAC addresses.
+- Per-unit firmware (the Wi-Fi/Bluetooth image) and per-unit device-tree values.
+- Disk images, root tarballs, initramfs and kernel builds, payloads.
 - Keys and passwords.
 
 Reverse-engineering notes (disassembly excerpts of Apple binaries made while chasing SMP) are kept
@@ -73,17 +126,18 @@ commit that removed it.
 ## Contributing / contact
 
 Questions, reports and corrections: [issues on this repo](https://github.com/rolotrealanis98/m5pro-linux/issues).
-The code, patches and reports here were produced with Claude (AI) under Rolando's direction; every
-hardware result was run by him on the J716s. Asahi Linux does not accept AI-generated
-contributions, so nothing here is offered to Asahi as code.
+Fixes that belong upstream go to `aurora-silicon/linux` as small PRs (see
+[`UPSTREAM-NOTES.md`](contrib/pending/aurora/series/UPSTREAM-NOTES.md)).
 
 ## Credits
 
 omarchy-m5 (betim-hodza) did the T6050 bring-up this builds on: the stub install scripts, the
-J714s device trees, the kernel patches and the original m1n1 patches. m1n1 and linux-asahi are
-the Asahi Linux project's work.
+J714s device trees, the kernel patches and the original m1n1 patches. The Aurora Silicon project
+(aurora-silicon/linux; Jeff Queisser, Erik Bourget, Dj and others) carries the T6050 kernel work the
+daily is based on: the series carries their commits with authors kept; the AOP audio port is
+edimoldovan's. m1n1 and linux-asahi are the Asahi Linux project's work.
 
 ## License
 
 Kernel patches are GPL-2.0-only, m1n1 patches and everything else MIT; material taken from
-omarchy-m5 and Asahi keeps its origin and terms. Details: [`LICENSE.md`](LICENSE.md).
+omarchy-m5, Aurora and Asahi keeps its origin and terms. Details: [`LICENSE.md`](LICENSE.md).
