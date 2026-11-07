@@ -836,3 +836,12 @@ prev = the daily `275d84ec`.
   switch, not the kernel (the next boot on the daily had carrier at once). Not audio-related; the self-revert did its job.
 - Next: 0003 for the start-time burst (agent), then B4.
 
+### Result (RIGHTPORT plug test, 2026-11-07 10:50 UTC, on the WFI soak boot with the daily DTB; Rolando moved the hub)
+
+The hub (Ethernet, 2.4 GHz dongle, card reader) moved from the left-front port to the right port with the machine running.
+**Host mode works on the right port.** Type-C `port1` switched to data host / power source with VCONN on and a partner;
+a new xHCI pair came up under `382280000.usb` (USB 3.1 Enhanced SuperSpeed), the hub enumerated at SuperSpeed Plus Gen 2x1
+(10 Gb/s on both tiers), the dongle's keyboard and mouse registered, the r8152 Ethernet came back as `enu1u2u2` with the
+same address and SSH resumed. So the m1n1 0018 USB-PD S0 setup covers hpm2 and the combo PHY tunables from the ADT
+(m1n1 0021) are right for ATC2 too. Not tested on the right port: DisplayPort (dcpext0 and the xbar stay off), charging in.
+
