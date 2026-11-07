@@ -7,10 +7,11 @@ the canonical recipe for it is `series/SERIES.md`. R3-V, R3-R and R3-Q follow be
 Results and the boot tables: `../integration/RESULTS.md` ("Round R3"). Per-unit values (PHY tunables) are no longer
 in the DT at all: m1n1 0021 fills them at boot.
 
-# Current (daily battery build, 2026-11-07 09:30 UTC)
+# Current (daily with battery, SMC sensors and the right Type-C port, 2026-11-07 10:05 UTC)
 
-`boot.bin` = `daily-20261107-ce3f10af.bin`: R3-SERIES's ingredients with the battery driver on and the self-test
-flag off (after R3-S `0d77e6f1` passed through the loop, see `../../integration/RESULTS.md` Result (R3-S)).
+`boot.bin` = `daily-20261107-275d84ec.bin`: the series kernel `7.3.0-g4f630b11270d` with the DTB of series 0059+0060
+(SMC sensors, right port; loop-tested as HWMON-T1, RIGHTPORT-T1, STACK-T1), battery driver on, self-test flag off.
+Previous daily `ce3f10af` (battery only) was R3-S's promotion.
 `boot.bin.prev` = R2-B `5091e1fe` (our 7.2 kernel). ESP: `boot.bin`, `boot.bin.prev`, `boot.bin.known-good` (audio
 test payloads live on the Studio and are copied in for a run). Audio: mic works (A2), speakers boot safely but the first
 tone faults the amps (B2); see `../../integration/RESULTS.md`. Stage-1 is the A/B image (`chainload.fallback`, 150 s watchdog), slot reported as `primary`.
