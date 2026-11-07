@@ -1349,3 +1349,11 @@ Payload `e2b-gpu-20261107-3f2fec04` (= E2a + `chosen.m5pro,gpu=1`). First boot o
   positive as E2a): treat the run as **PASS E2**. Next: userspace (Mesa for G17 under the `aurora` DRM name), a soak,
   then the GPU kernel as the daily. Logs: `~/Work/agents/gpu-e2/logs/e2b/` (private).
 
+### Result (DCP stage A retry, 2026-11-07 18:46-18:50 UTC, loop)
+
+Same payload `dcpa-20261107-e0a474e8`: **boots on the primary slot** (self-test network OK). The loader with the GPU
+hand-off and the display hand-off code (not armed) is fine; it reserves the coprocessor `__OS_LOG` segments
+(`FDT: T6050: mtp __OS_LOG ... reserved`, `auss-cpu0 ...`). Fifth instance today of "first boot of a new payload file
+falls back once, the retry boots" (DAILY-NEXT full, crash-log T1, lid+Wi-Fi twin, board-v2, DCP-A). E2a/E2b and the
+no-ASPM payload were exceptions (first boot fine). Stages B0 and B run next.
+
