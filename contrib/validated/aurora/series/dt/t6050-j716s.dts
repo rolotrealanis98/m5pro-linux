@@ -54,6 +54,45 @@
 		};
 	};
 
+	reserved-memory {
+		/*
+		 * pstore/ramoops: the previous boot's console, oops/panic dumps
+		 * and /dev/pmsg0 survive a warm reset (watchdog, panic restart,
+		 * reboot) for the next boot to read in /sys/fs/pstore. There is no
+		 * serial console on this machine, so this is the only record of a
+		 * boot that dies before, or without, the network.
+		 *
+		 * 2 MiB at DRAM base + 8 GiB: inside the RAM the loader hands to
+		 * Linux on any memory size from 16 GiB up ([OURS] boot logs: RAM
+		 * 0x10003b6c000..0x10bc89f8000 on 48 GiB). The loader stays clear
+		 * of it: its heap grows up from the end of the kernel data (a few
+		 * hundred MiB at most) and its carve-outs (log buffer, SIO, ISP,
+		 * GPU) come from the top of RAM. The firmware regions iBoot
+		 * reports lie outside the Linux RAM range.
+		 *
+		 * no-map keeps it out of the linear map, so only ramoops writes
+		 * it. Cached (mem-type 2): a kernel with the unbuffered mapping
+		 * (mem-type 1) did not boot on the J716s, the cached one boots and
+		 * registers the store. Writes still in the cache when a reset
+		 * skips the write-back are lost, so the newest part of a record
+		 * can come back missing; how much survives a watchdog or panic
+		 * reset is to be measured. 16 bytes of ECC per 128-byte block
+		 * repair a few corrupted bytes. Layout: 512 KiB
+		 * console, 256 KiB pmsg, 10 x 128 KiB dmesg records (compressed),
+		 * no ftrace.
+		 */
+		ramoops@10200000000 {
+			compatible = "ramoops";
+			reg = <0x102 0x00000000 0x0 0x200000>;
+			no-map;
+			record-size = <0x20000>;
+			console-size = <0x80000>;
+			pmsg-size = <0x40000>;
+			ecc-size = <16>;
+			mem-type = <2>;
+		};
+	};
+
 	/*
 	 * Keyboard backlight. [ADT] /arm-io/pwm0/kbd-backlight: channel 0,
 	 * default-hz 25000 -> period 40000 ns. [OURS t6050-j716s.dts:35-46]
@@ -68,6 +107,51 @@
 			color = <LED_COLOR_ID_WHITE>;
 			max-brightness = <255>;
 			default-state = "keep";
+		};
+	};
+
+	/*
+	 * The sound card: the headphone jack on AOP DAI 0 (cout), the six
+	 * speaker amps on AOP DAI 4 (spkr) in [ADT] speakerN order: LW1, RW1,
+	 * LW2, RW2, LT, RT (TDM slots 0-5). The idle masks keep each bus's
+	 * three amps fed with zeros in the other bus's slots.
+	 */
+	sound {
+		compatible = "apple,j716-macaudio", "apple,macaudio";
+		model = "MacBook Pro J716";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		dai-link@0 {
+			reg = <0>;
+			link-name = "Headphone Jack";
+
+			cpu {
+				sound-dai = <&aop_audio 0>;
+			};
+
+			codec {
+				sound-dai = <&jack_codec>;
+			};
+		};
+
+		dai-link@1 {
+			reg = <1>;
+			link-name = "Speakers";
+			dai-tdm-idle-mode-0 = "zero";
+			dai-tdm-idle-mode-1 = "zero";
+			dai-tdm-slot-tx-idle-mask-0 = <0xf0f0f0>;
+			dai-tdm-slot-tx-idle-mask-1 = <0x0f0f0f>;
+
+			cpu {
+				sound-dai = <&aop_audio 4>;
+			};
+
+			codec {
+				sound-dai = <&speaker_lw1>, <&speaker_rw1>,
+					    <&speaker_lw2>, <&speaker_rw2>,
+					    <&speaker_lt>, <&speaker_rt>;
+			};
 		};
 	};
 };
@@ -125,14 +209,15 @@
 	/*
 	 * [ADT] /arm-io/nub-spmi-a1: reg[0] 0x8a1a8000 (+0x200000000), gen 4, the
 	 * HPM bus of the right-hand port (hpm2). J716c uses nub-spmi-a2 instead;
-	 * this board has no a2. Polled, like a0.
+	 * this board has no a2. Polled, like a0: the gen 4 driver refuses an
+	 * interrupt (the ADT lists AIC 763 for it, 761 for a0). No power-domains:
+	 * [ADT] pmgr NUB_SPMI_A1 (group 2 +0x68) is critical, as NUB_SPMI_A0.
 	 */
 	nub_spmi_a1: spmi@28a1a8000 {
 		compatible = "apple,t6050-spmi", "apple,t8142-spmi";
 		reg = <0x2 0x8a1a8000 0x0 0x4000>;
 		#address-cells = <2>;
 		#size-cells = <0>;
-		status = "disabled";
 	};
 };
 
@@ -309,36 +394,370 @@
 };
 
 /*
- * The right port (ATC2: hpm2 on nub_spmi_a1, SID 0x0c) is not brought up;
- * it shares ATC2 with the dcpext0 DisplayPort route.
+ * Right port (ATC2), the same chain as the left-front port: SN201202x hpm2
+ * on nub_spmi_a1, polled; the connector graph into usb_drd2 (USB2) and the
+ * combo PHY (SuperSpeed). [ADT] /arm-io/nub-spmi-a1/hpm2 reg[0] = 0x0c,
+ * port-number 3, port-location "right", acio-parent acio2; atc-phy2 and
+ * usb-drd2 port-number 3. Only the USB route: dcpext0's DisplayPort route
+ * through ATC2 (atc2_xbar, the PHY's DP lane, the connector's DP port)
+ * stays off, so the connector has no port@2.
  */
+&nub_spmi_a1 {
+	hpm2: usb-pd@c {
+		compatible = "apple,sn201202x";
+		reg = <0xc SPMI_USID>;			/* [ADT] hpm2 reg[0] = 0x0c */
 
-/* Audio is not brought up: 6x sn012776 on i2c1/i2c3 and cs42l84 on i2c2 [ADT]; i2c3 is not in the dtsi yet */
-&i2c1 {
-	status = "disabled";
+		typec2: connector {
+			compatible = "usb-c-connector";
+			label = "USB-C Right";		/* [ADT] hpm2 port-location */
+			power-role = "dual";
+			data-role = "dual";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					typec2_hs: endpoint {
+						remote-endpoint = <&usb_drd2_hs>;
+					};
+				};
+
+				port@1 {
+					reg = <1>;
+					typec2_ss: endpoint {
+						remote-endpoint = <&atc2_phy_typec>;
+					};
+				};
+			};
+		};
+	};
 };
 
+/*
+ * [ADT] /arm-io/atc-phy2 reg[2] 0x183000000 (core), acio-phy-cpu2 reg[0]
+ * 0x183148000 with interrupts 861-864, usb-drd2 interrupt 1483, dart-usb2
+ * interrupt 1487 (arm-io ranges +0x200000000): what t6050-die0.dtsi
+ * describes. Power: [ADT] pmgr ATC2_COMMON (group 0 +0x238, gate 61, parent
+ * FAB5_SOC, critical), ATC2_USB_AON (group 2 +0x178, 266), ATC2_USB (+0x180,
+ * 267, usb-drd2's gate) and ATC2_PHYMXWRAP (+0x188, 268), parents 61 and
+ * 266, as ATC1's 56/263-265. The loader fills the PHY's tunables (it finds
+ * the node by its core window) and parks the PIPE of every usb-drdN.
+ */
+&ps_atc2_common {
+	status = "okay";
+};
+
+&ps_atc2_usb_aon {
+	status = "okay";
+};
+
+&ps_atc2_phymxwrap {
+	status = "okay";
+};
+
+&ps_atc2_usb {
+	status = "okay";
+};
+
+&atc2_phy_mbox {
+	status = "okay";
+};
+
+&atc2_phy {
+	status = "okay";
+
+	port {
+		atc2_phy_typec: endpoint {
+			remote-endpoint = <&typec2_ss>;
+		};
+	};
+};
+
+&usb_drd2 {
+	status = "okay";
+
+	port {
+		usb_drd2_hs: endpoint {
+			remote-endpoint = <&typec2_hs>;
+		};
+	};
+};
+
+&usb_drd2_dart_0 {
+	status = "okay";
+};
+
+&usb_drd2_dart_1 {
+	status = "okay";
+};
+
+/*
+ * Audio. [ADT] six SN012776 amps (TAS2764 family) on i2c1 (left: woofers 1
+ * and 2, tweeter) and i2c3 (right), the CS42L84 jack codec on i2c2, all
+ * clocked by the AOP's serializer; the AOP runs the speaker and jack streams
+ * and the microphone array. Node shapes follow edimoldovan's J714c tree
+ * (linux-aurora t6050-j714c). i2c3, its power state, the AOP's setup port
+ * and the LEAP-S ADMAC are not in t6050-die0.dtsi yet (candidates for it);
+ * they are described here, as is everything this board enables.
+ */
+&die0 {
+	/* [ADT] /arm-io/i2c3 reg 0x50501c000 (+0x4000), interrupt 1378 */
+	i2c3: i2c@50501c000 {
+		compatible = "apple,t6050-i2c", "apple,t8103-i2c";
+		reg = <0x5 0x0501c000 0x0 0x4000>;
+		clocks = <&clkref>;
+		interrupt-parent = <&aic>;
+		interrupts = <AIC_IRQ 0 1378 IRQ_TYPE_LEVEL_HIGH>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		power-domains = <&ps_i2c3>;
+	};
+
+	/*
+	 * The AOP's setup port, which its AFK endpoints answer only after:
+	 * [ADT] /arm-io/aop-exclave-mailbox reg 0x2d067c000, interrupts 582
+	 * (send-empty) and 585 (recv-not-empty), messages through dart-aop
+	 * stream 1, whose window starts at 0x20000000000.
+	 */
+	aop_setup_mbox: mailbox@2d067c000 {
+		compatible = "apple,t6050-aop-setup-mailbox",
+			     "apple,t8140-aop-setup-mailbox";
+		reg = <0x2 0xd067c000 0x0 0x4000>;
+		interrupt-parent = <&aic>;
+		interrupts = <AIC_IRQ 0 582 IRQ_TYPE_LEVEL_HIGH>,
+			     <AIC_IRQ 0 585 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "send-empty", "recv-not-empty";
+		iommus = <&aop_dart 1>;
+		apple,dma-range = <0x200 0x0 0x10 0x0>;
+		#mbox-cells = <0>;
+	};
+
+	/*
+	 * The LEAP-S ADMAC through its non-secure proxy: [ADT]
+	 * admac-hp-mic-ec-proxy reg 0x2d3200000, interrupt 638, 9 TX and 9 RX
+	 * channels, dart-aop stream 11. The microphone array is on its RX 0.
+	 */
+	admac_leap_s: dma-controller@2d3200000 {
+		compatible = "apple,t6050-admac", "apple,t8140-admac";
+		reg = <0x2 0xd3200000 0x0 0x34000>;
+		dma-channels = <9>;
+		interrupts-extended = <&aic AIC_IRQ 0 638 IRQ_TYPE_LEVEL_HIGH>,
+				      <0>, <0>, <0>;
+		#dma-cells = <1>;
+		iommus = <&aop_dart 11>;
+		apple,dma-range = <0x110 0x00000000 0x0 0x10000000>;
+	};
+};
+
+/* [ADT] pmgr device I2C3, group 1 + 0x2d8, after I2C1 (+0x2c8) and I2C2 (+0x2d0) */
+&pmgr1 {
+	ps_i2c3: power-controller@2d8 {
+		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+		reg = <0x2d8 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "i2c3";
+	};
+};
+
+&aop_mbox {
+	status = "okay";
+};
+
+/*
+ * dart-aop: iBoot locks it with inherited roots; the T8142 compatible
+ * selects apple-dart's per-stream retained-root path, as on the J714c.
+ */
+&aop_dart {
+	compatible = "apple,t6050-dart", "apple,t8142-dart", "apple,t8110-dart";
+	status = "okay";
+};
+
+&admac_base_ns {
+	status = "okay";
+};
+
+&aop {
+	mboxes = <&aop_mbox>, <&aop_setup_mbox>;
+	mbox-names = "mbox", "setup";
+	status = "okay";
+};
+
+/*
+ * [ADT] iop-audio-controller: spkr on base-ns TX0 with the amps' V/I sense
+ * on RX0, cout/cin (the jack) on TX2/RX2 (Linux channel 2N for TX N, 2N+1
+ * for RX N), and the microphone array on LEAP-S RX0 (leap-s-adma-rx-0).
+ */
+&aop_audio {
+	dmas = <&admac_base_ns 0>, <&admac_base_ns 1>,
+	       <&admac_base_ns 4>, <&admac_base_ns 5>,
+	       <&admac_leap_s 1>;
+	dma-names = "spkr", "spkr-sense", "cout", "cin", "hpai";
+	apple,chassis-name = "J716";
+	apple,machine-kind = "MacBook Pro";
+};
+
+/*
+ * The amps share one shutdown line (SDZ, [ADT] AP GPIO 107, active high) and
+ * one level-low interrupt (AP GPIO 106). apple,speaker-config is [ADT]
+ * speaker-config: TX slot, amp level, V sense slot, I sense slot; the amp
+ * level is lowered from the ADT's 15 (18.5 dBV) to 10 (16 dBV), and macaudio
+ * caps the speaker volume at -30 dB on top of that. apple,deferred-shutdown:
+ * the AOP stops its serializer (pw0) only after ASoC has muted the amps, so
+ * a muted amp then sees its clock stop; this marks that as expected.
+ */
+&i2c1 {
+	status = "okay";
+
+	speaker_lw1: codec@38 {
+		compatible = "ti,sn012776", "ti,tas2764";
+		reg = <0x38>;
+		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
+		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "Left Woofer 1";
+		ti,imon-slot-no = <0>;
+		ti,vmon-slot-no = <2>;
+		apple,speaker-config = [00 0a 00 02];
+		apple,deferred-shutdown;
+	};
+
+	speaker_lw2: codec@39 {
+		compatible = "ti,sn012776", "ti,tas2764";
+		reg = <0x39>;
+		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
+		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "Left Woofer 2";
+		ti,imon-slot-no = <8>;
+		ti,vmon-slot-no = <10>;
+		apple,speaker-config = [02 0a 08 0a];
+		apple,deferred-shutdown;
+	};
+
+	speaker_lt: codec@3a {
+		compatible = "ti,sn012776", "ti,tas2764";
+		reg = <0x3a>;
+		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
+		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "Left Tweeter";
+		ti,imon-slot-no = <16>;
+		ti,vmon-slot-no = <18>;
+		apple,speaker-config = [04 0a 10 12];
+		apple,deferred-shutdown;
+	};
+};
+
+/* The jack codec: reset [ADT] AP GPIO 139, interrupt AP GPIO 134 (level low) */
 &i2c2 {
-	status = "disabled";
+	status = "okay";
+
+	jack_codec: codec@4b {
+		compatible = "cirrus,cs42l84";
+		reg = <0x4b>;
+		reset-gpios = <&pinctrl_ap 139 GPIO_ACTIVE_HIGH>;
+		interrupts-extended = <&pinctrl_ap 134 IRQ_TYPE_LEVEL_LOW>;
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "Jack";
+	};
+};
+
+&i2c3 {
+	speaker_rw1: codec@3b {
+		compatible = "ti,sn012776", "ti,tas2764";
+		reg = <0x3b>;
+		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
+		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "Right Woofer 1";
+		ti,imon-slot-no = <4>;
+		ti,vmon-slot-no = <6>;
+		apple,speaker-config = [01 0a 04 06];
+		apple,deferred-shutdown;
+	};
+
+	speaker_rw2: codec@3c {
+		compatible = "ti,sn012776", "ti,tas2764";
+		reg = <0x3c>;
+		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
+		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "Right Woofer 2";
+		ti,imon-slot-no = <12>;
+		ti,vmon-slot-no = <14>;
+		apple,speaker-config = [03 0a 0c 0e];
+		apple,deferred-shutdown;
+	};
+
+	speaker_rt: codec@3d {
+		compatible = "ti,sn012776", "ti,tas2764";
+		reg = <0x3d>;
+		shutdown-gpios = <&pinctrl_ap 107 GPIO_ACTIVE_HIGH>;
+		interrupts-extended = <&pinctrl_ap 106 IRQ_TYPE_LEVEL_LOW>;
+		#sound-dai-cells = <0>;
+		sound-name-prefix = "Right Tweeter";
+		ti,imon-slot-no = <20>;
+		ti,vmon-slot-no = <22>;
+		apple,speaker-config = [05 0a 14 16];
+		apple,deferred-shutdown;
+	};
 };
 
 /*
  * Pin 112 takes an SError when read (J716c finding, same SoC), so only the
  * pins named here are exposed: 80 (PCIe port 0's PERST#, [ADT] pci-bridge0
- * function-perst GPIO 80).
+ * function-perst GPIO 80), 106 and 107 (the amps' interrupt and shutdown
+ * line), 134 and 139 (the jack codec's interrupt and reset), the pattern of
+ * t6050-j775d.dts.
  */
 &pinctrl_ap {
-	gpio-reserved-ranges = <0 80>, <81 140>;
+	gpio-reserved-ranges = <0 80>, <81 25>, <108 26>, <135 4>, <140 81>;
 };
 
 /*
- * SMC sensors stay off until the fan keys are checked on this machine: the
- * T6050 SMC spells the fan mode keys F0md/F1md (ui8) rather than the F0Md
- * of hwmon-fan-dual.dtsi [OURS], and F0Mn/F0Mx/F0Tg have not been re-probed
- * on the J716s.
+ * SMC sensors: the shared fan, power, voltage and current keys, and every
+ * readable float T* key through t6050-die0.dtsi's apple,discover-temperatures
+ * (labelled with the key name). Key set from the T6050 J714s SMC dump [OURS
+ * smc-keys-j714s.json]: F0Ac/F1Ac, F0Mn/F0Mx/F0Tg and F1*, PSTR, PDTR, PMVR,
+ * PHPC, VD0R, SBAV, ID0R present; a key this SMC lacks drops only that
+ * channel (macsmc-hwmon skips it).
+ *
+ * Discovery refuses to run once any temperature channel exists, so the
+ * shared temperature nodes go (their keys are discovered anyway: TH0x,
+ * TB0T, TCHP, TW0P), and so does the die0 apple,soc-die-keys list, whose
+ * "SoC die TCMb" channel would also count: with this driver the probe
+ * fails with -EINVAL otherwise. TCMb stays as a discovered channel; only
+ * the macsmc_soc_die thermal zone, which nothing in this DT uses, is lost.
+ * Drop the /delete-property/ once the driver has Aurora's b7891bd5f621
+ * ("hwmon: macsmc: Let discovered temperatures join the SoC die zone").
  */
+#include "hwmon-common.dtsi"
+#include "hwmon-fan-dual.dtsi"
+#include "hwmon-laptop.dtsi"
+
 &smc_hwmon {
-	status = "disabled";
+	/delete-property/ apple,soc-die-keys;
+	/delete-node/ temperature-TH0x;
+	/delete-node/ temperature-TB0T;
+	/delete-node/ temperature-TCHP;
+	/delete-node/ temperature-TW0P;
+
+	/*
+	 * The T6050 SMC spells the fan mode keys F0md/F1md (ui8, flags 0xd0),
+	 * not the F0Md/F1Md of hwmon-fan*.dtsi, as on the J775D. No
+	 * apple,fan-manual-control: the SMC drives the fans and userspace only
+	 * reads them (macsmc_hwmon.fan_control=1 opens fan*_target for tests).
+	 */
+	fan-F0Ac {
+		apple,fan-mode = "F0md";
+	};
+
+	fan-F1Ac {
+		apple,fan-mode = "F1md";
+	};
 };
 
 /*

@@ -1182,3 +1182,17 @@ Kernel `7.3.0-crashlog-gf080637018df` (WFI kernel + PSTORE_RAM/CONSOLE/PMSG, NET
   adapter onto the Studio's LAN.
 - Root-side: `m5-pstore-collect.service` (sysinit) and `m5-netconsole.service` installed and enabled on the root.
 
+### Result (W4: restart with the N1 trained and in use, 2026-11-07 15:37-15:46 UTC, loop, nobody at the machine)
+
+Payload `w4-n1warm-20261107-a9911c95` (m1n1 0020-0023/0025/0026/**0027** warm-N1 entry; kernel `7.3.0-gff289b9ce8ec` =
+WFI kernel + pcie-apple adopted-port park/ASPM strip + centauri leave-alone, both edimoldovan's; W3b DTB and stitched-FTAB
+initramfs; `n1=4`, `pcie_aspm=off`, self-test on, battery on). `boot.bin.prev` = lid daily `534ca146`.
+- First boot: primary, N1 at 01:00.0/.1/.2 (`106b:1900/1902/1903`), port 0 adopted, `link retrained after a root-port
+  reset`, wlan0 associated (WPA2 5 GHz) by wpa_supplicant without help.
+- **Three `systemctl reboot` cycles with wlan0 associated and a ping running: all three back on the primary slot, N1
+  adopted, wlan0 associated. PASS** (the DAILY-WIFI promotion failure of 14:04 UTC does not reproduce with W4).
+- The restore reboot from W4 into the lid daily (whose m1n1 has no N1 code) came back `fallback-after-failure`: a loader
+  without 0027 hangs once on the warm N1, then the stage-1 fallback boots prev (the same lid daily). So the N1-aware m1n1
+  goes into every payload from here on, and the next daily is W4 + the lid patch (building).
+- Module set for the lid daily kernel `82a7d71d217e` installed on the root (171 modules, phram included).
+
