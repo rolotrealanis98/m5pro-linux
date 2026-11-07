@@ -5,7 +5,6 @@ Subject: [PATCH 09/12] hv: sprr: emulate S3_0_C11_C9_0 for T6050 SPTM
 
 SPTM 26B5112a reads this register early in bootstrap (masks bits 41:20, a carveout base) and takes an UNDEF at guest EL1 when it is not patched to an hvc. Seed the shadow from the hardware value on T6050/T6051 (0x8000010b68a00000 on a J716s), where it is readable at EL2.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

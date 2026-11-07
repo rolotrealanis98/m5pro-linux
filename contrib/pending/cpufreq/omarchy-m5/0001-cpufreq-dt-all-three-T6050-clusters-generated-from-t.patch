@@ -23,7 +23,6 @@ from build/adt-runtime-j716s.bin.
   "apple,t8112-cluster-cpufreq", the form the binding accepts for T6020;
   the driver matched the t8112 entry before and still does.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

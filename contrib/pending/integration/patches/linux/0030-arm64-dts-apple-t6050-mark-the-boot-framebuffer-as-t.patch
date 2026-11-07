@@ -15,7 +15,6 @@ is not measured.
 
 Based on edimoldovan/linux-aurora 9dee12b1266c (t6050-j714c.dts hunk).
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

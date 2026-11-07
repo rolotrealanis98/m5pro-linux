@@ -6,7 +6,6 @@ Subject: [PATCH 10/12] hv: sprr: keep the SPRR pool out of T6050's MTE tag
 
 S3_0_C11_C9_0 is TagOffset_EL2: iBoot puts MTE tag storage in the top 1/32 of RAM (1.5 GiB on a 48 GiB J716s). Stealing the 2 GiB pool from the top of RAM put it on top of the tag storage, and SPTM's sptm_init_mte_boundaries panicked: it recomputes TagOffset from the guest's smaller RAM top (expected 0x10ae8900000, actual 0x10b68a00000). Take the tag storage and then the pool off the top, and give the guest the TagOffset SPTM computes for its RAM top.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

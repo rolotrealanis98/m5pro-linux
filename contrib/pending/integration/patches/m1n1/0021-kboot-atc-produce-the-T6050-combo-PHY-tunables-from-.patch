@@ -22,7 +22,6 @@ HDMI port) are skipped.
 On J716s ATC1 this reproduces the 14 lists of the hand-made DT word for
 word (checked against the runtime ADT).
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

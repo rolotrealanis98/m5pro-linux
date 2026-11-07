@@ -6,7 +6,6 @@ Subject: [PATCH 08/12] hv: amcc: skip the IRQ hook when error-handler has no
 
 T6050 describes its AMCCs in /arm-io/mcc (amcc-count, amcc-reg-idx, amcc-enable-mask); /arm-io/error-handler carries none of amcc-metadata, amcc-enable-mask or interrupts, so hv_amcc_init() failed and the hypervisor refused to start an SPTM guest.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

@@ -20,7 +20,6 @@ cannot both register.
 
 Signed-off-by: Dj <hey@djdev.me>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  .../bindings/gpio/apple,smc-pcio-gpio.yaml    | 40 ++++++++++
  .../devicetree/bindings/mfd/apple,smc.yaml    |  4 +-

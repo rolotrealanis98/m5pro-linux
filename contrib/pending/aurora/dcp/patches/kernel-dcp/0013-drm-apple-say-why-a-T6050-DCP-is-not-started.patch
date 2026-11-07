@@ -9,7 +9,6 @@ apple,firmware-compat is not 27.0.0 without a word: the probe ends in
 compat it refused, as the T6041 and T6030 paths do, and the firmware
 version it accepted.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

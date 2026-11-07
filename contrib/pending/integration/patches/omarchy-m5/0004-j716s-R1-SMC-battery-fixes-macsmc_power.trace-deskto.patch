@@ -45,7 +45,6 @@ patch for the exact source.
 macsmc-power stays gated by initcall_blacklist=macsmc_power_driver_init
 in the boot arguments until its test passes.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

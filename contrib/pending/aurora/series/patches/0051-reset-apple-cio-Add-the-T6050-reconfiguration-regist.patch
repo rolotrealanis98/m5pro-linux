@@ -1,4 +1,4 @@
-From 5c9d7144a41e4632de74cccb4ea7ec102b008608 Mon Sep 17 00:00:00 2001
+From 14e7655c3ff659c55d345655933c85a5d23c2709 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:55:39 -0500
 Subject: [PATCH] reset: apple-cio: Add the T6050 reconfiguration register
@@ -19,8 +19,6 @@ Not built or run yet with this change. On the J716s the driver bound
 through the T8142 fallback, but no consumer of the reset (usb4_3_acio)
 is enabled, so no request has been issued at either offset.
 
-Assisted-by: LLM
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  .../bindings/reset/apple,t8103-cio-reset.yaml |  4 +++-

@@ -1,4 +1,4 @@
-From af58110c503083263c0884cb4ca8af849829cb71 Mon Sep 17 00:00:00 2001
+From 3cd1e2f0b8cd0cd879b700859ba424a5d760e1cc Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 18:48:25 -0500
 Subject: [PATCH] hwmon: (macsmc) keep a fan whose optional keys are missing
@@ -15,8 +15,6 @@ Port of m5pro-linux integration patch 0003 to the Aurora driver, which
 has since gained apple,fan-manual-control; that check is unchanged and
 still sees the mode key cleared when manual control is not possible.
 
-Assisted-by: LLM
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  drivers/hwmon/macsmc-hwmon.c | 44 ++++++++++++++++++++----------------

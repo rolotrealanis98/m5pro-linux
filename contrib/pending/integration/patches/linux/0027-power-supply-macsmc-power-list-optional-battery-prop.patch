@@ -17,7 +17,6 @@ Subject: [PATCH 27/33] power: supply: macsmc-power: list optional battery
 Based on edimoldovan/linux-aurora (t6050-j714c)
 drivers/power/supply/macsmc-power.c.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

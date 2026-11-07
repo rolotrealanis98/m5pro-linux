@@ -8,7 +8,6 @@ display co-processors, with the t8110 fallback like the other recent
 SoCs.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---
  Documentation/devicetree/bindings/iommu/apple,dart.yaml | 1 +

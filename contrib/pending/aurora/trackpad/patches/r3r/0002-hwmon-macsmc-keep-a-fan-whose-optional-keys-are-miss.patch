@@ -16,7 +16,6 @@ Port of m5pro-linux integration patch 0003 to the Aurora driver, which
 has since gained apple,fan-manual-control; that check is unchanged and
 still sees the mode key cleared when manual control is not possible.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

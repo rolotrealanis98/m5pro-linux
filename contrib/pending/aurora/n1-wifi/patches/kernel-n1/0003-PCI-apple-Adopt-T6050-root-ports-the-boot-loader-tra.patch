@@ -35,7 +35,6 @@ it on every boot) and port 3 (ASM3142, a USB keyboard and mouse driving
 the desktop session).
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 (cherry picked from commit 660bd18cb6bf0f8b94c36bcebc883a66ebb6563b)
 ---

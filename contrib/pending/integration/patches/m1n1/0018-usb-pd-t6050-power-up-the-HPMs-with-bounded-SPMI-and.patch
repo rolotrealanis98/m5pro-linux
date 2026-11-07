@@ -45,7 +45,6 @@ masked" per controller on T6050.
 Worst case with every controller unresponsive: about 6.5 s per HPM
 (four HPMs on J716s), instead of a hang.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

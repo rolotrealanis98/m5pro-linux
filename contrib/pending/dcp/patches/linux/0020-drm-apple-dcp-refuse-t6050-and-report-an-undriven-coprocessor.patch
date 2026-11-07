@@ -19,7 +19,6 @@ writes; the mapping is released when the probe fails).
 Base: AsahiLinux/linux 236788cd2 (+ omarchy-m5 patches 0001-0009, which
 do not touch drivers/gpu/drm/apple).
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

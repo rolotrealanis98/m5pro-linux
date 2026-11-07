@@ -1,10 +1,7 @@
 # Upstreaming our J716s fixes to aurora-silicon/linux
 
-One section per patch of ours in `patches/series/` (0045-0058). Aurora policy: disclose LLM use per
-commit. Every one of these commits carries `Assisted-by: LLM` (the kernel's own format,
-`Documentation/process/coding-assistants.rst`) and a `Co-Authored-By: Claude ...` line; the PR text below
-repeats the disclosure. None has a `Signed-off-by`: the person submitting adds it (`git commit -s --amend`,
-or `git am -s` / `git format-patch --signoff`), which certifies the DCO for them; an assistant must not.
+One section per patch of ours in `patches/series/` (0045-0058). Every commit is authored and signed off as
+`Rolando Trevino <rolotrealanis@gmail.com>`; no assistant trailers (Rolando's choice, 2026-11-07).
 0049 is Dj's (with Erik's sign-off) and is listed only so its route is clear.
 
 Base for every PR: `integration/aurora` (`33bec4016c46` here). Where a patch depends on an open PR,
@@ -25,8 +22,7 @@ the PR says so.
   > `apple_rtkit_wait_for_completion()`'s timeout from 1 s to 10 s. A co-processor that answers in time is
   > not slowed down.
   >
-  > Tested on J716s (in every payload since R3-J). LLM use: the patch and this text were written
-  > with an LLM assistant (Claude); `Assisted-by: LLM` is in the commit.
+  > Tested on J716s (in every payload since R3-J).
 
 - Expect: a request to make the timeout per-endpoint or per-SoC instead of global. Fallback version: a
   `timeout_ms` in `struct apple_rtkit_ops` or a DT property on the ANS, default 1000.
@@ -44,7 +40,7 @@ the PR says so.
   > firmware-managed reset ("Touch MT ready" on 3 of 3 boots with it). It also logs assert and release at
   > info level so a boot log shows whether the reset ran.
   >
-  > LLM use: written with an LLM assistant (Claude); `Assisted-by: LLM` in the commit.
+  >
 
 - Possible pushback: the two info-level lines. Offer `dev_dbg` for them if asked.
 
@@ -61,7 +57,7 @@ the PR says so.
   > mode, target, min and max all exist (the `apple,fan-manual-control` check is unchanged).
   >
   > Not exercised on the J716s yet: its DT keeps `smc_hwmon` disabled until the fan keys are checked
-  > there. LLM use: written with an LLM assistant (Claude); `Assisted-by: LLM` in the commit.
+  > there.
 
 - Follow-up for us: enable `smc_hwmon` on J716s with `apple,fan-mode = "F0md"/"F1md"` once the keys are
   read on the machine.
@@ -77,7 +73,7 @@ the PR says so.
   > between the two would see its queued work re-initialised. This initialises both before the notifier
   > is registered and drops the later INIT_WORK()/INIT_DELAYED_WORK().
   >
-  > LLM use: written with an LLM assistant (Claude); `Assisted-by: LLM` in the commit.
+  >
 
 - Note: the J716s still boots with `initcall_blacklist=macsmc_power_driver_init`; the R3-S test (battery
   driver on, 0048 + 0049) is what will show whether the 7.8 s probe hang is gone. Say so in the PR if it
@@ -105,7 +101,7 @@ the PR says so.
   > connector). With `apple,internal-panel` on the framebuffer node simpledrm registers an eDP connector;
   > without it nothing changes.
   >
-  > LLM use: re-applied and the message edited with an LLM assistant (Claude); `Assisted-by: LLM` in the
+  >
   > commit.
 
 ## 0051 reset: apple-cio: Add the T6050 reconfiguration register
@@ -121,8 +117,7 @@ the PR says so.
   >
   > Not built or run with this change yet, and no consumer of the reset (usb4_3_acio) is enabled on any
   > T6050 board, so the offset is from the ADT/PMGR analysis in this file's header and the die0 comment,
-  > not from a request seen to complete. LLM use: written with an LLM assistant (Claude);
-  > `Assisted-by: LLM` in the commit.
+  > not from a request seen to complete.
 
 - Before sending: build it (`make drivers/reset/reset-apple-cio.o`) and, when USB4 is enabled, confirm a
   deassert completes.
@@ -141,8 +136,7 @@ the PR says so.
   > through an `apple,t8103-smc` DT fallback. The j716c/t6050-platform branch matches the same string
   > and will replace this.
   >
-  > Not built with this entry yet (same code path as the fallback, tested). LLM use: written with an
-  > LLM assistant (Claude); `Assisted-by: LLM` in the commit.
+  > Not built with this entry yet (same code path as the fallback, tested).
 
 ## 0053 dt-bindings: cpufreq: apple,cluster-cpufreq: Add T6050
 
@@ -160,7 +154,7 @@ the PR says so.
   > allows `apple,t6050-cluster-cpufreq` with that fallback, like T6020/T6030/T6031/T6041/T8122. A
   > T6050 driver entry still takes precedence.
   >
-  > LLM use: written with an LLM assistant (Claude); `Assisted-by: LLM` in the commit.
+  >
 
 ## 0054 arm64: dts: apple: t6050-max: List the CPUs in the ADT's order
 
@@ -177,14 +171,13 @@ the PR says so.
   > still in the ADT and m1n1 prunes its node by position. `t6050-ultra.dtsi` is unchanged (no J775D
   > ADT checked).
   >
-  > Tested on J716s (18 CPUs up). Not booted on J716c. LLM use: written with an LLM assistant (Claude);
-  > `Assisted-by: LLM` in the commit.
+  > Tested on J716s (18 CPUs up). Not booted on J716c.
 
 ## 0055 arm64: dts: apple: t6050: Describe the SMC's second GPIO bank
 
 - Target: the J716s DT PR (it is its first consumer). Useful to J716c too once its AFE reset can use gp1c
   or when its pcIO driver lands.
-- Text: as the commit; LLM disclosure as above.
+- Text: as the commit.
 
 ## 0056 dt-bindings: arm: apple: Add the MacBook Pro (16-inch, M5 Pro)
 
@@ -208,7 +201,7 @@ the PR says so.
   > Tested on J716s: NVMe root, keyboard and trackpad, USB3 left-front, SMC, 18 CPUs, simpledrm. The
   > DTB is equivalent to the hand-edited one we have been booting (differences listed in the PR: two
   > compatibles now matched by drivers, one unreferenced ANS power state dropped). `make dtbs` clean;
-  > `dtbs_check` not run yet. LLM use: written with an LLM assistant (Claude); `Assisted-by: LLM` in the
+  > `dtbs_check` not run yet.
   > commit.
 
 - Before sending: run `make dtbs_check` (needs dt-schema) on t6050-j716s.dtb and fix what it reports

@@ -1,6 +1,6 @@
 # dt-prep: right port, SMC sensors, s2idle plan (J716s, j716s-series)
 
-Base: `j716s-series` `b9cea5ab1b7d` (the filter-branch rewrite of `4f630b11270d`, identical tree).
+Base: `j716s-series` `aec60666a572` (the filter-branch rewrite of `4f630b11270d`, identical tree).
 Worktree `/Volumes/linux-cs/wt-dtprep` (branches `dtprep-work` = right-port, `dtprep-hwmon`, `dtprep-sleep`,
 `dtprep-stack` = all four applied with `git am`), build dir `/Volumes/linux-cs/wt-dtprep-out` (DTB only).
 Author Rolando Trevino, `Assisted-by: LLM` + `Co-Authored-By`, no `Signed-off-by` (add yours).

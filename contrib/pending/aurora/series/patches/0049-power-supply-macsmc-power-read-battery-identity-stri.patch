@@ -1,4 +1,4 @@
-From 39db81e64803117087ec45a8abe3d9c9259b3969 Mon Sep 17 00:00:00 2001
+From 9db48b6c6777d8bc677f0c5bf49d7452652d2c3e Mon Sep 17 00:00:00 2001
 From: Dj <hey@djdev.me>
 Date: Fri, 6 Nov 2026 18:48:49 -0500
 Subject: [PATCH] power: supply: macsmc-power: read battery identity strings at
@@ -20,7 +20,6 @@ established.
 
 Signed-off-by: Dj <hey@djdev.me>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  drivers/power/supply/macsmc-power.c | 41 ++++++++++++++++++++++++-----

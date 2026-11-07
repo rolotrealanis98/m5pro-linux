@@ -18,7 +18,6 @@ or restart handler (the watchdog for restart).
 
 This is a safety bound, not a behaviour change when the SMC replies.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

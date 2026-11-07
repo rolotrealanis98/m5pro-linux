@@ -10,7 +10,6 @@ directory is never built, and with TYPEC_TPS6598X=m the built-in
 sn201202x.o is compiled but never linked into vmlinux (obj-m dir).
 Key the directory on TYPEC_TPS6598X_CORE, which both front ends select.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

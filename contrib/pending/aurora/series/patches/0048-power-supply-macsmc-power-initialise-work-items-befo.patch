@@ -1,4 +1,4 @@
-From cef2396c0b544d89bfe425c9d492317f9b82c469 Mon Sep 17 00:00:00 2001
+From ea2fd5b7d8960580e8eca6e74bd3813042ba8eb9 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 18:48:35 -0500
 Subject: [PATCH] power: supply: macsmc-power: initialise work items before the
@@ -13,8 +13,6 @@ registered and drop the later INIT_WORK()/INIT_DELAYED_WORK().
 
 Port of m5pro-linux integration patch 0004 to the Aurora driver.
 
-Assisted-by: LLM
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  drivers/power/supply/macsmc-power.c | 12 ++++++++----

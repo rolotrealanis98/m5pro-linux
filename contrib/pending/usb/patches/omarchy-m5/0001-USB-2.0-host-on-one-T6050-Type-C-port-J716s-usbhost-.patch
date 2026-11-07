@@ -17,7 +17,6 @@ Subject: [PATCH] USB 2.0 host on one T6050 Type-C port (J716s usbhost DTB)
   marker block so existing trees pick it up), merge the fragment, and
   require its key symbols so an old .config is regenerated.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

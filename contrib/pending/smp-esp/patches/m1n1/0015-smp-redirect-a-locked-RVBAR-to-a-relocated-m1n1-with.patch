@@ -15,7 +15,6 @@ _vectors_start" (rest "b ."), clean it to PoC, invalidate the I-cache and read i
 an exception guard. Any failure, and every other case, keeps the previous "Failed!" path with its
 bounded wait. kboot reserves the patched slot in the FDT so Linux never overwrites it.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

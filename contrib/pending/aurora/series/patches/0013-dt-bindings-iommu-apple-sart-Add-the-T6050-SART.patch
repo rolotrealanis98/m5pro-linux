@@ -8,7 +8,6 @@ and size arrays, so it is not compatible with apple,t6000-sart and has
 no fallback.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---
  Documentation/devicetree/bindings/iommu/apple,sart.yaml | 4 ++++

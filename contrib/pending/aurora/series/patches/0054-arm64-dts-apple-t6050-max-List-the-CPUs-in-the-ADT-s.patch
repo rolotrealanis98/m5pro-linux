@@ -1,4 +1,4 @@
-From 2d2ce38d22b1aac0bad69622a3d3da4424e78ee2 Mon Sep 17 00:00:00 2001
+From b39ccb55bcf761b32f53de14f8af4d5e25ced3a2 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:56:34 -0500
 Subject: [PATCH] arm64: dts: apple: t6050-max: List the CPUs in the ADT's
@@ -22,8 +22,6 @@ alone here: no J775D ADT was available to check its order.
 
 Tested on J716s: all 18 cores come up.
 
-Assisted-by: LLM
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  arch/arm64/boot/dts/apple/t6050-max.dtsi | 13 +++++++------

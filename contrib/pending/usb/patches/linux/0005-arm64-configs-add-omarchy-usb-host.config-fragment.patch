@@ -8,7 +8,6 @@ ax88179, cdc_ether/ncm/eem, rndis), UAS, Wi-Fi dongles (rtl8xxxu, mt7601u,
 mt76x2u) and the SN201202x PD driver, all built in because the kernel is
 shipped without modules.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

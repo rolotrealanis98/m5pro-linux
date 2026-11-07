@@ -9,7 +9,6 @@ T6050 (plain 0x4D0000 does; the same bytes-only size cliff is reported on T8132 
 Most of the file is zeros from secondary_stacks[MAX_CPUS][0x10000]; 24 covers every M5 Pro/Max
 (18 cores) and matches GravityLinux's fork, saving 0x80000.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

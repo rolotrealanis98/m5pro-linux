@@ -27,7 +27,6 @@ for the M3 Max and Ultra (t6031-base, -die0, -dieX):
   the HDMI port, PCIe, audio, the boot NOR and the fans.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 [erik: dropped references to private files from a comment]
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---

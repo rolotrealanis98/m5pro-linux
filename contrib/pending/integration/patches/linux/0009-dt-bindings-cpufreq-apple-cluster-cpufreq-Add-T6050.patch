@@ -9,7 +9,6 @@ p-state in bits 9:5 of the status register at +0x50 (measured on the
 J714s and J716s). Like T6020 it is described as
 "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq".
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

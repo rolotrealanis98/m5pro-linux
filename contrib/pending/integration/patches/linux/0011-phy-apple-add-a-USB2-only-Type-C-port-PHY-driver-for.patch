@@ -20,7 +20,6 @@ Plain dwc3 calls phy_set_mode() only after its core init, while Asahi's
 dwc3-apple notes the USB2 PHY mode must be set before dwc3 resets it, so
 the PHY also takes its initial mode from "apple,default-mode".
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

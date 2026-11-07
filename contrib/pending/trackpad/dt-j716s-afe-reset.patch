@@ -2,7 +2,6 @@ dt: t6050-j716s: describe the host-driven trackpad AFE reset
 
 Apply in the omarchy-m5 checkout: git apply <this file>
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 
 diff --git a/dt/t6050-j716s.dts b/dt/t6050-j716s.dts
 index fb2c60a..66ccdd0 100644

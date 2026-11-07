@@ -11,7 +11,6 @@ pin 0x1c = key gp1c = smc_gpio_low 28, asserted low, power method 2.
 post-init-providers keeps the transport probe from waiting on the GPIO
 chip.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

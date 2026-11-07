@@ -22,7 +22,6 @@ Based on edimoldovan/linux-aurora 9f8535b38fcb ("usb: xhci-plat: honour
 wakeup-source; J714c USB controllers keep their PHY across s2idle"),
 driver hunk only.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

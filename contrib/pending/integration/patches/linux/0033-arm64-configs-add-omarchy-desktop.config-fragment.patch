@@ -24,7 +24,6 @@ The zram and keyboard-backlight items follow edimoldovan/linux-aurora
 (00662e9fd517) is not published yet, so the netfilter set is our own,
 derived from ufw's before/after rules.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

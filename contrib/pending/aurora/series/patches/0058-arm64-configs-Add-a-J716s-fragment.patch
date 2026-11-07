@@ -1,4 +1,4 @@
-From b9cea5ab1b7d418fdea75ee45c27b44eb23f3082 Mon Sep 17 00:00:00 2001
+From aec60666a5726c4ab725c28b97f9dc8f503b2bac Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:58:53 -0500
 Subject: [PATCH] arm64: configs: Add a J716s fragment
@@ -15,8 +15,6 @@ MTP haptic driver off so that HID_MAGICMOUSE, which drives the trackpad,
 can be built in, and enables Landlock (pacman's download sandbox),
 nftables, zram with zstd and /dev/mem for the userspace it runs.
 
-Assisted-by: LLM
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  arch/arm64/configs/j716s.config | 74 +++++++++++++++++++++++++++++++++

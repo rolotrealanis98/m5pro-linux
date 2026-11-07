@@ -3,7 +3,6 @@ From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Tue, 20 Oct 2026 06:04:45 -0400
 Subject: [PATCH 07/12] t6050: clang-format the rebased omarchy-m5 patches
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

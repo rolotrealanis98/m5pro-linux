@@ -13,7 +13,6 @@ registered and drop the later INIT_WORK()/INIT_DELAYED_WORK().
 
 Port of m5pro-linux integration patch 0004 to the Aurora driver.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

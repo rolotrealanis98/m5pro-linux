@@ -6,7 +6,6 @@ Subject: [PATCH 06/58] dt-bindings: watchdog: apple,wdt: Add T6050
 T6050's watchdog is compatible with T8103's.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---
  Documentation/devicetree/bindings/watchdog/apple,wdt.yaml | 1 +

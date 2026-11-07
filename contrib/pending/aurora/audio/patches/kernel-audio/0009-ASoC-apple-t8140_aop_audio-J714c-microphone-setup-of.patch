@@ -17,7 +17,6 @@ a refusal does not stop the array. T8140 keeps its firmware's own setup.
 J714c's firmware accepts every step (return 0) and the array still
 records the idle noise floor only: the microphone input stays off.
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 
 [port to integration/aurora (aurora-j716s 6d9f1ec652a6): applied
  unchanged to sound/soc/apple/aop_t8140.rs, t8140_aop_audio.rs's name in

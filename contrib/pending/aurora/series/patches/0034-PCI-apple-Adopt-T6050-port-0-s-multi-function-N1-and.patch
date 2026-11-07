@@ -24,7 +24,6 @@ for it:
   root port node are applied; absent ones are skipped.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 (cherry picked from commit 94e4ebf62104fbee3f366d0938a1311c82c1817a)
 ---

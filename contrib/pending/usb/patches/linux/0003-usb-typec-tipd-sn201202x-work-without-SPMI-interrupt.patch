@@ -20,7 +20,6 @@ partner registration, which the IRQ branch overwrites and only logs, but
 which made the polled probe fail. Also cast the match data through
 uintptr_t (W=1 -Wvoid-pointer-to-enum-cast).
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

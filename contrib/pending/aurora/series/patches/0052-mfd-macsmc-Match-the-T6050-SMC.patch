@@ -1,4 +1,4 @@
-From 3c9d7a26496a94ae0467663ff1bfafdef5cc265c Mon Sep 17 00:00:00 2001
+From d13cae71a921ebdca45772ecc3906cf36592aae0 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:55:57 -0500
 Subject: [PATCH] mfd: macsmc: Match the T6050 SMC
@@ -18,8 +18,6 @@ Tested on J716s through the equivalent "apple,t8103-smc" fallback: RTC,
 SMC input, reboot, macsmc-gpio and macsmc-low-gpio probe, and the
 trackpad's AFE reset on gp1c works. Not built with this entry yet.
 
-Assisted-by: LLM
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  Documentation/devicetree/bindings/mfd/apple,smc.yaml | 2 ++

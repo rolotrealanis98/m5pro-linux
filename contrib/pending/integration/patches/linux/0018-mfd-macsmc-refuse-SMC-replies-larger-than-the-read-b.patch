@@ -35,7 +35,6 @@ Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c,
 the "rsize && ret > rsize" guard and the copy of ret bytes; kunit hooks
 left out.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

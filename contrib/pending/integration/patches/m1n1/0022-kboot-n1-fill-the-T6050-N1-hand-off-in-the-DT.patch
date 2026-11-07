@@ -22,7 +22,6 @@ the boot loader what only the ADT knows. For the apple,t6050-pcie host:
 The MAC addresses already travel through the wifi0/bluetooth0 aliases.
 Nothing here trains a link.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

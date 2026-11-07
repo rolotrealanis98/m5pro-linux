@@ -31,7 +31,6 @@ other hosts' ports does: a line the pin controller reserves
 otherwise returned with no word of which port or property.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 (cherry picked from commit a873be047e9a514f8a2e886f5272c570e0dd6516)
 ---

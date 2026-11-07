@@ -7,7 +7,6 @@ Subject: [PATCH 03/58] dt-bindings: mailbox: apple,mailbox: Add T6050 ASC
 T6050's coprocessors (ANS among them) use the ASC v4 mailbox.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---
  Documentation/devicetree/bindings/mailbox/apple,mailbox.yaml | 1 +

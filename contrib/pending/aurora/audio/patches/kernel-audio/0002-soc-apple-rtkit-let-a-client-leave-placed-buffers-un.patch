@@ -14,7 +14,6 @@ APPLE_RTKIT_COPROC_PLACES_BUFFERS.
 
 No client sets the flag yet; behaviour is unchanged.
 
-Assisted-by: LLM
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

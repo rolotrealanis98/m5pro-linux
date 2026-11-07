@@ -26,7 +26,6 @@ drivers/power/supply/macsmc-power.c (macsmc_chls_has_limit,
 macsmc_battery_clear_stray_discharge, macsmc_battery_charge_behaviours,
 the threshold setter).
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

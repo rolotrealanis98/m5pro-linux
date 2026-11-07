@@ -1,4 +1,4 @@
-From 0b8423c69abb374cd7c372c549e27ac71daf92d6 Mon Sep 17 00:00:00 2001
+From b5e1a7608c0d63e31eecc55e8a6d3557ce083bcd Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:57:06 -0500
 Subject: [PATCH] arm64: dts: apple: t6050: Describe the SMC's second GPIO bank
@@ -13,8 +13,6 @@ and T6031 files use. The J716s trackpad's AFE reset is on it (gp1c).
 
 Tested on J716s.
 
-Assisted-by: LLM
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  arch/arm64/boot/dts/apple/t6050-die0.dtsi | 11 +++++++++++

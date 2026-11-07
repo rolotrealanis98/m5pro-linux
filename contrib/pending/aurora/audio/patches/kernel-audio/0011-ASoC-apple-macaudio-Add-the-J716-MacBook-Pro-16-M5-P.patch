@@ -14,7 +14,6 @@ speakersafetyd holds it (safe_vol and max_vol), until a profile is
 measured on AID41. The amps' levels come from apple,speaker-config in
 the DT, so a DT without it binds the jack and leaves the speakers off.
 
-Assisted-by: LLM
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

@@ -5,7 +5,6 @@ Subject: [PATCH 12/12] wdt: dead-man switch for unattended hv runs
 
 With m1n1.wdt=keep the primary watchdog stays armed; proxy_process() and hv_tick() now reset its count, so it only bites when m1n1 itself wedges. The register holds at most ~170 s of 24 MHz ticks, shorter than an SPTM guest load, so it has to be petted.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

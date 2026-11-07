@@ -1,4 +1,4 @@
-From 7131d41671b523742d66f70a5e73fc51ab0a15e4 Mon Sep 17 00:00:00 2001
+From 129d976fa6339644ab087655ee47d9787ff8e562 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 18:48:03 -0500
 Subject: [PATCH] HID: dockchannel-hid: settle 50 ms after releasing the AFE
@@ -15,8 +15,6 @@ Log each assert and release at info level, and a failure to drive the
 line as an error, so a boot log shows whether the reset ran at all
 (the routine set-up messages are debug-only).
 
-Assisted-by: LLM
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  drivers/hid/dockchannel-hid/dockchannel-hid.c | 24 ++++++++++++++-----

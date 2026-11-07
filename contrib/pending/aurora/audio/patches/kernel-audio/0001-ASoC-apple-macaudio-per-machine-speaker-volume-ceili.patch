@@ -13,7 +13,6 @@ max_vol 0.
 From rolotrealanis98/m5pro-linux patches 0030 and 0031 (J716), adapted
 to J714c.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 [port to integration/aurora (aurora-j716s 6d9f1ec652a6): the ceiling
  applied per control in the current macaudio_vlimit_unlock(); the J714
  machine entry and j714c.config hunks are board-specific and dropped]

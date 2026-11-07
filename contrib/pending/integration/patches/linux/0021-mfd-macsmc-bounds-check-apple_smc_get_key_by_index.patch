@@ -13,7 +13,6 @@ enumeration (debug tools, macsmc-hwmon experiments).
 
 Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

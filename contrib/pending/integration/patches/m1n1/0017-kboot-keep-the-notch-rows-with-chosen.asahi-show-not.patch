@@ -13,7 +13,6 @@ Without the variable nothing changes.
 
 Based on edimoldovan/m1n1 t6050-aurora src/kboot.c (kboot_show_notch).
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

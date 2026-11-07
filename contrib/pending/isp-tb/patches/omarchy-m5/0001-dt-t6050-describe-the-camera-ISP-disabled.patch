@@ -21,7 +21,6 @@ patches. Decompiled t6050-j716s.dtb differs from the unpatched one only
 by the four new disabled nodes and phandle renumbering; the "okay"
 node count is unchanged (8). LLVM=1 W=1: no warnings for j716s/j714s.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

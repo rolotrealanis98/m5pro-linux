@@ -26,7 +26,6 @@ Note: build-kernel.sh only regenerates .config when a REQUIRED_Y symbol is
 missing; delete vendor/linux/.config (or run olddefconfig after merging)
 to pick up the new fragment.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

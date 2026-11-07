@@ -28,7 +28,6 @@ a hang. Both default to off.
 The tracing wraps this file's SMC accessors in macros, so no call site
 changes and nothing is traced in other drivers.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

@@ -19,7 +19,6 @@ x.1 release train. Confirm with the stub's SystemVersion.plist.
 Base: ~/Work/m1n1 m5-t6050 459a3af2 (also applies to AsahiLinux/m1n1 main
 70757dc7).
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

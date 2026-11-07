@@ -25,7 +25,6 @@ Adds pmgr_psreg_by_name()/pmgr_power_is_on() (skipping virtual devices:
 T6050 has a no_ps APCIE_PHY_SW), tunables_validate_local() and
 tunables_check_local_addr() from Aura, and kboot_get_chosen().
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

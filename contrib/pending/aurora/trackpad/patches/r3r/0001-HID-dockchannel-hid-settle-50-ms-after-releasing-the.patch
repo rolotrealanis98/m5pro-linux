@@ -15,7 +15,6 @@ Log each assert and release at info level, and a failure to drive the
 line as an error, so a boot log shows whether the reset ran at all
 (the routine set-up messages are debug-only).
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

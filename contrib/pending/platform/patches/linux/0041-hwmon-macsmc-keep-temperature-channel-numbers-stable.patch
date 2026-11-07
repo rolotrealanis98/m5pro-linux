@@ -16,7 +16,6 @@ stays the index of the node among the temperature-* children.
 Base: asahi-wip-7.2 236788cd2 (applies with or without the SMC agent's
 0010; the hunks are disjoint).
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

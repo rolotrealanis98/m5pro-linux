@@ -16,7 +16,6 @@ those states would never get a policy. Return the frequency of the
 nearest table entry instead and warn (ratelimited), so the policy comes
 up and the first ->target_index() moves the cluster into the table.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

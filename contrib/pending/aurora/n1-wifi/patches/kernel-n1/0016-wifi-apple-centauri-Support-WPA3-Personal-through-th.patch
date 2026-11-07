@@ -18,7 +18,6 @@ TLV 316 is the security roaming groups bitmap, not a PMF flag: send 0
 6 GHz connect without both is refused.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 
 (cherry picked from commit 28c98074f21e272737608de1d86775217df05843)

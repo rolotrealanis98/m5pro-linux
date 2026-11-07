@@ -6,7 +6,6 @@ Subject: [PATCH 11/12] hv: sprr: align the guest RAM top to 1 MiB for T6050
 
 SPTM types the MTE tag storage as [TagOffset, TagOffset + size) and expects it to end at the top of RAM. With the guard page the guest top was 0x...89fc000, leaving 1008 KiB untyped: sptm_bootstrap_finalize: Frame has been left untyped during bootstrap 0x10ae8900000.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

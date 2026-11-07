@@ -6,7 +6,6 @@ Subject: [PATCH] j716s: 16-inch M5 Pro board DT, measured pmgr boot state,
 
 J716s runs the full 18-core SKU (runtime ADT cpu0-17), same MTP children as J714s; trackpad firmware tpmtfw-j716s.bin. cpufreq, storage-net and pmgr regenerated from the J716s runtime ADT are byte-identical to the committed J714s files; 0 of 273 shared PMGR domains differ at handover. Booted tethered to an initramfs shell with maxcpus=1 (USB gadget up, 10.55.0.2 answers ping).
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

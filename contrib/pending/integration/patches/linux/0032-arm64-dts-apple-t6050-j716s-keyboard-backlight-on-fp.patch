@@ -21,7 +21,6 @@ The aurora leds-pwm change for a zero period read-back is not needed:
 without it leds-pwm starts the LED "off" and takes the period from the
 pwms specifier, so brightness writes still work.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

@@ -21,7 +21,6 @@ port, Type-C mode switches and DisplayPort on the rear ports ran without
 an SError on every boot since 2026-10-30.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---
  drivers/phy/apple/atc-t6050-combo.h |  8 ++++++++

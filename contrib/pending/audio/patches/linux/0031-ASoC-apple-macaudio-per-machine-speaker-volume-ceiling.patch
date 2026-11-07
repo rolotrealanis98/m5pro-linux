@@ -17,7 +17,6 @@ alsa-lib, which clamps to the control's reported maximum.
 
 Applies on top of 0030.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

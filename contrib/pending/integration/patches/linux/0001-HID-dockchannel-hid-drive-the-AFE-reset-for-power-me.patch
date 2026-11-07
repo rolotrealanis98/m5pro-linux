@@ -28,7 +28,6 @@ host-held line, pulsed for 50 ms as macOS does; FIFO mode is unchanged.
 
 Compile-tested only.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

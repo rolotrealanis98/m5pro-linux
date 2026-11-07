@@ -20,7 +20,6 @@ Base: j716s @ 2c87598. Conflicts textually with the USB agent's
 build-kernel.sh hunks (same install list / DTB block); resolve by keeping
 both file lists and both DTB lines.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

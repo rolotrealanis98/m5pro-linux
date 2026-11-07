@@ -30,7 +30,6 @@ cfg80211's list.
   still returns -EREMOTEIO for a refusal.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 
 (cherry picked from commit af24bd0442053dd6a9de72c0af2a625600fb1269)

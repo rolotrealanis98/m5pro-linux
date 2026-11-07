@@ -1,4 +1,4 @@
-From 3846c7a33cc1c264b57e5d6074734769b1dc1796 Mon Sep 17 00:00:00 2001
+From 5412bbcf27db50adf35ea2072a22977fd8ba675d Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:56:12 -0500
 Subject: [PATCH] dt-bindings: cpufreq: apple,cluster-cpufreq: Add T6050
@@ -15,8 +15,6 @@ T6030, T6031, T6041 and T8122. A later driver entry for T6050 itself
 and a firmware-thermal requirement) matches the first string and takes
 precedence without a device tree change.
 
-Assisted-by: LLM
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  .../devicetree/bindings/cpufreq/apple,cluster-cpufreq.yaml       | 1 +

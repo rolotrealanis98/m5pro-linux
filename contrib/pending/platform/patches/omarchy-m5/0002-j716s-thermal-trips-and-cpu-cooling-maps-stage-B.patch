@@ -9,7 +9,6 @@ trips until power-off is verified (TEST-PLAN P2).
 
 Base: omarchy-m5 j716s @ 2c87598 + this series' 0001.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

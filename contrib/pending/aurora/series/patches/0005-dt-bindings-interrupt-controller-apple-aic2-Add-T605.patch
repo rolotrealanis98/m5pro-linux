@@ -8,7 +8,6 @@ T6050's AIC3 is the T8122 one with two dies, so it takes the T8122 fallback
 and, like T6031's, four interrupt cells (the second is the die).
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---
  .../devicetree/bindings/interrupt-controller/apple,aic2.yaml    | 2 ++

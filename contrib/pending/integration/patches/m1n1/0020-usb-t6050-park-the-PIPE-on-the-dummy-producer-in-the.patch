@@ -25,7 +25,6 @@ clamped, then clock off, dummy data, dummy clock. The existing AON_GEN
 write releases the reset afterwards, as before. Other SoCs keep the 0x22
 write.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

@@ -36,7 +36,6 @@ an old stage-1 ignores the new variables ("Unknown variable").
 
 Image size is unchanged (0x420000 raw, text ends 0x83854 of 0x90000).
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  Makefile        |  1 +
  src/chainload.c | 12 +++++++

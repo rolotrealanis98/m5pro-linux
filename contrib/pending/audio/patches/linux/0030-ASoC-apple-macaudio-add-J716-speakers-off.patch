@@ -19,7 +19,6 @@ Not tested on hardware: there is no CPU-side DAI for T6050 yet (the MCA is
 owned by the AOP firmware on M4/M5), so this only takes effect once that
 transport exists.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

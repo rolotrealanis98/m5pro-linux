@@ -31,8 +31,6 @@ powers it up nor down afterwards) and no allow-dram-apf-slices-0 property
 /arm-io/dart-pmp does not exist on T6050, so before this change no PMP
 DAPF was programmed. Not yet tested on J716s hardware.]
 
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  src/dapf.c | 10 ++++++++--
  1 file changed, 8 insertions(+), 2 deletions(-)

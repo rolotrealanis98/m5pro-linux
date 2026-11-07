@@ -8,7 +8,6 @@ nvmmu) and power domains. The T6050 ANS is adopted running and never
 reset through PMGR, so it requires no reset.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---
  .../bindings/nvme/apple,nvme-ans.yaml         | 24 ++++++++++++++++---

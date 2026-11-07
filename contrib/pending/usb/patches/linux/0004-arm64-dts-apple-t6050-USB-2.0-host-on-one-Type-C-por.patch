@@ -14,7 +14,6 @@ unchanged.
 Add t6050-j716s-usbhost.dts, which is t6050-j716s.dts plus that file, as a
 separate DTB: t6050-j716s.dtb stays byte-identical for rollback.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

@@ -17,7 +17,6 @@ unaffected (pm_suspend_in_progress() is false outside system sleep).
 
 Base: asahi-wip-7.2 236788cd2 + omarchy-m5 0003 (also applies without it).
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

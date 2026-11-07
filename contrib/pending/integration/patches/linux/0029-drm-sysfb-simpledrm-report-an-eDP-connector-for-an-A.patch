@@ -17,7 +17,6 @@ connector as eDP. Without the property nothing changes.
 Based on edimoldovan/linux-aurora 9dee12b1266c ("drm/sysfb: simpledrm:
 eDP connector for an Apple built-in panel"), tested by him on J714c.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

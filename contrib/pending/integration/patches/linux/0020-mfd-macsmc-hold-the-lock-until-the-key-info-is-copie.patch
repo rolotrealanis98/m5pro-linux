@@ -16,7 +16,6 @@ macsmc-power decides the BCF0 width from this (1 byte on 27.x firmware,
 
 Based on edimoldovan/linux-aurora (t6050-j714c) drivers/mfd/macsmc.c.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

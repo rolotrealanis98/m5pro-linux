@@ -1,4 +1,4 @@
-From cfdefff2fa72c735de68e096a85000632a652ba8 Mon Sep 17 00:00:00 2001
+From 1af9997b0b3bb628bfbb113782a0c8e776fcd068 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:58:38 -0500
 Subject: [PATCH] arm64: dts: apple: Add J716s (MacBook Pro 16-inch, M5 Pro)
@@ -32,8 +32,6 @@ running ANS.
 Tested on J716s: NVMe root, keyboard and trackpad, USB3 on the
 left-front port, SMC, 18 CPUs, simpledrm on the internal panel.
 
-Assisted-by: LLM
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  arch/arm64/boot/dts/apple/Makefile        |   1 +

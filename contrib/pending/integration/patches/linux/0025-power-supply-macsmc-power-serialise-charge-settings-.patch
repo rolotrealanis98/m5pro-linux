@@ -24,7 +24,6 @@ drivers/power/supply/macsmc-power.c (charge_lock, "ret < 0" write
 checks, the CHTE length check). The AUTO_DISCHARGE charge behaviour from
 the same tree needs a new power-supply UAPI value and is not ported.
 
-Co-Authored-By: Claude <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---

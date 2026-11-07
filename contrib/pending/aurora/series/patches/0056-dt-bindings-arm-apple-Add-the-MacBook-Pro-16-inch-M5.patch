@@ -1,4 +1,4 @@
-From 6c8ba004d59f1009ed44ec9a6f0c3de477893835 Mon Sep 17 00:00:00 2001
+From 5a2c687e162b05c74577759a8484ce28f6c5f483 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 20:58:21 -0500
 Subject: [PATCH] dt-bindings: arm: apple: Add the MacBook Pro (16-inch, M5
@@ -7,8 +7,6 @@ Subject: [PATCH] dt-bindings: arm: apple: Add the MacBook Pro (16-inch, M5
 The J716s (Mac17,8 in its ADT) is a MacBook Pro with one T6050 die, the
 M5 Pro. Add its board compatible.
 
-Assisted-by: LLM
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  Documentation/devicetree/bindings/arm/apple.yaml | 6 ++++++

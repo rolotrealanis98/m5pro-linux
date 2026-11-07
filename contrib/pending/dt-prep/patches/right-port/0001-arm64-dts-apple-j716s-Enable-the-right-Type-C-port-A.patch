@@ -24,8 +24,6 @@ The boot loader has to put hpm2 in S0 (m1n1 "usb: pd: t6050: power up
 the HPMs") for VBUS in host mode, park ATC2's PIPE and fill the PHY's
 tunables, which it does for every port it finds.
 
-Assisted-by: LLM
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  arch/arm64/boot/dts/apple/t6050-j716s.dts | 104 +++++++++++++++++++++-

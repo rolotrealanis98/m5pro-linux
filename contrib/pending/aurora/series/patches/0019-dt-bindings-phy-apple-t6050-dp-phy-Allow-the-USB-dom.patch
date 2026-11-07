@@ -10,7 +10,6 @@ hold it on a port with no USB controller bound. The fixed DisplayPort
 PHY keeps exactly three domains.
 
 Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Erik Bourget <erik@ebourget.net>
 ---
  .../devicetree/bindings/phy/apple,t6050-dp-phy.yaml  | 12 +++++++++++-

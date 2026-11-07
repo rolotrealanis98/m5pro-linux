@@ -12,7 +12,6 @@ p-state of every cluster is in the log, and warn when the APSC disable
 bit (bit 22 on M1, bit 23 on M2 and later, as named by m1n1) is set,
 because the cluster then ignores p-state requests.
 
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 
 ---
