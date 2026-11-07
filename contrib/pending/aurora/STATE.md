@@ -67,7 +67,7 @@ node) booted and is `boot.bin.prev` behind R3-SERIES.
 | m1n1 | `m1n1-plain-r2-pipepark-atc.bin`, sha256 prefix `28b26ebc` (full: `28b26ebcf91e11e512ef100aae0b3e66d174ebf8a380c243dea4763ae2459a33`), banner `v2.0.0-72-gf7555558` = `pipepark-atc` = stage 2 of R3-N + 0020 (PIPE park) + 0021 (ATC tunables from the ADT) | 0021 added (R3-R's `a28b1815` had 0020 only) |
 | Kernel tree | branch `aurora-j716s`, tip `302945c1ecb3` = `6d9f1ec652a6` (R3-R) + PR #937 (PCIe) + PR #938 (T6050 centauri, 16 patches) | +PR #937, +PR #938 |
 | Config | R3-R's, plus `SECURITY_LANDLOCK` (pacman's download sandbox), `ZRAM`, `PINCTRL_APPLE_GPIO`, `RFKILL`, `CFG80211`, `APPLE_CENTAURI`, `BT_HCICENTAURI`, `BACKLIGHT_CLASS_DEVICE` | the eight listed |
-| DT | `contrib/pending/aurora/dt/t6050-j716s-aurora-decompiled.dts` (compiled `t6050-j716s-typec-fixed8-notun.dtb` next to it): fixed8 **without** the 14 `apple,tunable-*` lists; m1n1 0021 fills them (14 properties seen in the live DT on R3-T). Publishable, no per-unit values | fixed8 (per-unit) for the committed DT |
+| DT | `contrib/pending/aurora/dt/t6050-j716s-aurora-decompiled.dts` (retired, see git history) (compiled `t6050-j716s-typec-fixed8-notun.dtb` (retired, see git history) next to it): fixed8 **without** the 14 `apple,tunable-*` lists; m1n1 0021 fills them (14 properties seen in the live DT on R3-T). Publishable, no per-unit values | fixed8 (per-unit) for the committed DT |
 | Initramfs | `initramfs-selftest.cpio.gz` (DIAG block + self-revert service), the same file as R3-Q/R3-R: sha256 `ce0b462c0ce465d7cde5fa73bac413f0bc4bf9c833efdf70c782dde06eba217a` | none |
 | Bootargs | R3-Q's (below) incl. `initcall_blacklist=macsmc_power_driver_init` and `m5.selftest=1` | none |
 | Seen on the console | `pcie-apple 1cb0000000.pcie: probe failed -22`: expected, the apcie0 port is untrained (m1n1 0023 is opt-in); harmless | new with PR #937 |
@@ -76,7 +76,7 @@ node) booted and is `boot.bin.prev` behind R3-SERIES.
 
 # R3-R: trackpad (2026-11-07 about 01:45)
 
-Payload sha256 prefix `b457425e`, booted by the self-revert loop. Recipe: `trackpad/R3-R-RECIPE.md`; analysis:
+Payload sha256 prefix `b457425e`, booted by the self-revert loop. Recipe: `trackpad/R3-R-RECIPE.md` (retired, see git history); analysis:
 `trackpad/ANALYSIS.md`.
 
 | Part | R3-R | Change from R3-Q |
@@ -91,7 +91,7 @@ Payload sha256 prefix `b457425e`, booted by the self-revert loop. Recipe: `track
 | DTB | `t6050-j716s-typec-fixed8.dtb` = fixed7 minus the driverless `apple,smc-pcio-gpio` node. AFE reset unchanged: `<&smc_gpio_low 28 GPIO_ACTIVE_LOW>` on `input@8000`. Per-unit, not committed (`trackpad/mk-fixed8.py` regenerates it from fixed7) | fixed8 for fixed7 |
 | Initramfs | `initramfs-selftest.cpio.gz`, sha256 `ce0b462c0ce465d7cde5fa73bac413f0bc4bf9c833efdf70c782dde06eba217a` | none |
 | Bootargs | as R3-Q, `initcall_blacklist=macsmc_power_driver_init` still on | none |
-| Payload build | `trackpad/mk-r3r.py` (variants `ring`, `pcio`, `power`); it refuses a kernel without magicmouse, 0001 or 0002 | |
+| Payload build | `trackpad/mk-r3r.py` (retired, see git history) (variants `ring`, `pcio`, `power`); it refuses a kernel without magicmouse, 0001 or 0002 | |
 | ESP | `boot.bin` = R3-R; `boot.bin.prev` = R2-B (the revert target); `boot.bin.r3q`, `boot.bin.b2`, `boot.bin.known-good` | |
 
 Not used: the `ring` and `pcio` fallbacks, and `trackpad/patches/optional-pcio/0005` (Aurora's pcIO GPIO line
@@ -106,7 +106,7 @@ gate); GPU (gated off); cpuidle beyond WFI (m1n1 `idle=nop`); m1n1 0021 so the D
 
 Payload `R3-Q-aurora-fwrestart-j716s-fixed7-pipepark-selftest.bin`, sha256 prefix `4083b7df`, booted
 2026-11-07 about 01:00 by the autonomous loop. Result and analysis: `../integration/RESULTS.md`
-("Round R3"), `pipe-park/ANALYSIS-R3O.md`, `pipe-park/R3-Q-RECIPE.md`. Per-unit values (PHY tunables) are not in this repository.
+("Round R3"), `pipe-park/ANALYSIS-R3O.md`, `pipe-park/R3-Q-RECIPE.md` (retired, see git history). Per-unit values (PHY tunables) are not in this repository.
 
 | Part | What |
 |---|---|
@@ -114,7 +114,7 @@ Payload `R3-Q-aurora-fwrestart-j716s-fixed7-pipepark-selftest.bin`, sha256 prefi
 | Kernel tree | `/Volumes/linux-cs/wt-aurora`, branch `aurora-j716s`, tip `4504ef7485be`: 31 commits on `aurora/integration` (`33bec4016c46`), listed below. Config as for R3-N (`make defconfig asahi.config`, 16K pages, boot-path drivers `=y`, `tools/README.md`) |
 | DTB | `t6050-j716s-typec-fixed7.dtb`, sha256 `1eb0fcef30554d7f6873c03372466daa837c0d2af7bba8eb138f0d1323347d25`. Lineage: J716c DT (PR #945) -> j716s derived -> fixed6 (CPU order, compatible fallbacks, AFE reset line, Type-C chain; **no** PHY tunables) -> fixed7 (fixed6 plus the 14 combo-PHY tunables generated from this unit's ADT). Per-unit, not committed. R3-P would use fixed6 with m1n1 0021 instead |
 | Initramfs | `initramfs-selftest.cpio.gz`, sha256 `ce0b462c0ce465d7cde5fa73bac413f0bc4bf9c833efdf70c782dde06eba217a` (`tools/mk-selftest-initramfs.sh`: DIAG block plus the self-revert service) |
-| Payload layout | m1n1 (0x400000 B) + `chosen.bootargs=` line + `chosen.asahi,show-notch=1` + `Image.gz` + DTB + initramfs (`mk-r3q.py`) |
+| Payload layout | m1n1 (0x400000 B) + `chosen.bootargs=` line + `chosen.asahi,show-notch=1` + `Image.gz` + DTB + initramfs (`mk-r3q.py` (retired, see git history)) |
 | ESP | R3-Q as `boot.bin`, R2-B as `boot.bin.prev` (the revert target) |
 
 Bootargs:
@@ -129,7 +129,7 @@ earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_
 Only the kernel: the three PHY commits at the top of the list below. They are Aurora's `j716c/thunderbolt`
 commits `6f93def30893` (park the PIPE from a dummy producer on any clock), `e604b7f414b4` (carry on when the
 PIPE lock is not acknowledged) and `b8f2be0fef93` (restart the PHY firmware on its original data), re-applied
-here with `git am` from `pipe-park/kernel-r3q/` under new hashes. Recipe: `pipe-park/R3-Q-RECIPE.md`.
+here with `git am` from `pipe-park/kernel-r3q/` under new hashes. Recipe: `pipe-park/R3-Q-RECIPE.md` (retired, see git history).
 
 ## Kernel commits above `aurora/integration`
 
