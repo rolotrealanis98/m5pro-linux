@@ -1,0 +1,52 @@
+From 4da1c814d2cc94fc0b20b53a613cdb27469b1e43 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 22:43:34 +0000
+Subject: [PATCH 4/5] asahi: keep the tile under fully masked draws on the M5
+ Pro
+
+On the M5 Pro (G17S), as on G17P, a covered fragment with no tile store
+still dirties the tile, which then stores undefined colour at the end of
+the tile. A draw with every colour channel masked off (a stencil-only
+pass over a cleared RGBA8 target) left (0,0,0,0) where the clear had
+been; the following blended draw then read a destination alpha of zero.
+Measured on the machine: clear to (0,0,0,1), draw with
+glColorMask(0,0,0,0), read back 00000000 instead of ff000000. Blending,
+partial colour masks and destination-alpha reads are correct.
+
+The epilog already has G17P's answer: preserve_zero_mask keeps the
+destination with a tile load/store pair when the write mask is empty
+(and for attachments the shader never writes). Turn it on for the
+Gallium epilog on G17S and G17C, the same M5 core. G17G keeps its
+validated behaviour; the Vulkan driver's epilog policy is unchanged.
+
+After this the probe reads ff000000 and the GLES smoke test's
+stencil-then-blend scene reads bf808080, as zink does.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ src/gallium/drivers/asahi/agx_state.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/src/gallium/drivers/asahi/agx_state.c b/src/gallium/drivers/asahi/agx_state.c
+index 4c91c155988..2653aea86e2 100644
+--- a/src/gallium/drivers/asahi/agx_state.c
++++ b/src/gallium/drivers/asahi/agx_state.c
+@@ -3798,6 +3798,14 @@ agx_update_fs(struct agx_batch *batch)
+                               : 0,
+    };
+    agx_fs_epilog_apply_device_policy(dev->chip, &link_key.epilog.fs);
++   /* G17S (and G17C, the same core) share G17P's tile behaviour: a covered
++    * fragment with no tile store still dirties the tile, which then stores
++    * undefined colour at EOT. Measured on the M5 Pro: a draw with every
++    * colour channel masked off left (0,0,0,0) where the clear had been. Keep
++    * the destination with a load/store pair, as G17P does. G17G is left as
++    * its validated line has it. */
++   if (agx_chip_g17_m5(dev->chip) && dev->chip != AGX_CHIP_G17G)
++      link_key.epilog.fs.preserve_zero_mask = true;
+ 
+    for (unsigned i = 0; i < PIPE_MAX_COLOR_BUFS; ++i) {
+       link_key.epilog.fs.rt_formats[i] = batch->key.cbufs[i].format;
+-- 
+2.56.0
+

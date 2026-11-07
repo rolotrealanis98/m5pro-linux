@@ -1,0 +1,115 @@
+From 043a4c58080c4951fea3797fe45fc6898ce77632 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 22:43:34 +0000
+Subject: [PATCH 5/5] asahi: wait for writers on other contexts before a CPU
+ map
+
+A transfer map syncs the writers in its own context's writer table only.
+The window-system path maps across contexts: the EGL context renders a
+GBM surface buffer and flushes it at eglSwapBuffers, then gbm_bo_map()
+maps the buffer through the GBM device's own context, whose table does
+not know that writer, so it read the buffer before the GPU had written
+it. On the M5 Pro gbm-scanout-test read black from a LINEAR scanout
+buffer while the same rendering read back correctly through
+glReadPixels, through gbm_bo_map after a glFinish, and from an EGLImage
+renderbuffer.
+
+Before the CPU access, wait for the syncobj the writing submission
+recorded on the BO (agx_batch_submit stores the batch syncobj and queue
+in bo->writer for every BO it writes; GPU readers on other contexts
+already wait on it), and, for an exported BO, for its implicit fences
+with DMA_BUF_IOCTL_SYNC, which also covers writers in other processes.
+The wait happens before the level-validity shortcut, since a write on
+another context need not have marked the level valid in this one, and
+not for unsynchronized maps.
+
+This is not M5-specific: any chip mapping a buffer another context wrote
+without a finish had the same race. It only adds waits for GPU work that
+writes the mapped buffer.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ src/gallium/drivers/asahi/agx_pipe.c | 52 ++++++++++++++++++++++++++++
+ 1 file changed, 52 insertions(+)
+
+diff --git a/src/gallium/drivers/asahi/agx_pipe.c b/src/gallium/drivers/asahi/agx_pipe.c
+index 724ef9d4422..9b171ec5acd 100644
+--- a/src/gallium/drivers/asahi/agx_pipe.c
++++ b/src/gallium/drivers/asahi/agx_pipe.c
+@@ -8,6 +8,7 @@
+ #include <errno.h>
+ #include <stdio.h>
+ #include <xf86drm.h>
++#include <linux/dma-buf.h>
+ #include "asahi/compiler/agx_compile.h"
+ #include "asahi/layout/layout.h"
+ #include "asahi/genxml/agx3_cmdstream.h"
+@@ -792,6 +793,52 @@ agx_shadow(struct agx_context *ctx, struct agx_resource *rsrc, bool needs_copy)
+  * Perform the required synchronization before a transfer_map operation can
+  * complete. This may require syncing batches.
+  */
++/*
++ * A writer on another context is not in this context's writer table. That is
++ * the window-system case: the EGL context renders a GBM surface buffer and
++ * flushes it at eglSwapBuffers, and gbm_bo_map() maps it through the GBM
++ * device's own context, which then read the buffer before the GPU had
++ * written it (gbm-scanout-test read black on the M5 Pro unless the client
++ * called glFinish first). Wait for the syncobj the writing submission left
++ * on the BO (agx_batch_submit records it for every BO a batch writes), and
++ * for the implicit fences of an exported BO, which also cover writers in
++ * other processes.
++ */
++static void
++agx_sync_foreign_writer(struct agx_context *ctx, struct agx_resource *rsrc)
++{
++   struct agx_device *dev = agx_device(ctx->base.screen);
++   struct agx_bo *bos[2] = {rsrc->bo,
++                            rsrc->separate_stencil ? rsrc->separate_stencil->bo
++                                                   : NULL};
++
++   for (unsigned i = 0; i < ARRAY_SIZE(bos); ++i) {
++      struct agx_bo *bo = bos[i];
++      if (!bo)
++         continue;
++
++      const uint64_t writer = p_atomic_read(&bo->writer);
++      if (writer && agx_bo_writer_queue(writer) != ctx->queue_id) {
++         uint32_t syncobj = agx_bo_writer_syncobj(writer);
++         int ret;
++         do {
++            ret = drmSyncobjWait(dev->fd, &syncobj, 1, INT64_MAX,
++                                 DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL, NULL);
++         } while (ret == -EINTR);
++      }
++
++      if ((bo->flags & AGX_BO_SHARED) && bo->prime_fd >= 0) {
++         struct dma_buf_sync sync = {
++            .flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ,
++         };
++         if (!drmIoctl(bo->prime_fd, DMA_BUF_IOCTL_SYNC, &sync)) {
++            sync.flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ;
++            drmIoctl(bo->prime_fd, DMA_BUF_IOCTL_SYNC, &sync);
++         }
++      }
++   }
++}
++
+ static void
+ agx_prepare_for_map(struct agx_context *ctx, struct agx_resource *rsrc,
+                     unsigned level,
+@@ -804,6 +851,11 @@ agx_prepare_for_map(struct agx_context *ctx, struct agx_resource *rsrc,
+    if (staging_blit)
+       return;
+ 
++   /* Before the validity test: a write on another context need not have
++    * marked the level valid here. */
++   if (!(usage & PIPE_MAP_UNSYNCHRONIZED))
++      agx_sync_foreign_writer(ctx, rsrc);
++
+    /* If the level has not been written, we may freely do CPU access (writes),
+     * even if other levels are being written by the GPU. This lets us write some
+     * mip levels on the CPU and some on the GPU, without stalling.
+-- 
+2.56.0
+

@@ -10,6 +10,7 @@ set -u
 NEW=${NEW:-/opt/mesa-aurora-gl}
 OLD=${OLD:-/opt/mesa-aurora}
 SMOKE=${SMOKE:-/usr/local/bin/gl-native-smoke}
+PROBE=${PROBE:-/usr/local/bin/gl-native-probe}
 W=/usr/local/bin/mesa-aurora
 LOG=/root/gl-native-ab-$(date +%Y%m%d-%H%M%S).log
 exec > >(tee "$LOG") 2>&1
@@ -70,6 +71,8 @@ run() {  # run LABEL PREFIX GLMODE
   # the smoke test prints GL_RENDERER from it).
   step "$label 2. gl-native-smoke on renderD128 (12 scenes, pixels checked)" 30 \
     "GL_RENDERER: $apple|GL_RENDERER: zink.*$apple" "$native_only" $W "$SMOKE" /dev/dri/renderD128
+  step "$label 2b. gl-native-probe (blend/mask alpha, GBM LINEAR buffers, GBM window surface)" 30 \
+    "RESULT: PASS" "$native_only" $W "$PROBE" /dev/dri/renderD128
   step "$label 3. egl-offscreen-test (first accelerated GLES frame)" 30 \
     "RESULT: PASS" "$native_only" $W egl-offscreen-test /dev/dri/renderD128
   step "$label 4. gbm-scanout-test on renderD128, LINEAR into simpledrm" 30 \

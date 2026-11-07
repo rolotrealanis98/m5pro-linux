@@ -514,7 +514,8 @@ main(int argc, char **argv)
       glDisable(GL_BLEND);
       glDisable(GL_STENCIL_TEST);
       glFinish();
-      expect("9-stencil-blend", GL_COLOR_ATTACHMENT0, W / 4, H / 2, 0xff808080);
+      /* Blending applies to alpha too: 0.5 * 0.5 + 1 * (1 - 0.5) = 0.75. */
+      expect("9-stencil-blend", GL_COLOR_ATTACHMENT0, W / 4, H / 2, 0xbf808080);
       expect("9-stencil-blend", GL_COLOR_ATTACHMENT0, 3 * W / 4, H / 2,
              0xff000000);
       glDeleteFramebuffers(1, &fbo);

@@ -1,7 +1,7 @@
-From 43c9967427751d399803b391dcd08021a30ac8f5 Mon Sep 17 00:00:00 2001
+From 94e1be8c79377fbf4a42f84881b3c8f9fdda8d98 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 16:49:04 -0500
-Subject: [PATCH 3/3] asahi: send the program storage lists the M5 Pro kernel
+Subject: [PATCH 3/5] asahi: send the program storage lists the M5 Pro kernel
  requires
 
 The M5 Pro and M5 Max (G17S, G17C) run on the G17 kernel runtime, which
@@ -33,7 +33,9 @@ commands. The G17 runtime takes a mixed command array and orders it with
 barriers, so each dispatch the Gallium M5 compute path records (one
 terminated single-dispatch stream each) is its own compute command of
 the batch's submission, waiting on the ones before it, and the render
-waits on all of them. G17G keeps its one-ioctl-per-dispatch split.
+waits on all of them. G17G keeps its one-ioctl-per-dispatch split. The batch's compute
+timestamps bracket its compute commands (start on the first, end on the
+last).
 
 Like Honeykrisp on M5, send the render command through the high words
 of the background and end-of-tile resource specifiers (the M5 colour
@@ -57,11 +59,11 @@ Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 Assisted-by: LLM Claude
 ---
  src/asahi/lib/agx_device.h            |  24 ++-
- src/gallium/drivers/asahi/agx_batch.c | 216 +++++++++++++++++++++++++-
+ src/gallium/drivers/asahi/agx_batch.c | 221 +++++++++++++++++++++++++-
  src/gallium/drivers/asahi/agx_pipe.c  |  17 +-
  src/gallium/drivers/asahi/agx_state.c |  46 ++++++
  src/gallium/drivers/asahi/agx_state.h |  28 ++++
- 5 files changed, 319 insertions(+), 12 deletions(-)
+ 5 files changed, 324 insertions(+), 12 deletions(-)
 
 diff --git a/src/asahi/lib/agx_device.h b/src/asahi/lib/agx_device.h
 index bb965309920..cc3d7e3d46d 100644
@@ -106,7 +108,7 @@ index bb965309920..cc3d7e3d46d 100644
               : offsetof(struct drm_asahi_cmd_render, bg_eot_rsrc_spec_hi);
  }
 diff --git a/src/gallium/drivers/asahi/agx_batch.c b/src/gallium/drivers/asahi/agx_batch.c
-index 536ea643460..5999a9dd34a 100644
+index 536ea643460..a99ccd0b9d4 100644
 --- a/src/gallium/drivers/asahi/agx_batch.c
 +++ b/src/gallium/drivers/asahi/agx_batch.c
 @@ -144,6 +144,139 @@ agx_encoder_cleanup(struct agx_device *dev, struct agx_encoder *encoder)
@@ -310,7 +312,7 @@ index 536ea643460..5999a9dd34a 100644
     const unsigned m5_split_count =
        !m5_split_prepass  ? 0
        : render           ? batch->cdm_dispatch_count
-@@ -1347,13 +1513,38 @@ agx_batch_submit(struct agx_context *ctx, struct agx_batch *batch,
+@@ -1347,13 +1513,43 @@ agx_batch_submit(struct agx_context *ctx, struct agx_batch *batch,
        .handle = submit_syncobj,
     };
  
@@ -335,6 +337,11 @@ index 536ea643460..5999a9dd34a 100644
 +         struct drm_asahi_cmd_compute one = *compute;
 +         one.cdm_ctrl_stream_base = cdm_base + batch->cdm_dispatch[i].start;
 +         one.cdm_ctrl_stream_end = cdm_base + batch->cdm_dispatch[i].end;
++         /* The batch's compute timestamps bracket all of its commands. */
++         if (i != 0)
++            memset(&one.ts.start, 0, sizeof(one.ts.start));
++         if (i + 1 != batch->cdm_dispatch_count)
++            memset(&one.ts.end, 0, sizeof(one.ts.end));
 +
 +         util_dynarray_append(&cmdbuf, header);
 +         util_dynarray_append_array(&cmdbuf, uint8_t, &one, header.size);
@@ -350,7 +357,7 @@ index 536ea643460..5999a9dd34a 100644
  
        if (m5_split_prepass) {
           /* The M5 compute profile is grounded for a single-dispatch control
-@@ -1470,16 +1661,27 @@ agx_batch_submit(struct agx_context *ctx, struct agx_batch *batch,
+@@ -1470,16 +1666,27 @@ agx_batch_submit(struct agx_context *ctx, struct agx_batch *batch,
                                      att.list, att.count);
        }
  
@@ -385,7 +392,7 @@ index 536ea643460..5999a9dd34a 100644
  
        util_dynarray_append(&cmdbuf, header);
 diff --git a/src/gallium/drivers/asahi/agx_pipe.c b/src/gallium/drivers/asahi/agx_pipe.c
-index c3bc40cf56c..294fc6cc5cf 100644
+index 0c8415666af..724ef9d4422 100644
 --- a/src/gallium/drivers/asahi/agx_pipe.c
 +++ b/src/gallium/drivers/asahi/agx_pipe.c
 @@ -1556,8 +1556,11 @@ agx_cmdbuf(struct agx_device *dev, struct drm_asahi_cmd_render *c,

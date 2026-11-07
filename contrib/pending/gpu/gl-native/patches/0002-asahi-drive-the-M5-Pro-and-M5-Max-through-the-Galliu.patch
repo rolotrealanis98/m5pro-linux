@@ -1,7 +1,7 @@
-From 827b857c511eb501e7464cd519ea854014237678 Mon Sep 17 00:00:00 2001
+From 8c6175c2fbf238386c358059bc642d81a5a39adc Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 16:39:27 -0500
-Subject: [PATCH 2/3] asahi: drive the M5 Pro and M5 Max through the Gallium M5
+Subject: [PATCH 2/5] asahi: drive the M5 Pro and M5 Max through the Gallium M5
  path
 
 The Gallium M5 (HAL300, AGX3c) path tests for G17G by name at every
@@ -30,8 +30,10 @@ them on M5: agx_zls_pixels() now packs the 16-bit M5 pair for every M5
 part, as hk_drm_m5_zls_pixels() does for Honeykrisp, and
 agx3_g17p_fragment_blend_constant_base() admits every M5 part.
 
-Timer queries stay off on every M5 part, as on G17G: the Gallium M5
-path has never stamped a render.
+Timer queries, which G17G's M5 runtime cannot back, are advertised on
+G17S and G17C: the G17 runtime maps timestamp objects and stamps M5
+renders and dispatches, and desktop GL 3.3 requires them
+(ARB_timer_query); without them the context stops at GL 3.2.
 
 Kept on G17G only: the one-dispatch-per-submission compute split, which
 answers the M5 kernel runtime's single-command bring-up submit path (the
@@ -57,12 +59,12 @@ Assisted-by: LLM Claude
  src/gallium/drivers/asahi/agx_blit.c          |   4 +-
  src/gallium/drivers/asahi/agx_disk_cache.c    |   2 +-
  .../drivers/asahi/agx_native_descriptor.c     |   6 +-
- src/gallium/drivers/asahi/agx_pipe.c          |  20 ++-
+ src/gallium/drivers/asahi/agx_pipe.c          |  21 ++-
  src/gallium/drivers/asahi/agx_state.c         | 158 +++++++++---------
  src/gallium/drivers/asahi/agx_swtnl.c         |   2 +-
  src/gallium/drivers/asahi/agx_uniforms.c      |   6 +-
  src/gallium/drivers/asahi/agx_xfb_cpu.c       |   2 +-
- 10 files changed, 108 insertions(+), 104 deletions(-)
+ 10 files changed, 109 insertions(+), 104 deletions(-)
 
 diff --git a/src/asahi/compiler/agx3_graphics_program.c b/src/asahi/compiler/agx3_graphics_program.c
 index 267f156cb5f..351455c93f9 100644
@@ -172,7 +174,7 @@ index f7536bc0ab8..0c90bde07a8 100644
        return false;
  
 diff --git a/src/gallium/drivers/asahi/agx_pipe.c b/src/gallium/drivers/asahi/agx_pipe.c
-index 5ffa01b7978..c3bc40cf56c 100644
+index 5ffa01b7978..0c8415666af 100644
 --- a/src/gallium/drivers/asahi/agx_pipe.c
 +++ b/src/gallium/drivers/asahi/agx_pipe.c
 @@ -1017,7 +1017,7 @@ agx_transfer_map(struct pipe_context *pctx, struct pipe_resource *resource,
@@ -229,22 +231,23 @@ index 5ffa01b7978..c3bc40cf56c 100644
  
     caps->clip_halfz = true;
     caps->prefer_real_buffer_in_constbuf0 = true;
-@@ -2354,9 +2354,13 @@ agx_init_screen_caps(struct pipe_screen *pscreen)
+@@ -2354,9 +2354,14 @@ agx_init_screen_caps(struct pipe_screen *pscreen)
     /* The experimental M5 kernel does not map timestamp objects yet. Timer
      * queries are optional for GL 2.x and GLES 3.0; do not advertise them or
      * require their unsupported buffer binding to create an ordinary context.
-+    * The Gallium M5 path has never stamped a render, on either M5 kernel
-+    * runtime, so G17S and G17C (which the experimental bring-up admits) go
-+    * without them too.
++    * The G17 runtime that runs G17S and G17C maps them and stamps M5 renders
++    * and dispatches (Honeykrisp uses them); timer queries are also what
++    * desktop GL 3.3 needs (ARB_timer_query).
      */
++   const struct agx_device *tdev = agx_device(pscreen);
     const bool timestamps =
 -      !agx_params_m5_supported(&agx_device(pscreen)->params);
-+      !agx_params_m5_supported(&agx_device(pscreen)->params) &&
-+      !agx_chip_g17_m5(agx_device(pscreen)->chip);
++      !agx_params_m5_supported(&tdev->params) &&
++      (!agx_chip_g17_m5(tdev->chip) || agx_m5_render_resources(tdev));
     caps->query_timestamp = timestamps;
     caps->query_time_elapsed = timestamps;
     caps->query_so_overflow = true;
-@@ -2870,7 +2874,7 @@ agx_screen_create(int fd, struct renderonly *ro,
+@@ -2870,7 +2875,7 @@ agx_screen_create(int fd, struct renderonly *ro,
     g17g_nir_options.support_indirect_inputs &=
        ~BITFIELD_BIT(MESA_SHADER_FRAGMENT);
     for (unsigned i = 0; i <= MESA_SHADER_COMPUTE; i++)
