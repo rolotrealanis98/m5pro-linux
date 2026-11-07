@@ -1,0 +1,26 @@
+### properties (< new, > ref)
+11d10
+< /aliases: nvram = "/soc@200000000/spi@505118000/flash@0/partitions/partition@700000"
+1135,1147d1133
+< /soc@200000000/spi@505118000/flash@0/partitions/partition@700000: (node)
+< /soc@200000000/spi@505118000/flash@0/partitions/partition@700000: label = "nvram"
+< /soc@200000000/spi@505118000/flash@0/partitions/partition@700000: reg = <0x700000 0xc0000>
+< /soc@200000000/spi@505118000/flash@0/partitions: #address-cells = <0x1>
+< /soc@200000000/spi@505118000/flash@0/partitions: #size-cells = <0x1>
+< /soc@200000000/spi@505118000/flash@0/partitions: (node)
+< /soc@200000000/spi@505118000/flash@0/partitions: compatible = "fixed-partitions"
+< /soc@200000000/spi@505118000/flash@0: (node)
+< /soc@200000000/spi@505118000/flash@0: compatible = "jedec,spi-nor"
+< /soc@200000000/spi@505118000/flash@0: reg = <0x0>
+< /soc@200000000/spi@505118000/flash@0: spi-max-frequency = <0x17d7840>
+< /soc@200000000/spi@505118000/flash@0: spi-rx-bus-width = <0x1>
+< /soc@200000000/spi@505118000/flash@0: spi-tx-bus-width = <0x1>
+1157c1143
+< /soc@200000000/spi@505118000: status = "okay"
+---
+> /soc@200000000/spi@505118000: status = "disabled"
+### child order (< new, > ref)
+34,36d33
+< /soc@200000000/spi@505118000: flash@0
+< /soc@200000000/spi@505118000/flash@0: partitions
+< /soc@200000000/spi@505118000/flash@0/partitions: partition@700000

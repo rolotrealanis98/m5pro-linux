@@ -1,0 +1,32 @@
+PASS J613/J713/J700/J616s/J716s board, controller and full-width aperture qualification (270 combinations)
+PASS T8140 read pass-through, opt-in, verified programs, tolerated BP bits, rejected control writes and empty partition
+PASS read-only startup, exact opcode/range/page/erase admission, WREN ordering, readback and fault latch
+PASS Macronix J616s part: no 35h on the wire, SR/CR checks, BP0-BP3 refusal and JEDEC mismatch
+PASS W25Q64 J616s part: second ID admitted with SR2 read and checks, third ID and empty slot refused
+PASS GD25UF16E J700 part: second ID admitted with GigaDevice SR1/SR2/SR3 checks; WIP, WEL, BP3, BP4, CMP, SUS1, SUS2 and other IDs refused
+PASS J716s GD 8 MiB part: programs and erases only inside 0x700000..0x7c0000, BP/SRP/WIP/WEL/SUS/CMP and other IDs refused, read-only until armed
+PASS runtime-PM idle stamp after read, denied write, full verified program and transfer error; other SoCs unchanged
+PASS controller changed-guard control rejects the write sequence
+PASS board changed-guard control rejects the write sequence
+PASS aperture changed-guard control rejects the write sequence
+PASS j616s-aperture changed-guard control rejects the write sequence
+PASS j716s-aperture changed-guard control rejects the write sequence
+PASS j716s-partition changed-guard control rejects the write sequence
+PASS j716s-jedec changed-guard control rejects the write sequence
+PASS j716s-bp changed-guard control rejects the write sequence
+PASS j616s-partition changed-guard control rejects the write sequence
+PASS range changed-guard control rejects the write sequence
+PASS bp-ok changed-guard control rejects the write sequence
+PASS mx-bp3 changed-guard control rejects the write sequence
+PASS mx-eqio changed-guard control rejects the write sequence
+PASS mx-eqio-read changed-guard control rejects the write sequence
+PASS jedec-alt changed-guard control rejects the write sequence
+PASS jedec-alt-empty changed-guard control rejects the write sequence
+PASS gd-dispatch changed-guard control rejects the write sequence
+PASS gd-bp34 changed-guard control rejects the write sequence
+PASS gd-sus2 changed-guard control rejects the write sequence
+PASS gd-cmp changed-guard control rejects the write sequence
+PASS j700-gd-id changed-guard control rejects the write sequence
+PASS read-only changed-guard control rejects the write sequence
+PASS fault-latch changed-guard control rejects the write sequence
+PASS pm-last-busy changed-guard control rejects the write sequence
