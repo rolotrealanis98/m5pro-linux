@@ -1,0 +1,186 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 09:20:35 -0800
+Subject: [PATCH 09/12] drm/apple: Give firmware 27 analytics events firmware
+ 26.6's answer
+
+No user-visible change is recorded. On the M5 Ultra (J775D), the
+analytics event whose zeroed answer crashed the displays about an hour
+after boot (the preceding commit) now gets the same answer as firmware
+26.6, from one shared handler: reported not sent, with a zeroed
+dictionary when none came.
+
+dj's fix hands the analytics event's dictionary back to the firmware
+27 DCP unchanged, copying the whole reply area from the request. Desktop
+26.6 answers the same event with the same record, and two details of its
+answer are not in that copy: the reply reports the event not sent, where
+the copy carries the request's null-dictionary flag into that field, and
+a request without a dictionary gets a zeroed one back.
+
+Move the record and the answer to iomfb.h, shared by both tables, and
+answer the firmware 27 event with it, so the two answers cannot drift
+apart. The firmware 27 handler keeps its logging. Desktop 26.6 behaves as
+before, except that a reply to an event without a dictionary is now
+zeroed rather than left as the firmware's buffer held it.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+
+(cherry picked from commit e9fcf14dd4a0b06337bee849199a758cab58bc28)
+---
+ drivers/gpu/drm/apple/iomfb.h               | 40 +++++++++++++++++++++
+ drivers/gpu/drm/apple/iomfb_v26_6_desktop.c | 40 +++++----------------
+ drivers/gpu/drm/apple/iomfb_v27.c           |  3 +-
+ 3 files changed, 51 insertions(+), 32 deletions(-)
+
+diff --git a/drivers/gpu/drm/apple/iomfb.h b/drivers/gpu/drm/apple/iomfb.h
+index a3aa2d5118d9..021f82f6b272 100644
+--- a/drivers/gpu/drm/apple/iomfb.h
++++ b/drivers/gpu/drm/apple/iomfb.h
+@@ -4,6 +4,8 @@
+ #ifndef __APPLE_DCPEP_H__
+ #define __APPLE_DCPEP_H__
+ 
++#include <linux/build_bug.h>
++#include <linux/string.h>
+ #include <linux/types.h>
+ 
+ #include "version_utils.h"
+@@ -475,6 +477,44 @@ struct dcp_hotplug_resp_v26_6 {
+ 	u8 opaque[0x4c];
+ } __packed;
+ 
++/*
++ * A name and a serialized dictionary: the firmware's analytics event
++ * (D113 on 27.x, D114 on desktop 26.6).
++ */
++struct dcp_dict_passthrough_req {
++	u8 key[0x40];
++	u8 value[0x1000];
++	u8 value_null;
++	u8 padding[3];
++} __packed;
++
++struct dcp_dict_passthrough_resp {
++	u8 value[0x1000];
++	u8 ret;
++	u8 padding[3];
++} __packed;
++
++static_assert(sizeof(struct dcp_dict_passthrough_req) == 0x1044);
++static_assert(sizeof(struct dcp_dict_passthrough_resp) == 0x1004);
++
++/*
++ * The analytics event passes its dictionary by pointer, so the firmware
++ * deserializes the reply's copy when the call returns, and stops if that
++ * fails. Return the dictionary as it came, and report the event not sent.
++ * A zeroed reply is not a dictionary.
++ */
++static inline void
++dcp_dict_passthrough_reply(const struct dcp_dict_passthrough_req *req,
++			   struct dcp_dict_passthrough_resp *resp)
++{
++	if (req->value_null)
++		memset(resp->value, 0, sizeof(resp->value));
++	else
++		memcpy(resp->value, req->value, sizeof(resp->value));
++	resp->ret = false;
++	memset(resp->padding, 0, sizeof(resp->padding));
++}
++
+ /* A boolean argument, padded to four bytes. */
+ struct dcp_bool_arg {
+ 	u8 value;
+diff --git a/drivers/gpu/drm/apple/iomfb_v26_6_desktop.c b/drivers/gpu/drm/apple/iomfb_v26_6_desktop.c
+index 064eff4beff5..c2d0bee01e05 100644
+--- a/drivers/gpu/drm/apple/iomfb_v26_6_desktop.c
++++ b/drivers/gpu/drm/apple/iomfb_v26_6_desktop.c
+@@ -52,46 +52,24 @@ static const struct dcp_method_entry dcp_methods[dcpep_num_methods] = {
+ 
+ #include "iomfb_template.c"
+ 
+-struct dcp_dict_passthrough_req_v26_6 {
+-	u8 key[0x40];
+-	u8 value[0x1000];
+-	u8 value_null;
+-	u8 padding[3];
+-} __packed;
+-
+-struct dcp_dict_passthrough_resp_v26_6 {
+-	u8 value[0x1000];
+-	u8 ret;
+-	u8 padding[3];
+-} __packed;
+-
+-static_assert(sizeof(struct dcp_dict_passthrough_req_v26_6) == 0x1044);
+-static_assert(sizeof(struct dcp_dict_passthrough_resp_v26_6) == 0x1004);
+-
+ /*
+- * D114 periodically publishes dictionary-valued statistics.  The value is an
+- * in/out pointer, which the firmware deserializes again: the firmware's own
+- * client returns the serialized buffer unchanged and reports false.  An
+- * all-zero reply is not a harmless false.
++ * D114 periodically publishes dictionary-valued statistics: the analytics
++ * event, answered by dcp_dict_passthrough_reply().
+  */
+ static bool trampoline_passthrough_dict_v26_6(struct apple_dcp *dcp, int tag,
+ 					      void *out, void *in)
+ {
+-	const struct dcp_dict_passthrough_req_v26_6 *req = in;
+-	struct dcp_dict_passthrough_resp_v26_6 *resp = out;
++	const struct dcp_dict_passthrough_req *req = in;
++	struct dcp_dict_passthrough_resp *resp = out;
+ 
+ 	trace_iomfb_callback(dcp, tag, "dcpep_cb_passthrough_dict");
+ 	dcp_trace_panel_property(dcp, tag, (const char *)req->key,
+ 				 strnlen((const char *)req->key, sizeof(req->key)),
+ 				 req->value_null ? NULL : req->value, sizeof(req->value));
+ 
+-	if (!req->value_null) {
++	if (!req->value_null)
+ 		dcp_panel_edid_receive(dcp, req->value, sizeof(req->value));
+-		memcpy(resp->value, req->value, sizeof(resp->value));
+-	}
+-
+-	resp->ret = false;
+-	memset(resp->padding, 0, sizeof(resp->padding));
++	dcp_dict_passthrough_reply(req, resp);
+ 
+ 	return true;
+ }
+@@ -101,7 +79,7 @@ static bool trampoline_panel_dictionary_v26_6(struct apple_dcp *dcp, int tag,
+ 					      void *out, void *in)
+ {
+ 	/* Service dictionary setters prefix the same record with a handle. */
+-	const struct dcp_dict_passthrough_req_v26_6 *req = tag == 413 ? in + 4 : in;
++	const struct dcp_dict_passthrough_req *req = tag == 413 ? in + 4 : in;
+ 	const char *key = (const char *)req->key;
+ 	struct dcp_display_metadata metadata;
+ 	struct dcp_parse_ctx ctx;
+@@ -297,8 +275,8 @@ static const struct dcp_cb_min_v26_6_desktop cb_min[IOMFB_MAX_CB] = {
+ 	[111] = CB_MIN(0, sizeof(u8)),
+ 	[112] = CB_MIN(0, sizeof(u8)),
+ 	[113] = CB_MIN(0, sizeof(u8)),
+-	[114] = CB_MIN(sizeof(struct dcp_dict_passthrough_req_v26_6),
+-		       sizeof(struct dcp_dict_passthrough_resp_v26_6)),
++	[114] = CB_MIN(sizeof(struct dcp_dict_passthrough_req),
++		       sizeof(struct dcp_dict_passthrough_resp)),
+ 	[115] = CB_MIN(sizeof(struct dcpep_get_tiling_state_req),
+ 		       sizeof(struct dcpep_get_tiling_state_resp)),
+ 	[116] = CB_MIN(sizeof(struct dcpep_get_tiling_state_req), sizeof(u32)),
+diff --git a/drivers/gpu/drm/apple/iomfb_v27.c b/drivers/gpu/drm/apple/iomfb_v27.c
+index 46d08e510095..c6df81bf8abd 100644
+--- a/drivers/gpu/drm/apple/iomfb_v27.c
++++ b/drivers/gpu/drm/apple/iomfb_v27.c
+@@ -379,7 +379,8 @@ static bool dcpep_cb_core_analytics_v27(struct apple_dcp *dcp, int tag,
+ 		print_hex_dump(KERN_INFO, "dcp analytics: ", DUMP_PREFIX_OFFSET,
+ 			       32, 1, event, len, true);
+ 	}
+-	memcpy(out, event + DCP_ANALYTICS_NAME_SIZE, DCP_ANALYTICS_DICT_SIZE);
++	/* The same record and answer as desktop 26.6's analytics event. */
++	dcp_dict_passthrough_reply(in, out);
+ 	return true;
+ }
+ 
+-- 
+2.56.0
+

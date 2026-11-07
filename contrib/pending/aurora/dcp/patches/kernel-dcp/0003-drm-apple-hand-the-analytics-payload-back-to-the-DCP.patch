@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Diljit Singh <hey@djdev.me>
+Date: Mon, 19 Oct 2026 10:25:10 -0400
+Subject: [PATCH 03/12] drm/apple: hand the analytics payload back to the DCP
+ unchanged
+
+Every T6050 display-freeze cascade so far started 3609-3611 s after
+boot: the first DCP reported an analytics event (D113), crashed about
+4 ms after we answered it, and the other DCPs followed within seconds as
+each reached its own first analytics event. All three crashes on record
+match this, on three different DCPs (the external 70000000 twice, the
+left-port 74000000 once); every D113 seen so far was followed by a crash,
+and boots shorter than an hour never crashed.
+
+D113 carries the event name in its first 0x40 bytes and the event's
+serialized payload dictionary in the remaining bytes. The reply area is
+exactly that size: the dictionary is an in/out argument that the
+firmware reads back after the call. We replied with zeroes, which is not
+a valid serialized dictionary.
+
+Copy the payload back unchanged, which is what a host that does not
+modify the dictionary returns. Log the first bytes of the reply area as
+the firmware left it, to confirm what it expects there.
+
+Signed-off-by: Diljit Singh <hey@djdev.me>
+[ J775D: backport onto integration/aurora; original 3e8ab21fca2f ]
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+
+(cherry picked from commit b07d043049a556cf0bef92d8853fdb703f15c3d0)
+---
+ drivers/gpu/drm/apple/iomfb_v27.c | 22 ++++++++++++++++------
+ 1 file changed, 16 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/gpu/drm/apple/iomfb_v27.c b/drivers/gpu/drm/apple/iomfb_v27.c
+index 13caf82875be..46d08e510095 100644
+--- a/drivers/gpu/drm/apple/iomfb_v27.c
++++ b/drivers/gpu/drm/apple/iomfb_v27.c
+@@ -346,12 +346,19 @@ static bool trampoline_set_tiling_state_v27(struct apple_dcp *dcp, int tag,
+ #include "iomfb-boolean-properties-v27.inc"
+ 
+ #define DCP_ANALYTICS_EVENT_SIZE 0x1044
++#define DCP_ANALYTICS_NAME_SIZE 0x40
++#define DCP_ANALYTICS_DICT_SIZE (DCP_ANALYTICS_EVENT_SIZE - DCP_ANALYTICS_NAME_SIZE)
+ #define DCP_ANALYTICS_FULL_DUMPS 16
+ 
+ /*
+- * D113 CoreAnalyticsSendEvent. The firmware reports an analytics event, its
+- * name first ("com.apple.iomfb...."); both DCP firmware crashes seen on T6050
+- * were announced by one. Log the name, and the payload of the first few.
++ * D113: the firmware reports an analytics event, its name in the first 0x40
++ * bytes and then the event's serialized payload dictionary. The dictionary is
++ * an in/out argument: the 0x1004-byte reply area is the dictionary the
++ * firmware reads back once the call returns. Hand it back unchanged.
++ *
++ * Replying with zeroes there made every DCP crash on its first analytics
++ * event, which the firmware sends about an hour after it starts; all DCPs
++ * start together at boot, so all of them went down within seconds.
+  */
+ static bool dcpep_cb_core_analytics_v27(struct apple_dcp *dcp, int tag,
+ 					void *out, void *in)
+@@ -360,8 +367,11 @@ static bool dcpep_cb_core_analytics_v27(struct apple_dcp *dcp, int tag,
+ 	unsigned int len = DCP_ANALYTICS_EVENT_SIZE;
+ 	char name[128];
+ 
+-	strscpy(name, event, sizeof(name));
+-	dev_info_ratelimited(dcp->dev, "CoreAnalytics event %s\n", name);
++	static_assert(DCP_ANALYTICS_DICT_SIZE == 0x1004);
++
++	strscpy(name, event, min(sizeof(name), (size_t)DCP_ANALYTICS_NAME_SIZE));
++	dev_info_ratelimited(dcp->dev, "CoreAnalytics event %s, reply area %16ph\n",
++			     name, out);
+ 	if (dcp->analytics_dumps < DCP_ANALYTICS_FULL_DUMPS) {
+ 		dcp->analytics_dumps++;
+ 		while (len && !event[len - 1])
+@@ -369,7 +379,7 @@ static bool dcpep_cb_core_analytics_v27(struct apple_dcp *dcp, int tag,
+ 		print_hex_dump(KERN_INFO, "dcp analytics: ", DUMP_PREFIX_OFFSET,
+ 			       32, 1, event, len, true);
+ 	}
+-	*(__le32 *)out = 0;
++	memcpy(out, event + DCP_ANALYTICS_NAME_SIZE, DCP_ANALYTICS_DICT_SIZE);
+ 	return true;
+ }
+ 
+-- 
+2.56.0
+
