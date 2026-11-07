@@ -1,7 +1,7 @@
-From d443f701d401bbfb02986a744b4e69798de9d1dc Mon Sep 17 00:00:00 2001
+From 6696b2a274cbfe7a7ffc9187aa32fff42ba3daba Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Fri, 6 Nov 2026 00:10:57 +0100
-Subject: [PATCH 05/11] ASoC: apple: aop_t8140: T6050 speaker service has no
+Subject: [PATCH 05/15] ASoC: apple: aop_t8140: T6050 speaker service has no
  output mute
 
 T6050's speaker service has no output mute (property 700 is rejected as
@@ -15,6 +15,8 @@ pwrd and the amplifiers' own shutdown mutes.
  t8140_aop_audio part of 7818011b2ba8 ("ASoC: apple: macaudio,
  t8140_aop_audio: J714 speakers on, -30 dB in every state"); its J714
  macaudio entry and J714c DT comment are board-specific and dropped]
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  sound/soc/apple/aop_t8140.rs | 10 ++++++++++
  1 file changed, 10 insertions(+)

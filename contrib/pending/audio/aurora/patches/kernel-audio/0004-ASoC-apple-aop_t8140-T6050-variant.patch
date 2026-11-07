@@ -1,7 +1,7 @@
-From 5f8a9860407d1e7f7220e8b9f9fd462aea4ac39e Mon Sep 17 00:00:00 2001
+From 7f234bce36e131a7230e39da7c612b5985f4a630 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Thu, 5 Nov 2026 21:05:42 +0100
-Subject: [PATCH 04/11] ASoC: apple: aop_t8140: T6050 variant
+Subject: [PATCH 04/15] ASoC: apple: aop_t8140: T6050 variant
 
 A per-SoC HwConfig in the T8140 AOP audio driver, apple,t6050-aop-audio:
 - no low-power microphone: it is exclave-owned on T6050, so no source
@@ -30,6 +30,8 @@ is kept).
  aop_audio.rs's table as AopVariant::T8140(&HW_T6050) and probe takes
  the HwConfig. The J714c DT, j714c.config and the J714 macaudio entry
  are board-specific and dropped.]
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  rust/bindings/bindings_helper.h |   1 +
  sound/soc/apple/aop_audio.rs    |  15 +++-

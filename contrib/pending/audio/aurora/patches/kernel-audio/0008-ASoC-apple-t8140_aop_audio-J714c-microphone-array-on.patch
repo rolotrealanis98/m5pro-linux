@@ -1,7 +1,7 @@
-From f61e36b944da850589b2fb88b4320d5d26e69167 Mon Sep 17 00:00:00 2001
+From 8be82ff3a84a7f409c8825f0d947593ee339a69a Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Fri, 6 Nov 2026 10:20:13 +0100
-Subject: [PATCH 08/11] ASoC: apple: t8140_aop_audio: J714c microphone array on
+Subject: [PATCH 08/15] ASoC: apple: t8140_aop_audio: J714c microphone array on
  the LEAP-S ADMAC
 
 The AOP's microphone card no longer depends on the low-power microphone:
@@ -24,10 +24,11 @@ delivers the idle noise floor only: the microphone input is not enabled
 by the hpai service alone on this machine, whose ADT routes the
 microphones through exclave services.
 
-
 [port to integration/aurora (aurora-j716s 6d9f1ec652a6): applied
  unchanged to sound/soc/apple/aop_t8140.rs, t8140_aop_audio.rs's name in
  this tree; DT and j714c.config hunks are board-specific and dropped]
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  sound/soc/apple/aop_t8140.rs | 55 ++++++++++++++++++++++++------------
  1 file changed, 37 insertions(+), 18 deletions(-)

@@ -1,4 +1,4 @@
-From e5a4712a3f0d21a33cf60ff058c7c3c183a87653 Mon Sep 17 00:00:00 2001
+From c963af7d14b9b3a8f3b0c283bdada7c351e5694a Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 07:20:10 -0500
 Subject: [PATCH 4/4] ASoC: apple: macaudio: run the J716 speakers in the J616s
@@ -28,6 +28,12 @@ frame. The format applies to the speaker back-end only, through a new
 speaker_dai_fmt: on the J716 the jack shares the card, on a different
 serializer (a 64-bit frame) whose format is unverified, and keeps the
 default. Other machines are unchanged.
+
+On the J716 with this change: no clock fault in three 2 s six-channel
+tones (one with speakersafetyd stopped) and a Speaker Switch toggle,
+11-20 interrupts per tone on the shared line (the muted amplifiers'
+expected clock latches at the stream end), against about 638 before;
+the amplifiers read TDM_CFG1 0x02 and TDM_CFG4 0x13.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---

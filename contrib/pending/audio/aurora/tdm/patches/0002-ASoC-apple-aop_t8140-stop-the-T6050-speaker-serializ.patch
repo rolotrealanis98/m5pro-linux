@@ -1,4 +1,4 @@
-From 030e2113e26bddaea986f01f2e3c9080f73fe891 Mon Sep 17 00:00:00 2001
+From 8d0920868374b7630024adf57456cd580c52745c Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 04:58:39 -0500
 Subject: [PATCH 2/4] ASoC: apple: aop_t8140: stop the T6050 speaker serializer
@@ -9,11 +9,8 @@ from the work queued by the back-end's trigger STOP. ASoC mutes the
 amplifiers (the codec DAIs' mute_stream) only later, when the back-end is
 freed, and the TAS2764/SN012776 driver has no mute on trigger. So at the
 end of every stream the firmware stopped the serializer, and the TDM clock
-with it, under amplifiers that were still unmuted, and every amplifier
-latched "fault: bad TDM clock". Seen on the J716 at the end of a 2 s
--40 dBFS tone through all six amplifiers (20 fault lines, context
-02,19,00,00,04 and 02,39,00,00,05), and the J714c driver has the same
-order.
+with it, under amplifiers that were still unmuted. The J714c driver has
+the same order.
 
 The stop work now keeps the service running after a STOP or PAUSE_PUSH
 until the back-end releases it: its new hw_free op, which ASoC calls after
@@ -29,6 +26,11 @@ The LEAP-fed T8140 stream is unchanged.
 The amplifiers still see the clock stop after they mute; with
 apple,deferred-shutdown on them, the TAS2764 driver treats that clock-only
 latch as expected once the stream has stopped.
+
+On the J716 the clock faults first read as stream-end faults came from
+the speaker link format (fixed separately); with both changes and
+apple,deferred-shutdown, three tones and a Speaker Switch toggle log no
+clock fault.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---

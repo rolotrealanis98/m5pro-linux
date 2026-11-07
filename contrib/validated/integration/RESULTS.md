@@ -1008,3 +1008,28 @@ boot chain (iBoot loads the PMP; our m1n1 does not start it). Stage 1c (PMGR gro
 AFR+GPX). **Verdict: GO E1 with the caveat "PMP SRAM NOT-COLD"**; E1 (the ID-register read and the clean "M5 Pro not yet
 available" refusal) does not touch the PMP. Logs `/boot/r1-logs/e0-20261107T124129Z/`.
 
+### Result (W2c, 2026-11-07 12:56 UTC, loop + A/B stage-1; Rolando away): **the N1 is on the bus**
+
+Payload `w2c-n1smc-20261107-d8bab230.bin` (`n1=4` with m1n1 0026: the `function-reset` lookup fixed, the J813-style SMC
+`gP13` reset pulse, 1 s link wait). Stage-2 log:
+
+    pcie-t6050: SMC key gP13 <- 0x00800000: 0
+    pcie-t6050: SMC key gP13 <- 0x00800001: 0
+    pcie-t6050: port 0 link Gen1 x1
+    pcie-t6050: endpoint 01:00.0 is 0x1900106b
+    pcie-t6050: storage after F: 0x419600048 0x6e -> 0x6d (allowed)
+    pcie-t6050: port 0 up, N1 at 01:00.0
+    pcie-t6050: storage after training: NVMe read identical / nvme: shutdown done / ANS stopped again for Linux
+    n1: port 0 up: root port and DART okay          (linksts 0x9b001001, ltssm 0x1)
+
+Kernel: `pcie-apple 1cb0000000.pcie: port 0: RID 0100 -> SID 1, slot 1`, `adopted port 0, endpoint 01:00`, ECAM, `pci
+0000:01:00.0: [106b:1900] ... PCIe Endpoint` (BAR 0 64 KiB, BAR 4 32 MiB assigned, 2.5 GT/s x1 link), `Adding to iommu
+group 1`, `apple_centauri 0000:01:00.0: enabling device`, then **`N1 automatic startup failed in phase0: -5`**. Root
+mounted, network up, battery 96 %, SMC fine after m1n1's key writes, no revert, PMU count 0.
+- `phase0: -5` is the predicted "ROM rejected the FTAB" case (`wireless/aurora-n1/ANALYSIS.md` 2.3): our `ftab.bin` has no
+  ticket; the matching `centauri.j716sap*.im4m` manifests sit next to it in the macOS Preboot restore bundle. Next: W3 =
+  the same loader with a personalised FTAB (Studio-only work; the file stays private).
+- The W2b stop was a bug in 0023 (`adt_getprop_copy()` returns the copied length, the check compared it with 0), not a
+  different descriptor: the J716s `function-reset` is `pKW4` key `gP13` template 0x00800000, as on the J813.
+- First warm boot only; RUN-W2.md asks for a full power-off before a run, which an unattended run cannot do.
+

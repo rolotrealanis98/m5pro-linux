@@ -1,7 +1,7 @@
-From 9c1fdb0b4f4b087f9a78f1d8121dc495a1a3e85d Mon Sep 17 00:00:00 2001
+From ad141fdf3756f76a974779521c0b53582350f648 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Thu, 5 Nov 2026 23:34:51 +0100
-Subject: [PATCH 03/11] soc: apple: aop: T6050 setup port and firmware DMA
+Subject: [PATCH 03/15] soc: apple: aop: T6050 setup port and firmware DMA
  window
 
 apple,t6050-aop with T8140's configuration (EPIC v4, endpoints 0x20-0x23
@@ -46,7 +46,9 @@ aop-audprov / aop-voicetrigger announced.
  RTKit flags; the T6050 comment describes the setup port it now uses.
  DT and j714c.config hunks are board/tree-specific and dropped.
  Coherent's bus address is dma_address() in this tree, not dma_handle()
- (build fix after the first Rust build; Assisted-by: LLM).]
+ (build fix after the first Rust build).]
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  drivers/soc/apple/aop.rs       | 194 ++++++++++++++++++++++++++++++---
  rust/kernel/soc/apple/rtkit.rs |   7 ++

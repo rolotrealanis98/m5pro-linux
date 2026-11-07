@@ -1,7 +1,7 @@
-From 629672e7746ba839c50b141e46a74a413352922a Mon Sep 17 00:00:00 2001
+From 9e5e11a52a7bb9dabfd732fc67b844fed6279416 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Fri, 6 Nov 2026 10:36:33 +0100
-Subject: [PATCH 09/11] ASoC: apple: t8140_aop_audio: J714c microphone setup of
+Subject: [PATCH 09/15] ASoC: apple: t8140_aop_audio: J714c microphone setup of
  the T604x flow
 
 On the firmware families where the host configures the PDM microphones
@@ -17,10 +17,11 @@ a refusal does not stop the array. T8140 keeps its firmware's own setup.
 J714c's firmware accepts every step (return 0) and the array still
 records the idle noise floor only: the microphone input stays off.
 
-
 [port to integration/aurora (aurora-j716s 6d9f1ec652a6): applied
  unchanged to sound/soc/apple/aop_t8140.rs, t8140_aop_audio.rs's name in
  this tree; DT and j714c.config hunks are board-specific and dropped]
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  sound/soc/apple/aop_t8140.rs | 318 ++++++++++++++++++++++++++++++++++-
  1 file changed, 315 insertions(+), 3 deletions(-)

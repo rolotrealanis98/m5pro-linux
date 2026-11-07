@@ -1,7 +1,7 @@
-From 773f651a700a8f342f804032e1dd1d3fbdf3cc57 Mon Sep 17 00:00:00 2001
+From bd50f5ab1d1d3f9f545943ece558339172149f96 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Thu, 5 Nov 2026 20:00:51 +0100
-Subject: [PATCH 01/11] ASoC: apple: macaudio: per-machine speaker volume
+Subject: [PATCH 01/15] ASoC: apple: macaudio: per-machine speaker volume
  ceiling
 
 max_vol in macaudio_platform_cfg caps the speaker volume controls while
@@ -16,6 +16,8 @@ to J714c.
 [port to integration/aurora (aurora-j716s 6d9f1ec652a6): the ceiling
  applied per control in the current macaudio_vlimit_unlock(); the J714
  machine entry and j714c.config hunks are board-specific and dropped]
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  sound/soc/apple/macaudio.c | 32 ++++++++++++++++++++++++++++----
  1 file changed, 28 insertions(+), 4 deletions(-)

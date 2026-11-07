@@ -1,7 +1,7 @@
-From 1d2ac24c066e00f2e55dc7a944c14f040a2c117a Mon Sep 17 00:00:00 2001
+From 9661a622b00ab80004d2bf774ab81dbf68813e86 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 19:31:21 -0500
-Subject: [PATCH 11/11] ASoC: apple: macaudio: Add the J716 (MacBook Pro 16" M5
+Subject: [PATCH 11/15] ASoC: apple: macaudio: Add the J716 (MacBook Pro 16" M5
  Pro/Max)
 
 apple,j716-macaudio: the J316 amp layout (six SN012776, 2W+1T per side)
@@ -15,7 +15,6 @@ measured on AID41. The amps' levels come from apple,speaker-config in
 the DT, so a DT without it binds the jack and leaves the speakers off.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
-
 ---
  .../bindings/sound/apple,macaudio.yaml        |  1 +
  sound/soc/apple/macaudio.c                    | 27 +++++++++++++++++++

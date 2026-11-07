@@ -1,7 +1,7 @@
-From 2a7a54d9a829a86bf7f55e4e7b655831ebb9de34 Mon Sep 17 00:00:00 2001
+From a9240348fa10ceb4430310cfffd4cca3c0ae7878 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Fri, 6 Nov 2026 08:26:03 +0100
-Subject: [PATCH 07/11] ASoC: apple: t8140_aop_audio: run the J714c speakers
+Subject: [PATCH 07/15] ASoC: apple: t8140_aop_audio: run the J714c speakers
  only while the sense drains
 
 On T6050 the speaker service's V/I sense comes back on its own RX DMA,
@@ -26,10 +26,11 @@ playback, playback and sense keep running after resume, no lock timeout,
 no daemon restart; the same with nothing playing; a lid close while
 YouTube plays sleeps 9 s and the sound continues on lid open.
 
-
 [port to integration/aurora (aurora-j716s 6d9f1ec652a6): applied
  unchanged to sound/soc/apple/aop_t8140.rs, t8140_aop_audio.rs's name in
  this tree; DT and j714c.config hunks are board-specific and dropped]
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  sound/soc/apple/aop_t8140.rs | 73 ++++++++++++++++++++++++++++++------
  1 file changed, 62 insertions(+), 11 deletions(-)

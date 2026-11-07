@@ -1,7 +1,7 @@
-From 557cd0bc7838d71ec32d089a79e3486b315b0fb0 Mon Sep 17 00:00:00 2001
+From 1d9ca564b29bb1f18bfd057b7f8319020bbae709 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Fri, 6 Nov 2026 12:11:36 +0100
-Subject: [PATCH 10/11] ASoC: apple: t8140_aop_audio: drain the J714c sense RX
+Subject: [PATCH 10/15] ASoC: apple: t8140_aop_audio: drain the J714c sense RX
  for the whole speaker run
 
 The T6050 speaker service's V/I sense comes back on its own RX DMA. Once
@@ -34,10 +34,11 @@ tone keeps the tone sounding and the sense data flowing; the daemon started
 3 s into a stream starts sounding; plain playback after that; no daemon
 panics; all six amplifiers deliver V/I through the ring.
 
-
 [port to integration/aurora (aurora-j716s 6d9f1ec652a6): applied
  unchanged to sound/soc/apple/aop_t8140.rs, t8140_aop_audio.rs's name in
  this tree; DT and j714c.config hunks are board-specific and dropped]
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  sound/soc/apple/aop_t8140.rs | 477 +++++++++++++++++++++++++++++------
  1 file changed, 398 insertions(+), 79 deletions(-)

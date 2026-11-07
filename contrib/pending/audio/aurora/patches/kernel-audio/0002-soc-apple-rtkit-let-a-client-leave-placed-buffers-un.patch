@@ -1,7 +1,7 @@
-From b1f2347962ff36f925f4ea30949ed0cead616ef6 Mon Sep 17 00:00:00 2001
+From 75ee827f349c91d59e99f4d0bd52f1fe8ca03d7b Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 19:24:28 -0500
-Subject: [PATCH 02/11] soc: apple: rtkit: let a client leave placed buffers
+Subject: [PATCH 02/15] soc: apple: rtkit: let a client leave placed buffers
  unacknowledged
 
 The T6050 AOP places its crashlog buffer itself and takes no reply to
@@ -15,7 +15,6 @@ APPLE_RTKIT_COPROC_PLACES_BUFFERS.
 No client sets the flag yet; behaviour is unchanged.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
-
 ---
  drivers/soc/apple/rtkit.c       |  8 +++++++-
  include/linux/soc/apple/rtkit.h |  7 +++++++
