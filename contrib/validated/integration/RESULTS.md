@@ -1446,3 +1446,22 @@ after the read, optional 0x31/0x32 stage marks so a counted restart boots the pr
 procedure are in `contrib/pending/boot-ab/firstboot/`. Two corrections: E2b's first boot did not fall back (it booted
 and went silent); the W4 restore fallback fits this cause, not a warm-N1 hang. Decision: use `esp-put.sh` for every
 ESP write from now on; 0017 goes on the stage-1 slots in an attended sitting.
+
+## NVRAM-RO: boot NOR and NVRAM partition visible from Linux (2026-11-07 20:47 UTC)
+
+Payload `nvram-20261107-130350ed.bin` = the GPU daily twin (kernel `7.3.0-g3671d907d570`, m1n1 `n1-warm-gpu`,
+self-test on) with the qspi controller enabled in the DTB plus `flash@0` (jedec,spi-nor, 25 MHz, single wire) and the
+fixed partition `nvram` at 0x700000 size 0xc0000 (`contrib/pending/nvram/patches/0001`). Stock `spi-apple-qspi`
+module (no J716s board row, `read_only=Y`).
+
+- Boot: primary slot first try, 76 s to SSH, 18 CPUs, Wi-Fi, GPU up (renderD128). The ESP was written with the new
+  `esp-put.sh` procedure (fsync, remount read-only, 5 s settle): 2 of 2 fresh payload writes booted on the first pass
+  (test twin and the daily restore).
+- `spi-nor spi0.0` probes under `apple-qspi` at `505118000.spi`, `1 fixed-partitions partitions found`, mtd2 =
+  `nvram` 786432 bytes, erasesize 4096. The 768 KiB partition reads back fully from `/dev/mtd2ro`.
+- Parsed read-only with `v3-nvram.py show`: 12 banks of 64 KiB with consecutive generations (192 to 203), active bank
+  10 (gen 203), 217 entries, 34137 of 65536 bytes used. Variable names match the ones macOS shows (`boot-volume`,
+  `upgrade-boot-volume`, `auto-boot`, `boot-command`, `backlight-nits`, `prev-lang:kbd`, `SystemAudioVolume`,
+  `boot-breadcrumbs`, …). The dump stays on the machine in `/var/lib/nvram-t6050/` (root only; it carries tokens).
+- Not done: no write. Next: the J716s board row module swap and one attended `alt-boot-volume` write (next boot =
+  macOS), which needs asahi-nvram/asahi-bless built on the MacBook.
