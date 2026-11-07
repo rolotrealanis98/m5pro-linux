@@ -1271,3 +1271,15 @@ sleep, MSLD=0: wakeup` / `+46683 ms` -> `pcie-apple 1cb0000000.pcie: port 0: ado
 Root cause of the regression: `apple_pcie_suspend_noirq()` returned -EBUSY unconditionally for any adopted-link host
 (Aurora's adoption commit). Fix = patch `contrib/pending/wireless/patches/linux/0003-PCI-apple-T6050-adopted-ports-keep-the-link-up-throu.patch`.
 
+### Result (DAILY 0087, 2026-11-07 16:55-17:01 UTC, loop, nobody at the machine)
+
+Series tip `a0f2f30c967b` (87 patches = everything validated today: WFI idle, battery, SMC sensors, right port, lid
+confirm, haptic, netfilter/WireGuard, iwd crypto, AOP audio + J616s TDM format, netconsole config, W4 park patches,
+adopted-link s2idle fix 0087), N1-aware m1n1, W4 chosen lines, stitched-FTAB initramfs.
+- Test twin `next-daily-wifi-20261107-ee3d0dd8`: primary, 18 CPUs, N1 adopted, wlan0, hci0, two haptic devices, both
+  audio cards, -30 dB ceiling, netconsole configfs, nft ok. Warm restart with wlan0 in use: same, primary.
+- **Daily promoted: `daily-wifi-20261107-4feff24c.bin`** (no self-test flag): primary, all of the above.
+  `boot.bin.prev` = the test twin. Modules for `7.3.0-ga0f2f30c967b` (128, phram) on the root.
+- Still to confirm on this exact kernel when Rolando is home: one lid-close sleep (the fix is the same code that passed
+  on the W4 line), and a speaker listening check.
+
