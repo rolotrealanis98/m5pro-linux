@@ -80,3 +80,15 @@ Held: cio-reset (#946), cpufreq-binding (#481), smc-match (#941), j716s-board (f
 - aurora-silicon/linux #1152 "arm64: idle: T6050 idles in WFI even with idle=nop" (`pr/t6050-wfi-idle` 72f8eecf708b on integration/aurora 4114f761f469; validated as our daily, soak + S1-S4).
 - aurora-silicon/m1n1 #65 "kboot: train the T6050 N1 link and fill its hand-off (J716s Wi-Fi/Bluetooth)" (`pr/t6050-n1-handoff` 4e76442c71c8 on aurora-wip b6b4592; 4 commits: N1 DT fill-in, opt-in training behind `chosen.asahi,t6050-n1`, ANS started for the storage checks, SMC reset pulse; build-tested on aurora-wip, hardware-tested on our lineage: W2c/W3b).
 Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeout, dev_dbg for the AFE lines, dev_info for the missing fan keys; v2 branches in preparation.
+
+## 2026-11-07 15:40 UTC: v2 pushes and the lid PR
+- #1082 v2 0630fabf19e9 (per-device RTKit handshake timeout, 10 s only for `apple,t6050-nvme-ans2`), #1083 v2 00768a757b56
+  (dev_dbg), #1084 v2 5de41949c174 (one dev_info per fan): force-with-lease pushed to the fork, replies posted
+  (`~/Work/agents/aurora-prs/REPLY-*.md`, copies in `patches-v2/`).
+- aurora-silicon/linux #1160 "Input: macsmc-input - confirm a lid-open report during system sleep"
+  (`pr/macsmc-input-lid-confirm` 238be1b80437 on integration/aurora 4114f761f469). Validated by the LID sleep pass;
+  the hold-back path (a spurious report ignored) has not fired on hardware yet and the PR says so.
+- aurora-silicon/m1n1 #65 v2 4d50f1f pushed with a lease on v1 4e76442c71c8 (v1 kept as tag `v1/t6050-n1-handoff`):
+  ANS fully stopped via `nvme_stop()`, storage loss after training starts ends in the watchdog reset, mode 5 removed,
+  port 0 and its DART stay disabled unless adoption fully validates. Boot test of the rebased tree pending
+  (payload `m1n1-65v2-n1-20261107-22f89156.bin`, needs a full power-off start).
