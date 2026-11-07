@@ -1,0 +1,67 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# m5-netconsole-up - create (or re-arm) the netconsole target "studio" through configfs.
+# Reads /etc/m5-netconsole.conf (STUDIO_IP, PORT, optional DEV). Idempotent: run it again after the
+# USB adapter comes back (90-m5-netconsole.rules does). Needs CONFIG_NETCONSOLE_DYNAMIC=y.
+#
+# netconsole does no routing and no ARP of its own: it sends UDP from DEV straight to an Ethernet
+# address. That address is the Studio's own MAC when it is on the same LAN, otherwise the gateway's;
+# it is looked up here from the neighbour table, never stored. Tailscale (tun, userspace WireGuard)
+# cannot carry it.
+set -u
+C=/etc/m5-netconsole.conf
+NC=/sys/kernel/config/netconsole
+T=$NC/studio
+log() { echo "m5-netconsole: $*"; }
+
+[ -r "$C" ] || { log "no $C"; exit 0; }
+STUDIO_IP='' PORT=6666 DEV=''
+# shellcheck source=/dev/null
+. "$C"
+case "$STUDIO_IP" in ''|*@*) log "STUDIO_IP not set in $C"; exit 0 ;; esac
+
+mountpoint -q /sys/kernel/config || mount -t configfs configfs /sys/kernel/config
+[ -d "$NC" ] || { log "kernel has no netconsole configfs (CONFIG_NETCONSOLE_DYNAMIC)"; exit 0; }
+
+# Wait up to 60 s for a route over an Ethernet device (type 1). tailscale0 is type 65534 (none).
+i=0; dev='' src='' via=''
+while [ $i -lt 60 ]; do
+    # shellcheck disable=SC2046 # word splitting of the route line is the point
+    set -- $(ip -o route get "$STUDIO_IP" ${DEV:+oif "$DEV"} 2>/dev/null)
+    dev='' src='' via=''
+    while [ $# -gt 1 ]; do
+        case "$1" in dev) dev=$2 ;; src) src=$2 ;; via) via=$2 ;; esac
+        shift
+    done
+    [ -n "$dev" ] && [ -n "$src" ] && [ "$(cat /sys/class/net/"$dev"/type 2>/dev/null)" = 1 ] && break
+    i=$((i + 1)); sleep 1
+done
+[ -n "$dev" ] && [ -n "$src" ] || { log "no Ethernet route to the Studio after 60 s"; exit 1; }
+[ "$(cat /sys/class/net/"$dev"/type 2>/dev/null)" = 1 ] || { log "route uses $dev, not Ethernet"; exit 1; }
+
+nh=${via:-$STUDIO_IP}
+ping -c 1 -W 1 -I "$dev" "$nh" >/dev/null 2>&1
+mac=$(ip neigh show "$nh" dev "$dev" | awk '{for (i = 1; i < NF; i++) if ($i == "lladdr") print $(i + 1)}')
+
+if [ -d "$T" ] && [ "$(cat $T/enabled)" = 1 ]; then
+    if [ "$(cat $T/dev_name)" = "$dev" ] && [ "$(cat $T/local_ip)" = "$src" ] &&
+       { [ -z "$mac" ] || [ "$(cat $T/remote_mac)" = "$mac" ]; }; then
+        log "already up on $dev"; exit 0
+    fi
+    echo 0 > $T/enabled
+fi
+mkdir -p "$T"
+echo "$dev"        > $T/dev_name
+echo "$src"        > $T/local_ip
+echo "$STUDIO_IP"  > $T/remote_ip
+echo "$PORT"       > $T/remote_port
+if [ -n "$mac" ]; then
+    echo "$mac" > $T/remote_mac
+else
+    echo ff:ff:ff:ff:ff:ff > $T/remote_mac
+    log "next hop has no neighbour entry: sending as Ethernet broadcast"
+fi
+echo 1 > $T/enabled || { log "enabling the target on $dev failed (dmesg says why)"; exit 1; }
+log "up on $dev, UDP port $PORT${via:+ via the gateway}"
+echo "<5>m5-netconsole: target up on $dev, $(uname -r), boot $(cut -c1-8 /proc/sys/kernel/random/boot_id)" > /dev/kmsg
+exit 0

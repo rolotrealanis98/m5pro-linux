@@ -1,0 +1,19 @@
+# /etc/systemd/system/m5-pstore-collect.service
+# Save the previous boot's pstore/ramoops records (console, panic dumps, pmsg) to the ESP under
+# /boot/r1-logs/pstore-<seq>-<date>-<boot id>/ and clear the store. Runs before systemd-pstore.service
+# (which would otherwise move them to /var/lib/systemd/pstore), so it lives in sysinit.
+[Unit]
+Description=Save the previous boot's pstore records to /boot/r1-logs
+DefaultDependencies=no
+After=local-fs.target
+Before=systemd-pstore.service sysinit.target shutdown.target
+Conflicts=shutdown.target
+ConditionPathIsDirectory=/sys/fs/pstore
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/m5-pstore-collect
+StandardOutput=journal+console
+
+[Install]
+WantedBy=sysinit.target

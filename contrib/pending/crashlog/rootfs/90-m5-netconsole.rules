@@ -1,0 +1,4 @@
+# /etc/udev/rules.d/90-m5-netconsole.rules
+# A replugged USB Ethernet adapter is a new netdev and netconsole drops a target whose device went
+# away: re-run the unit (it waits for the route itself).
+ACTION=="add", SUBSYSTEM=="net", ENV{ID_BUS}=="usb", RUN+="/usr/bin/systemctl --no-block restart m5-netconsole.service"

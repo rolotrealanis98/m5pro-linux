@@ -1,0 +1,55 @@
+From ef66e11a6739e14f8f19401681fc884edd5ed30b Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 09:18:30 -0500
+Subject: [PATCH 2/2] arm64: configs: j716s: Build in ramoops and netconsole
+
+PSTORE_RAM was =m and the J716s root loads no modules, so a ramoops
+region in the device tree would never be used. Build it in, with the
+console and pmsg front ends; ftrace stays off.
+
+NETCONSOLE with NETCONSOLE_DYNAMIC lets userspace point a target at the
+USB Ethernet adapter once it is up. netconsole= on the command line
+cannot: the adapter appears about 3 s into the boot.
+
+PANIC_TIMEOUT=10 restarts a panicked kernel after 10 s instead of
+leaving it to the boot loader's watchdog, or spinning forever when
+nothing armed one.
+
+Against defconfig + asahi.config + j716s.config this changes those
+symbols and what they select: NETPOLL, NET_POLL_CONTROLLER,
+PRINTK_EXECUTION_CTX, and REED_SOLOMON from =m to =y.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/configs/j716s.config | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index 83f1eca906e5..573c34088b4f 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -68,6 +68,21 @@ CONFIG_BT_HCICENTAURI=y
+ # runs the suspend path and resumes on its own after 5 s
+ CONFIG_PM_DEBUG=y
+ 
++# Crash logs (no serial console). pstore/ramoops in the DT's reserved
++# region keeps the previous boot's console, panic dumps and /dev/pmsg0 across
++# a warm reset; built in, since nothing loads ramoops.ko. netconsole streams
++# the log over the USB Ethernet adapter once userspace has configured a
++# target through configfs (the adapter appears too late for netconsole=).
++# A panic restarts after 10 s instead of waiting for the watchdog.
++CONFIG_PSTORE_RAM=y
++CONFIG_PSTORE_CONSOLE=y
++CONFIG_PSTORE_PMSG=y
++# CONFIG_PSTORE_FTRACE is not set
++CONFIG_NETCONSOLE=y
++CONFIG_NETCONSOLE_DYNAMIC=y
++CONFIG_PRINTK_TIME=y
++CONFIG_PANIC_TIMEOUT=10
++
+ # Userspace: pacman's download sandbox, nftables, compressed swap, /dev/mem
+ CONFIG_SECURITY_LANDLOCK=y
+ CONFIG_NF_TABLES=y
+-- 
+2.56.0
+

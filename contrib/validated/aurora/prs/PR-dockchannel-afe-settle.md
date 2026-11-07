@@ -13,3 +13,5 @@ It also logs assert and release at info level (and a failure to drive the line a
 **Open questions:**
 - Are the two info-level lines acceptable, or should they be `dev_dbg`?
 - Is 50 ms right for other host-driven boards, or should the settle time come from the DT?
+
+**v2 (2026-11-07, after RyanTheTide's pre-review):** commit 00768a757b56 (was 227703b63d84). The assert/release message is `dev_dbg` instead of `dev_info`; a failure to drive the line stays `dev_err`. Nothing else changed. `dockchannel-hid.o` builds clean with W=1, and checkpatch --strict is clean. Patch: `patches-v2/dockchannel-afe-settle/`.

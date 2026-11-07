@@ -1,0 +1,10 @@
+a4cc59fd94f9abc896a1ea4dd0964bf0710f154290ff957b44f31aefa9127db4  build/m1n1-plain-n1-smc.bin
+4c202e9dbf0738cb256fb3903f02c6abd2d653b8cfecea74d764f19d9ce6e1d5  build/m1n1-plain-n1-warm.bin
+fc86d5716975e0c12eed12ea29ba385b3ef5d15acbae38c68c4939fd8e12e819  0027-pcie-t6050-handle-a-warm-N1-and-a-live-port-0-at-ent.patch
+1ec3e6a2572679cf14ffdcf3bbf626dd3bdcb514c85165bbdbc8e754a733ef2f  patches/linux/0001-PCI-apple-T6050-adopted-ports-no-ASPM-and-a-shutdown.patch
+a243868eac8a325e0847c16649b73ded8946b56098e102772c05a4376f00ddde  patches/linux/0002-wifi-apple-centauri-leave-an-N1-that-never-booted-al.patch
+3b4943753283dabfaff841ab7cabaee6b2d61fcff27e9f811994824df2de3571  mk-w4.py
+935ece606c361690100e42162226dde760b7e022600f72e4b74f1867a7cc4479  build.sh
+005c6ea9466379ba23e3ec988429af3429332793fe7ade895b9f327da5ee781c  /Volumes/linux-cs/wt-n1shut-out/arch/arm64/boot/Image.gz (7.3.0-gff289b9ce8ec)
+a9911c959767f08a5a6ebb141d263dab6bc79af3b8ec7a755cf2a6289ce70606  w4-n1warm-20261107-a9911c95.bin  (w4/private)
+f723c9fe14273e36ac38a85ccfa37b960f4ee71680253ee84635981be2e33043  w4d-n1warm-20261107-f723c9fe.bin  (w4/private)

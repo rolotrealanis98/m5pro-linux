@@ -1,0 +1,78 @@
+From 28a0b33a19d82ed13d95ab7abfb7345a2c1ab4d0 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 09:18:29 -0500
+Subject: [PATCH 1/2] arm64: dts: apple: j716s: Reserve a ramoops region
+
+The J716s has no serial console. A boot that hangs or panics before the
+network is up leaves nothing behind: the watchdog resets the machine, the
+boot loader falls back to the previous payload and the kernel log is
+gone. The log m1n1 keeps in RAM covers only the loader, and the next boot
+overwrites it.
+
+Reserve 2 MiB for pstore/ramoops, so that the next boot finds the
+previous boot's console, its oops and panic dumps and what was written
+to /dev/pmsg0 in /sys/fs/pstore. Apple's own panic buffer relies on DRAM
+surviving the reset. Nothing on the way back into Linux writes this
+range: m1n1's heap grows up from the end of the kernel data and its
+carve-outs come from the top of RAM. DRAM base + 8 GiB is far from both
+and inside the RAM Linux gets on any memory size from 16 GiB up. Whether
+iBoot keeps the range across every kind of reset is not measured yet; if
+it does not, the store reads back empty and nothing else changes.
+
+no-map keeps the region out of the linear map. The mapping is unbuffered
+so that no write-combined line is left in the memory cache at the reset.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 35 +++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 23d6113b065b..25de403a0f5f 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -54,6 +54,41 @@ framebuffer0: framebuffer@0 {
+ 		};
+ 	};
+ 
++	reserved-memory {
++		/*
++		 * pstore/ramoops: the previous boot's console, oops/panic dumps
++		 * and /dev/pmsg0 survive a warm reset (watchdog, panic restart,
++		 * reboot) for the next boot to read in /sys/fs/pstore. There is no
++		 * serial console on this machine, so this is the only record of a
++		 * boot that dies before, or without, the network.
++		 *
++		 * 2 MiB at DRAM base + 8 GiB: inside the RAM the loader hands to
++		 * Linux on any memory size from 16 GiB up ([OURS] boot logs: RAM
++		 * 0x10003b6c000..0x10bc89f8000 on 48 GiB). The loader stays clear
++		 * of it: its heap grows up from the end of the kernel data (a few
++		 * hundred MiB at most) and its carve-outs (log buffer, SIO, ISP,
++		 * GPU) come from the top of RAM. The firmware regions iBoot
++		 * reports lie outside the Linux RAM range.
++		 *
++		 * no-map keeps it out of the linear map, so only ramoops writes
++		 * it. Unbuffered (mem-type 1): a write-combined line still in the
++		 * memory cache would be lost at the reset. 16 bytes of ECC per
++		 * 128-byte block repair a few corrupted bytes. Layout: 512 KiB
++		 * console, 256 KiB pmsg, 10 x 128 KiB dmesg records (compressed),
++		 * no ftrace.
++		 */
++		ramoops@10200000000 {
++			compatible = "ramoops";
++			reg = <0x102 0x00000000 0x0 0x200000>;
++			no-map;
++			record-size = <0x20000>;
++			console-size = <0x80000>;
++			pmsg-size = <0x40000>;
++			ecc-size = <16>;
++			mem-type = <1>;
++		};
++	};
++
+ 	/*
+ 	 * Keyboard backlight. [ADT] /arm-io/pwm0/kbd-backlight: channel 0,
+ 	 * default-hz 25000 -> period 40000 ns. [OURS t6050-j716s.dts:35-46]
+-- 
+2.56.0
+

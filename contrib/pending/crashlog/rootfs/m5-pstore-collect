@@ -1,0 +1,71 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# m5-pstore-collect - keep what pstore/ramoops saved from the previous boot, at every boot.
+#
+# The J716s kernel (j716s-crashlog: DT ramoops@10200000000, CONFIG_PSTORE_RAM=y) keeps the previous
+# boot's console (console-ramoops-0), oops/panic dumps (dmesg-ramoops-N) and whatever was written
+# to /dev/pmsg0 (pmsg-ramoops-0) in a no-map RAM region that survives a warm reset. This copies
+# /sys/fs/pstore/* to /boot/r1-logs/pstore-<seq>-<date>-<boot id>/ on the ESP (readable from macOS too),
+# adds context, then deletes the records so the next crash finds an empty store.
+# Then it writes a marker for THIS boot into /dev/pmsg0, so the next boot's pmsg-ramoops-0 says
+# which boot the saved records belong to.
+#
+# Keep the records in /sys/fs/pstore as well (copy, no delete) for one boot:
+#   touch /boot/r1-logs/.pstore-keep      (removed again by the boot that honours it)
+set -u
+P=/sys/fs/pstore
+R=/boot/r1-logs
+log() { echo "m5-pstore-collect: $*"; }
+
+mountpoint -q "$P" || mount -t pstore pstore "$P" 2>/dev/null || { log "cannot mount $P"; exit 0; }
+mountpoint -q /boot || mount /dev/nvme0n1p4 /boot || { log "ESP not mounted, records left in $P"; exit 0; }
+
+now=$(date +%Y%m%d-%H%M%S)
+bid=$(cut -c1-8 /proc/sys/kernel/random/boot_id 2>/dev/null)
+slot=$(tr -d '\0' 2>/dev/null < /proc/device-tree/chosen/m5pro,boot-slot)
+scr=$(tr -d '\0' 2>/dev/null < /proc/device-tree/chosen/m5pro,pmu-scrpad)   # hex string from stage-1
+
+set -- "$P"/*
+if [ -e "$1" ]; then
+    # Sequence number first: this runs before the SMC RTC has set the clock on some boots, so the
+    # date in the name can be off; the number orders the directories regardless.
+    mkdir -p "$R" || { log "cannot create $R"; exit 0; }
+    seq=$(( $(cat "$R/.pstore-seq" 2>/dev/null || echo 0) + 1 ))
+    echo "$seq" > "$R/.pstore-seq"
+    D=$R/pstore-$(printf %04d "$seq")-$now-$bid
+    mkdir -p "$D" || { log "cannot create $D"; exit 0; }
+    n=0
+    for f in "$@"; do cp "$f" "$D/" && n=$((n + 1)); done
+    {
+        echo "collected   $now (clock may predate the RTC), uptime $(cut -d' ' -f1 /proc/uptime) s, by boot $bid"
+        echo "this boot   $(uname -r), slot=${slot:-none} pmu-scrpad=${scr:-none}"
+        echo "cmdline     $(cat /proc/cmdline)"
+        echo "records:"
+        ls -l "$@"
+    } > "$D/INFO.txt"
+    # The previous boot's journal tail, if journald got it to disk before the end.
+    journalctl -b -1 -n 400 --no-pager -o short-monotonic > "$D/journal-prev-tail.txt" 2>&1 || true
+    sync
+    log "saved $n record(s) to $D: $(cd "$P" && echo *)"
+    if grep -lqs -e 'Kernel panic' -e 'Oops' -e 'Internal error' "$D"/dmesg-* 2>/dev/null; then
+        log "the previous boot crashed: $(grep -h -m1 -e 'Kernel panic' -e 'Internal error' "$D"/dmesg-* | head -1)"
+    fi
+    if [ -e "$R/.pstore-keep" ]; then
+        rm -f "$R/.pstore-keep"; sync
+        log ".pstore-keep: records left in $P for this boot"
+    else
+        rm -f "$@" && log "store cleared"
+    fi
+    # Prune: keep the 10 newest console-only directories and the 20 newest with a crash dump.
+    for d in "$R"/pstore-*; do [ -d "$d" ] && echo "$d"; done | sort -r | while read -r d; do
+        if ls "$d"/dmesg-* >/dev/null 2>&1; then echo "crash $d"; else echo "plain $d"; fi
+    done | awk '($1=="plain" && ++p>10) || ($1=="crash" && ++c>20) {print $2}' | while read -r d; do
+        rm -rf "$d" && log "pruned $d"
+    done
+    sync
+else
+    log "store empty (first boot with ramoops, a cold boot, or the region was not preserved)"
+fi
+
+[ -w /dev/pmsg0 ] && echo "m5 boot $bid $now $(uname -r) slot=${slot:-none} pmu=${scr:-none}" > /dev/pmsg0
+exit 0

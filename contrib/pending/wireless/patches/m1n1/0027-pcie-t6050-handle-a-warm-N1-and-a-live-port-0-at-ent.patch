@@ -1,0 +1,257 @@
+From 2ce0f78ec80c708e897034d9b313e7072760b254 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 09:31:08 -0500
+Subject: [PATCH] pcie: t6050: handle a warm N1 and a live port 0 at entry
+ (chosen.m5pro,n1=4|5)
+
+A systemctl reboot from a boot with the N1 trained and in use did not
+come back on the J716s: the A/B stage-1 watchdog bit and the previous
+payload booted. A restart resets the SoC but not the N1, which keeps
+running its firmware with the SMC's gP13 left released, and m1n1 has
+never seen that state.
+
+With the SMC release (=4, =5):
+- print the entry state of port 0 (link status, LTSSM control, PERST#
+  pad) and what gP13 reads before the pulse;
+- a port that still has a link is parked first: LTSSM off, PERST#
+  asserted, link down within 100 ms, or STOP "link down after PERST#";
+- if gP13 reads released (template | 1), hold the reset 250 ms
+  instead of 50 ms;
+- the endpoint must then answer in its ROM personality (106b:1900);
+  106b:1901 means the N1 kept running, and the training stops instead
+  of handing it to Linux.
+=1..3 still adopt a live link and accept 106b:1901, as before.
+
+The SMC client gets bounded waits: no reply within 2 s ends the
+command with "SMC: no reply" (it used to spin forever, also on an
+RTKit receive error), and smc_read_u32() reads a key of up to 4 bytes.
+
+The three PMGR name tables become char arrays: each pointer cost a
+24-byte relocation, and rodata plus relocations share one 128 KiB
+window that was 0x28 bytes from full.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ src/pcie_t6050.c | 49 +++++++++++++++++++++++++++++++++++++++---------
+ src/smc.c        | 37 +++++++++++++++++++++++++++++++++---
+ src/smc.h        |  1 +
+ 3 files changed, 75 insertions(+), 12 deletions(-)
+
+diff --git a/src/pcie_t6050.c b/src/pcie_t6050.c
+index 7354b61f..8e3ba7a0 100644
+--- a/src/pcie_t6050.c
++++ b/src/pcie_t6050.c
+@@ -34,6 +34,13 @@
+  * refclk, internal reset release and PERST# release first, then the PIPE reset, port ready and
+  * idle waits, then the root port's DBI writes; the internal reset's bit 16 is still cleared and
+  * APPCLK bit 8 set, as Linux's adoption requires.
++ *
++ * Warm entry (N1_TRAIN_SMC only): after a restart the N1 may still run its firmware (the SoC reset
++ * does not reset it) and, if nothing reset the SoC's side, port 0 may still have a link. The entry
++ * state and gP13 are printed; a live link is parked first (LTSSM off, PERST# asserted, link down
++ * within 100 ms or STOP), a gP13 that reads released gets a 250 ms reset instead of 50 ms, and the
++ * endpoint must then answer in its ROM personality (106b:1900) or the training stops: an N1 that
++ * kept running is never handed to Linux.
+  */
+ 
+ #include "pcie_t6050.h"
+@@ -316,8 +323,9 @@ enum {
+     ST_SART = ST_PS + 6,
+     ST_COUNT = ST_SART + 3 * SART_SLOTS,
+ };
+-static const char *const storage_ps[] = {"APCIE_ST0", "APCIE_ST1",     "FAB6_SOC",
+-                                         "ANS",       "APCIE_SYS_ST0", "APCIE_SYS_ST1"};
++/* Name tables as char arrays: pointer tables cost a 24-byte relocation each (rodata is full) */
++static const char storage_ps[][16] = {"APCIE_ST0", "APCIE_ST1",     "FAB6_SOC",
++                                      "ANS",       "APCIE_SYS_ST0", "APCIE_SYS_ST1"};
+ static u64 storage_addr[ST_COUNT];
+ static u32 storage_ref[ST_COUNT];
+ static bool storage_have_ref;
+@@ -390,8 +398,8 @@ static int storage_check(const char *tag, bool reference)
+ /* A: the GP power closure; the rest of it must already be active */
+ static int stage_a(void)
+ {
+-    static const char *const keep[] = {"GPIO", "APCIE_GP", "FAB6_SOC", "APHY_GP_AUS5_A"};
+-    static const char *const raise[] = {"APCIE_SYS_GP", "APCIE_PHY_SW", "APHY_GP_AUS5"};
++    static const char keep[][16] = {"GPIO", "APCIE_GP", "FAB6_SOC", "APHY_GP_AUS5_A"};
++    static const char raise[][16] = {"APCIE_SYS_GP", "APCIE_PHY_SW", "APHY_GP_AUS5"};
+ 
+     /* The port still to be brought up is held in reset as iBoot leaves it */
+     if (!(read32(pr.ctl + PORT_LINKSTS) & BIT(0)) &&
+@@ -586,7 +594,7 @@ static int stage_e3(const struct port_regs *pp, u32 link_ms)
+ }
+ 
+ /* F: bus numbers and the endpoint's ID (the N1's ROM personality, function 0) */
+-static int stage_f(const struct port_regs *pp)
++static int stage_f(const struct port_regs *pp, bool rom_only)
+ {
+     u64 p2 = pp->ctl, rp = pp->rp;
+     u32 bus = pp->p->bus;
+@@ -607,8 +615,8 @@ static int stage_f(const struct port_regs *pp)
+         FAIL("secondary bus is %d, not %d\n", (buses >> 8) & 0xff, bus);
+     }
+     u32 id = read32(r.ecam + ((u64)bus << 20));
+-    if (id != 0x1900106b && id != 0x1901106b)
+-        FAIL("endpoint %02x:00.0 is 0x%08x, not the N1\n", bus, id);
++    if (id != 0x1900106b && (rom_only || id != 0x1901106b))
++        FAIL("endpoint %02x:00.0 is 0x%08x, not the N1 in its ROM\n", bus, id);
+     printf("pcie-t6050: endpoint %02x:00.0 is 0x%08x\n", bus, id);
+     return 0;
+ }
+@@ -628,6 +636,20 @@ static int stage_g(const struct port_regs *pp)
+     return 0;
+ }
+ 
++/* A live link at entry: LTSSM off, PERST# asserted, link down, so the cold path can run */
++static int port_park(const struct port_regs *pp)
++{
++    u32 old = read32(pp->perst);
++
++    write32(pp->ctl + PORT_LTSSMCTL, read32(pp->ctl + PORT_LTSSMCTL) & ~BIT(0));
++    if (old & GPIO_PERST_LOCK)
++        FAIL("PERST# pad locked\n");
++    write32(pp->perst, (old & ~GPIO_PERST_MASK) | GPIO_PERST_LOW);
++    TRY(poll_clear("link down after PERST#", pp->ctl + PORT_LINKSTS, BIT(0), 100));
++    mdelay(10);
++    return 0;
++}
++
+ /* Pulse the N1's reset through the SMC, as J813: pKW4(key, template | 0), then template | 1 */
+ static int n1_smc_release(const struct port_regs *pp)
+ {
+@@ -640,13 +662,16 @@ static int n1_smc_release(const struct port_regs *pp)
+     rtkit_set_boot_timeout(0);
+     if (!smc)
+         FAIL("SMC not available\n");
++    u32 was = 0;
++    bool warm = !smc_read_u32(smc, pp->reset_key, &was) && was == (pp->reset_template | 1);
++    printf("pcie-t6050: gP13 reads 0x%08x%s\n", was, warm ? ": N1 released (warm)" : "");
+     for (u32 level = 0; level < 2 && !ret; level++) {
+         u32 value = pp->reset_template | level;
+         ret = smc_write_u32(smc, pp->reset_key, value);
+         printf("pcie-t6050: SMC key %c%c%c%c <- 0x%08x: %d\n", (pp->reset_key >> 24) & 0xff,
+                (pp->reset_key >> 16) & 0xff, (pp->reset_key >> 8) & 0xff, pp->reset_key & 0xff,
+                value, ret);
+-        mdelay(50);
++        mdelay(warm && !level ? 250 : 50);
+     }
+     smc_shutdown(smc);
+     if (ret) /* the line above shows the SMC's result; no more rodata: it shares a 128 KiB window */
+@@ -670,6 +695,12 @@ int pcie_t6050_n1_train(unsigned int flags)
+     TRY(storage_check("before", true));
+ 
+     u64 p2 = pr.ctl;
++    printf("pcie-t6050: entry: linksts 0x%x ltssm 0x%x perst 0x%x\n", read32(p2 + PORT_LINKSTS),
++           read32(p2 + PORT_LTSSMCTL), read32(pr.perst));
++    if (read32(p2 + PORT_LINKSTS) & BIT(0) && flags & N1_TRAIN_SMC) {
++        printf("pcie-t6050: port 0 has a link: parking it first\n");
++        TRY(port_park(&pr));
++    }
+     if (read32(p2 + PORT_LINKSTS) & BIT(0)) {
+         printf("pcie-t6050: port 0 already has a link: adopting it\n");
+     } else {
+@@ -703,7 +734,7 @@ int pcie_t6050_n1_train(unsigned int flags)
+         }
+         TRY(stage_e3(&pr, flags & N1_TRAIN_SMC ? 1000 : 500));
+     }
+-    TRY(stage_f(&pr));
++    TRY(stage_f(&pr, flags & N1_TRAIN_SMC));
+     TRY(storage_check("after F", false));
+     TRY(stage_g(&pr));
+     printf("pcie-t6050: port 0 up, %s at %02x:00.0\n", pr.p->endpoint, pr.p->bus);
+diff --git a/src/smc.c b/src/smc.c
+index 142ce670..10e49a96 100644
+--- a/src/smc.c
++++ b/src/smc.c
+@@ -57,13 +57,20 @@ static void smc_handle_msg(smc_dev_t *smc, u64 msg)
+     }
+ }
+ 
++/* Bounded: an SMC that never answers ends the call instead of hanging m1n1 */
++#define SMC_REPLY_TIMEOUT (2 * USEC_PER_SEC)
++
+ static int smc_work(smc_dev_t *smc)
+ {
+     int ret;
+     struct rtkit_message msg;
++    u64 timeout = timeout_calculate(SMC_REPLY_TIMEOUT);
+ 
+     while ((ret = rtkit_recv(smc->rtkit, &msg)) == 0)
+-        ;
++        if (timeout_expired(timeout)) {
++            printf("SMC: no reply\n");
++            return -1;
++        }
+ 
+     if (ret < 0) {
+         printf("SMC: rtkit_recv failed!\n");
+@@ -90,7 +97,7 @@ static void smc_send(smc_dev_t *smc, u64 message)
+     rtkit_send(smc->rtkit, &msg);
+ }
+ 
+-static int smc_cmd(smc_dev_t *smc, u64 message)
++static int smc_cmd_result(smc_dev_t *smc, u64 message, u64 *result_out)
+ {
+     u8 id = smc->msgid++ & 0xF;
+     assert(!smc->outstanding[id]);
+@@ -100,9 +107,14 @@ static int smc_cmd(smc_dev_t *smc, u64 message)
+ 
+     smc_send(smc, message);
+     while (smc->outstanding[id])
+-        smc_work(smc);
++        if (smc_work(smc) < 0) {
++            smc->outstanding[id] = false;
++            return -1;
++        }
+ 
+     u64 result = smc->ret[id];
++    if (result_out)
++        *result_out = result;
+     u32 ret = FIELD_GET(SMC_RESULT_RESULT, result);
+     if (ret) {
+         printf("SMC: smc_cmd[0x%x] failed: %u\n", id, ret);
+@@ -112,6 +124,11 @@ static int smc_cmd(smc_dev_t *smc, u64 message)
+     return 0;
+ }
+ 
++static int smc_cmd(smc_dev_t *smc, u64 message)
++{
++    return smc_cmd_result(smc, message, NULL);
++}
++
+ void smc_shutdown(smc_dev_t *smc)
+ {
+     rtkit_quiesce(smc->rtkit);
+@@ -179,3 +196,17 @@ int smc_write_u32(smc_dev_t *smc, u32 key, u32 value)
+ 
+     return smc_cmd(smc, msg);
+ }
++
++/* A key of at most 4 bytes comes back in the reply itself */
++int smc_read_u32(smc_dev_t *smc, u32 key, u32 *value)
++{
++    u64 result;
++    u64 msg = FIELD_PREP(SMC_MSG_TYPE, SMC_READ_KEY);
++    msg |= FIELD_PREP(SMC_WRITE_KEY_SIZE, sizeof(*value));
++    msg |= FIELD_PREP(SMC_WRITE_KEY_KEY, key);
++
++    int ret = smc_cmd_result(smc, msg, &result);
++    if (!ret)
++        *value = FIELD_GET(SMC_RESULT_VALUE, result);
++    return ret;
++}
+diff --git a/src/smc.h b/src/smc.h
+index 4b95794b..c35a869e 100644
+--- a/src/smc.h
++++ b/src/smc.h
+@@ -10,6 +10,7 @@
+ typedef struct smc_dev smc_dev_t;
+ 
+ int smc_write_u32(smc_dev_t *smc, u32 key, u32 value);
++int smc_read_u32(smc_dev_t *smc, u32 key, u32 *value);
+ 
+ smc_dev_t *smc_init(void);
+ void smc_shutdown(smc_dev_t *smc);
+-- 
+2.56.0
+
