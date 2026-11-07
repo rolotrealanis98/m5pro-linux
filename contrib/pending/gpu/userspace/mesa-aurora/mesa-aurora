@@ -1,0 +1,24 @@
+#!/bin/sh
+# Run one command on the Aurora Mesa build in /opt/mesa-aurora instead of the
+# distribution Mesa. Nothing global changes; without this wrapper every
+# program keeps using the stock /usr Mesa.
+#   mesa-aurora vulkaninfo --summary
+#   mesa-aurora eglinfo -B
+#   MESA_AURORA_SHIM=g17s mesa-aurora vulkaninfo --summary   # offline, fake M5 Pro
+P=${MESA_AURORA_PREFIX:-/opt/mesa-aurora}
+export VK_DRIVER_FILES=$P/share/vulkan/icd.d/asahi_icd.aarch64.json
+export VK_ICD_FILENAMES=$VK_DRIVER_FILES
+export __EGL_VENDOR_LIBRARY_FILENAMES=$P/share/glvnd/egl_vendor.d/50_aurora.json
+export __GLX_VENDOR_LIBRARY_NAME=aurora
+export LIBGL_DRIVERS_PATH=$P/lib/dri
+export GBM_BACKENDS_PATH=$P/lib/gbm
+export LD_LIBRARY_PATH=$P/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+# M5 (G17S, HAL300) is admitted only on this experimental opt-in.
+export ASAHI_M5_BRINGUP=${ASAHI_M5_BRINGUP:-1}
+# The software-desktop session sets these; they would hide the GPU.
+unset LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER
+if [ -n "$MESA_AURORA_SHIM" ]; then
+  export ASAHI_SHIM_CHIP=$MESA_AURORA_SHIM
+  export LD_PRELOAD=$P/lib/libasahi_noop_drm_shim.so${LD_PRELOAD:+:$LD_PRELOAD}
+fi
+exec "$@"

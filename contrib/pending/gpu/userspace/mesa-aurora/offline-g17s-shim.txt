@@ -1,0 +1,31 @@
+# offline G17S (drm-shim, no kernel driver) on 7.3.0-ga0f2f30c967b, mesa a8e86a80cdc4695d00e7e63b8ebea263e557431b
+## MESA_AURORA_SHIM=g17s mesa-aurora vulkaninfo --summary
+Devices:
+========
+GPU0:
+	apiVersion         = 1.4.363
+	driverVersion      = 26.2.99
+	vendorID           = 0x10005
+	deviceID           = 0x6050
+	deviceType         = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
+	deviceName         = Apple M5 Pro (G17S A0)
+	driverID           = UNKNOWN_VkDriverId_value35
+	driverName         = Borealis
+	driverInfo         = Mesa 26.3.0-devel (git-a8e86a80cd), Borealis, derived from Honeykrisp
+	conformanceVersion = 0.0.0.0
+
+## MESA_AURORA_SHIM=g17s mesa-aurora egl-offscreen-test (noop shim: commands are accepted and discarded, so pixels stay 0)
+Experimental M5 HAL300 integration enabled; general rendering is unqualified
+[egl-offscreen-test] export failed
+EGL device 0: render node /dev/dri/renderD128
+EGL device 1: render node (none, software)
+EGL 1.5 vendor: Mesa Project
+GL_VENDOR:   Mesa
+GL_RENDERER: Apple M5 Pro (G17S A0)
+GL_VERSION:  OpenGL ES 3.2 Mesa 26.3.0-devel (git-a8e86a80cd)
+pixel ( 16, 16) =   0   0   0, want 255   0   0 WRONG
+pixel ( 64,100) =   0   0   0, want 255   0   0 WRONG
+pixel (240,240) =   0   0   0, want   0   0 255 WRONG
+pixel (200,180) =   0   0   0, want   0   0 255 WRONG
+glGetError: 0x0
+RESULT: FAIL
