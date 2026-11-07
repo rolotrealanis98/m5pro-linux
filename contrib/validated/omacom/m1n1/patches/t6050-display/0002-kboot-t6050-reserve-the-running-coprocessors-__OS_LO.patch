@@ -1,4 +1,4 @@
-From 4ec7412c577b5106688e7739708bbaa74c3e909c Mon Sep 17 00:00:00 2001
+From c3ddd4755bb95e73be968e9489238b3ddca17542 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 14:09:19 -0500
 Subject: [PATCH 2/4] kboot: t6050: reserve the running coprocessors' __OS_LOG

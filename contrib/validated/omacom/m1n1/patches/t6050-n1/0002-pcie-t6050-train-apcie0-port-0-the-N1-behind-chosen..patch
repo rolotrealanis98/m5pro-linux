@@ -1,4 +1,4 @@
-From b2dfd87447afafe667a6b1d3efffeb9dec9ba50c Mon Sep 17 00:00:00 2001
+From 414b5d93bdcb25074b9a89eb0a2dd6810693c31d Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 19:29:44 -0500
 Subject: [PATCH 2/5] pcie: t6050: train apcie0 port 0 (the N1) behind
@@ -15,8 +15,9 @@ the ADT (apcie0 reg[16..21], pci-bridge0, gpio0, dart-apcie0).
 
 Storage (ANS, NVMe, its SART and power) is compared with a reference
 before and after each stage that touches shared state. A failed check
-before the training only refuses it; a change after a stage returns
-N1_STORAGE_LOST, and kboot_setup_n1() then resets the SoC through the
+before the training only refuses it; a change after a stage, or after
+a stage that stopped partway (checked again on every stop once the
+reference is taken), returns N1_STORAGE_LOST, and kboot_setup_n1() then resets the SoC through the
 watchdog after 15 s instead of booting a kernel that may not mount its
 root. Any other stop leaves port 0 and its DART disabled, even if the
 link came up (a stage G failure).
@@ -40,13 +41,13 @@ Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
  src/kboot.c      |   6 +
  src/kboot.h      |   1 +
  src/kboot_n1.c   |  26 +-
- src/pcie_t6050.c | 674 +++++++++++++++++++++++++++++++++++++++++++++++
+ src/pcie_t6050.c | 684 +++++++++++++++++++++++++++++++++++++++++++++++
  src/pcie_t6050.h |  20 ++
  src/pmgr.c       |  28 +-
  src/pmgr.h       |   1 +
  src/tunables.c   |  38 +++
  src/tunables.h   |  12 +
- 10 files changed, 795 insertions(+), 13 deletions(-)
+ 10 files changed, 805 insertions(+), 13 deletions(-)
  create mode 100644 src/pcie_t6050.c
  create mode 100644 src/pcie_t6050.h
 
@@ -93,7 +94,7 @@ index 0406964..667da3d 100644
  
  /* Boot-args RAM range and boot framebuffer base, for the kboot_* SoC helpers */
 diff --git a/src/kboot_n1.c b/src/kboot_n1.c
-index 616e3b1..341d7e5 100644
+index 3470c46..827eebf 100644
 --- a/src/kboot_n1.c
 +++ b/src/kboot_n1.c
 @@ -21,13 +21,15 @@
@@ -114,7 +115,7 @@ index 616e3b1..341d7e5 100644
  #include "string.h"
  #include "utils.h"
  
-@@ -265,6 +267,24 @@ int kboot_setup_n1(void *dt)
+@@ -270,6 +272,24 @@ int kboot_setup_n1(void *dt)
      if (n1_set_control(dt, host))
          return -1;
  
@@ -139,7 +140,7 @@ index 616e3b1..341d7e5 100644
      /* Pass 1: the adopted root ports. Pass 2 re-finds every node, as each write moves offsets. */
      struct {
          char path[96];
-@@ -295,7 +315,7 @@ int kboot_setup_n1(void *dt)
+@@ -300,7 +320,7 @@ int kboot_setup_n1(void *dt)
      for (int i = 0; i < nports; i++) {
          int port = ports[i].port;
          u32 bus = ports[i].bus;
@@ -150,10 +151,10 @@ index 616e3b1..341d7e5 100644
          port_node = fdt_path_offset(dt, ports[i].path);
 diff --git a/src/pcie_t6050.c b/src/pcie_t6050.c
 new file mode 100644
-index 0000000..cb95140
+index 0000000..6d8bedf
 --- /dev/null
 +++ b/src/pcie_t6050.c
-@@ -0,0 +1,674 @@
+@@ -0,0 +1,684 @@
 +/* SPDX-License-Identifier: MIT */
 +/*
 + * T6050 apcie0 port 0 (the N1 Wi-Fi/Bluetooth) cold bring-up, for the J716s.
@@ -458,6 +459,7 @@ index 0000000..cb95140
 +                                         "ANS",       "APCIE_SYS_ST0", "APCIE_SYS_ST1"};
 +static u64 storage_addr[ST_COUNT];
 +static u32 storage_ref[ST_COUNT];
++static bool storage_ref_valid; /* the reference passed its own checks */
 +#define NVME_BOOT_STATUS_OK 0xde71ce55
 +
 +static int storage_find(void)
@@ -523,6 +525,8 @@ index 0000000..cb95140
 +        STORAGE_FAIL("NVMe BOOT_STATUS 0x%x (%s)\n", cur[ST_BOOT_STATUS], tag);
 +    if (cur[ST_CSTS] & BIT(1))
 +        STORAGE_FAIL("NVMe CSTS fatal (%s)\n", tag);
++    if (reference)
++        storage_ref_valid = true;
 +    printf("pcie-t6050: storage %s: %s\n", tag,
 +           reference ? "reference"
 +           : changed ? "allowed"
@@ -816,7 +820,14 @@ index 0000000..cb95140
 +
 +    if (state <= 0)
 +        return state;
++    storage_ref_valid = false;
 +    state = n1_train(smc_release);
++    /* A stage that stopped partway may already have written shared power or the GP PHY */
++    if (state < 0 && state != N1_STORAGE_LOST && storage_ref_valid) {
++        int st = storage_check("after the stop", false);
++        if (st < 0)
++            state = st;
++    }
 +    return state;
 +}
 +

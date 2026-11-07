@@ -1,4 +1,4 @@
-From 80e7953bc8eefcedad7196efd2460979c7323f6f Mon Sep 17 00:00:00 2001
+From 275ecc4205add99cc5f26860896cf1b43df96156 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 12:18:20 -0500
 Subject: [PATCH 2/2] smp: t6050: forward cores locked to a stage 1 base the

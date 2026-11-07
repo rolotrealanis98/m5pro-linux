@@ -1,4 +1,4 @@
-From 0673e22df9005164c9b5a8d8cad6ada3ac7dc79d Mon Sep 17 00:00:00 2001
+From 95cc9077c9490a39a39c9c7cc5ec945371edb62f Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Fri, 6 Nov 2026 19:27:05 -0500
 Subject: [PATCH 1/5] kboot: n1: fill the T6050 N1 hand-off in the DT
@@ -8,7 +8,8 @@ the boot loader what only the ADT knows. For the apple,t6050-pcie host:
 
 - the N1 control function (pci106b,1900) gets firmware-name
   "apple/centauri/<target-type>-ftab.bin", apple,centauri-platform-id
-  (board-id << 16 | chip-id) and apple,centauri-protocol 27 if unset;
+  (board-id << 16 | chip-id) and apple,centauri-protocol 27, each only if the DT leaves it
+  unset;
 - each apple,link-trained-by-bootloader root port gets the ADT
   pci-bridge<n> config, rc and gen3/4/5 shadow tunables as
   (offset, 4, mask, value) groups, which Linux replays in the root-port
@@ -28,9 +29,9 @@ Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
  Makefile       |   2 +-
  src/kboot.c    |   3 +
- src/kboot_n1.c | 315 +++++++++++++++++++++++++++++++++++++++++++++++++
+ src/kboot_n1.c | 320 +++++++++++++++++++++++++++++++++++++++++++++++++
  src/kboot_n1.h |   9 ++
- 4 files changed, 328 insertions(+), 1 deletion(-)
+ 4 files changed, 333 insertions(+), 1 deletion(-)
  create mode 100644 src/kboot_n1.c
  create mode 100644 src/kboot_n1.h
 
@@ -70,10 +71,10 @@ index 0d231eb..0c1e8a6 100644
      if (kboot_setup_atc(dt))
 diff --git a/src/kboot_n1.c b/src/kboot_n1.c
 new file mode 100644
-index 0000000..616e3b1
+index 0000000..3470c46
 --- /dev/null
 +++ b/src/kboot_n1.c
-@@ -0,0 +1,315 @@
+@@ -0,0 +1,320 @@
 +/* SPDX-License-Identifier: MIT */
 +/*
 + * T6050 N1 (Wi-Fi/Bluetooth, PCI 106b:1900-1903) on apcie0 port 0: the device-tree part of the
@@ -176,13 +177,18 @@ index 0000000..616e3b1
 +        int parent = fdt_parent_offset(dt, node);
 +        if (parent < 0 || fdt_parent_offset(dt, parent) != host)
 +            continue;
-+        if (fdt_setprop_string(dt, node, "firmware-name", name) ||
-+            fdt_setprop_u32(dt, node, "apple,centauri-platform-id", platform_id))
++        /* Fill only what the DT leaves unset: a DT value wins */
++        bool have_name = fdt_getprop(dt, node, "firmware-name", NULL);
++        bool have_id = fdt_getprop(dt, node, "apple,centauri-platform-id", NULL);
++        if ((!have_name && fdt_setprop_string(dt, node, "firmware-name", name)) ||
++            (!have_id && fdt_setprop_u32(dt, node, "apple,centauri-platform-id", platform_id)))
 +            return -1;
 +        if (!fdt_getprop(dt, node, "apple,centauri-protocol", NULL) &&
 +            fdt_setprop_u32(dt, node, "apple,centauri-protocol", 27))
 +            return -1;
-+        printf("n1: control function: firmware-name %s, platform-id 0x%08x\n", name, platform_id);
++        printf("n1: control function: firmware-name %s, platform-id 0x%08x%s\n",
++               have_name ? "(DT value kept)" : name, platform_id,
++               have_id ? " (DT value kept)" : "");
 +        found++;
 +    }
 +    if (!found)

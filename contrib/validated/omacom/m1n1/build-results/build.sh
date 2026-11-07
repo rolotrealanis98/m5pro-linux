@@ -21,7 +21,7 @@ COMMITS=$($G rev-list --reverse $BASE..omacom/wdt-keep | tr '\n' ' ')
 TIPSHA=$(for t in $TIPS; do $G rev-parse $t; done | tr '\n' ' ')
 LAST=$($G rev-parse omacom/wdt-keep)
 container rm -f omacomm1n1build >/dev/null 2>&1 || true
-container run -d --name omacomm1n1build -v "$TREE:/src" -v "$OUT:/out" docker.io/library/fedora:43 sleep infinity >/dev/null
+container run -d --name omacomm1n1build --memory 4G -v "$TREE:/src" -v "$OUT:/out" docker.io/library/fedora:43 sleep infinity >/dev/null
 trap 'container rm -f omacomm1n1build >/dev/null 2>&1 || true' EXIT
 container exec omacomm1n1build bash -c "
 set -e

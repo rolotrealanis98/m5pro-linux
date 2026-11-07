@@ -1,4 +1,4 @@
-From a656c62de767c8b7ac609b414dc68acdd1f4b0ee Mon Sep 17 00:00:00 2001
+From 7e9290127e3cd1351b184441e326125c785a62eb Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 07:05:38 -0500
 Subject: [PATCH 3/5] pcie: t6050: start ANS for the N1 training's storage
@@ -32,6 +32,9 @@ rtkit_boot()'s HELLO and endpoint-map wait becomes settable (1 s by
 default, as before); the training sets 10 s around nvme_init(), as
 Linux waits for this ANS (it can take about 3 s to answer after a stop).
 
+Like the training itself, this runs once per boot: a second kboot
+preparation gets the first result and leaves ANS alone.
+
 =1 and =2 are unchanged.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
@@ -39,17 +42,17 @@ Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 # Conflicts:
 #	src/nvme.c
 ---
- src/kboot_n1.c   | 16 ++++++----
- src/nvme.c       | 20 ++++++++++++-
+ src/kboot_n1.c   | 16 +++++----
+ src/nvme.c       | 20 ++++++++++-
  src/nvme.h       |  1 +
- src/pcie_t6050.c | 76 +++++++++++++++++++++++++++++++++++++++++++++++-
+ src/pcie_t6050.c | 90 +++++++++++++++++++++++++++++++++++++++++++++++-
  src/pcie_t6050.h |  6 ++++
- src/rtkit.c      | 12 ++++++--
+ src/rtkit.c      | 12 +++++--
  src/rtkit.h      |  2 ++
- 7 files changed, 123 insertions(+), 10 deletions(-)
+ 7 files changed, 137 insertions(+), 10 deletions(-)
 
 diff --git a/src/kboot_n1.c b/src/kboot_n1.c
-index 341d7e5..30ad019 100644
+index 827eebf..94c7ef1 100644
 --- a/src/kboot_n1.c
 +++ b/src/kboot_n1.c
 @@ -22,8 +22,10 @@
@@ -65,7 +68,7 @@ index 341d7e5..30ad019 100644
   */
  
  #include "kboot_n1.h"
-@@ -270,10 +272,12 @@ int kboot_setup_n1(void *dt)
+@@ -275,10 +277,12 @@ int kboot_setup_n1(void *dt)
      /* A port 0 training that stopped keeps port 0 down, even with a link up */
      bool port0_failed = false;
      const char *train = kboot_get_chosen("asahi,t6050-n1");
@@ -147,7 +150,7 @@ index 0afcd22..92a9214 100644
  
  bool nvme_flush(u32 nsid);
 diff --git a/src/pcie_t6050.c b/src/pcie_t6050.c
-index cb95140..7c757d7 100644
+index 6d8bedf..2909dd4 100644
 --- a/src/pcie_t6050.c
 +++ b/src/pcie_t6050.c
 @@ -18,11 +18,23 @@
@@ -174,15 +177,15 @@ index cb95140..7c757d7 100644
  #include "smc.h"
  #include "string.h"
  #include "tunables.h"
-@@ -302,6 +314,7 @@ static const char *const storage_ps[] = {"APCIE_ST0", "APCIE_ST1",     "FAB6_SOC
-                                          "ANS",       "APCIE_SYS_ST0", "APCIE_SYS_ST1"};
+@@ -303,6 +315,7 @@ static const char *const storage_ps[] = {"APCIE_ST0", "APCIE_ST1",     "FAB6_SOC
  static u64 storage_addr[ST_COUNT];
  static u32 storage_ref[ST_COUNT];
+ static bool storage_ref_valid; /* the reference passed its own checks */
 +static bool storage_have_ref;
  #define NVME_BOOT_STATUS_OK 0xde71ce55
  
  static int storage_find(void)
-@@ -347,8 +360,10 @@ static int storage_check(const char *tag, bool reference)
+@@ -348,8 +361,10 @@ static int storage_check(const char *tag, bool reference)
  
      for (int i = 0; i < ST_COUNT; i++)
          cur[i] = read32(storage_addr[i]);
@@ -194,7 +197,7 @@ index cb95140..7c757d7 100644
      for (int i = 0; i < ST_COUNT && !reference; i++) {
          if (cur[i] == storage_ref[i])
              continue;
-@@ -672,3 +687,62 @@ void pcie_t6050_storage_lost(const char *why)
+@@ -682,3 +697,76 @@ void pcie_t6050_storage_lost(const char *why)
      while (true)
          ;
  }
@@ -211,7 +214,7 @@ index cb95140..7c757d7 100644
 +    printf("pcie-t6050: ANS stopped again for Linux\n");
 +}
 +
-+int pcie_t6050_n1_train_ans(bool smc_release)
++static int n1_train_ans(bool smc_release)
 +{
 +    const u32 nsid = 1, lba = 1; /* the GPT header of the 4 KiB-block namespace */
 +
@@ -245,7 +248,7 @@ index cb95140..7c757d7 100644
 +    /* Whatever the outcome: the same storage registers, the same block, read through ANS */
 +    if (ret == N1_STORAGE_LOST)
 +        pcie_t6050_storage_lost("during the port 0 training");
-+    if (storage_have_ref && storage_check("after training", false))
++    if (storage_ref_valid && storage_check("after training", false))
 +        pcie_t6050_storage_lost("registers");
 +    if (!nvme_read(nsid, lba, blk + SZ_4K))
 +        pcie_t6050_storage_lost("read failed");
@@ -256,6 +259,20 @@ index cb95140..7c757d7 100644
 +
 +    ans_stop();
 +    return ret;
++}
++
++/*
++ * Once per boot, like pcie_t6050_n1_train(): a second kboot preparation must not start a second
++ * ANS session and compare it with the first one's reference. It gets the first result.
++ */
++int pcie_t6050_n1_train_ans(bool smc_release)
++{
++    static int state = 1;
++
++    if (state <= 0)
++        return state;
++    state = n1_train_ans(smc_release);
++    return state;
 +}
 diff --git a/src/pcie_t6050.h b/src/pcie_t6050.h
 index 53643ec..de72939 100644

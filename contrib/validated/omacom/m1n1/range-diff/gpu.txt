@@ -1,4 +1,4 @@
-1:  686e792 ! 1:  be49759 kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
+1:  686e792 ! 1:  4e46102 kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
     @@ Commit message
          coprocessor mailboxes at their native windows. dt_set_gpu() has no
          T6050 case yet ("ADT: GPU: unsupported chip!").

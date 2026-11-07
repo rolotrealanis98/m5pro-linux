@@ -8,6 +8,7 @@ What it does:
 - With the exact token `m1n1.wdt=keep` in the boot-args command line, `wdt_disable()` finds the watchdog, leaves the primary and secondary as they are, and logs "Primary WDT left armed (m1n1.wdt=keep)". `wdt_reboot()` works as before.
 - Nothing in m1n1 feeds the watchdog. Linux's `apple_wdt` keeps an armed watchdog fed once it probes.
 - The token is matched by `boot_option_present()`, like `m1n1-debug` and `m1n1-proxy`. It is honoured in every stage: the stage it matters for is a chainloaded one, and that stage may or may not be built with `ESP_STAGE2`.
+- On T8140, the CDC proxy window no longer arms its own 170 s watchdog under the token, because that would replace the earlier stage's deadline. CDC then has nothing of its own to disarm when the host opens the proxy.
 - Without the token nothing changes. It is opt-in by construction: only a stage that armed the watchdog and appends the token to the next stage's command line turns it on.
 - `docs/boot-options.md` documents it, including why it does not belong in the NVRAM boot-args: there it would leave iBoot's watchdog running.
 - `tests/python/test_boot_options.py`: exact-token matching (`m1n1.wdt`, `m1n1.wdt=`, `m1n1.wdt=keeps`, `xm1n1.wdt=keep` and truncated lines are refused), independent of the stage.
@@ -18,7 +19,7 @@ Not in this PR: arming the watchdog in omacom's own stage 1. In our chain, our A
 
 MacBook Pro 16-inch, M5 Pro (J716s, Mac17,8), macOS 27.3 beta 1 stub (26C5035r).
 
-**This commit on hardware (2026-11-07):** the full T6050 stack with this commit on top, built on #26 before #30 replaced it, booted the J716s on the first pass behind our A/B stage 1. The log showed `Primary WDT left armed (m1n1.wdt=keep)`. The loader then trained the N1, Linux came up on 18 CPUs with Wi-Fi: pass. The commit is unchanged by the rebase.
+**This commit on hardware (2026-11-07):** The full stack on #30 (`omacom/wdt-keep` at 6653bb2, m1n1 `v1.6.1-429-g6653bb2`, before the review fixes) booted the J716s on the first pass, 74 s to SSH behind our A/B stage 1, whose boot-args carried ` m1n1.wdt=keep`. The log showed `Primary WDT left armed (m1n1.wdt=keep)`, then the N1 training, and Linux came up on 18 CPUs with Wi-Fi: pass. The stack on #26 had passed the same way earlier. Since then, the commit only gained the T8140 CDC change above, which does not run on T6050.
 
 Before that, the same check ran in our own stage 2 as a substring match of the same token. Our A/B stage 1 armed the watchdog for 150 s and passed the token on every boot on 2026-11-07. That day:
 - Payloads that hung or panicked before `apple_wdt` probed came back unattended on the fallback payload, with the boot-slot marked `fallback-after-failure`: DAILY-NEXT-T1, W3 (a cold start), and the boots of freshly written files that fell back once.

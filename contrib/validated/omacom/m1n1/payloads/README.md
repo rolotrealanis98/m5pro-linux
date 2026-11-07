@@ -8,9 +8,11 @@ Built by `python3 -I mk-omacom.py` (mk-daily.py as a module, `M1N1_SIZE = 0x4100
 | `omacom-t6050-n1-20261107-af41b6be` | c07, `omacom/t6050-n1` | daily / daily DTB | + `chosen.asahi,t6050-n1=4` | **disarmed** | **attended**; a warm restart is fine (warm-N1 entry included) |
 | `omacom-t6050-gpu-20261107-9bbad70b` | c08, `omacom/t6050-gpu` | E2 `3671d907d570` / E2 DTB + `&gpu`, `&pmgr_gfx` okay | + n1=4 | **disarmed** | **attended** |
 | `omacom-t6050-display-20261107-ada57bc1` | c12, `omacom/t6050-display` | daily / DCP-B0 DTB (display nodes, no bw-scratch) | + n1=4, `chosen.asahi,t6050-display=1` | **disarmed** | **attended** |
-| `omacom-wdt-keep-20261107-3713d26f` | c13, `omacom/wdt-keep` (full stack) | daily / daily DTB | + n1=4 | **kept armed**: honours the ` m1n1.wdt=keep` our A/B stage 1 appends | **unattended OK** (loop + A/B stage 1, as for the daily) |
+| `omacom-wdt-keep-20261107-15618a15` | c13, `omacom/wdt-keep` (full stack) | daily / daily DTB | + n1=4 | **kept armed**: honours the ` m1n1.wdt=keep` our A/B stage 1 appends | **unattended OK** (loop + A/B stage 1, as for the daily) |
 
 Previous set (the same branches on #26, in `v26/`): `omacom-wdt-keep-20261107-2014252d` booted the J716s on the first pass on 2026-11-07. The log showed `Primary WDT left armed`, `SMP: installed RVBAR relay`, `pcie-t6050: port 0 up, N1 at 01:00.0` and `n1: port 0 up: root port and DART okay`, the MTP DAPF was programmed, and Linux came up on 18 CPUs with Wi-Fi. There was no USB gadget network, as expected. This set is on #30, which adds edimoldovan's USB host prep (it runs on every T6050 boot and has not run on a J716s), the PMP DAPF entry, the G17 GPU fill and the live-ANS marking.
+
+`omacom-wdt-keep-20261107-15618a15` is the final stack, after the review fixes (02785a3). The other four in this folder are the #30 stack before the review fixes. `v30-prereview/omacom-wdt-keep-20261107-3713d26f` (6653bb2) booted the J716s on the first pass on 2026-11-07, 74 s to SSH: watchdog kept, relay installed, N1 trained, MTP DAPF programmed, #30's USB host prep on USB0/1/2, 18 CPUs, Wi-Fi and Bluetooth, no gadget network. Afterwards, the warm restart into the regular daily fell back once in early Linux; that happened once after the #26 session too, and the cause is open.
 
 All payloads: self-test on (`m5.selftest=1`: reverts to `boot.bin.prev` if there is no network 90 s after network-online), battery driver on.
 

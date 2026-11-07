@@ -1,24 +1,24 @@
 base ad08bf5 payload: T6050 stage 2 marks stage 1's live ANS session for U-Boot
 base0 c614476 Merge pull request #25 from scottjones/j504/bringup
-c01 ddd9d35 tests: build the T6050 paths that #30 adds
-c02 80e7953 smp: t6050: forward cores locked to a stage 1 base the image left
-c03 0673e22 kboot: n1: fill the T6050 N1 hand-off in the DT
-c04 b2dfd87 pcie: t6050: train apcie0 port 0 (the N1) behind chosen.asahi,t6050-n1
-c05 a656c62 pcie: t6050: start ANS for the N1 training's storage checks (chosen.asahi,t6050-n1=3|4)
-c06 2ec2604 pcie: t6050: pulse the N1 reset through the SMC as on J813 (chosen.asahi,t6050-n1=2|4)
-c07 26519fb pcie: t6050: handle a warm N1 and a live port 0 at entry (chosen.asahi,t6050-n1=2|4)
-c08 be49759 kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
-c09 2743732 firmware: add the 27.2 and 27.3 beta 1 stub iBoot strings
-c10 4ec7412 kboot: t6050: reserve the running coprocessors' __OS_LOG segments
-c11 1e911fe kboot: t6050: hand the internal display to the firmware-27 DCP driver
-c12 256759b kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
-c13 6653bb2 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
+c01 21c26ff tests: build the T6050 paths that #30 adds
+c02 275ecc4 smp: t6050: forward cores locked to a stage 1 base the image left
+c03 95cc907 kboot: n1: fill the T6050 N1 hand-off in the DT
+c04 414b5d9 pcie: t6050: train apcie0 port 0 (the N1) behind chosen.asahi,t6050-n1
+c05 7e92901 pcie: t6050: start ANS for the N1 training's storage checks (chosen.asahi,t6050-n1=3|4)
+c06 15f5eae pcie: t6050: pulse the N1 reset through the SMC as on J813 (chosen.asahi,t6050-n1=2|4)
+c07 f1a942e pcie: t6050: handle a warm N1 and a live port 0 at entry (chosen.asahi,t6050-n1=2|4)
+c08 4e46102 kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
+c09 4475ded firmware: add the 27.2 and 27.3 beta 1 stub iBoot strings
+c10 c3ddd47 kboot: t6050: reserve the running coprocessors' __OS_LOG segments
+c11 974d09e kboot: t6050: hand the internal display to the firmware-27 DCP driver
+c12 db0d3bf kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
+c13 02785a3 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
 ci-base ad08bf5 payload: T6050 stage 2 marks stage 1's live ANS session for U-Boot
 ci-base0 c614476 Merge pull request #25 from scottjones/j504/bringup
-ci-tip1 80e7953 smp: t6050: forward cores locked to a stage 1 base the image left
-ci-tip2 26519fb pcie: t6050: handle a warm N1 and a live port 0 at entry (chosen.asahi,t6050-n1=2|4)
-ci-tip3 be49759 kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
-ci-tip4 256759b kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
-ci-tip5 6653bb2 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
-ci-wdt-standalone a08882b wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
-wdt-standalone a08882b wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
+ci-tip1 275ecc4 smp: t6050: forward cores locked to a stage 1 base the image left
+ci-tip2 f1a942e pcie: t6050: handle a warm N1 and a live port 0 at entry (chosen.asahi,t6050-n1=2|4)
+ci-tip3 4e46102 kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
+ci-tip4 db0d3bf kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
+ci-tip5 02785a3 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
+ci-wdt-standalone f723230 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
+wdt-standalone f723230 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep

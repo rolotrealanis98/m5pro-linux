@@ -31,7 +31,7 @@ Relation to #30's GPU fill (`kboot: GPU handoff for T6050`): #30 generalises the
 
 MacBook Pro 16-inch, M5 Pro (J716s, Mac17,8), macOS 27.3 beta 1 stub (26C5035r). Kernel: aurora-silicon/linux #1012 + #1173.
 
-**This stack on hardware (2026-11-07):** the full stack, built on #26 before #30 replaced it, booted the J716s with the daily DTB. That DTB keeps the gpu node disabled, so this code was present but not armed: no GPU node was filled or enabled, and Linux came up on 18 CPUs with Wi-Fi. The dispatch by compatible is new in the rebase onto #30, which has not booted.
+**This stack on hardware (2026-11-07):** The full stack on #30 (`omacom/wdt-keep` at 6653bb2, m1n1 `v1.6.1-429-g6653bb2`, before the review fixes) booted the J716s on the first pass, 74 s to SSH, with the daily DTB. That DTB keeps the gpu node disabled, so this code (with the dispatch by compatible) was present but not armed: no GPU node was filled or enabled. Linux came up on 18 CPUs with Wi-Fi.
 
 The hand-off itself ran in our own stage 2. That build read the same ADT sources and published the same values, gated by a payload variable (`chosen.m5pro,gpu=1`); it also enabled the gpu and PMGR nodes itself (here the DT does). On 2026-11-07:
 

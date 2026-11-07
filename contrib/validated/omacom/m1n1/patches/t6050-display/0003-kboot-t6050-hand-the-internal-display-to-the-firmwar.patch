@@ -1,4 +1,4 @@
-From 1e911feff8db5e6d473e0840c16f2c0b88ee4ce0 Mon Sep 17 00:00:00 2001
+From 974d09e5648e7585a003a5d31038280893789649 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 14:09:19 -0500
 Subject: [PATCH 3/4] kboot: t6050: hand the internal display to the

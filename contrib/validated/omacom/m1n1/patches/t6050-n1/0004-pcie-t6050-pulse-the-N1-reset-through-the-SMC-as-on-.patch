@@ -1,4 +1,4 @@
-From 2ec2604d3e2e76f29c03090fea6f7130b76c1e24 Mon Sep 17 00:00:00 2001
+From 15f5eaefa62d4bad24647e2d69fbdb9f02b026fd Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 07:42:07 -0500
 Subject: [PATCH 4/5] pcie: t6050: pulse the N1 reset through the SMC as on
@@ -22,7 +22,7 @@ Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
  1 file changed, 26 insertions(+), 12 deletions(-)
 
 diff --git a/src/pcie_t6050.c b/src/pcie_t6050.c
-index 7c757d7..fb6a189 100644
+index 2909dd4..938169e 100644
 --- a/src/pcie_t6050.c
 +++ b/src/pcie_t6050.c
 @@ -16,8 +16,9 @@
@@ -49,7 +49,7 @@ index 7c757d7..fb6a189 100644
   */
  
  #include "pcie_t6050.h"
-@@ -535,8 +541,8 @@ static int stage_d(const struct port_regs *pp)
+@@ -538,8 +544,8 @@ static int stage_d(const struct port_regs *pp)
      return 0;
  }
  
@@ -60,7 +60,7 @@ index 7c757d7..fb6a189 100644
  {
      u64 p2 = pp->ctl;
  
-@@ -562,7 +568,7 @@ static int stage_e(const struct port_regs *pp)
+@@ -565,7 +571,7 @@ static int stage_e(const struct port_regs *pp)
          FAIL("PERST# readback 0x%x\n", read32(pp->perst));
  
      TRY(rmw("LTSSM start", p2 + PORT_LTSSMCTL, 0, BIT(0)));
@@ -69,7 +69,7 @@ index 7c757d7..fb6a189 100644
      mdelay(100);
      return 0;
  }
-@@ -613,20 +619,28 @@ static int stage_g(const struct port_regs *pp)
+@@ -616,20 +622,28 @@ static int stage_g(const struct port_regs *pp)
  /* Release the N1's reset through the SMC: pKW4(key, template | 1), as dcp.c raises its rails */
  static int n1_smc_release(const struct port_regs *pp)
  {
@@ -104,7 +104,7 @@ index 7c757d7..fb6a189 100644
      return 0;
  }
  
-@@ -660,7 +674,7 @@ static int n1_train(bool smc_release)
+@@ -663,7 +677,7 @@ static int n1_train(bool smc_release)
          TRY(stage_b(&pr));
          TRY(stage_c(&pr));
          TRY(stage_d(&pr));

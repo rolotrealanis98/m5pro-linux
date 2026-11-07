@@ -1,4 +1,4 @@
-From be49759ad5117d9e7bce942f4291ea699b7d021a Mon Sep 17 00:00:00 2001
+From 4e461025b9ecd25b571ed66d87acdd5680bf6b21 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 13:58:06 -0500
 Subject: [PATCH] kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT

@@ -1,4 +1,4 @@
-From 6653bb279714a5dab4f0e74fa73e5bc7a7f30db6 Mon Sep 17 00:00:00 2001
+From 02785a35e046901d5686ab9059b2c08b6256752a Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:25:50 -0500
 Subject: [PATCH] wdt: leave the watchdog armed when the boot-args say
@@ -15,7 +15,10 @@ With the exact token m1n1.wdt=keep in the boot-args command line,
 wdt_disable() finds the watchdog but leaves both the primary and the
 secondary as they are, and says so. Nothing in m1n1 feeds it; Linux's
 apple_wdt keeps an armed watchdog fed once it probes. wdt_reboot()
-works as before. Without the token nothing changes.
+works as before. On T8140, scheduling the CDC proxy window no longer
+re-arms the watchdog for 170 s under the token (that would replace the
+earlier stage's deadline), and CDC then has nothing of its own to
+disarm. Without the token nothing changes.
 
 The token is matched by boot_option_present(), like m1n1-debug and
 m1n1-proxy, and in every stage: the stage it matters for is a
@@ -33,18 +36,19 @@ watchdog fed.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
- docs/boot-options.md              | 11 ++++++++++
+ docs/boot-options.md              | 12 +++++++++++
  src/boot_options.c                |  7 +++++++
  src/boot_options.h                |  1 +
+ src/usb_cdc.c                     |  7 ++++++-
  src/wdt.c                         | 11 ++++++++++
  tests/python/test_boot_options.py | 35 +++++++++++++++++++++++++++++++
- 5 files changed, 65 insertions(+)
+ 6 files changed, 72 insertions(+), 1 deletion(-)
 
 diff --git a/docs/boot-options.md b/docs/boot-options.md
-index eaf61f8..f14f21e 100644
+index eaf61f8..649a28a 100644
 --- a/docs/boot-options.md
 +++ b/docs/boot-options.md
-@@ -11,6 +11,17 @@ The boot-argument tokens are matched exactly:
+@@ -11,6 +11,18 @@ The boot-argument tokens are matched exactly:
  - `m1n1-debug` selects DebugUSB early and prevents CDC from taking its carrier.
  - `m1n1-proxy` skips Stage 1 payload loading and enters the proxy. It is ignored
    by an ESP-loaded Stage 2, so a deliberately chainloaded Stage 2 can boot.
@@ -56,8 +60,9 @@ index eaf61f8..f14f21e 100644
 +  boot, so that stage can boot its fallback. Linux's `apple_wdt` keeps an armed
 +  watchdog fed once it probes. m1n1 itself does not feed it, so everything
 +  before that, including waiting in the proxy, has to finish within the timeout
-+  the earlier stage chose. Without the token m1n1 disables the watchdog as
-+  before. It is honoured by every stage, so it does not belong in the NVRAM
++  the earlier stage chose. On T8140 the CDC proxy window then neither
++  re-arms the watchdog for 170 s nor disarms it when the host opens the
++  proxy. Without the token m1n1 disables the watchdog as before. It is honoured by every stage, so it does not belong in the NVRAM
 +  boot-args: there it would leave iBoot's watchdog running.
  
  The options may be combined. `m1n1-debug` alone does not request a proxy pause.
@@ -101,6 +106,24 @@ index 802c334..a1950f7 100644
  bool m1n1_proxy_enabled(void);
 +bool m1n1_wdt_keep_enabled(void);
  #endif
+diff --git a/src/usb_cdc.c b/src/usb_cdc.c
+index 8728572..88dd637 100644
+--- a/src/usb_cdc.c
++++ b/src/usb_cdc.c
+@@ -94,7 +94,12 @@ failed:
+ 
+ int usb_cdc_arm_watchdog(void)
+ {
+-    if (chip_id != T8140 || wdt_arm_seconds(170))
++    if (chip_id != T8140)
++        return -1;
++    /* The earlier stage armed the watchdog and its deadline stands: neither re-arm nor disarm */
++    if (m1n1_wdt_keep_enabled())
++        return 0;
++    if (wdt_arm_seconds(170))
+         return -1;
+     watchdog_armed = true;
+     return 0;
 diff --git a/src/wdt.c b/src/wdt.c
 index 333c0d4..10fcb03 100644
 --- a/src/wdt.c

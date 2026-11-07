@@ -1,4 +1,4 @@
-From 26519fb00302cb14ea187bd8f0a5562d224abd55 Mon Sep 17 00:00:00 2001
+From f1a942e393d11eadb154988a4a3bd961184fe5e0 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 15:21:07 -0500
 Subject: [PATCH 5/5] pcie: t6050: handle a warm N1 and a live port 0 at entry
@@ -22,9 +22,11 @@ With the SMC release (=2, =4):
   of handing it to Linux.
 =1 and =3 still adopt a live link and accept 106b:1901, as before.
 
-The SMC client gets bounded waits: no reply within 2 s ends the command
-with "SMC: no reply" (it used to spin forever, also on an RTKit receive
-error), and smc_read_u32() reads a key of up to 4 bytes.
+The SMC client gets bounded waits: a command, and the initialisation,
+ends with "SMC: no reply" if its reply has not come 2 s after it was
+sent, however much other traffic (notifications) arrives meanwhile (it
+used to spin forever, also on an RTKit receive error), and
+smc_read_u32() reads a key of up to 4 bytes.
 
 Tested on the J716s (MacBook Pro 16-inch, M5 Pro) with the same change
 on our stage 2: three systemctl reboot cycles with wlan0 associated and
@@ -32,13 +34,13 @@ a ping running all came back on the primary slot with the N1 adopted.
 
 Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
 ---
- src/pcie_t6050.c | 43 +++++++++++++++++++++++++++++++++++++------
- src/smc.c        | 37 ++++++++++++++++++++++++++++++++++---
+ src/pcie_t6050.c | 43 +++++++++++++++++++++++++++++++------
+ src/smc.c        | 55 ++++++++++++++++++++++++++++++++++++++++++------
  src/smc.h        |  1 +
- 3 files changed, 72 insertions(+), 9 deletions(-)
+ 3 files changed, 87 insertions(+), 12 deletions(-)
 
 diff --git a/src/pcie_t6050.c b/src/pcie_t6050.c
-index fb6a189..f4d57f7 100644
+index 938169e..bd186ff 100644
 --- a/src/pcie_t6050.c
 +++ b/src/pcie_t6050.c
 @@ -33,6 +33,13 @@
@@ -55,7 +57,7 @@ index fb6a189..f4d57f7 100644
   */
  
  #include "pcie_t6050.h"
-@@ -574,7 +581,7 @@ static int stage_e(const struct port_regs *pp, u32 link_ms)
+@@ -577,7 +584,7 @@ static int stage_e(const struct port_regs *pp, u32 link_ms)
  }
  
  /* F: bus numbers and the endpoint's ID (the N1's ROM personality, function 0) */
@@ -64,7 +66,7 @@ index fb6a189..f4d57f7 100644
  {
      u64 p2 = pp->ctl, rp = pp->rp;
      u32 bus = pp->p->bus;
-@@ -595,8 +602,8 @@ static int stage_f(const struct port_regs *pp)
+@@ -598,8 +605,8 @@ static int stage_f(const struct port_regs *pp)
          FAIL("secondary bus is %d, not %d\n", (buses >> 8) & 0xff, bus);
      }
      u32 id = read32(r.ecam + ((u64)bus << 20));
@@ -75,7 +77,7 @@ index fb6a189..f4d57f7 100644
      printf("pcie-t6050: endpoint %02x:00.0 is 0x%08x\n", bus, id);
      return 0;
  }
-@@ -616,6 +623,20 @@ static int stage_g(const struct port_regs *pp)
+@@ -619,6 +626,20 @@ static int stage_g(const struct port_regs *pp)
      return 0;
  }
  
@@ -96,7 +98,7 @@ index fb6a189..f4d57f7 100644
  /* Release the N1's reset through the SMC: pKW4(key, template | 1), as dcp.c raises its rails */
  static int n1_smc_release(const struct port_regs *pp)
  {
-@@ -628,14 +649,18 @@ static int n1_smc_release(const struct port_regs *pp)
+@@ -631,14 +652,18 @@ static int n1_smc_release(const struct port_regs *pp)
      rtkit_set_boot_timeout(0);
      if (!smc)
          FAIL("SMC not available\n");
@@ -117,7 +119,7 @@ index fb6a189..f4d57f7 100644
      }
      smc_shutdown(smc);
      if (ret)
-@@ -654,6 +679,12 @@ static int n1_train(bool smc_release)
+@@ -657,6 +682,12 @@ static int n1_train(bool smc_release)
      TRY(storage_check("before", true));
  
      u64 p2 = pr.ctl;
@@ -130,7 +132,7 @@ index fb6a189..f4d57f7 100644
      if (read32(p2 + PORT_LINKSTS) & BIT(0)) {
          printf("pcie-t6050: port 0 already has a link: adopting it\n");
      } else {
-@@ -676,7 +707,7 @@ static int n1_train(bool smc_release)
+@@ -679,7 +710,7 @@ static int n1_train(bool smc_release)
          TRY(stage_d(&pr));
          TRY(stage_e(&pr, smc_release ? 1000 : 500));
      }
@@ -140,25 +142,26 @@ index fb6a189..f4d57f7 100644
      TRY(stage_g(&pr));
      printf("pcie-t6050: port 0 up, %s at %02x:00.0\n", pr.p->endpoint, pr.p->bus);
 diff --git a/src/smc.c b/src/smc.c
-index 3fee45a..863c4e4 100644
+index 3fee45a..e1f438a 100644
 --- a/src/smc.c
 +++ b/src/smc.c
 @@ -57,13 +57,20 @@ static void smc_handle_msg(smc_dev_t *smc, u64 msg)
      }
  }
  
+-static int smc_work(smc_dev_t *smc)
 +/* Bounded: an SMC that never answers ends the call instead of hanging m1n1 */
 +#define SMC_REPLY_TIMEOUT (2 * USEC_PER_SEC)
 +
- static int smc_work(smc_dev_t *smc)
++/* deadline: one timeout_calculate() for the whole wait, so other traffic cannot extend it */
++static int smc_work(smc_dev_t *smc, u64 deadline)
  {
      int ret;
      struct rtkit_message msg;
-+    u64 timeout = timeout_calculate(SMC_REPLY_TIMEOUT);
  
      while ((ret = rtkit_recv(smc->rtkit, &msg)) == 0)
 -        ;
-+        if (timeout_expired(timeout)) {
++        if (timeout_expired(deadline)) {
 +            printf("SMC: no reply\n");
 +            return -1;
 +        }
@@ -174,15 +177,25 @@ index 3fee45a..863c4e4 100644
  {
      u8 id = smc->msgid++ & 0xF;
      assert(!smc->outstanding[id]);
-@@ -100,9 +107,14 @@ static int smc_cmd(smc_dev_t *smc, u64 message)
+@@ -98,11 +105,23 @@ static int smc_cmd(smc_dev_t *smc, u64 message)
  
+     message |= FIELD_PREP(SMC_MSG_ID, id);
+ 
++    u64 deadline = timeout_calculate(SMC_REPLY_TIMEOUT);
      smc_send(smc, message);
-     while (smc->outstanding[id])
+-    while (smc->outstanding[id])
 -        smc_work(smc);
-+        if (smc_work(smc) < 0) {
++    while (smc->outstanding[id]) {
++        int ret = smc_work(smc, deadline);
++        if (!ret && smc->outstanding[id] && timeout_expired(deadline)) {
++            printf("SMC: no reply\n");
++            ret = -1;
++        }
++        if (ret < 0) {
 +            smc->outstanding[id] = false;
 +            return -1;
 +        }
++    }
  
      u64 result = smc->ret[id];
 +    if (result_out)
@@ -190,7 +203,7 @@ index 3fee45a..863c4e4 100644
      u32 ret = FIELD_GET(SMC_RESULT_RESULT, result);
      if (ret) {
          printf("SMC: smc_cmd[0x%x] failed: %u\n", id, ret);
-@@ -112,6 +124,11 @@ static int smc_cmd(smc_dev_t *smc, u64 message)
+@@ -112,6 +131,11 @@ static int smc_cmd(smc_dev_t *smc, u64 message)
      return 0;
  }
  
@@ -202,7 +215,26 @@ index 3fee45a..863c4e4 100644
  void smc_shutdown(smc_dev_t *smc)
  {
      rtkit_quiesce(smc->rtkit);
-@@ -179,3 +196,17 @@ int smc_write_u32(smc_dev_t *smc, u32 key, u32 value)
+@@ -151,12 +175,17 @@ smc_dev_t *smc_init(void)
+     u64 initialize =
+         FIELD_PREP(SMC_MSG_TYPE, SMC_INITIALIZE) | FIELD_PREP(SMC_MSG_ID, smc->msgid++);
+ 
++    u64 deadline = timeout_calculate(SMC_REPLY_TIMEOUT);
+     smc_send(smc, initialize);
+ 
+     while (!smc->shmem) {
+-        int ret = smc_work(smc);
++        int ret = smc_work(smc, deadline);
+         if (ret < 0)
+             goto out_rtkit;
++        if (!smc->shmem && timeout_expired(deadline)) {
++            printf("SMC: no reply\n");
++            goto out_rtkit;
++        }
+     }
+ 
+     return smc;
+@@ -179,3 +208,17 @@ int smc_write_u32(smc_dev_t *smc, u32 key, u32 value)
  
      return smc_cmd(smc, msg);
  }

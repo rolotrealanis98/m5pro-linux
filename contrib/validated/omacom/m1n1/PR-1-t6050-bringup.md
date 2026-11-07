@@ -12,7 +12,7 @@ What this adds:
 
 - `tests: build the T6050 paths that #30 adds`. Five CI host tests compile production bodies that #30 extends, and they fail on its head:
   - `test_nvme_adoption`, `test_smp_handoff_gate` and `test_m3_defaults_optout` do not know `T6050`, and `test_smp_handoff_gate` also has no stub for `dapf_init()`.
-  - `test_universal_boot`'s stage 1 config block now reads `boot_spec` and `kernel`.
+  - `test_universal_boot`'s stage 1 config block now reads `boot_spec` and `kernel`. The harness now also runs #30's new cases: with `boot=` or an appended kernel, a configured target adds neither a chainload target nor its ESP hint, and a `chainload=` line is kept. T6050 is added to the chip list.
   - `test_t8103_inherited_reservation` no longer finds the end of its block (`T8140 || T6050`).
 
   The harnesses get the defines, the stub, the two declarations and both forms of the match. integration/aurora passes them before and after. @edimoldovan, feel free to fold this into #30.
@@ -31,12 +31,15 @@ When the relay runs: only for a stage 2 too big to stay at stage 1's base. #30's
 
 MacBook Pro 16-inch, M5 Pro (J716s, Mac17,8, 48 GiB), macOS 27.3 beta 1 stub (26C5035r, `mBoot-20457.60.65.0.1`). Boot chain: our A/B stage 1 (kmutil, watchdog armed for 150 s) chainloads `boot.bin` from the ESP, which is a stage 2 with the kernel, DTB and initramfs appended. Kernel: integration/aurora with the T6050 series (the daily, `7.3.0-ga0f2f30c967b`).
 
-- **This stack on hardware (2026-11-07).** The full stack up to `omacom/wdt-keep`, built on #26 before #30 replaced it, booted the J716s on the first pass. #26 has the same T6050 code as #30, minus USB host prep, the PMP DAPF, the G17 GPU fill and the live-ANS marking.
-  - `SMP: installed RVBAR relay`, then Linux on 18 CPUs: pass.
-  - Also in that boot: `Primary WDT left armed` (PR-5), the N1 trained by the loader (PR-2), the MTP DAPF programmed.
-  - Wi-Fi came up. There was no USB gadget network, as expected: integration/aurora has no T6050 combo-PHY tunable fill.
+- **This stack on hardware (2026-11-07).** The full stack on #30 (`omacom/wdt-keep` at 6653bb2, m1n1 `v1.6.1-429-g6653bb2`, before the review fixes) booted the J716s on the first pass, 74 s to SSH:
+  - `SMP: installed RVBAR relay at 0x1000540c000 -> 0x1000cefc000`, then Linux on 18 CPUs: pass.
+  - Also in that boot: `Primary WDT left armed (m1n1.wdt=keep)` (PR-5), the N1 trained by the loader (PR-2), `kboot: MTP DAPF programmed on T6050`.
+  - #30's USB host prep ran (`USB0/1/2: left in USB 2.0 host mode for the next stage`, `apple,t6050-usbprep` in `/chosen`).
+  - Wi-Fi and Bluetooth came up. There was no USB gadget network, as expected: there is no T6050 combo-PHY tunable fill.
+  - The same stack on #26 had booted the same way earlier that day.
+  - One observation, not yet explained: after the #30-stack session, the next boot of our regular daily (written to the ESP, then a warm `systemctl reboot`) reset once in early Linux, and our stage 1 booted its fallback. The same happened once after the #26-stack session. The boot after that was clean. We are looking at what stage 2 leaves behind across a warm restart, for example the USB controllers left in host mode or DAPF coverage.
 - Before that, the same forwarding stub, with the same checks, had run in our own stage 2 on every J716s boot since 2026-11-04.
-- **The rebase onto #30** has not booted on the J716s. #30's USB host prep runs on every T6050 boot and has so far run only on the J714c.
+- The review fixes since (in PR-2 and PR-5, and the `test_universal_boot` cases) have not booted.
 - **Builds:** each commit and the tip, with `make` and with `make CHAINLOADING=1` (Fedora 43, clang/lld 21.1.8, rustc 1.99.1): no new warnings against #30. `m1n1.bin` is 0x410000 bytes (plain) and 0x420000 bytes (`CHAINLOADING=1`), the same as #30.
 - **pytest:** CI's set (`tests/python` and the two T8122 GPU tests) passes on this branch and on every later branch of the stack. On #30's head, the five tests above fail.
 - `git clang-format`: clean.

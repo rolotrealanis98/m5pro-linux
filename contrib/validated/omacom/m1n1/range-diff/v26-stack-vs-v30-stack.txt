@@ -1,4 +1,4 @@
- 1:  47e8282 !  1:  ddd9d35 tests: build the T6050 paths that #26 adds
+ 1:  47e8282 !  1:  21c26ff tests: build the T6050 paths that #26 adds
     @@ Metadata
      Author: Rolando Trevino <rolotrealanis@gmail.com>
      
@@ -16,7 +16,10 @@
     +      session hand-off. Define it.
     +    - test_universal_boot: the stage 1 config block now reads boot_spec and
     +      kernel (an appended next stage takes only the proxy window). Declare
-    +      both, NULL, so the block runs as before.
+    +      both, and add the cases #30 introduces: with boot_spec or an appended
+    +      kernel set, a configured target adds neither a chainload target nor
+    +      its ESP hint, and a chainload= line is kept rather than refused. T6050
+    +      joins the chip list of the configured-target cases.
          - test_t8103_inherited_reservation ends its block at the T8140 heap
            check, which is now "T8140 || T6050" with a comment line before it.
            Match both forms.
@@ -55,11 +58,120 @@
     + static const char *configured;
     + static char stage1_esp_chosen[128];
     + static char *chosen[MAX_CHOSEN_VARS];
- 2:  f8ab2e1 =  2:  80e7953 smp: t6050: forward cores locked to a stage 1 base the image left
- 3:  5a8f40d =  3:  0673e22 kboot: n1: fill the T6050 N1 hand-off in the DT
- 4:  6c8497b =  4:  b2dfd87 pcie: t6050: train apcie0 port 0 (the N1) behind chosen.asahi,t6050-n1
- 5:  3ac8c17 !  5:  a656c62 pcie: t6050: start ANS for the N1 training's storage checks (chosen.asahi,t6050-n1=3|4)
+    +@@ tests/python/test_universal_boot.py: static int apply(void) {
+    + return 0;
+    + }
+    + int main(void) {
+    +- unsigned chips[]={0x8103,0x6000,0x6001,0x6002,0x8112,0x6020,0x6021,0x6022,0x8122,0x6030,0x6031,0x6034,0x8140};
+    ++ unsigned chips[]={0x8103,0x6000,0x6001,0x6002,0x8112,0x6020,0x6021,0x6022,0x8122,0x6030,0x6031,0x6034,0x8140,0x6050};
+    +  for (unsigned i=0;i<sizeof(chips)/sizeof(*chips);i++) {
+    +   chip_id=chips[i];stage1_config_applied=false;chainload_spec=NULL;chosen_cnt=0;
+    +   configured="12345678-abcd-1234-abcd-1234567890ab;m1n1/boot.bin";
+    +@@ tests/python/test_universal_boot.py: int main(void) {
+    +   stage1_config_applied=false;chainload_spec="different;boot.bin";
+    +   assert(apply()==-1 && chosen_cnt==1);
+    +  }
+    ++ /* boot= or an appended next stage: the config gives only the proxy window, no target or hint */
+    ++ configured="12345678-abcd-1234-abcd-1234567890ab;m1n1/boot.bin";chip_id=0x6050;
+    ++ boot_spec="nvme0n1p6/vmlinuz";kernel=NULL;chainload_spec=NULL;stage1_config_applied=false;chosen_cnt=0;
+    ++ assert(apply()==0 && !chainload_spec && !chosen_cnt && stage1_config_applied);
+    ++ boot_spec=NULL;kernel=(void *)1;chainload_spec=NULL;stage1_config_applied=false;chosen_cnt=0;
+    ++ assert(apply()==0 && !chainload_spec && !chosen_cnt && stage1_config_applied);
+    ++ /* nothing to compare a chainload= with, so it is neither refused nor replaced */
+    ++ chainload_spec="different;boot.bin";stage1_config_applied=false;
+    ++ assert(apply()==0 && !strcmp(chainload_spec,"different;boot.bin") && !chosen_cnt);
+    ++ kernel=NULL;
+    +  configured=NULL;chainload_spec=NULL;stage1_config_applied=false;chosen_cnt=0;
+    +  assert(apply()==0 && !chainload_spec && !chosen_cnt);
+    +  return 0;
+ 2:  f8ab2e1 =  2:  275ecc4 smp: t6050: forward cores locked to a stage 1 base the image left
+ 3:  5a8f40d !  3:  95cc907 kboot: n1: fill the T6050 N1 hand-off in the DT
     @@ Commit message
+     
+         - the N1 control function (pci106b,1900) gets firmware-name
+           "apple/centauri/<target-type>-ftab.bin", apple,centauri-platform-id
+    -      (board-id << 16 | chip-id) and apple,centauri-protocol 27 if unset;
+    +      (board-id << 16 | chip-id) and apple,centauri-protocol 27, each only if the DT leaves it
+    +      unset;
+         - each apple,link-trained-by-bootloader root port gets the ADT
+           pci-bridge<n> config, rc and gen3/4/5 shadow tunables as
+           (offset, 4, mask, value) groups, which Linux replays in the root-port
+    @@ src/kboot_n1.c (new)
+     +        int parent = fdt_parent_offset(dt, node);
+     +        if (parent < 0 || fdt_parent_offset(dt, parent) != host)
+     +            continue;
+    -+        if (fdt_setprop_string(dt, node, "firmware-name", name) ||
+    -+            fdt_setprop_u32(dt, node, "apple,centauri-platform-id", platform_id))
+    ++        /* Fill only what the DT leaves unset: a DT value wins */
+    ++        bool have_name = fdt_getprop(dt, node, "firmware-name", NULL);
+    ++        bool have_id = fdt_getprop(dt, node, "apple,centauri-platform-id", NULL);
+    ++        if ((!have_name && fdt_setprop_string(dt, node, "firmware-name", name)) ||
+    ++            (!have_id && fdt_setprop_u32(dt, node, "apple,centauri-platform-id", platform_id)))
+     +            return -1;
+     +        if (!fdt_getprop(dt, node, "apple,centauri-protocol", NULL) &&
+     +            fdt_setprop_u32(dt, node, "apple,centauri-protocol", 27))
+     +            return -1;
+    -+        printf("n1: control function: firmware-name %s, platform-id 0x%08x\n", name, platform_id);
+    ++        printf("n1: control function: firmware-name %s, platform-id 0x%08x%s\n",
+    ++               have_name ? "(DT value kept)" : name, platform_id,
+    ++               have_id ? " (DT value kept)" : "");
+     +        found++;
+     +    }
+     +    if (!found)
+ 4:  6c8497b !  4:  414b5d9 pcie: t6050: train apcie0 port 0 (the N1) behind chosen.asahi,t6050-n1
+    @@ Commit message
+     
+         Storage (ANS, NVMe, its SART and power) is compared with a reference
+         before and after each stage that touches shared state. A failed check
+    -    before the training only refuses it; a change after a stage returns
+    -    N1_STORAGE_LOST, and kboot_setup_n1() then resets the SoC through the
+    +    before the training only refuses it; a change after a stage, or after
+    +    a stage that stopped partway (checked again on every stop once the
+    +    reference is taken), returns N1_STORAGE_LOST, and kboot_setup_n1() then resets the SoC through the
+         watchdog after 15 s instead of booting a kernel that may not mount its
+         root. Any other stop leaves port 0 and its DART disabled, even if the
+         link came up (a stage G failure).
+    @@ src/pcie_t6050.c (new)
+     +                                         "ANS",       "APCIE_SYS_ST0", "APCIE_SYS_ST1"};
+     +static u64 storage_addr[ST_COUNT];
+     +static u32 storage_ref[ST_COUNT];
+    ++static bool storage_ref_valid; /* the reference passed its own checks */
+     +#define NVME_BOOT_STATUS_OK 0xde71ce55
+     +
+     +static int storage_find(void)
+    @@ src/pcie_t6050.c (new)
+     +        STORAGE_FAIL("NVMe BOOT_STATUS 0x%x (%s)\n", cur[ST_BOOT_STATUS], tag);
+     +    if (cur[ST_CSTS] & BIT(1))
+     +        STORAGE_FAIL("NVMe CSTS fatal (%s)\n", tag);
+    ++    if (reference)
+    ++        storage_ref_valid = true;
+     +    printf("pcie-t6050: storage %s: %s\n", tag,
+     +           reference ? "reference"
+     +           : changed ? "allowed"
+    @@ src/pcie_t6050.c (new)
+     +
+     +    if (state <= 0)
+     +        return state;
+    ++    storage_ref_valid = false;
+     +    state = n1_train(smc_release);
+    ++    /* A stage that stopped partway may already have written shared power or the GP PHY */
+    ++    if (state < 0 && state != N1_STORAGE_LOST && storage_ref_valid) {
+    ++        int st = storage_check("after the stop", false);
+    ++        if (st < 0)
+    ++            state = st;
+    ++    }
+     +    return state;
+     +}
+     +
+ 5:  3ac8c17 !  5:  7e92901 pcie: t6050: start ANS for the N1 training's storage checks (chosen.asahi,t6050-n1=3|4)
+    @@ Commit message
+         default, as before); the training sets 10 s around nvme_init(), as
+         Linux waits for this ANS (it can take about 3 s to answer after a stop).
+     
+    +    Like the training itself, this runs once per boot: a second kboot
+    +    preparation gets the first result and leaves ANS alone.
+    +
+         =1 and =2 are unchanged.
      
          Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
      
@@ -83,9 +195,149 @@
      +static bool nvme_stop_requested;
       static u8 nvme_die;
       
- 6:  c49ef5d =  6:  2ec2604 pcie: t6050: pulse the N1 reset through the SMC as on J813 (chosen.asahi,t6050-n1=2|4)
- 7:  561df3a =  7:  26519fb pcie: t6050: handle a warm N1 and a live port 0 at entry (chosen.asahi,t6050-n1=2|4)
- 8:  8906f3b !  8:  be49759 kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
+    @@ src/pcie_t6050.c
+      #include "string.h"
+      #include "tunables.h"
+     @@ src/pcie_t6050.c: static const char *const storage_ps[] = {"APCIE_ST0", "APCIE_ST1",     "FAB6_SOC
+    -                                          "ANS",       "APCIE_SYS_ST0", "APCIE_SYS_ST1"};
+      static u64 storage_addr[ST_COUNT];
+      static u32 storage_ref[ST_COUNT];
+    + static bool storage_ref_valid; /* the reference passed its own checks */
+     +static bool storage_have_ref;
+      #define NVME_BOOT_STATUS_OK 0xde71ce55
+      
+    @@ src/pcie_t6050.c: void pcie_t6050_storage_lost(const char *why)
+     +    printf("pcie-t6050: ANS stopped again for Linux\n");
+     +}
+     +
+    -+int pcie_t6050_n1_train_ans(bool smc_release)
+    ++static int n1_train_ans(bool smc_release)
+     +{
+     +    const u32 nsid = 1, lba = 1; /* the GPT header of the 4 KiB-block namespace */
+     +
+    @@ src/pcie_t6050.c: void pcie_t6050_storage_lost(const char *why)
+     +    /* Whatever the outcome: the same storage registers, the same block, read through ANS */
+     +    if (ret == N1_STORAGE_LOST)
+     +        pcie_t6050_storage_lost("during the port 0 training");
+    -+    if (storage_have_ref && storage_check("after training", false))
+    ++    if (storage_ref_valid && storage_check("after training", false))
+     +        pcie_t6050_storage_lost("registers");
+     +    if (!nvme_read(nsid, lba, blk + SZ_4K))
+     +        pcie_t6050_storage_lost("read failed");
+    @@ src/pcie_t6050.c: void pcie_t6050_storage_lost(const char *why)
+     +
+     +    ans_stop();
+     +    return ret;
+    ++}
+    ++
+    ++/*
+    ++ * Once per boot, like pcie_t6050_n1_train(): a second kboot preparation must not start a second
+    ++ * ANS session and compare it with the first one's reference. It gets the first result.
+    ++ */
+    ++int pcie_t6050_n1_train_ans(bool smc_release)
+    ++{
+    ++    static int state = 1;
+    ++
+    ++    if (state <= 0)
+    ++        return state;
+    ++    state = n1_train_ans(smc_release);
+    ++    return state;
+     +}
+     
+      ## src/pcie_t6050.h ##
+ 6:  c49ef5d =  6:  15f5eae pcie: t6050: pulse the N1 reset through the SMC as on J813 (chosen.asahi,t6050-n1=2|4)
+ 7:  561df3a !  7:  f1a942e pcie: t6050: handle a warm N1 and a live port 0 at entry (chosen.asahi,t6050-n1=2|4)
+    @@ Commit message
+           of handing it to Linux.
+         =1 and =3 still adopt a live link and accept 106b:1901, as before.
+     
+    -    The SMC client gets bounded waits: no reply within 2 s ends the command
+    -    with "SMC: no reply" (it used to spin forever, also on an RTKit receive
+    -    error), and smc_read_u32() reads a key of up to 4 bytes.
+    +    The SMC client gets bounded waits: a command, and the initialisation,
+    +    ends with "SMC: no reply" if its reply has not come 2 s after it was
+    +    sent, however much other traffic (notifications) arrives meanwhile (it
+    +    used to spin forever, also on an RTKit receive error), and
+    +    smc_read_u32() reads a key of up to 4 bytes.
+     
+         Tested on the J716s (MacBook Pro 16-inch, M5 Pro) with the same change
+         on our stage 2: three systemctl reboot cycles with wlan0 associated and
+    @@ src/smc.c: static void smc_handle_msg(smc_dev_t *smc, u64 msg)
+          }
+      }
+      
+    +-static int smc_work(smc_dev_t *smc)
+     +/* Bounded: an SMC that never answers ends the call instead of hanging m1n1 */
+     +#define SMC_REPLY_TIMEOUT (2 * USEC_PER_SEC)
+     +
+    - static int smc_work(smc_dev_t *smc)
+    ++/* deadline: one timeout_calculate() for the whole wait, so other traffic cannot extend it */
+    ++static int smc_work(smc_dev_t *smc, u64 deadline)
+      {
+          int ret;
+          struct rtkit_message msg;
+    -+    u64 timeout = timeout_calculate(SMC_REPLY_TIMEOUT);
+      
+          while ((ret = rtkit_recv(smc->rtkit, &msg)) == 0)
+     -        ;
+    -+        if (timeout_expired(timeout)) {
+    ++        if (timeout_expired(deadline)) {
+     +            printf("SMC: no reply\n");
+     +            return -1;
+     +        }
+    @@ src/smc.c: static void smc_send(smc_dev_t *smc, u64 message)
+          assert(!smc->outstanding[id]);
+     @@ src/smc.c: static int smc_cmd(smc_dev_t *smc, u64 message)
+      
+    +     message |= FIELD_PREP(SMC_MSG_ID, id);
+    + 
+    ++    u64 deadline = timeout_calculate(SMC_REPLY_TIMEOUT);
+          smc_send(smc, message);
+    -     while (smc->outstanding[id])
+    +-    while (smc->outstanding[id])
+     -        smc_work(smc);
+    -+        if (smc_work(smc) < 0) {
+    ++    while (smc->outstanding[id]) {
+    ++        int ret = smc_work(smc, deadline);
+    ++        if (!ret && smc->outstanding[id] && timeout_expired(deadline)) {
+    ++            printf("SMC: no reply\n");
+    ++            ret = -1;
+    ++        }
+    ++        if (ret < 0) {
+     +            smc->outstanding[id] = false;
+     +            return -1;
+     +        }
+    ++    }
+      
+          u64 result = smc->ret[id];
+     +    if (result_out)
+    @@ src/smc.c: static int smc_cmd(smc_dev_t *smc, u64 message)
+      void smc_shutdown(smc_dev_t *smc)
+      {
+          rtkit_quiesce(smc->rtkit);
+    +@@ src/smc.c: smc_dev_t *smc_init(void)
+    +     u64 initialize =
+    +         FIELD_PREP(SMC_MSG_TYPE, SMC_INITIALIZE) | FIELD_PREP(SMC_MSG_ID, smc->msgid++);
+    + 
+    ++    u64 deadline = timeout_calculate(SMC_REPLY_TIMEOUT);
+    +     smc_send(smc, initialize);
+    + 
+    +     while (!smc->shmem) {
+    +-        int ret = smc_work(smc);
+    ++        int ret = smc_work(smc, deadline);
+    +         if (ret < 0)
+    +             goto out_rtkit;
+    ++        if (!smc->shmem && timeout_expired(deadline)) {
+    ++            printf("SMC: no reply\n");
+    ++            goto out_rtkit;
+    ++        }
+    +     }
+    + 
+    +     return smc;
+     @@ src/smc.c: int smc_write_u32(smc_dev_t *smc, u32 key, u32 value)
+      
+          return smc_cmd(smc, msg);
+ 8:  8906f3b !  8:  4e46102 kboot_gpu: hand the T6050 GPU to the G17 driver from the ADT
     @@ Commit message
          coprocessor mailboxes at their native windows. dt_set_gpu() has no
          T6050 case yet ("ADT: GPU: unsupported chip!").
@@ -142,9 +394,9 @@
           bool has_cs_afr = false;
           int (*calc_power)(u32 count, u32 table_count, const struct perf_state *core,
     -                       const struct perf_state *sram, const struct aux_perf_states *cs, u32 *max_pwr,
- 9:  b87cfab =  9:  2743732 firmware: add the 27.2 and 27.3 beta 1 stub iBoot strings
-10:  badcc4b = 10:  4ec7412 kboot: t6050: reserve the running coprocessors' __OS_LOG segments
-11:  922e6c1 ! 11:  1e911fe kboot: t6050: hand the internal display to the firmware-27 DCP driver
+ 9:  b87cfab =  9:  4475ded firmware: add the 27.2 and 27.3 beta 1 stub iBoot strings
+10:  badcc4b = 10:  c3ddd47 kboot: t6050: reserve the running coprocessors' __OS_LOG segments
+11:  922e6c1 ! 11:  974d09e kboot: t6050: hand the internal display to the firmware-27 DCP driver
     @@ Commit message
          handoff marker: it expects the loader to describe the framebuffer, name
          the DCP firmware and enable the display nodes, and it refuses a
@@ -155,5 +407,52 @@
      
          On every T6050 boot, read the internal display as iBoot left it and log
          it: the DCP ASC's CPU control and status, the PROTECT of dart-dcp and
-12:  1e7b278 = 12:  256759b kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
-13:  aee8488 = 13:  6653bb2 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
+12:  1e7b278 = 12:  db0d3bf kboot: t6050: publish DCP firmware-compat 27.3.0 for the 27.3 beta 1 stub
+13:  aee8488 ! 13:  02785a3 wdt: leave the watchdog armed when the boot-args say m1n1.wdt=keep
+    @@ Commit message
+         wdt_disable() finds the watchdog but leaves both the primary and the
+         secondary as they are, and says so. Nothing in m1n1 feeds it; Linux's
+         apple_wdt keeps an armed watchdog fed once it probes. wdt_reboot()
+    -    works as before. Without the token nothing changes.
+    +    works as before. On T8140, scheduling the CDC proxy window no longer
+    +    re-arms the watchdog for 170 s under the token (that would replace the
+    +    earlier stage's deadline), and CDC then has nothing of its own to
+    +    disarm. Without the token nothing changes.
+     
+         The token is matched by boot_option_present(), like m1n1-debug and
+         m1n1-proxy, and in every stage: the stage it matters for is a
+    @@ docs/boot-options.md: The boot-argument tokens are matched exactly:
+     +  boot, so that stage can boot its fallback. Linux's `apple_wdt` keeps an armed
+     +  watchdog fed once it probes. m1n1 itself does not feed it, so everything
+     +  before that, including waiting in the proxy, has to finish within the timeout
+    -+  the earlier stage chose. Without the token m1n1 disables the watchdog as
+    -+  before. It is honoured by every stage, so it does not belong in the NVRAM
+    ++  the earlier stage chose. On T8140 the CDC proxy window then neither
+    ++  re-arms the watchdog for 170 s nor disarms it when the host opens the
+    ++  proxy. Without the token m1n1 disables the watchdog as before. It is honoured by every stage, so it does not belong in the NVRAM
+     +  boot-args: there it would leave iBoot's watchdog running.
+      
+      The options may be combined. `m1n1-debug` alone does not request a proxy pause.
+    @@ src/boot_options.h: void boot_options_init(const char *line, size_t capacity);
+     +bool m1n1_wdt_keep_enabled(void);
+      #endif
+     
+    + ## src/usb_cdc.c ##
+    +@@ src/usb_cdc.c: failed:
+    + 
+    + int usb_cdc_arm_watchdog(void)
+    + {
+    +-    if (chip_id != T8140 || wdt_arm_seconds(170))
+    ++    if (chip_id != T8140)
+    ++        return -1;
+    ++    /* The earlier stage armed the watchdog and its deadline stands: neither re-arm nor disarm */
+    ++    if (m1n1_wdt_keep_enabled())
+    ++        return 0;
+    ++    if (wdt_arm_seconds(170))
+    +         return -1;
+    +     watchdog_armed = true;
+    +     return 0;
+    +
+      ## src/wdt.c ##
+     @@
+      

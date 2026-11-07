@@ -1,7 +1,7 @@
 1:  0c048c6 < -:  ------- kboot: allow up to 16 /arm-io/i2c devices
 2:  9e3b818 < -:  ------- smp: t6050: release a core with its own CPU_START bit
--:  ------- > 1:  ddd9d35 tests: build the T6050 paths that #30 adds
-3:  979bf52 ! 2:  80e7953 smp: t6050: forward cores locked to a stage 1 base the image left
+-:  ------- > 1:  21c26ff tests: build the T6050 paths that #30 adds
+3:  979bf52 ! 2:  275ecc4 smp: t6050: forward cores locked to a stage 1 base the image left
     @@ Commit message
          The write and read-back are shared with the T8140 relay, whose behaviour
          is unchanged.

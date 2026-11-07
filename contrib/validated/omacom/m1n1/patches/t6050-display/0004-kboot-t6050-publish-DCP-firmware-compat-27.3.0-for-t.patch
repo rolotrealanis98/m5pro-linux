@@ -1,4 +1,4 @@
-From 256759b17454c197909eca96b2d2ac6697080b14 Mon Sep 17 00:00:00 2001
+From db0d3bf0d1bffa3cd07e212f2448b8698e71b586 Mon Sep 17 00:00:00 2001
 From: Rolando Trevino <rolotrealanis@gmail.com>
 Date: Sat, 7 Nov 2026 14:09:19 -0500
 Subject: [PATCH 4/4] kboot: t6050: publish DCP firmware-compat 27.3.0 for the
