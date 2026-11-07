@@ -56,3 +56,5 @@
 0056-dt-bindings-arm-apple-Add-the-MacBook-Pro-16-inch-M5.patch
 0057-arm64-dts-apple-Add-J716s-MacBook-Pro-16-inch-M5-Pro.patch
 0058-arm64-configs-Add-a-J716s-fragment.patch
+0059-arm64-dts-apple-j716s-Enable-the-SMC-sensors.patch
+0060-arm64-dts-apple-j716s-Enable-the-right-Type-C-port-A.patch
