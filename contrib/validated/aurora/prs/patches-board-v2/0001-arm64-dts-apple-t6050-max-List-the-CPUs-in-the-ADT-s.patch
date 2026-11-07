@@ -1,0 +1,75 @@
+From 7e0479792c64c7e2a699f43f0f9f304f48e3b933 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Fri, 6 Nov 2026 20:56:34 -0500
+Subject: [PATCH 01/10] arm64: dts: apple: t6050-max: List the CPUs in the
+ ADT's order
+
+t6050-max.dtsi lists the sixth core of each cluster (cpu5, cpu11, cpu17)
+after the other fifteen. m1n1's dt_set_cpus() walks the CPU nodes in
+order and compares node N with the core the ADT lists as cpu N; it only
+prunes nodes of cores that are not alive and otherwise refuses to boot
+on the first mismatch. On the J716s (M5 Pro), whose ADT lists all 18
+cores cluster by cluster, the boot stopped with
+
+  FDT: DT CPU 5 MPIDR mismatch: 0x40100 != 0x40005
+
+List the cores in the ADT's order, which is also the order of the labels
+(cpu5 is 40005, cpu11 is 40105). A part with a core fused off still
+lists it in the ADT and m1n1 prunes its node, so the order holds there
+too. The device tree passed to Linux then numbers the CPUs as the ADT
+does. t6050-ultra.dtsi (J775D) has the same layout per die and is left
+alone here: no J775D ADT was available to check its order. The J716c
+and J714c use the same file; neither was booted with this change.
+
+Tested on J716s: all 18 cores come up.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/boot/dts/apple/t6050-max.dtsi | 13 +++++++------
+ 1 file changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-max.dtsi b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+index 487288170c9a..d3b0a1f7b80a 100644
+--- a/arch/arm64/boot/dts/apple/t6050-max.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+@@ -20,8 +20,11 @@
+ 
+ / {
+ 	/*
+-	 * Six cores in each cluster. The sixth of each comes after the others, so that the
+-	 * first fifteen CPUs are numbered as on a part with five cores in each cluster.
++	 * Six cores in each cluster, in the order of the ADT's /cpus (cpu0-17). m1n1
++	 * matches the CPU nodes to the cores it started by position (dt_set_cpus(): node
++	 * N against the ADT's cpu N), prunes the nodes of cores that are not alive and
++	 * stops the boot at the first MPIDR that differs, so the nodes must keep the
++	 * ADT's order; the labels already follow it.
+ 	 */
+ 	cpus {
+ 		T6050_M_CPU(cpu0, 40000, cpufreq_mc0);
+@@ -29,20 +32,18 @@ cpus {
+ 		T6050_M_CPU(cpu2, 40002, cpufreq_mc0);
+ 		T6050_M_CPU(cpu3, 40003, cpufreq_mc0);
+ 		T6050_M_CPU(cpu4, 40004, cpufreq_mc0);
++		T6050_M_CPU(cpu5, 40005, cpufreq_mc0);
+ 		T6050_M_CPU(cpu6, 40100, cpufreq_mc1);
+ 		T6050_M_CPU(cpu7, 40101, cpufreq_mc1);
+ 		T6050_M_CPU(cpu8, 40102, cpufreq_mc1);
+ 		T6050_M_CPU(cpu9, 40103, cpufreq_mc1);
+ 		T6050_M_CPU(cpu10, 40104, cpufreq_mc1);
++		T6050_M_CPU(cpu11, 40105, cpufreq_mc1);
+ 		T6050_P_CPU(cpu12, 10200, cpufreq_pc);
+ 		T6050_P_CPU(cpu13, 10201, cpufreq_pc);
+ 		T6050_P_CPU(cpu14, 10202, cpufreq_pc);
+ 		T6050_P_CPU(cpu15, 10203, cpufreq_pc);
+ 		T6050_P_CPU(cpu16, 10204, cpufreq_pc);
+-
+-		/* The sixth core of each cluster */
+-		T6050_M_CPU(cpu5, 40005, cpufreq_mc0);
+-		T6050_M_CPU(cpu11, 40105, cpufreq_mc1);
+ 		T6050_P_CPU(cpu17, 10205, cpufreq_pc);
+ 	};
+ };
+-- 
+2.56.0
+
