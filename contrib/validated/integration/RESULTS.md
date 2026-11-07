@@ -1072,4 +1072,8 @@ Image4 manifest stitched in, `pcie_aspm=off`, battery on, selftest on), prev = t
   Rolando's. Still open: warm reboot with the N1 link alive (the J714c needed a pcie-apple shutdown park), the ASPM strip
   on the adopted port as a kernel patch instead of `pcie_aspm=off`, the WFI daily kernel with this stack, 6 GHz (0 entries
   in this regulatory list), Bluetooth pairing.
+- **Radio check on the same boot (W3b, up 268 s):** `ip link set wlan0 up; iw dev wlan0 scan`: 55 BSS entries, 33 SSIDs,
+  2.4 GHz and 5 GHz (2412, 5720, 5785 MHz among the most seen), signals down to -30 dBm; `btmgmt find` for 8 s: 36 devices.
+  `iwd` fails to start: the kernel lacks `CRYPTO_USER_API_HASH`, `CRYPTO_USER_API_SKCIPHER`, `KEY_DH_OPERATIONS`,
+  `CRYPTO_ARC4` (`CRYPTO_USER_API=m` with no module installed). Config 0065 adds them; association is next.
 
