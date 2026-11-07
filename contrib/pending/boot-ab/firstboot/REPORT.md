@@ -103,3 +103,14 @@ longer than 100 ms before the watchdog fallthrough).
 (`why=restart-failure`), still falls back on the 0x30 panics (macsmc overwrites 0x31 with 0x30 at probe, so the
 userspace marks 0x33/0x34 add the information), reports 0x31 for a death in stage 2, 0x32 for the fallback slot dying,
 plus read_ms/size/wdt on every boot. Recommendation: install it (attended ~25 min ceremony, rollback image ready).
+
+## 2026-11-07 22:45 UTC: the write-to-reboot gap matters after all
+
+All four counted or failed restores after esp-put came ~1 s after the write; both 5-minute-idle restores from the same
+session type were clean. Best fit: the restart arrives while the machine is still busy after the burst (the NVMe
+controller keeps background work for seconds after a 35-70 MB write; the kernel's NVMe shutdown and then the SMC restart
+run slow enough to fall through to the watchdog, +5/+10 s on the fallback boot). Session type changes how close to the
+limit the restart already runs. Pragmatic fix adopted: esp-put's default settle is now 60 s (ESP_SETTLE=60) on the
+MacBook and in the repo copy. Further arms (3 runs each from an omacom session): busy disk without an ESP write
+(dd 70 MB conv=fsync then reboot within 1 s), busy CPU without I/O (stress-ng 30 s then reboot), write + 60 s idle.
+0017 still worth installing (error-00 cases would boot primary).
