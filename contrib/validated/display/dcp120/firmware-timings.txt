@@ -1,0 +1,6 @@
+ID 2 3456x2234 total 3536x2456 120.000 Hz VRR 0.000-0.000 preferred=True promoted=False virtual=False score=17026 {'DiscreteMediaRefreshRates': []}
+ID 3 3456x2234 total 3536x2456 60.000 Hz VRR 0.000-0.000 preferred=False promoted=True virtual=False score=15523 {'DiscreteMediaRefreshRates': []}
+ID 4 3456x2234 total 3536x2456 48.000 Hz VRR 0.000-0.000 preferred=False promoted=True virtual=False score=15419 {'DiscreteMediaRefreshRates': []}
+ID 5 3456x2234 total 3536x2456 59.940 Hz VRR 0.000-0.000 preferred=False promoted=True virtual=False score=15523 {'DiscreteMediaRefreshRates': []}
+ID 6 3456x2234 total 3536x2456 47.952 Hz VRR 0.000-0.000 preferred=False promoted=True virtual=False score=15418 {'DiscreteMediaRefreshRates': []}
+ID 7 3456x2234 total 3536x2946 50.000 Hz VRR 0.000-0.000 preferred=False promoted=True virtual=False score=15436 {'DiscreteMediaRefreshRates': []}
