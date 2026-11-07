@@ -1,0 +1,3 @@
+06b2586de2bd7866acca18fab07289dcf5174a052c369a91d34e5d2d41763f5c  0017-chainload-check-the-image-against-its-directory-entr.patch
+3242583fa1de4939988ef987639395b856228a51d07078069e60251639445f8f  esp-put.sh
+f682549bdd3c9741377d889aed2f1d45a8b3f9d18d93e6c5de6711dc8d9cb106  firstboot-probe.sh
