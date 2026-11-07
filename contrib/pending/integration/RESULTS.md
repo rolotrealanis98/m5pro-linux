@@ -745,7 +745,7 @@ macaudio: "the boot loader passed no amp levels, disabling speakers" (expected o
   stream every amp logged `fault: bad TDM clock` (20 fault lines, context `02,19,00,00,04` on i2c0 and `02,39,00,00,05`
   on i2c2). This is the recipe's "AOP stopped the serializer under the amps" row (edimoldovan: mute toggle, undrained
   sense). Stop rule applied: logs saved to `/boot/r1-logs/audio-b2-20261107/` (private), `Speaker Switch` off, daily
-  restored as `boot.bin` with R2-B as `boot.bin.prev`. Whether the tone was audible: Rolando's report pending.
+  restored as `boot.bin` with R2-B as `boot.bin.prev`. Rolando heard nothing, which proves little: -40 dBFS under a -40 dB ceiling is about -80 dB, below the room.
 - **Next:** compare with edimoldovan's fix for the TDM-clock fault on J714c (his tree after 83d711c3a9), and check whether
   the fault is on stream stop only (the daemon saw a valid rate, no fault during the 2 s).
 
