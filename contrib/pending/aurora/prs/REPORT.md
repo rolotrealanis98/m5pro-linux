@@ -69,3 +69,9 @@ Tested-by arrangement and an `apple,internal-panel` binding).
 ## Recommendation
 Send now: rtkit-handshake-10s, dockchannel-afe-settle, macsmc-hwmon-optional-fan-keys (active lines in `PUSH-PLAN.sh`).
 Hold: cio-reset (#946 replaces it), cpufreq-binding (ask on #481), smc-match (#941 covers it), j716s-board (fixes above).
+
+## Sent (2026-11-07 10:25 UTC, from rolotrealanis98/linux, with `Assisted-by: LLM Claude` per Aurora's process docs)
+- #1082 soc: apple: rtkit: wait up to 10 s for a handshake reply (`pr/rtkit-handshake-10s` 6d43a3ec72fa)
+- #1083 HID: dockchannel-hid: settle 50 ms after releasing the AFE reset (`pr/dockchannel-afe-settle` 227703b63d84)
+- #1084 hwmon: (macsmc) keep a fan whose optional keys are missing (`pr/macsmc-hwmon-optional-fan-keys` 8125f1376ef0)
+Held: cio-reset (#946), cpufreq-binding (#481), smc-match (#941), j716s-board (fixes listed above).
