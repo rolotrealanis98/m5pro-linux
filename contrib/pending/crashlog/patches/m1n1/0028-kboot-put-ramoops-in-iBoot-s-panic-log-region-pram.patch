@@ -1,0 +1,175 @@
+From 75d7eb655fa465fa80a5d04674467ec5422f82b6 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 10:43:50 -0500
+Subject: [PATCH] kboot: put ramoops in iBoot's panic-log region (/pram)
+
+The J716s DRAM is ECC and iBoot initialises it again on every boot: a
+ramoops region in ordinary RAM (a 2 MiB no-map node at DRAM base + 8 GiB,
+cached or write-combined) comes back empty after a clean warm reboot.
+
+iBoot does keep /pram, the region XNU writes its embedded panic log to
+(/chosen embedded-panic-log-size bytes): it reads the previous session's
+panic out of it at boot. The region is a carve-out above the RAM given to
+the OS, so it is outside the Linux memory node and m1n1 never writes it
+(heap and top-of-memory allocations stay inside phys_base + mem_size; the
+stage-1 chainload copies only into its heap and its own base).
+
+Fill a /reserved-memory ramoops node from it when the DT has none:
+compatible "ramoops", no-map, mem-type 0 (write-combined, as XNU maps
+it), ecc-size 16, and power-of-two record, console and pmsg sizes scaled
+to the region (2 MiB: 128 KiB records x 10, 512 KiB console, 128 KiB
+pmsg; the 1.5 MiB J716s region keeps 7 records). The first 16 KiB, where
+struct embedded_panic_header lives and iBoot looks for a panic, are left
+alone, so iBoot and a later macOS boot find there what XNU last wrote and
+never a ramoops record. Any failure removes the node and the boot goes on
+without ramoops; no-map keeps the node out of the RAM map.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ src/kboot.c | 123 ++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 123 insertions(+)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index 16a06eaf..99154830 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -2828,6 +2828,126 @@ static int dt_setup_mtd_phram(void)
+     return 0;
+ }
+ 
++/*
++ * pstore/ramoops in iBoot's panic-log region.
++ *
++ * DRAM is ECC and iBoot initialises it again at every boot, so a ramoops
++ * region in ordinary RAM comes back empty after a warm reset. The exception
++ * is /pram, where XNU keeps its embedded panic log: iBoot reads the previous
++ * session's panic out of it at boot (XNU complains if a panic header is still
++ * there afterwards and then clears the region), so iBoot preserves it. It is
++ * a carve-out above the RAM handed to the OS, so Linux neither maps nor uses
++ * it, and m1n1 never writes it.
++ *
++ * Give it to ramoops through /reserved-memory, unless the DT already has a
++ * ramoops node. The first 16 KiB stay untouched: struct embedded_panic_header
++ * lives at the start of the region and that is where iBoot looks for a panic,
++ * so it keeps finding what XNU last left there (zeroes, after XNU's boot-time
++ * clear) and never a ramoops record. Write-combined (mem-type 0), as XNU maps
++ * it; Device memory would fault on ramoops' unaligned copies.
++ */
++#define PRAM_HEADER_SKIP SZ_16K
++#define PRAM_MIN_SIZE    (4 * SZ_16K)
++#define PRAM_RECORD_MAX  0x20000
++#define PRAM_CONSOLE_MAX 0x80000
++#define PRAM_PMSG_MAX    0x40000
++#define PRAM_RECORD_MIN  0x1000
++#define PRAM_ECC_SIZE    16
++
++static u32 rounddown_pow2(u64 v)
++{
++    u32 r = 1;
++
++    while (r <= v / 2 && r < BIT(30))
++        r <<= 1;
++    return r;
++}
++
++static int dt_set_pram_ramoops(void)
++{
++    int adt_path[8] = {0};
++    u64 base, size, log_size = 0;
++    char node_name[64];
++    int node, ret;
++
++    int resv_node = fdt_path_offset(dt, "/reserved-memory");
++    if (resv_node < 0) {
++        printf("FDT: '/reserved-memory' not found, no ramoops\n");
++        return 0;
++    }
++
++    fdt_for_each_subnode(node, dt, resv_node)
++    {
++        if (fdt_node_check_compatible(dt, node, "ramoops") == 0) {
++            printf("FDT: ramoops node %s already present, leaving it\n",
++                   fdt_get_name(dt, node, NULL));
++            return 0;
++        }
++    }
++
++    if (adt_path_offset_trace(adt, "/pram", adt_path) < 0) {
++        printf("ADT: /pram not found, no ramoops\n");
++        return 0;
++    }
++
++    if (adt_get_reg(adt, adt_path, "reg", 0, &base, &size) < 0) {
++        printf("ADT: failed to read /pram/reg, no ramoops\n");
++        return 0;
++    }
++
++    int chosen = adt_path_offset(adt, "/chosen");
++    if (chosen >= 0 && ADT_GETPROP(adt, chosen, "embedded-panic-log-size", &log_size) >= 0 &&
++        log_size < size)
++        size = log_size;
++
++    if ((base & (SZ_16K - 1)) || size < PRAM_HEADER_SKIP + PRAM_MIN_SIZE) {
++        printf("ADT: /pram 0x%lx..0x%lx unusable for ramoops\n", base, base + size);
++        return 0;
++    }
++
++    u64 start = base + PRAM_HEADER_SKIP;
++    u64 len = ALIGN_DOWN(base + size, SZ_16K) - start;
++
++    /*
++     * Sizes must be powers of two (ramoops rounds them down). A 2 MiB region gives
++     * 512 KiB console, 128 KiB pmsg and 10 x 128 KiB dmesg records, the 1.5 MiB of
++     * the J716s 7 records; smaller regions scale down, keeping two dmesg records.
++     */
++    u32 pmsg = min(rounddown_pow2(len / 12), PRAM_PMSG_MAX);
++    u32 console = min(rounddown_pow2(len / 3), PRAM_CONSOLE_MAX);
++    u64 dmesg = len - console - pmsg;
++    u32 record = PRAM_RECORD_MAX;
++
++    while (record > PRAM_RECORD_MIN && dmesg < 2 * (u64)record)
++        record >>= 1;
++
++    /* Any failure drops the node and boots on without ramoops: a half-made node
++     * without no-map would make dt_set_memory() hand the region to Linux as RAM. */
++    snprintf(node_name, sizeof(node_name), "ramoops@%lx", start);
++    node = dt_get_or_add_reserved_mem(node_name, "ramoops", true, start, len);
++    ret = node < 0;
++    if (!ret) {
++        ret |= fdt_setprop_u32(dt, node, "record-size", record);
++        ret |= fdt_setprop_u32(dt, node, "console-size", console);
++        ret |= fdt_setprop_u32(dt, node, "pmsg-size", pmsg);
++        ret |= fdt_setprop_u32(dt, node, "ecc-size", PRAM_ECC_SIZE);
++        ret |= fdt_setprop_u32(dt, node, "mem-type", 0);
++    }
++    if (ret) {
++        resv_node = fdt_path_offset(dt, "/reserved-memory");
++        node = resv_node < 0 ? -1 : fdt_subnode_offset(dt, resv_node, node_name);
++        if (node >= 0)
++            fdt_del_node(dt, node);
++        printf("FDT: couldn't add the ramoops node, booting without it\n");
++        return 0;
++    }
++
++    printf("FDT: ramoops in /pram at 0x%lx..0x%lx: console 0x%x, pmsg 0x%x, %lu x 0x%x dmesg\n",
++           start, start + len, console, pmsg, dmesg / record, record);
++
++    return 0;
++}
++
+ int kboot_prepare_dt(void *fdt)
+ {
+     if (dt) {
+@@ -2945,6 +3065,9 @@ int kboot_prepare_dt(void *fdt)
+         fdt_node_check_compatible(dt, 0, "apple,t6022") == 0)
+         dt_fixup_t6020_compat(dt);
+ 
++    /* Never fails the boot; a no-map node, so dt_set_memory() leaves it out of RAM. */
++    dt_set_pram_ramoops();
++
+     /*
+      * Set the /memory node late since we might be allocating from the top of memory
+      * in one of the above devicetree prep functions, and we want an up-to-date value
+-- 
+2.56.0
+
