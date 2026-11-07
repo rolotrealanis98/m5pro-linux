@@ -1,0 +1,246 @@
+// SPDX-License-Identifier: GPL-2.0+ OR MIT
+/*
+ * J716s camera bring-up, for the daily j716s-series DT: #include this at the end of
+ * t6050-j716s.dts. It carries the isp/t6050 branch's T6050 ISP nodes (t6050-die0.dtsi) and
+ * J716s camera description (t6050-j716s.dts), with the firmware regions filled statically
+ * from the J716s runtime ADT of 2026-11-04 and everything enabled, for a loader without the
+ * T6050 ISP hand-off (m1n1 before patch 0029). No "isp" alias: with it, m1n1 would append its
+ * own asc-firmware regions and disable the node.
+ *
+ * Check before booting: isp0 segment-ranges on the running system must still read
+ * TEXT 0xc1c000 @ 0x10001094000 and DATA 0x13d0000 @ 0x1000269c000.
+ */
+
+/*
+ * The camera ISP's power states (ADT /arm-io/pmgr, group 1). ISP_SYS (+0x3a0) and ISPSENS0
+ * (+0x100) have ADT offsets. The ADT lists ISP_CPU, ISP_FE, DPRX, ISP_SECURE, ISP_BE and
+ * ISP_CLR without one (no_ps); their slots follow the group's linear device-ID layout (ID 214
+ * at +0x380, 8 bytes per ID: IDs 220, 221, 225, 226, 227 and 228), which the ADT's offsets for
+ * IDs 214-224 and DPTX_PHY at +0x3f8 also follow, and lie inside the first DAPF window of
+ * dart-isp0 (+0x3b0..+0x3f3). The parents are the ADT's; FAB9_SOC above ISP_SYS is left out.
+ * All stay disabled until a board enables the camera.
+ */
+&pmgr1 {
+	ps_ispsens0: power-controller@100 {
+		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+		reg = <0x100 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "ispsens0";
+		status = "disabled";
+	};
+
+	ps_isp_sys: power-controller@3a0 {
+		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+		reg = <0x3a0 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "isp_sys";
+		status = "disabled";
+	};
+
+	ps_isp_cpu: power-controller@3b0 {
+		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+		reg = <0x3b0 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "isp_cpu";
+		power-domains = <&ps_isp_sys>;
+		status = "disabled";
+	};
+
+	ps_isp_fe: power-controller@3b8 {
+		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+		reg = <0x3b8 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "isp_fe";
+		power-domains = <&ps_isp_sys>;
+		status = "disabled";
+	};
+
+	ps_isp_dprx: power-controller@3d8 {
+		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+		reg = <0x3d8 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "isp_dprx";
+		power-domains = <&ps_isp_fe>;
+		status = "disabled";
+	};
+
+	ps_isp_secure: power-controller@3e0 {
+		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+		reg = <0x3e0 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "isp_secure";
+		power-domains = <&ps_isp_fe>;
+		status = "disabled";
+	};
+
+	ps_isp_be: power-controller@3e8 {
+		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+		reg = <0x3e8 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "isp_be";
+		power-domains = <&ps_isp_fe>;
+		status = "disabled";
+	};
+
+	ps_isp_clr: power-controller@3f0 {
+		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+		reg = <0x3f0 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "isp_clr";
+		power-domains = <&ps_isp_be>;
+		status = "disabled";
+	};
+};
+
+&die0 {
+	/*
+	 * The camera ISP (ADT /arm-io/isp0, firmware pre-loaded by iBoot), at T6040's address and
+	 * with its layout: "coproc" is the coprocessor up to its control block; "mbox", "gpio" and
+	 * "mbox2" are the interrupt words, the firmware handshake words and the doorbell of its
+	 * mailbox at +0x2924000. The first of the ADT's interrupts (513-516, 526) carries the
+	 * mailbox. The board adds the firmware regions, the platform ID and the sensor presets.
+	 */
+	isp: isp@580000000 {
+		compatible = "apple,t6050-isp", "apple,isp";
+		reg = <0x5 0x80000000 0x0 0x1604000>,
+		      <0x5 0x82924000 0x0 0x40>,
+		      <0x5 0x829241d0 0x0 0x20>,
+		      <0x5 0x82924464 0x0 0x10>;
+		reg-names = "coproc", "mbox", "gpio", "mbox2";
+		interrupts = <AIC_IRQ 0 513 IRQ_TYPE_LEVEL_HIGH>;
+		iommus = <&isp_dart0 0>, <&isp_dart1 0>, <&isp_dart2 0>;
+		power-domains = <&ps_isp_sys>, <&ps_isp_cpu>, <&ps_isp_fe>,
+				<&ps_isp_dprx>, <&ps_isp_secure>, <&ps_isp_be>,
+				<&ps_isp_clr>, <&ps_ispsens0>;
+		/* the shared memory window above the firmware's 32 MiB, as on T6040 */
+		apple,dart-vm-size = /bits/ 64 <0xde600000>;
+		status = "disabled";
+	};
+
+	/*
+	 * ADT dart-isp0: three instances on one interrupt, the first with the address filter
+	 * (ADT reg[5]) the driver programs. ADT "remap": streams 1, 6, 7, 10 and 11 are stream 0.
+	 * Streams 4, 5, 8 and 9 (the ADT's exclave-sid) are not used.
+	 */
+	isp_dart0: iommu@5828c0000 {
+		compatible = "apple,t6050-dart", "apple,t8110-dart";
+		reg = <0x5 0x828c0000 0x0 0xc000>,
+		      <0x5 0x828d0000 0x0 0x4000>;
+		reg-names = "dart", "dapf";
+		#iommu-cells = <1>;
+		interrupts = <AIC_IRQ 0 531 IRQ_TYPE_LEVEL_HIGH>;
+		power-domains = <&ps_isp_sys>;
+		apple,remap-streams = <1 0>, <6 0>, <7 0>, <10 0>, <11 0>;
+		status = "disabled";
+	};
+
+	isp_dart1: iommu@5828e0000 {
+		compatible = "apple,t6050-dart", "apple,t8110-dart";
+		reg = <0x5 0x828e0000 0x0 0xc000>;
+		#iommu-cells = <1>;
+		interrupts = <AIC_IRQ 0 531 IRQ_TYPE_LEVEL_HIGH>;
+		power-domains = <&ps_isp_sys>;
+		apple,remap-streams = <1 0>, <6 0>, <7 0>, <10 0>, <11 0>;
+		status = "disabled";
+	};
+
+	isp_dart2: iommu@582900000 {
+		compatible = "apple,t6050-dart", "apple,t8110-dart";
+		reg = <0x5 0x82900000 0x0 0xc000>;
+		#iommu-cells = <1>;
+		interrupts = <AIC_IRQ 0 531 IRQ_TYPE_LEVEL_HIGH>;
+		power-domains = <&ps_isp_sys>;
+		apple,remap-streams = <1 0>, <6 0>, <7 0>, <10 0>, <11 0>;
+		status = "disabled";
+	};
+};
+
+/*
+ * The front camera. iBoot loads the ISP firmware below the kernel's memory, at addresses that
+ * move with the boot firmware. The loader fills these placeholders from the ADT's isp0
+ * segment-ranges: reg, and iommu-addresses where the firmware runs them, from 0x100_0000_0000
+ * on; it then enables the ISP, its DARTs and their power states. The driver checks that the
+ * coprocessor never ran and that its reset vector is this text before it starts the firmware.
+ */
+/ {
+	reserved-memory {
+		isp_fw_text: isp-firmware-text {
+			no-map;
+		};
+
+		isp_fw_data: isp-firmware-data {
+			no-map;
+		};
+
+		/* the firmware's 32 MiB main memory, the driver allocates above it */
+		isp_heap: isp-heap {
+			iommu-addresses = <&isp 0x100 0x0 0x0 0x2000000>;
+		};
+	};
+};
+
+&isp {
+	memory-region = <&isp_fw_text>, <&isp_fw_data>, <&isp_heap>;
+	memory-region-names = "text", "data", "heap";
+	/* ADT isp0 sensor-type and cam-connections-scheme */
+	apple,platform-id = <118>;
+	apple,cam-connections-scheme = <0x10>;
+
+	/*
+	 * The 12 MP front camera, taken to be the J616s's IMX958 (setfile 2224_01): firmware
+	 * configuration 5, as on the J616s. The driver adds the firmware's other usable
+	 * configurations and drops a preset whose configuration the firmware lacks.
+	 */
+	sensor-presets {
+		/* 1920x1080 */
+		preset0 {
+			apple,config-index = <5>;
+			apple,input-size = <1920 2160>;
+			apple,output-size = <1920 1080>;
+			apple,crop = <0 0 1920 1080>;
+		};
+		/* 1280x720: the same window as 1920x1080, scaled down */
+		preset1 {
+			apple,config-index = <5>;
+			apple,input-size = <1920 2160>;
+			apple,output-size = <1280 720>;
+			apple,crop = <0 0 1920 1080>;
+		};
+	};
+};
+
+/* Static hand-off and enables */
+&isp_fw_text {
+	reg = <0x100 0x01094000 0x0 0xc1c000>;
+	iommu-addresses = <&isp 0x100 0x0 0x0 0xc1c000>;
+};
+
+&isp_fw_data {
+	reg = <0x100 0x0269c000 0x0 0x13d0000>;
+	iommu-addresses = <&isp 0x100 0xc1c000 0x0 0x13d0000>;
+};
+
+&ps_isp_sys { status = "okay"; };
+&ps_isp_cpu { status = "okay"; };
+&ps_isp_fe { status = "okay"; };
+&ps_isp_dprx { status = "okay"; };
+&ps_isp_secure { status = "okay"; };
+&ps_isp_be { status = "okay"; };
+&ps_isp_clr { status = "okay"; };
+&ps_ispsens0 { status = "okay"; };
+
+&isp_dart0 { status = "okay"; };
+&isp_dart1 { status = "okay"; };
+&isp_dart2 { status = "okay"; };
+
+&isp {
+	status = "okay";
+};

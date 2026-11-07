@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: GPL-2.0+ OR MIT
+/*
+ * J716s camera bring-up DTB for a loader without the T6050 ISP hand-off (our m1n1 lineage
+ * before patch 0029): the firmware regions are filled statically from the J716s runtime ADT
+ * of 2026-11-04 (isp0 segment-ranges, macOS 27.3 beta 1 stub), and the ISP, its DARTs and
+ * their power states are enabled here. The "isp" alias goes: with it, m1n1 would append its
+ * own asc-firmware regions and disable the node again.
+ *
+ * Check before booting: on the running system, isp0 segment-ranges must still read
+ * TEXT 0xc1c000 @ 0x10001094000 and DATA 0x13d0000 @ 0x1000269c000 (they move with the boot
+ * firmware). Build: cpp + dtc against arch/arm64/boot/dts/apple of the isp/t6050 tree.
+ */
+
+#include "t6050-j716s.dts"
+
+/ {
+	aliases {
+		/delete-property/ isp;
+	};
+};
+
+&isp_fw_text {
+	reg = <0x100 0x01094000 0x0 0xc1c000>;
+	iommu-addresses = <&isp 0x100 0x0 0x0 0xc1c000>;
+};
+
+&isp_fw_data {
+	reg = <0x100 0x0269c000 0x0 0x13d0000>;
+	iommu-addresses = <&isp 0x100 0xc1c000 0x0 0x13d0000>;
+};
+
+&ps_isp_sys { status = "okay"; };
+&ps_isp_cpu { status = "okay"; };
+&ps_isp_fe { status = "okay"; };
+&ps_isp_dprx { status = "okay"; };
+&ps_isp_secure { status = "okay"; };
+&ps_isp_be { status = "okay"; };
+&ps_isp_clr { status = "okay"; };
+&ps_ispsens0 { status = "okay"; };
+
+&isp_dart0 { status = "okay"; };
+&isp_dart1 { status = "okay"; };
+&isp_dart2 { status = "okay"; };
+
+&isp {
+	status = "okay";
+};
