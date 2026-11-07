@@ -1465,3 +1465,22 @@ module (no J716s board row, `read_only=Y`).
   `boot-breadcrumbs`, …). The dump stays on the machine in `/var/lib/nvram-t6050/` (root only; it carries tokens).
 - Not done: no write. Next: the J716s board row module swap and one attended `alt-boot-volume` write (next boot =
   macOS), which needs asahi-nvram/asahi-bless built on the MacBook.
+
+## OMACOM-WDT-KEEP: the omacom-stacked m1n1 boots the J716s (2026-11-07 21:16 UTC)
+
+Payload `omacom-wdt-keep-20261107-2014252d.bin` = m1n1 `v1.6.1-424-gaee8488` (omacom/m1n1 #26 + our five-branch T6050
+series: bring-up + RVBAR relay, N1, GPU hand-off, display hand-off, `m1n1.wdt=keep`) + the 87-patch daily kernel
+`7.3.0-ga0f2f30c967b` and DTB, `chosen.asahi,t6050-n1=4`, self-test on. Written with `esp-put.sh`.
+
+- Primary slot first pass, 76 s to SSH, 18 CPUs, Wi-Fi connected (N1 trained by this loader), Bluetooth, no USB
+  gadget network (omacom has no T6050 combo-PHY tunable fill; expected), 1 benign dmesg match.
+- Stage-2 log: `Primary WDT left armed (m1n1.wdt=keep)`, `SMP: installed RVBAR relay`, `n1: ... training apcie0 port 0
+  with ANS started after the SMC reset release`, `pcie-t6050: port 0 up, N1 at 01:00.0`, `n1: port 0 up: root port and
+  DART okay`, `kboot: MTP DAPF programmed on T6050` (only the MTP DAPF, as #26 does), then the kernel.
+- So the omacom PR series boots this machine end to end with the watchdog kept armed; the GPU and display hand-offs
+  were present but not armed in this payload.
+- Restore of the GPU daily (`esp-put.sh`, 5 s settle) came back on `fallback-after-failure` (the prev twin, same kernel)
+  with `boot.bin` intact: the first esp-put write that still fell back once (2 of 3 esp-put writes booted first pass).
+  The session that wrote it was the omacom-m1n1-booted kernel; the pmu scratchpad was not read on that boot. The
+  loop runners now print `m5pro,pmu-scrpad` so the next fallback can be classified (stage-1 0017's marks remain the
+  real fix).
