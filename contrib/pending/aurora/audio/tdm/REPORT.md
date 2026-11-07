@@ -101,8 +101,9 @@ every 10 ms on J713). Over-temperature/over-current (bits 0/1) are real; B2 logg
 ## 10. B3 result and the start-time burst (update 2026-11-07, after the B3 run)
 
 B3 = kernel `7.3.0-g030e2113e26b` (Image.gz bb553695..., kept in `kbuild-tdm/b3-030e2113e26b/`) + the defer DTB.
-- **Fixed:** no fault at the stream end (~154.9 s), none at `Speaker Switch` off. So 0002 + `apple,deferred-shutdown`
-  remove the stop-time faults.
+- **Fixed:** no fault at the stream end (~154.9 s), none at `Speaker Switch` off. The switch-off fix is
+  `apple,deferred-shutdown`. Whether there ever was a stop-time fault is in doubt after the B2 re-timing (see
+  "Corrections" below).
 - **Clean reboot:** a plain `systemctl reboot` after the tone was clean (23 s, boot-error count 0, primary slot). The B2
   stall did not reproduce with this kernel; the section-7 capture advice stands in case it comes back.
 - **New:** a burst of `bad TDM clock` mid-stream: seven reports at 153.152-153.171, on both buses.
@@ -122,20 +123,33 @@ B3 = kernel `7.3.0-g030e2113e26b` (Image.gz bb553695..., kept in `kbuild-tdm/b3-
     registers each over I2C. That points at the shared TDM clock from the AOP's serializer, not at a register write
     to one amp.
 
-### The interrupt count points at a lost clock, not one glitch
-1032 interrupts on GPIO 106 after one tone. Two expectations:
-- **Stop windows only:** six muted amps re-latching about every 10 ms through their 150 ms deferred-shutdown windows
-  give about 90.
-- **Clock gone for the rest of the stream:** six unmuted amps re-latching every 10 ms from +0.31 s to the stream end
-  (about 1.7 s) give about 6 x 170 = 1020.
-
-1032 fits the second. The "10 lines = 5 faults" is `dev_crit_ratelimited`'s burst of 10 per 5 s. The "callbacks
-suppressed" summary prints only on the next call after the 5 s window, and none came, so its absence proves nothing.
-
-So the likely picture is that the serializer stopped at about +0.31 s and did not come back for that stream. Ed's
-369cac02ce47 says the firmware stops the speaker stream within about 0.2 s of the sense RX going undrained.
-Half the drain ring is 0.341 s (64 of 128 periods of 256 frames). This is a hypothesis to test, not a finding.
-Caveat: the count is since boot; the per-tone delta is what matters.
+### Corrections from the coordinator (before B4), and what they change
+- **B2 re-timed:** the first B2 fault is at 303.516 s, 0.1 s after speakersafetyd's "Sample rate" line (303.4 s).
+  So **B2 had the same start burst**, and its "stop-time" reading was wrong: the rate limit hid the order.
+  - The B2 `Speaker Switch`-off burst (358.6 s) was real. B3 had none: that one is removed by
+    `apple,deferred-shutdown` (`stream_stopped` stays set after the stream).
+  - Whether 0002 removed a real stop-time fault is unproven. B3 had rate-limit room left at the stream end (5 of 10
+    lines used) and logged none. 0002's order (mute, then stop the clock) is still the right one.
+- **The interrupt count is 25611, not 1032:** 1032 was CPU0's column; the row total is 25611 after about 160 s of
+  uptime and one tone, about 160/s. The "clock lost for the rest of the stream" estimate (about 1020) is withdrawn.
+- **New reading of the count:** about 160/s is roughly how fast the six threaded handlers can scan. Each interrupt
+  costs six I2C latch reads per amp, about 36 reads, a few ms per cycle. So the line looks **held low continuously
+  since the IRQ was requested at boot**, re-firing as soon as the oneshot thread unmasks it.
+  - No fault line was logged before the tone, so every handler saw LTCH0 = 0 and returned IRQ_NONE. Nothing is
+    latched in the only unmasked register: `INT_MASK0` = 0x00, `INT_MASK1-4` = 0xff, as in mainline (dd50f0e38563).
+  - So this is most likely a **stuck-low or floating IRQ line**, not amp faults. That could be pin bias or a missing
+    pull-up on AP GPIO 106, or an amp holding IRQZ low with nothing in LTCH0.
+- **Consequences:**
+  - The kernel's spurious-IRQ detector disables the line ("irq N: nobody cared", "Disabling IRQ #N") after about
+    100k mostly-unhandled interrupts, about 10 min at this rate. After that the amps' fault reporting is off for the
+    rest of the boot.
+  - Until then the storm costs a CPU thread and about 5800 I2C reads/s on the two amp buses, even at idle. That
+    matters for the WFI soak's idle and power numbers if the soak runs a speaker-DT kernel.
+  - It is a plausible contributor to the B2 shutdown stall (I2C and IRQ-thread load through shutdown), not proven.
+    B3's reboot at about 160 s was clean.
+- **The start burst itself is unchanged.** It is a real LTCH0 clock latch on all six amps, 0.1-0.3 s after the sense
+  data starts, and reproducible (B2, B3). 0003's two log lines remain the test for it: the pwrd read-back time, and
+  the firmware state at stop.
 
 ### Patch 0003 (`patches/0003-ASoC-apple-aop_t8140-unmute-the-T6050-speakers-only-.patch`, commit 7767a8193740)
 - **Start:** the `pwrd` request (property 202) returns before the firmware carries it out, and nothing checked it.
@@ -155,6 +169,24 @@ Caveat: the count is since boot; the per-tone delta is what matters.
   - Image.gz `f9129ccd7bfa29bb4a80772a7f05ca265d6b740fe65d19f6d489345441718908`.
   - DTBs unchanged: use the defer DTB `9783ccb6...`.
   - format-patch now numbers the series 1/3..3/3, so the 0001/0002 file hashes changed. Their content is identical.
+
+### B4 additions after the corrections (all read-only)
+- **Handled against unhandled:** `N=$(awk '/tas2764/{sub(":","",$1);print $1}' /proc/interrupts)`, then
+  `cat /proc/irq/$N/spurious` together with the `/proc/interrupts` row total.
+  - Take it at the same three points as the coordinator's deltas: before the tone, after it, and after 10 s idle.
+  - count minus unhandled is the number of real latches. If unhandled is about the count, the line is stuck low with
+    nothing latched.
+- **Line level and bias:** `grep -i -A1 'gpio-106\b' /sys/kernel/debug/gpio` and
+  `grep -E '^pin 106 ' /sys/kernel/debug/pinctrl/*/pinconf-pins /sys/kernel/debug/pinctrl/*/pins 2>/dev/null`.
+  A level that reads low at idle confirms a stuck line.
+- **Latch registers, live:**
+  `for a in 0-0038 0-0039 0-003a 2-003b 2-003c 2-003d; do echo $a; grep -E '^(49|4a|4b|4f|50|51|5c):' /sys/kernel/debug/regmap/$a/registers; done`.
+  - The latch and IRQ registers are volatile, so this reads the hardware. Caveat: reading may clear a latch.
+  - It shows whether any amp holds something latched at idle. 0x5c bits 1:0 are the IRQZ pin mode.
+- **Spurious-IRQ shutdown:** `dmesg | grep -E 'nobody cared|Disabling IRQ'`. Check the WFI-soak boot too, if it ran a
+  speaker-DT kernel: the line should be disabled about 10 min in.
+- Item 6 below: drop the "near 6000" expectation. With a storm the IRQ delta does not measure the clock; use the
+  handled count from `spurious` instead.
 
 ### Next run (B4: kernel f9129ccd..., defer DTB, the B2/B3 recipe)
 1. **Gates as before.** Then read `grep -i gpio /proc/interrupts` (the tas2764 line) **before and after** one 2 s
