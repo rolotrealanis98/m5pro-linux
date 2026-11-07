@@ -1717,3 +1717,18 @@ Primary slot first pass, 74 s, 18 CPUs, Wi-Fi (N1 trained by the loader) and Blu
 RVBAR relay, N1 port up, MTP DAPF, #30's USB host prep on USB0/1/2; the restore of the GPU daily was clean (primary,
 pmu 300000). The review fixes (N1 settings kept when the DT has them, storage checks on every stop, train once per
 boot, one SMC deadline per command, watchdog-keep across the CDC path) are therefore exercised on hardware.
+
+### DCP-120 series: why the measurements failed (journal analysis, 2026-11-07 23:30 UTC)
+
+On all three boots the first swap after the boot mode set (swap 5) was accepted by the firmware but never reported
+shown; at ~10.5 s `flip_done timed out` and `IOMFB transaction timed out: cmd=0 oob=0 present=1 accepted=1 swap=5`,
+the driver marked the DCP crashed and refused every later commit with -EINVAL (modetest printed ENOSYS because
+`drmModeDirtyFB` overwrote the errno). The stage C boot without the 120 Hz patches did not stall and its swaps carried
+no timestamps; patch 0001 adds ARM-counter timestamps to every 120 Hz swap, the same thing that stalled swaps on the
+desktop 26.6 panel until Aurora switched to a constant 120. Next boots (queued): the same payload with
+`appledrm.fw27_counter_timestamps=0 drm.debug=0x16`, plus the VRR variant, driven by the new atomic test program
+`vrrflip` (`contrib/pending/dcp/vrr/tools/`): one atomic mode set, continuous flips, phases fixed / vrr-on / vrr-on-50 /
+vrr-off / vrr-off-50 with page-flip interval statistics and swap-completion counts from the tracepoints. The firmware did
+accept the adaptive-sync parameter (`IOMFBParameter_adaptive_sync Req minRR = 0x0 ...`), confirming parameter 15.
+Fixed rates vs VRR in the VRR patches already match the firmware: VRR only on timing 2, timings 3-7 as real mode sets;
+the only synthesized mode is 100.01 Hz from the 120 Hz series.
