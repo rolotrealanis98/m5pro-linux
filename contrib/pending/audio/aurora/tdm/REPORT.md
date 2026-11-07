@@ -503,6 +503,109 @@ In a second SSH session, keep running:
 - **Not changed:** `mk-r3audio.py` still pins the old kbuild kernel. Payloads are built with the coordinator's own
   tooling now.
 
+## 13. B6 passed; the daemon's temperatures; why the PipeWire sink was silent
+
+### B6
+Six channels at -30..0 dBFS under the -30 dB ceiling, plus left-only and right-only:
+- 0 faults;
+- +13..+21 amp interrupts per tone (the stop-latch pattern);
+- peak 0.04 W at 0 dBFS;
+- "sounded good, no distortion".
+
+### The 71/58 C at rest is speakersafetyd's startup assumption, not a scale error
+`Speaker::new` (speakersafetyd `src/types.rs:291-300`) does not start at ambient:
+- **Cold boot** (no flag file in `/run/speakersafetyd`): `t_coil = t_limit - t_window - 1` = 120 - 20 - 1 = 99 C.
+- **Warm boot** (flag present; the B6 drop-in restart was one, as `RuntimeDirectoryPreserve=restart` keeps the flag):
+  `t_coil = t_limit` = 120 C, the "worst case".
+- The magnet starts at `t_ambient + (t_coil - t_ambient) * tr_magnet / (tr_magnet + tr_coil)`.
+- Both then decay toward `t_ambient` = 50 C. The magnet is slow (tau_magnet about 200 s on the woofers) and the coil
+  follows it, hence 71/58 C a while after start, falling to 63/52 C, with woofers and tweeters on different curves.
+
+This is the safe direction by design, as on every Asahi machine. It reaches about 50 C after roughly 10-15 idle
+minutes. Nothing to change in `j716.conf`.
+
+### The silent PipeWire sink
+**What we know:**
+- The UCM HiFi profile loaded: node `alsa_output.platform-sound.HiFi__Speaker__sink`, path `hw:AppleJ716,1`, 6 ch.
+- Our fragment's rename to RawSpeakers did not happen, so the fragment on the root is not the current one. The first
+  version had only `node.software-dsp.rules`: no rename and no `wireplumber.profiles` line. Without asahi-audio,
+  software DSP is then off, and nothing replaces the UCM sink.
+- pw-play gave no amp interrupts and 0 W.
+
+**Likely causes, most likely first:**
+1. **The stream never opened.** `Speaker Switch` was left off after B6 (the stop/cleanup rule) after WirePlumber had
+   already run the UCM Speaker enable. Opening the Secondary front end then fails with "ASoC: no backend DAIs enabled
+   for Secondary" (seen in B2 with aplay). WirePlumber reruns the device's EnableSequence (`Speaker Switch` on) only on
+   a profile or port change. `dmesg` tells: that line, and no `spkr: pwrd reached` (0014 logs it at every speaker
+   stream start).
+2. **It played, inaudibly.**
+   - wpctl volumes are cubic: 0.30 is a linear 0.027, about -31 dB.
+   - With a -20 dBFS file and the -30 dB kernel ceiling that is about -81 dB.
+   - UCM's default 6-channel map (FL FR RL RR FC LFE) sends a stereo stream to channels 0/1 only, LW1 and RW1.
+   - The amp interrupts only show at the stream's stop, 5 s after playback when the node suspends. A reading right
+     after pw-play shows +0 either way, and 0.00 W is speakersafetyd's 2-decimal display of microwatts.
+   - The tell is a `spkr: pwrd reached` line in dmesg at the pw-play time.
+3. **A hw_params refusal:** look for a `spa.alsa ... hw:AppleJ716,1` error in rolo's journal. Unlikely: the PCM offers
+   mmap, S24_LE, 48 kHz, 6 ch and periods of at least 2.
+
+**The UCM file, for the record:**
+- Verb `HiFi` EnableSequence: `Headphone Playback Mux` = Primary, `Speaker Playback Mux` = Secondary.
+- Speaker device EnableSequence: `Speaker Switch` on.
+- Nothing sets a volume. The six "... Speaker Volume" controls belong to speakersafetyd and the kernel lock. The AOP's
+  own "Speaker Playback Volume" only applies to the T8140 LEAP path.
+
+### Commands (root; `R` runs as rolo's user session)
+```
+R(){ systemd-run --machine=rolo@ --user --pipe --wait --quiet "$@"; }
+# 0. state
+amixer -c AppleJ716 sget 'Speaker Switch' | tail -1; amixer -c AppleJ716 sget 'Speaker Playback Mux' | tail -1
+dmesg | grep -E 'backend DAIs|spkr: pwrd' | tail -5
+journalctl _UID=$(id -u rolo) -b --no-pager | grep -iE 'alsa|AppleJ716|software-dsp|filter|lv2|error' | tail -20
+wireplumber --version; pacman -Q pipewire wireplumber lsp-plugins-lv2 lilv 2>&1
+sox -n -r 48000 -c 2 -b 16 /tmp/st.wav synth 10 sine 440 gain -12; sox -n -r 48000 -c 2 -b 16 /tmp/pn.wav synth 8 pinknoise gain -18; chmod 644 /tmp/st.wav /tmp/pn.wav
+```
+**(a) The plain UCM sink.** For the record only: it feeds LW1/RW1 and has no tweeter high-pass.
+```
+amixer -c AppleJ716 cset name='Speaker Playback Mux' Secondary; amixer -c AppleJ716 cset name='Speaker Switch' on
+systemctl --machine=rolo@ --user restart wireplumber     # reruns the UCM verb and device enable
+R wpctl status | sed -n '/Sinks:/,/Sources:/p'           # note the id of "Built-in Audio Speakers"
+R wpctl set-default <id>; R wpctl set-volume <id> 1.0    # 1.0 is still -30 dB in the kernel; the file is -12 dBFS
+R pw-play /tmp/st.wav &  sleep 2
+cat /proc/asound/AppleJ716/pcm1p/sub0/hw_params /proc/asound/AppleJ716/pcm1p/sub0/status   # S24_LE, 48000, 6 ch, RUNNING
+dmesg | tail -3                                          # "spkr: pwrd reached after 0 ms" now
+wait; sleep 6; dmesg | grep -c 'fault:'                  # 0; the interrupt delta appears after the node suspends
+```
+Expect a quiet 440 Hz from the two front woofers, about B6's -12 dBFS aplay level.
+
+**(b) The protective DSP graph:**
+```
+install -m644 99-asahi-j716.conf /usr/share/wireplumber/wireplumber.conf.d/99-asahi-j716.conf   # the current file
+sha256sum /usr/share/wireplumber/wireplumber.conf.d/99-asahi-j716.conf   # 8859a9ea944da30b41b1623ccc08f900b211cbc8f5c6d8a9736daeac31acffd0
+grep -E 'RawSpeakers|software-dsp = required|AUX5' /usr/share/wireplumber/wireplumber.conf.d/99-asahi-j716.conf
+find /usr/lib -path '*filter*' -name '*lv2*.so'          # PipeWire's LV2 filter plugin (the graph's lsp compressor)
+ls /usr/lib/lv2 | grep -i lsp                            # lsp-plugins-lv2
+systemctl --machine=rolo@ --user restart pipewire pipewire-pulse wireplumber
+R wpctl status | sed -n '/Sinks:/,/Sources:/p'           # "MacBook Pro J716 Speakers (bring-up)"; the UCM sink hidden
+R pw-dump | grep -E '"node.name": "(alsa_output.platform-sound.RawSpeakers|audio_effect.j716-bringup|effect_output.j716-bringup)"'
+R wpctl set-default <bring-up sink id>
+R wpctl set-volume <bring-up sink id> 1.0    # the graph's default is 0.1 cubic (about -60 dB); its control tops out at -10 dB; kernel ceiling -30 dB
+R pw-play /tmp/st.wav    # 440 Hz: the woofers (high-passed at 180 Hz; tweeters at 2 kHz)
+R pw-play /tmp/pn.wav    # pink noise: all six drivers
+```
+- **Watch:** dmesg (no `fault:`, a `spkr: pwrd reached` per stream), speakersafetyd (nominal), and the interrupt
+  delta after the node suspends (about 15).
+- **Stop rules:** as B6.
+- **If the bring-up sink does not appear,** rolo's journal grep names the cause:
+  - a missing LV2 plugin;
+  - `node.software-dsp` unknown (needs WirePlumber 0.5.2 or later);
+  - or a path mismatch (`R pw-dump | grep api.alsa.path`).
+
+### Files changed
+- **`userspace/asahi-audio/99-asahi-j716.conf`:** adds `audio.position = [AUX0..AUX5]` to the RawSpeakers rename, so
+  the graph's six outputs land on the amps by index and do not depend on UCM's 5.1 map. sha256 `8859a9ea...`; the
+  same file is in `~/Work/agents/audio-aurora/userspace/` and the repo.
+- The graph and the UCM file are unchanged.
+
 ## 9. For edimoldovan (after our run confirms 0002)
 - The J716s faults came from the speaker link format: his J714 entry has the same `IB_IF`/256 defaults. If the J714c
   ADT shows the same `fa00` 250-bit frame, 0004's format may also explain his one-bit sense shift and the LW1 delay.
