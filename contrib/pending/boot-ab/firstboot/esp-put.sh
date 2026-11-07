@@ -8,7 +8,7 @@
 #           (e.g. /boot/m1n1/boot.bin to make it boot.bin.prev)
 #     NAME  boot.bin | boot.bin.prev
 #   env: ESP_RW=1 leaves /boot mounted read-write (default: read-only until the reboot)
-#        ESP_SETTLE=<s> idle time after the last flush (default 5)
+#        ESP_SETTLE=<s> idle time after the last flush (default 60: a restart while the SSD is still busy gets counted or breaks the next boot)
 #
 # Why: on vfat, sync(2) writes the data but sends no device FLUSH (vfat has no ->sync_fs; the
 # FAT and directory buffers go out in sync_bdevs, after every other filesystem's flush), so tens
