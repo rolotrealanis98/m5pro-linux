@@ -1,0 +1,45 @@
+From 85fe150c2a6c9ab884f4aaef34cb38c52df95c88 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:34:48 -0500
+Subject: [PATCH 3/3] spi: apple-qspi: log the flash ID and status when a write
+ is refused
+
+A refused write is the normal outcome until a board row matches the part
+and its protection state, and two of the three refusals were silent or
+vague: an ID mismatch returned -ENODEV with no message, and a status
+refusal said only "modify-status". Both now log the flash ID and, for the
+status case, the three status registers and the board's bp_ok mask, which
+is what a new board row needs to be written from.
+
+No change to what is admitted.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/spi/spi-apple-qspi.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/spi/spi-apple-qspi.c b/drivers/spi/spi-apple-qspi.c
+index 4aca9e771be2..ad6aef88e0d7 100644
+--- a/drivers/spi/spi-apple-qspi.c
++++ b/drivers/spi/spi-apple-qspi.c
+@@ -731,6 +731,9 @@ static int apple_qspi_nvram_modify(struct spi_mem *mem, const struct spi_mem_op
+ 		goto out;
+ 	if (memcmp(id, qspi->jedec, sizeof(id)) &&
+ 	    (!qspi->jedec_alt[0] || memcmp(id, qspi->jedec_alt, sizeof(id)))) {
++		dev_warn_ratelimited(&mem->spi->dev,
++			"NVRAM denied: flash ID %02x%02x%02x is not the qualified part\n",
++			id[0], id[1], id[2]);
+ 		ret = -ENODEV;
+ 		goto out;
+ 	}
+@@ -740,6 +743,10 @@ static int apple_qspi_nvram_modify(struct spi_mem *mem, const struct spi_mem_op
+ 	/* No unlocking. Conservatively refuse BP/CMP/WPS, BUSY/WEL or suspend. */
+ 	if (!apple_qspi_part_status_allows_write(id[0], before[0], before[1],
+ 						 before[2], qspi->bp_ok)) {
++		dev_warn_ratelimited(&mem->spi->dev,
++			"NVRAM denied: flash %02x%02x%02x status %02x %02x %02x refuses writes (bp_ok %02x)\n",
++			id[0], id[1], id[2], before[0], before[1], before[2],
++			qspi->bp_ok);
+ 		ret = -EACCES;
+ 		goto out;
+ 	}

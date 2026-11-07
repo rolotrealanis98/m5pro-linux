@@ -1,0 +1,78 @@
+From c89836577430d564bddde58306a6b1e035b0f431 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:31:07 -0500
+Subject: [PATCH 1/3] arm64: dts: apple: j716s: Enable the boot NOR and its
+ NVRAM partition
+
+The J716s boot NOR sits behind the T6050 QSPIMC at ADT /arm-io/qspi, the
+same controller and clock as the J775D, whose SoC dtsi already describes
+it (disabled). Enable it and describe the one flash on chip select 0 with
+the NVRAM partition the ADT gives as /arm-io/qspi/spinor/anvram: offset
+0x700000, size 0xc0000, twelve 64 KiB banks. m1n1's dt_set_nvram() only
+looks under /arm-io/spi1, so the partition reg is static here rather than
+loader-filled. Add the nvram alias asahi-nvram and asahi-bless use.
+
+Only the partition is exposed, in single-wire mode at 25 MHz as on the
+J775D. spi-apple-qspi passes reads and refuses every program and erase on
+this board until a board row qualifies the flash, so this change alone
+leaves the NVRAM read-only.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 46 +++++++++++++++++++++++
+ 1 file changed, 46 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 0b7ed533e3a5..5bf8bb921154 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -809,3 +809,49 @@ tp-accel {
+  *   2 multi-touch   afe-reset      (0x10000, 0x11c0000)
+  */
+ /delete-node/ &smc_pcio;
++
++/*
++ * The boot NOR and its NVRAM partition, for asahi-nvram and asahi-bless.
++ * [ADT] /arm-io/qspi (qspi,qspimc) has one child, spinor (reg 0x0, 0x19:
++ * chip select 0), with the children firmware, anvram and syscfg. anvram
++ * reg is 0x700000, 0xc0000: 12 banks of 64 KiB (/chosen nvram-bank-count
++ * 12, nvram-bank-size 0x10000). The controller node itself, its clock and
++ * the spi_p/qspi power states come from t6050-die0.dtsi; m1n1's
++ * dt_set_nvram() only looks under /arm-io/spi1 and cannot fill the
++ * partition on T6050, so its reg is static here.
++ *
++ * Only the partition is described: no MTD_PARTITIONED_MASTER, so the rest
++ * of the NOR (iBoot, syscfg) has no device node. spi-apple-qspi lets reads
++ * through and refuses every program and erase until its J716s board row
++ * qualifies the part and root clears the read_only module parameter.
++ * Single-wire as on J775D and J713: spi-nor then sends no quad-enable
++ * status write at probe. [J775D t6050-j775d.dts]
++ */
++/ {
++	aliases {
++		nvram = &nvram;
++	};
++};
++
++&qspi {
++	status = "okay";
++
++	flash@0 {
++		compatible = "jedec,spi-nor";
++		reg = <0>;
++		spi-max-frequency = <25000000>;
++		spi-rx-bus-width = <1>;
++		spi-tx-bus-width = <1>;
++
++		partitions {
++			compatible = "fixed-partitions";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			nvram: partition@700000 {
++				label = "nvram";
++				reg = <0x700000 0xc0000>;
++			};
++		};
++	};
++};

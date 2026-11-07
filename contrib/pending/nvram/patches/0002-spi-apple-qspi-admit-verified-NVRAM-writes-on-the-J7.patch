@@ -1,0 +1,176 @@
+From 81eba7e63122034f0f8cddcbe2b87b5b96cfdb27 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:33:15 -0500
+Subject: [PATCH 2/3] spi: apple-qspi: admit verified NVRAM writes on the J716s
+
+The J716s (MacBook Pro 16-inch, M5 Pro) boot NOR is behind the T6050
+QSPIMC at 0x505118000, with the NVRAM at 0x700000 for 0xc0000 bytes (ADT
+/arm-io/qspi/spinor/anvram, twelve 64 KiB banks). macOS reports JEDEC ID
+0xc88317 for the flash: GigaDevice, the 8 MiB sibling of the GD25UF16E on
+some J700s. Add the board to the qualified table so root can opt in, after
+probe, to the same bounded and verified programs and 4 KiB erases inside
+the partition as on the other boards.
+
+The row names the T6050 compatible, the machine, the aperture, the exact
+partition the device tree must describe and the one JEDEC ID, so the
+J775D, which shares the controller, stays read-only. No block-protect bit
+is tolerated (bp_ok 0): the first boot has to show which bits iBoot leaves
+set, and until a row says otherwise any of them refuses the write before
+WREN. The GigaDevice status checks written for the GD25UF16E apply; the
+8 MiB part is assumed to share its register layout, and anything else in
+the status registers fails closed.
+
+Also match apple,t6050-qspi directly with the T8140 data, so the policy
+does not depend on the binding's fallback compatible.
+
+Extend tools/asahi/qspi-nvram-tests.py: the J716s joins the board,
+controller and aperture matrix (270 combinations), its row is asserted
+field by field, and a new phase covers programs and erases at and beyond
+both ends of the partition, every status bit iBoot could leave set, the
+other boards' flash IDs, and read-only startup. Four changed-guard
+controls (aperture, partition size, JEDEC ID, bp_ok) must fail the suite.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/spi/spi-apple-qspi.c    | 17 +++++++++--
+ tools/asahi/qspi-nvram-tests.py | 50 +++++++++++++++++++++++++++++----
+ 2 files changed, 58 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/spi/spi-apple-qspi.c b/drivers/spi/spi-apple-qspi.c
+index 11fb1d555310..4aca9e771be2 100644
+--- a/drivers/spi/spi-apple-qspi.c
++++ b/drivers/spi/spi-apple-qspi.c
+@@ -8,9 +8,9 @@
+  * only; that is sufficient for SPI NOR discovery and access.
+  *
+  * The boot NOR starts read-only. On the qualified boards (J613, J713,
+- * J616s and the J700) root may opt in at runtime to bounded, verified
+- * programs and 4 KiB erases inside the nvram partition; everything else
+- * stays read-only. On T8140 data reads reach the whole NOR.
++ * J616s, the J700 and the J716s) root may opt in at runtime to bounded,
++ * verified programs and 4 KiB erases inside the nvram partition;
++ * everything else stays read-only. On T8140 data reads reach the whole NOR.
+  */
+ 
+ #include <linux/bitfield.h>
+@@ -118,6 +118,8 @@ struct apple_qspi_board {
+ #define APPLE_QSPI_JEDEC_W25Q16		{ 0xef, 0x65, 0x15 }
+ #define APPLE_QSPI_JEDEC_MX_2B27	{ 0xc2, 0x2b, 0x27 }
+ #define APPLE_QSPI_JEDEC_GD25UF16E	{ 0xc8, 0x83, 0x15 }
++/* GigaDevice, 1.8 V, 8 MiB: the ID macOS reports on the J716s boot NOR. */
++#define APPLE_QSPI_JEDEC_GD_8M		{ 0xc8, 0x83, 0x17 }
+ 
+ static const struct apple_qspi_board apple_qspi_boards[] = {
+ 	{ "apple,t8122-qspi", "apple,j613", 0x2a1118000ULL,
+@@ -135,6 +137,14 @@ static const struct apple_qspi_board apple_qspi_boards[] = {
+ 	{ "apple,t8140-qspi", "apple,j700", 0x385110000ULL,
+ 	  0x24000, 0x1d0000, APPLE_QSPI_JEDEC_W25Q16, 0x1c,
+ 	  APPLE_QSPI_JEDEC_GD25UF16E },
++	/*
++	 * J716s (T6050): macOS reads JEDEC ID 0xc88317 from the boot NOR and
++	 * the ADT gives the NVRAM as 12 banks of 64 KiB at 0x700000. No block
++	 * protect bit is tolerated until a boot shows which ones iBoot leaves
++	 * set and what range they cover.
++	 */
++	{ "apple,t6050-qspi", "apple,j716s", 0x505118000ULL,
++	  0x700000, 0xc0000, APPLE_QSPI_JEDEC_GD_8M, 0 },
+ };
+ 
+ static DEFINE_MUTEX(apple_qspi_policy_lock);
+@@ -1258,6 +1268,7 @@ static const struct of_device_id apple_qspi_of_match[] = {
+ 	{ .compatible = "apple,t8122-qspi", .data = &apple_qspi_single_io },
+ 	{ .compatible = "apple,t8132-qspi", .data = &apple_qspi_single_io },
+ 	{ .compatible = "apple,t6041-qspi", .data = &apple_qspi_single_io },
++	{ .compatible = "apple,t6050-qspi", .data = &apple_qspi_t8140 },
+ 	{ .compatible = "apple,t8140-qspi", .data = &apple_qspi_t8140 },
+ 	{}
+ };
+diff --git a/tools/asahi/qspi-nvram-tests.py b/tools/asahi/qspi-nvram-tests.py
+index 3e377466e944..276983a282bf 100644
+--- a/tools/asahi/qspi-nvram-tests.py
++++ b/tools/asahi/qspi-nvram-tests.py
+@@ -149,26 +149,33 @@ static void arm(void){runtime_ready=true;assert(!apple_qspi_set_read_only("N",&p
+ static bool sent(unsigned int o){for(unsigned int i=0;i<wire_count;i++)if(wire[i]==o)return true;return false;}
+ static void denied(struct spi_mem_op o){wire_count=0;assert(apple_qspi_exec_op(&mem,&o)<0);assert(!wire_count);}
+ int main(void){
+- const char *boards[]={"apple,j613","apple,j713","apple,j700","apple,j616s","apple,j714"};
+- const char *controllers[]={"apple,t8122-qspi","apple,t8132-qspi","apple,t8140-qspi","apple,t6041-qspi"};
+- const u64 bases[]={0x2a1118000ULL,0x3ad118000ULL,0x385110000ULL,0x429118000ULL,0xad118000ULL,0x3ad118004ULL,0x429118800ULL};
++ const char *boards[]={"apple,j613","apple,j713","apple,j700","apple,j616s","apple,j716s","apple,j714"};
++ const char *controllers[]={"apple,t8122-qspi","apple,t8132-qspi","apple,t8140-qspi","apple,t6041-qspi","apple,t6050-qspi"};
++ const u64 bases[]={0x2a1118000ULL,0x3ad118000ULL,0x385110000ULL,0x429118000ULL,0x505118000ULL,0xad118000ULL,0x3ad118004ULL,0x429118800ULL,0x505118800ULL};
+  for(unsigned int b=0;b<ARRAY_SIZE(boards);b++){
+   machine=boards[b];
+   for(unsigned int c=0;c<ARRAY_SIZE(controllers);c++){
+    struct device_node node={controllers[c]};
+    for(unsigned int a=0;a<ARRAY_SIZE(bases);a++)
+-    assert(!!apple_qspi_nvram_write_board(&node,bases[a])==(b<4&&b==c&&c==a));
++    assert(!!apple_qspi_nvram_write_board(&node,bases[a])==(b<5&&b==c&&c==a));
+   }
+  }
+  const struct apple_qspi_board *qb;
+- struct device_node t6041={"apple,t6041-qspi"},t8140={"apple,t8140-qspi"};
++ struct device_node t6041={"apple,t6041-qspi"},t8140={"apple,t8140-qspi"},t6050={"apple,t6050-qspi"};
+  machine="apple,j616s";qb=apple_qspi_nvram_write_board(&t6041,0x429118000ULL);
+  assert(qb&&qb->nvram_start==0x700000&&qb->nvram_size==0x100000&&qb->jedec[0]==0xc2&&qb->jedec[1]==0x2b&&qb->jedec[2]==0x27&&!qb->bp_ok);
+  assert(qb->jedec_alt[0]==0xef&&qb->jedec_alt[1]==0x65&&qb->jedec_alt[2]==0x17);
+  machine="apple,j700";qb=apple_qspi_nvram_write_board(&t8140,0x385110000ULL);
+  assert(qb&&qb->nvram_start==0x24000&&qb->nvram_size==0x1d0000&&qb->jedec[2]==0x15&&qb->bp_ok==0x1c);
+  assert(qb->jedec_alt[0]==0xc8&&qb->jedec_alt[1]==0x83&&qb->jedec_alt[2]==0x15);
+- puts("PASS J613/J713/J700/J616s board, controller and full-width aperture qualification (140 combinations)");
++ machine="apple,j716s";qb=apple_qspi_nvram_write_board(&t6050,0x505118000ULL);
++ assert(qb&&qb->nvram_start==0x700000&&qb->nvram_size==0xc0000&&!qb->bp_ok);
++ assert(qb->jedec[0]==0xc8&&qb->jedec[1]==0x83&&qb->jedec[2]==0x17&&!qb->jedec_alt[0]&&!qb->jedec_alt[1]&&!qb->jedec_alt[2]);
++ /* The J775D shares the controller compatible and aperture but is not the J716s. */
++ machine="apple,j775d";assert(!apple_qspi_nvram_write_board(&t6050,0x505118000ULL));
++ /* A node without the T6050 compatible, even with the T8140 fallback alone, is not qualified. */
++ machine="apple,j716s";assert(!apple_qspi_nvram_write_board(&t8140,0x505118000ULL));
++ puts("PASS J613/J713/J700/J616s/J716s board, controller and full-width aperture qualification (270 combinations)");
+  u8 data[256];memset(data,0x55,sizeof(data));reset();
+  struct spi_mem_op wren=SPI_MEM_OP(SPI_MEM_OP_CMD(0x06,1),SPI_MEM_OP_NO_ADDR,SPI_MEM_OP_NO_DUMMY,SPI_MEM_OP_NO_DATA);
+  /* T8140 (J700) shares the verified policy at its DT nvram window; its data
+@@ -292,6 +299,33 @@ int main(void){
+  reset();memcpy(jedec,gd25uf16e,3);jedec[1]=0x60;memcpy(q.jedec,w25q16,3);memcpy(q.jedec_alt,gd25uf16e,3);q.bp_ok=0x1c;arm();
+  wire_count=0;o=program(0x700000,1,data);assert(apple_qspi_exec_op(&mem,&o)==-ENODEV&&!sent(0x06));
+  puts("PASS GD25UF16E J700 part: second ID admitted with GigaDevice SR1/SR2/SR3 checks; WIP, WEL, BP3, BP4, CMP, SUS1, SUS2 and other IDs refused");
++ /* J716s GigaDevice part (JEDEC c88317), partition 0x700000..0x7c0000, no BP bit tolerated. */
++ const u8 gd8m[3]={0xc8,0x83,0x17};
++ reset();memcpy(jedec,gd8m,3);memcpy(q.jedec,gd8m,3);q.window_end=0x7c0000;q.nvram_window=true;arm();
++ memset(data,0x55,sizeof(data));
++ o=program(0x700000,256,data);wire_count=0;assert(!apple_qspi_exec_op(&mem,&o)&&sent(0x02)&&sent(0x35)&&sent(0x15));
++ assert(!memcmp(flash+0x700000,data,256)&&!sr[0]);
++ o=program(0x7bff00,256,data);wire_count=0;assert(!apple_qspi_exec_op(&mem,&o)&&sent(0x02));
++ denied(program(0x7c0000,1,data));denied(program(0x7bffff,2,data));denied(program(0x6fffff,1,data));denied(program(0x7ff000,1,data));
++ erase.addr.val=0x7bf000;memset(flash+0x7bf000,0,4096);wire_count=0;assert(!apple_qspi_exec_op(&mem,&erase)&&sent(0x20));
++ for(unsigned int i=0;i<4096;i++)assert(flash[0x7bf000+i]==0xff);
++ erase.addr.val=0x7c0000;denied(erase);erase.addr.val=0x6ff000;denied(erase);erase.addr.val=0x7bf800;denied(erase);
++ /* Every status bit iBoot could leave set is refused: BP0-BP4, SRP0, WIP, WEL, SUS1, SUS2, CMP. */
++ const u8 j716s_refused[][3]={{0x04,0,0},{0x08,0,0},{0x10,0,0},{0x20,0,0},{0x40,0,0},{0x01,0,0},{0x02,0,0},{0x04,0x42,0},{0x00,0x80,0},{0x00,0x04,0},{0x00,0x40,0}};
++ for(unsigned int i=0;i<ARRAY_SIZE(j716s_refused);i++){
++  reset();memcpy(jedec,gd8m,3);memcpy(q.jedec,gd8m,3);q.window_end=0x7c0000;arm();
++  memcpy(sr,j716s_refused[i],3);wire_count=0;o=program(0x700000,1,data);
++  assert(apple_qspi_exec_op(&mem,&o)==-EACCES&&!sent(0x06)&&!sent(0x02));
++ }
++ /* The J700's GD25UF16E and the J616s Macronix IDs are not the J716s part. */
++ reset();memcpy(jedec,(u8[]){0xc8,0x83,0x15},3);memcpy(q.jedec,gd8m,3);q.window_end=0x7c0000;arm();
++ wire_count=0;o=program(0x700000,1,data);assert(apple_qspi_exec_op(&mem,&o)==-ENODEV&&!sent(0x06));
++ reset();memcpy(jedec,(u8[]){0xc2,0x2b,0x27},3);memcpy(q.jedec,gd8m,3);q.window_end=0x7c0000;arm();
++ wire_count=0;o=program(0x700000,1,data);assert(apple_qspi_exec_op(&mem,&o)==-ENODEV&&!sent(0x06));
++ /* Read-only startup: nothing reaches the wire before root arms the driver. */
++ reset();memcpy(jedec,gd8m,3);memcpy(q.jedec,gd8m,3);q.window_end=0x7c0000;
++ wire_count=0;o=program(0x700000,1,data);assert(apple_qspi_exec_op(&mem,&o)==-EACCES&&!wire_count);
++ puts("PASS J716s GD 8 MiB part: programs and erases only inside 0x700000..0x7c0000, BP/SRP/WIP/WEL/SUS/CMP and other IDs refused, read-only until armed");
+  /* Model spi-mem's outer reference. Every private JEDEC/status/WREN,
+   * completion poll, WRDI and readback must finish before the idle stamp.
+   * Hardware tests must still prove genpd and the actual suspend timer. */
+@@ -364,6 +398,10 @@ def main():
+             ('board', 'of_machine_is_compatible(board->machine) &&', ''),
+             ('aperture', 'base == board->base', 'base != 0'),
+             ('j616s-aperture', '"apple,j616s", 0x429118000ULL', '"apple,j616s", 0x429118800ULL'),
++            ('j716s-aperture', '"apple,j716s", 0x505118000ULL', '"apple,j716s", 0x505118800ULL'),
++            ('j716s-partition', '"apple,j716s", 0x505118000ULL,\n\t  0x700000, 0xc0000', '"apple,j716s", 0x505118000ULL,\n\t  0x700000, 0x100000'),
++            ('j716s-jedec', 'APPLE_QSPI_JEDEC_GD_8M\t\t{ 0xc8, 0x83, 0x17 }', 'APPLE_QSPI_JEDEC_GD_8M\t\t{ 0xc8, 0x83, 0x16 }'),
++            ('j716s-bp', '0x700000, 0xc0000, APPLE_QSPI_JEDEC_GD_8M, 0 }', '0x700000, 0xc0000, APPLE_QSPI_JEDEC_GD_8M, 0x1c }'),
+             ('j616s-partition', '"apple,j616s", 0x429118000ULL,\n\t  0x700000', '"apple,j616s", 0x429118000ULL,\n\t  0x680000'),
+             ('range', 'addr >= start &&', 'addr >= 1 &&'),
+             ('bp-ok', '!(sr1 & 0x1c & ~bp_ok)', '1'),
