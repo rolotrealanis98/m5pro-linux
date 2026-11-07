@@ -1566,3 +1566,21 @@ pass, 76 s to SSH.
   running daily (parser mismatch on the `adt` MTD dump), so I2 (firmware handshake, /dev/video0) was skipped by design.
   I2 also needs a kernel with the ISP patches 0001 + 0003 (the daily `apple-isp.ko` has no `apple,t6050-isp` alias);
   that build is in progress.
+
+### Stage C corrections after the journal analysis (`contrib/validated/display/stage-c-analysis.md`)
+
+- The journal was complete (1.58 s to 77 s); the flood is `pr_publish: id: 119` every ~40 ms. The firmware stayed alive the
+  whole time; 0 real fault lines (`grep -i "BUG:"` had matched `printk: debug:`).
+- Swaps: 8 atomic commits; the mode set was a no-op for the firmware (`Already set to timingID: 2 colorID: 1`, the
+  120 Hz timing iBoot left running); fbcon took eDP-2 at 1.62 s; three plane commits blocked 15-19 ms (1-2 frames at
+  120 Hz), the rest returned in under 1 ms, so swaps are consistent with working but unproven: the tracepoints were
+  compiled out (`CONFIG_FTRACE`/`CONFIG_TRACING` unset in the DCP config) and the flip test used the wrong driver name
+  (`apple`, not `appledrm`).
+- Backlight: the "50 % write" wrote 300 into a panel already at 300 (no-op); brightness writes are untested, not broken.
+- Modes: 120.00 (preferred, 1042130 kHz), 60, 59.94, 50, 48, 47.95; `vrr:0` on all six (expected on firmware 27 without
+  the VRR patch).
+- DT gaps: the dcp node copied `/arm-io/dcp`'s empty `clock-ids` while the firmware pipe belongs to `disp0` (clock-ids
+  0x169, 0x1ca) -> `undeclared provider clock index 0`; `apple,artwork-display-gamut` and the panel `apple,color-gamut`
+  absent. Driver items: log the A534 default-surface status, drop id 119 from the publish log, replace the hard-coded
+  temperature 3029, silence -ENODATA on the backlight restore, make the EDT read serve ADT timing values. The next DCP
+  payloads carry FTRACE/TRACING, a corrected check script and a DTB variant with the clock and gamut additions.
