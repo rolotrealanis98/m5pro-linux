@@ -1,5 +1,31 @@
 # R3-AUDIO: AOP audio on the Aurora kernel (kernel rebuild with Rust needed)
 
+## 0. Current state (2026-11-07, after R3-AUDIO-B5): the audio kernel candidate
+- **Kernel:** branch `j716s-series-audio` @ `c963af7d14b9` in `/Volumes/linux-cs/wt-aurora-audio2`.
+  - It is 15 audio commits on `j716s-series` `4f630b11270d`: the 11 below plus tdm 0001-0004 (`tdm/REPORT.md`).
+  - Every commit carries `Signed-off-by: Rolando Trevino` and no other assistant trailers. Ed's commits keep his
+    authorship.
+  - The pre-tdm tip is kept as branch `j716s-series-audio-pre-tdm` (`32512dab5b4e`, the B2 kernel).
+  - The tree is identical to `e5a4712a3f0d`, the B5 kernel that passed; only the version string differs.
+  - Patches: `patches/kernel-audio/0001-0015` (`SHA256SUMS` there).
+- **Build:** `tdm/build-candidate-container.sh` (Fedora 43 container, clang 21.1.8, rustc 1.99.1, aurora-bindgen;
+  config seed = kbuild2's), output `~/Work/agents/audio-aurora/kbuild-cand/`, 0 warnings.
+  - `7.3.0-gc963af7d14b9`, Image.gz `8bd74699a6773e75877123842bf54a85842c48696f4df88105a7ffa43bea826d`.
+- **DTBs:** `mk-audio-dtb.py` now puts `apple,deferred-shutdown` on the six amps of the spk variant.
+  - spk `t6050-j716s-audio-spk-notun-edp.dtb` = `9783ccb640c8a2ecb5623f1b171861bd5c50f83259470122aa1003fe371cbceb`,
+    byte-identical to B5's defer DTB.
+  - A (`d69345c1...`) is unchanged.
+- **Hardware results:**
+  - B2: first sound, continuous clock faults.
+  - B3: stop order + deferred-shutdown.
+  - B4: pwrd check; faults all through every stream.
+  - B5 (tdm 0004, the J616s link format): 0 `bad TDM clock` in three tones and a Speaker Switch toggle, 11-20 amp
+    interrupts per tone (expected latches at the stream end), speakersafetyd up.
+- **Next:** B6, the audible test at `snd_soc_macaudio.speaker_max_db=-30` (`tdm/REPORT.md` §12).
+
+The rest of this file is the original R3-AUDIO recipe (2026-11-06). Sections 1-2 describe the first, 11-patch
+build; the candidate above replaces its kernel and spk DTB.
+
 You build the kernel. I did not build or boot anything. m1n1, initramfs and bootargs are R3-R's. New: 11 kernel patches,
 Rust on, audio config, and two DTBs from fixed8. Two payloads:
 - **R3-AUDIO-A**: AOP + microphone array + headphone jack. Speakers held off (amps stay in hardware shutdown).
@@ -48,6 +74,10 @@ make ARCH=arm64 LLVM=1 -j12 Image.gz
 | 0009 microphone setup of the T604x flow | pdm0/lpai setup before pwrd | ed |
 | 0010 drain the sense RX for the whole speaker run | driver-owned sense DMA ring | ed |
 | 0011 macaudio: Add the J716 | `apple,j716-macaudio`, -30 dB in every state | ours |
+| 0012 t8140_aop_audio: align Left Woofer 1's sense voltage with its current | Ed's 83d711c3a909: pair 0's V one frame later | ed |
+| 0013 aop_t8140: stop the T6050 speaker serializer after the amps mute | pw0 from the BE hw_free (after ASoC's mute), 100 ms bound | ours |
+| 0014 aop_t8140: check the T6050 speaker service's power state | pwrd read-back before the unmute; warn if the firmware left pwrd at stop | ours |
+| 0015 macaudio: run the J716 speakers in the J616s frame | speaker link I2S NB_IF, 250-bit frame (ADT: 12 MHz, 250 bits); `speaker_dai_fmt` | ours |
 
 sha256 of each patch: `SHA256SUMS` in this folder.
 
@@ -59,8 +89,8 @@ python3 -I ~/Work/agents/audio-aurora/mk-audio-dtb.py fixed8    # older fixed8 l
 | DTB | sha256 |
 |---|---|
 | `dt/t6050-j716s-audio-notun-edp.dtb` (speakers off, mic + jack on) | d69345c1d7b0f3c4ce5edd32b254bb6e9985a637b6a8951de49d18feaa2c97f3 |
-| `dt/t6050-j716s-audio-spk-notun-edp.dtb` (+ `apple,speaker-config`, amp level 10) | 9dce1b4fca95107d64841871c09fa539c9a27797012ab5a9f6a234c425c58772 |
-| `dt/t6050-j716s-audio.dtb` / `-spk.dtb` (fixed8 lineage, private) | 6f400150... / 68f6c84d... (unchanged) |
+| `dt/t6050-j716s-audio-spk-notun-edp.dtb` (+ `apple,speaker-config`, amp level 10, `apple,deferred-shutdown`) | 9783ccb640c8a2ecb5623f1b171861bd5c50f83259470122aa1003fe371cbceb (was 9dce1b4f... without deferred-shutdown, B2) |
+| `dt/t6050-j716s-audio.dtb` / `-spk.dtb` (fixed8 lineage, private) | 6f400150... / 68f6c84d... (not regenerated: `mk-audio-dtb.py fixed8` now adds deferred-shutdown to its spk DTB) |
 
 The audio delta to the source DT is the same 192 decompiled lines in both lineages: pinctrl_ap opens 106/107/134/139;
 i2c1/i2c2 on, new i2c3 + I2C3 power state; 6 amps + cs42l84; aop_mbox, aop_dart (+`apple,t8142-dart`), base-ns ADMAC,
@@ -127,7 +157,9 @@ R3-AUDIO-B adds (ROOT-SETUP.md §5 has the commands and the stop rules):
 | `sound` deferred forever, no AppleJ716 card | its CPU component (the AOP audio node) never registered | fix the AOP rows above first |
 | B: `driver can't assure safety on this model, disabling speakers` | 0011 missing (falls back to `apple,macaudio`) | check the J716 compatible string in the kernel |
 | B: `Speaker volumes locked: ...` and silence | speakersafetyd not holding the lock (safe) | ROOT-SETUP.md §5; `journalctl -u speakersafetyd` |
-| B: tas2764 `fault: bad TDM clock` | the AOP stopped the serializer under the amps (Ed: mute toggle, undrained sense) | send dmesg + speakersafetyd journal; boot A |
+| B: tas2764 `fault: bad TDM clock` all through a stream (hundreds of amp interrupts per tone) | the speaker link format does not match the AOP serializer: the amps sample on the wrong bit-clock edge (B2-B4; fixed by 0015) | check `TDM_CFG1` 0x02 and `TDM_CFG4` bit0 = 1 in `/sys/kernel/debug/regmap/0-0038/registers`; send dmesg |
+| B: a burst at a stream's end or at `Speaker Switch` off | a clock-only latch on muted or shut-down amps; logged only without `apple,deferred-shutdown` | use the spk DTB with deferred-shutdown (9783ccb6) |
+| B: `spkr: power state 0x... at the end of the stream, not pwrd` | the firmware stopped the speaker stream itself (undrained sense) | send dmesg + speakersafetyd journal |
 | B: speakersafetyd panics / negative power | sense words misaligned or wrong scale | stop; boot A; send the journal (0006 should prevent the alignment case) |
 | B: right speakers' power ~4x the left in the daemon | J714c's i2c3 V/I doubling | halve right `is_scale`/`vs_scale` (ROOT-SETUP.md §5) |
 
