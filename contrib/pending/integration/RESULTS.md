@@ -468,7 +468,8 @@ decompiled DTS (`../aurora/tools/reorder-cpus.py` and hand edits):
 | R3-S | not run | R3-R's payload without `initcall_blacklist=macsmc_power_driver_init` (battery) | Deliberately **not** put through the autonomous loop: a probe hang is not self-recoverable without the A/B stage-1 watchdog. Needs Rolando at the machine |
 | R3-T | `08902f08` | m1n1 `pipepark-atc` (`f7555558` = 0020 + 0021; sha256 prefix `28b26ebc`), kernel `6d9f1ec652a6` (R3-R's), DT **without** baked tunables (`../aurora/dt/t6050-j716s-aurora-decompiled.dts`) | **WORKS** with USB3, trackpad and network (2026-11-07 about 02:00, self-revert loop, nobody at the machine). The live DT showed the 14 combo-PHY tunables filled by m1n1 0021, so the J716s DT is publishable (see "Publishable DT" below). Closes R3-P / open item 5 |
 | R3-V | `8864d45e` | kernel tip `302945c1ecb3` = `6d9f1ec652a6` + PR #937 (PCIe) + PR #938 (T6050 centauri, 16 patches); config adds `SECURITY_LANDLOCK`, `ZRAM`, `PINCTRL_APPLE_GPIO`, `RFKILL`, `CFG80211`, `APPLE_CENTAURI`, `BT_HCICENTAURI`, `BACKLIGHT_CLASS_DEVICE`; same m1n1 and DT as R3-T | **WORKS** (2026-11-07, self-revert loop). pacman works again (Landlock was missing), trackpad, USB3 and network OK. `pcie-apple 1cb0000000.pcie: probe failed -22` is expected: the port is untrained (m1n1 0023 is opt-in, W1/W2) and the failure is harmless. Wi-Fi itself is not tested |
-| R3-X | in flight | R3-V plus our simpledrm eDP patch 0029 and `apple,internal-panel` on the framebuffer node | Goal: `card0-eDP-1` back so the desktop config (Hyprland) has a DRM connector again. Not reported yet |
+| R3-X | `734594ed` | R3-V plus our simpledrm eDP patch 0029 and `apple,internal-panel` on the framebuffer node | **WORKS** (2026-11-07 morning, self-revert loop): `card0-eDP-1` is back, so the Hyprland config has a DRM connector again; trackpad, USB3 and network as on R3-V. Became `boot.bin`, then `boot.bin.prev` once R3-SERIES was installed |
+| R3-SERIES | `8c8dd836` | **Clean 58-patch series** (`../aurora/series/`) on `aurora-silicon` `integration/aurora` `33bec4016c46`: kernel `7.3.0-g4f630b11270d`, config `defconfig asahi.config j716s.config` with `RUST` off, DT = the series' own source-form `arch/arm64/boot/dts/apple/t6050-j716s.dts` compiled by the kernel build (no hand-edited DTB), m1n1 `pipepark-atc` `28b26ebc`, `initramfs-selftest`, bootargs as R3-X (incl. the `macsmc_power` blacklist and `m5.selftest=1`) | **WORKS** (2026-11-07 about 10:10, self-revert loop, nobody at the machine), see Result (R3-SERIES). Installed as `boot.bin` (daily); `boot.bin.prev` = R3-X |
 
 Built but not individually reported here: R3-A (J716c DT), R3-C, R3-D, R3-F, R3-G (intermediate
 DT/diag variants) and R3-L (`9ef02cfd`, R3-K with a handoff variant). Hashes are in
@@ -490,6 +491,11 @@ DT/diag variants) and R3-L (`9ef02cfd`, R3-K with a handoff variant). Hashes are
 - **R3-N failure, fixed by R3-Q:** `dummy PIPE park failed (-1)` with the PIPE registers dumped in the log,
   then dwc3 reset assert `-5`. Cause: m1n1's `usb_init` parked the PIPE with the T8103 field layout (m1n1 0020
   fixes it); the second blocker was the PHY firmware restart (R3-O), fixed by Aurora's commit `b8f2be0fef93`.
+
+- **The `apple,t8142-cio-reset` fallback we booted R3-H through R3-X with was wrong.** It uses the register at offset
+  `0x30`; T6050 needs `0x60` (same bits). It was harmless because nothing used that reset (the only consumer,
+  `usb4_3_acio`, is disabled). The series fixes it properly with a driver entry, `apple,t6050-cio-reset`
+  (patch 0051), and R3-SERIES booted with the CIO reset driver bound through that entry.
 
 ### Result (R3-Q, 2026-11-07 about 01:00, autonomous loop, nobody at the machine)
 
@@ -587,16 +593,41 @@ up; every self-revert also stores a 25 MB `boot.bin.failed`, so spares need prun
   additions listed in the table. Landlock fixes pacman (it needs `CONFIG_SECURITY_LANDLOCK` for its download
   sandbox). Trackpad, USB3 and network unchanged. `pcie-apple 1cb0000000.pcie: probe failed -22` is the PCIe
   driver finding an untrained port; nothing depends on it and nothing broke.
-- **R3-X** (R3-V + simpledrm eDP patch 0029 + `apple,internal-panel` on the framebuffer node) is in flight.
+- **R3-X** (`734594ed`; R3-V + simpledrm eDP patch 0029 + `apple,internal-panel` on the framebuffer node) booted: `card0-eDP-1` is back.
 - Desktop: an Omarchy-style Hyprland setup from Arch ARM repo packages is installed on the machine
   (`../desktop/omarchy/`). The idle lock stays disabled until `passwd rolo` has been run.
+
+### Result (R3-SERIES, 2026-11-07 about 10:10, self-revert loop, nobody at the machine)
+
+First boot of the kernel built from the **clean 58-patch series** (`../aurora/series/`, canonical recipe in
+`../aurora/series/SERIES.md`) instead of the hand-assembled `aurora-j716s` branch. Payload `8c8dd836`: kernel
+`7.3.0-g4f630b11270d` on `aurora-silicon` `integration/aurora` `33bec4016c46`, config `defconfig` + `asahi.config` +
+`j716s.config` (`RUST` off), DT compiled by the kernel build from the series' source-form `t6050-j716s.dts`, m1n1
+`pipepark-atc` `28b26ebc`, `initramfs-selftest`, bootargs as R3-X (blacklist and `m5.selftest=1` included).
+
+- **Booted and stayed up:** network, `card0-eDP-1`, trackpad (`Touch MT ready` at 1.34 s), `apple_idle`, NVMe
+  partitions at 0.37 s, no error lines after filtering the PMGR noise and the expected `pcie-apple` `-22`.
+- **`macsmc` bound through the native `apple,t6050-smc` match** (patch 0052), with no `apple,t8103-smc` fallback in the DT.
+- **The CIO reset driver bound with its own T6050 entry** (patch 0051), not the `t8142` fallback (see Findings).
+- **ESP:** `boot.bin` = R3-SERIES (the daily payload); `boot.bin.prev` = R3-X (the revert target); `boot.bin.b2`,
+  `boot.bin.known-good`.
+- **Open points from the series work:**
+  - ask Aurora how their m1n1 boots J716c with the old CPU order (we need the ADT order, patch 0054);
+  - cpufreq: the J716s uses the `apple,t8112-cluster-cpufreq` fallback; decide between it and a `t6050` soc info;
+  - `dtbs_check` was not run (no dt-schema on the Studio);
+  - `apple,internal-panel` on the simpledrm node needs a binding patch;
+  - hwmon stays disabled in the DT until the `F0md`/`F1md` keys are read;
+  - the battery driver is still blacklisted (R3-S, attended).
+- **PR plan:** `../aurora/series/UPSTREAM-NOTES.md`; patches 0001-0044 are Aurora's own commits carried as-is, 0045-0058
+  are ours.
 
 ### Publishable DT
 
 `../aurora/dt/t6050-j716s-aurora-decompiled.dts` (and its `.dtb`) is the J716s device tree for the Aurora kernel
 with **no per-unit values**: the combo-PHY tunables are filled in by m1n1 0021 at boot, as R3-T showed. It is the
-decompiled PR #945 J716c DT plus the J716s edits of this round. A source-form `t6050-j716s.dts` against Aurora's
-dtsi files is still to be written (`../aurora/J716S-DELTA.dts.md` is the draft).
+decompiled PR #945 J716c DT plus the J716s edits of this round. The source-form `t6050-j716s.dts` against Aurora's
+dtsi files now exists as patch 0057 of the series (`../aurora/series/dt/t6050-j716s.dts`) and booted in R3-SERIES;
+the decompiled file is kept as the reference.
 
 ### Attended queue (needs Rolando at the machine; reason in parentheses)
 
@@ -605,7 +636,20 @@ dtsi files is still to be written (`../aurora/J716S-DELTA.dts.md` is the draft).
 2. **W0 / W1 / W2** Wi-Fi steps (`../aurora/n1-wifi/R3-W-RECIPE.md`). W0 is a read-only port status. W1 and W2
    train apcie0 port 0 and may disturb NVMe, which sits on the same controller; the FTAB firmware has no ticket yet.
 3. **R3-S** battery (the probe hang history: a hang is not self-recoverable without the A/B stage-1 watchdog).
-4. **Audio mic boot** (needs a `CONFIG_RUST` build; the AOP setup mailbox may SError).
+4. **Audio** (attended only; the AOP setup mailbox may SError and the speakers can be damaged by a wrong amp setup).
+   Recipe: `../aurora/audio/R3-AUDIO-RECIPE.md`.
+   - **Kernel:** built in the Fedora container (Rust on, AOP stack), `Image.gz` `00e8df6f`, tree `wt-aurora-audio` tip
+     `1d2ac24c066e` = the R3-X tree + 11 audio patches. It is not the series kernel (`RUST` is off there); folding the 11
+     patches into the series is still to do.
+   - **Payloads:** **R3-AUDIO-A** `a7c05d1a` (mic and jack on, speakers left in hardware shutdown) first, then
+     **R3-AUDIO-B** `34e96037` (speakers at amp level 10, `speaker_max_db=-40`). Neither is run by the autonomous loop.
+   - **Root userspace** is prepared from repo packages (pipewire, wireplumber, UCM, graphs, J716 speakersafetyd profile;
+     `../aurora/audio/audio-root-setup.sh`).
+   - **Packages that must be built:** `speakersafetyd`, `asahi-audio` (with the `bankstown` and `triforce` lv2 plugins)
+     and `alsa-ucm-conf-asahi` are **not in the Arch Linux ARM repos**. Script:
+     `../aurora/audio/build-audio-pkgs.sh`. Rolando runs it: the permission layer blocks agents from building
+     external code.
+   - **Speaker boot is blocked until `speakersafetyd` is installed** on the root; R3-AUDIO-A (no speakers) does not need it.
 
 Status lines for the rest: DCP is **no-go for scanout** until a 27.3 method table exists (firmware
 AppleDCP-1317.60.10, SDK 27.3, against the driver's exact `"27.0.0"`; `../aurora/dcp/ANALYSIS.md`); GPU is gated off
