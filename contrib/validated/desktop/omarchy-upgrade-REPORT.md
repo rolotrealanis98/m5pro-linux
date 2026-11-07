@@ -52,3 +52,11 @@ time`, `DRM Backend failed`, `CBackend::create() failed!`) and crashes. Fix appl
 getty@tty2` and the drop-in `/etc/systemd/system/getty@tty2.service.d/vt-active.conf` with `ExecStartPost=-/usr/bin/chvt 2`,
 so the VT is active before Hyprland starts. With tty2 active, the restarted autologin brought Hyprland up (GPU session
 on the GPU daily). Kernel messages during boot stay on tty1 (Fn+Ctrl+Option+F1 on the built-in keyboard).
+
+## Addendum 2026-11-07 22:05 UTC: no wallpaper
+
+Omarchy 4.5 draws the wallpaper inside its Quickshell shell (`omarchy-theme-bg-set` -> `omarchy-shell background set`),
+and the themes ship `.webp` images. `qt6-imageformats` (the Qt webp plugin) was not installed, so the background layer
+was there but blank. Fixed on the MacBook: `pacman -S qt6-imageformats`, then `omarchy-restart-shell`. Note for the
+packaging PR: omarchy's dependency list should pull qt6-imageformats on Apple Silicon too (check whether x86 gets it
+through another package).
