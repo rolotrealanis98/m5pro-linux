@@ -47,7 +47,7 @@ Rebuild: `w4/build.sh` (m1n1, container; also rebuilds n1-smc byte-identical as 
 `/Volumes/linux-cs/wt-n1shut` (branch `j716s-n1shut`), `.config` copied from `wt-betizzel-out`, then
 `make LLVM=1 ARCH=arm64 O=/Volumes/linux-cs/wt-n1shut-out HOSTCFLAGS=-I$HOME/Work/omarchy-m5/scripts/host-shim
 HOSTCFLAGS_file2alias.o=-D_POSIX_C_SOURCE=200809L -j12 Image.gz` with the SERIES.md PATH; payload:
-`python3 -I w4/mk-w4.py [w4d] [--daily <sha256> ...]` (asserts every input digest; `--daily` adds a known-good daily
+`python3 -I w4/mk-w4.py <w4|w4d|w4t-lidwifi|daily-wifi-lid> [--daily <sha256> ...]` (kernels are read from `w4/kernels/`, since `wt-n1shut-out` holds only the newest build) (asserts every input digest; `--daily` adds a known-good daily
 to the deploy guard, which knows the lid daily `534ca146`, `dcec81ed` and `275d84ec`).
 `gen-deploy-w2.py` prints only "wrote deploy-<TAG>.sh" and writes the script next to itself; mk-w4.py runs a scratch copy
 of it inside `w4/private/`, so the deploy scripts land there.
@@ -111,3 +111,30 @@ reboot (RUN-W2 step 6).
 
 m1n1 writes nothing to NVMe (two 4 KiB reads); its SMC writes are the gP13 reset key only; the kernel park touches only
 port 0 of apcie0.
+
+## 5. Result and the Wi-Fi + lid daily (2026-11-07)
+
+W4 PASSED (coordinator, loop): cold boot primary, N1 adopted (106b:1900/1902/1903), wlan0 associated; three
+`systemctl reboot` cycles with wlan0 associated and a ping running all came back on the primary slot with wlan0
+associated (`port 0: link retrained after a root-port reset` each time). The restore reboot from W4 into the lid daily
+`534ca146` (pipepark-atc m1n1, no N1 code) came back as `fallback-after-failure`: a loader without 0027 hangs once on the
+warm N1. **Every payload from now on needs the N1-aware m1n1 (n1-warm).**
+
+Daily candidate, built on W4 plus the lid-close fix (series 0066):
+
+| | `w4t-lidwifi` (test twin) | `daily-wifi-lid` (the daily) |
+|---|---|---|
+| payload (`w4/private/`) | `w4t-lidwifi-20261107-350fd22a.bin` | `daily-wifi-lid-20261107-bd9ebd5e.bin` |
+| sha256 | `350fd22adf035a370eef32e7ff6ed0836567b20d49d69fc128f946283b925b00` | `bd9ebd5eed773b01259d87182a75d35487c1069d1c5ee8f316780965f963ecf7` |
+| deploy | `deploy-W4T-LIDWIFI.sh` | `deploy-DAILY-WIFI-LID.sh` |
+| self-test | on | off |
+
+Both: m1n1 n1-warm `4c202e9d...`; kernel `7.3.0-gb61f760243c4` (`w4/kernels/Image-7.3.0-gb61f760243c4.gz`, sha256
+`6d228752b21cffe6f44c046275b3e27dbd91e6998b458b55a2f36ec42c290bdd`) = W4's `gff289b9ce8ec` + the macsmc-input lid-open
+confirm (`82a7d71d217e` cherry-picked unchanged), same `.config` as the lid kernel; stack DTB and stitched-FTAB initramfs as
+W4; `n1=4`, `pcie_aspm=off`, battery on. Against the lid daily `534ca146` the only differences are the m1n1, the kernel's
+two N1 patches, the initramfs (FTAB) and the `pcie_aspm=off` / `n1=4` lines. The deploy guards know `534ca146`,
+`dcec81ed` and `275d84ec`. Modules for the release: `~/Work/agents/modules-w4/` (INSTALL.md; install them before the first
+boot). Suggested order: modules, then `w4t-lidwifi` (cold boot, Wi-Fi, one warm restart, a lid-close sleep), then
+`daily-wifi-lid`. From then on, a rollback payload must also carry the n1-warm m1n1, or its first boot after a Wi-Fi boot
+falls back once.
