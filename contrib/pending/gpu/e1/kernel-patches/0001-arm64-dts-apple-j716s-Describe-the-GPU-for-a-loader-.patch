@@ -1,0 +1,216 @@
+From b007205e55abca4658e5700d0576f1d02e931f6f Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 08:03:55 -0500
+Subject: [PATCH 1/2] arm64: dts: apple: j716s: Describe the GPU for a loader
+ opt-in hand-off
+
+Add the J716s GPU in the shape aurora-silicon/linux's G17 M5 driver
+takes (apple,agx-g17s): its sgx window, the two GPU coprocessor
+mailboxes, the PMGR power-state group 3 that powers it (GPX, AFR, CS,
+GFX) and the six memory regions the firmware hand-off uses (UAT ttbs,
+page tables, L2 page tables, handoff, fw-text, fw-data). All addresses
+come from the J716s runtime ADT; the GPU block sits outside die 0's MMIO
+range, so it gets its own 1:1 bus.
+
+Every node is disabled. The loader enables them only on request: m1n1's
+T6050 GPU hand-off (payload variable chosen.m5pro,gpu=1) fills in the
+regions and the mailbox windows from the ADT of that boot, checks the
+rest against it, and only then sets the nodes okay. A boot without it
+probes none of this and leaves PMGR group 3 to the firmware.
+
+The mailboxes carry a placeholder compatible that no driver binds: the
+T6050 profile of the mailbox driver expects the GPU windows at Aura's
+addresses, not at the native ones. With them the driver gets as far as
+the GPU ID registers.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 168 ++++++++++++++++++++++
+ 1 file changed, 168 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 23d6113b065b..f22e494f6323 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -35,6 +35,8 @@ aliases {
+ 		bluetooth0 = &n1_beta;
+ 		/* m1n1 dt_set_ipd() fills the layout from the ADT keyboard node [OURS t6050-j716s.dts:21-25] */
+ 		keyboard = &keyboard;
++		/* m1n1 dt_set_gpu_t6050() fills the GPU hand-off, opt-in (see the GPU nodes below) */
++		gpu = &gpu;
+ 	};
+ 
+ 	chosen {
+@@ -558,3 +560,169 @@ tp-accel {
+  *   2 multi-touch   afe-reset      (0x10000, 0x11c0000)
+  */
+ /delete-node/ &smc_pcio;
++
++/*
++ * GPU (G17S, 2 x 10 cores) for aurora-silicon/linux's G17 M5 driver (apple,agx-g17s).
++ *
++ * Everything here is disabled. The loader enables it only on request: m1n1
++ * dt_set_gpu_t6050(), with the payload variable chosen.m5pro,gpu=1, fills in the six
++ * regions and the mailbox windows from the ADT of that boot, checks the rest against the
++ * ADT, and only then sets the regions, the mailboxes, &gpu and &pmgr_gfx okay. Without it
++ * no node below probes, and the PMGR group 3 registers stay untouched by Linux.
++ *
++ * Addresses from the J716s runtime ADT [ADT] (arm-io + 0x2_0000_0000):
++ *   sgx       /arm-io/sgx reg[0]        0x23_0000_0000 + 0x3fdc000
++ *   gfx-asc   reg[0..1]  0x23_0260_0000 + 0x88000, 0x23_0205_0000 + 0x8, role GFX,
++ *             interrupts 2798, 2797, 2800, 2799
++ *   gfx1-asc  reg[0..1]  0x23_02e0_0000 + 0x88000, 0x23_0285_0000 (+0x60000 in the ADT; the
++ *             mailbox driver maps exactly 8 bytes), role GFX1, interrupts 2802, 2801, 2804, 2803
++ *   power     pmgr reg[51] 0x23_00e8_0000 + 0x30000 (PS group 3): GPX +0x0, AFR +0x100,
++ *             CS +0x108 (parent AFR), GFX +0x110 (parents AFR, GPX; notify_pmp, id1 16)
++ * The send-empty / recv-not-empty choice (2797/2800, 2801/2804) is edimoldovan's J714c
++ * mapping, which booted RTKit there.
++ *
++ * The mailboxes use a placeholder compatible that no driver binds yet: the T6050 profile
++ * of drivers/soc/apple/mailbox.c expects the GPU windows at Aura's addresses
++ * (0x8_0260_0000 / 0x8_0205_0000), not at these. A native-address role table comes with
++ * the step that starts the coprocessors; until then the driver stops at the ID registers.
++ */
++/ {
++	reserved-memory {
++		/* All six filled in per boot by the loader from the ADT (sgx and segment-ranges). */
++		gpu_fw_text: gpu-fw-text {
++			reg = <0 0 0 0>;
++			no-map;
++			status = "disabled";
++		};
++
++		gpu_fw_data: gpu-fw-data {
++			reg = <0 0 0 0>;
++			no-map;
++			status = "disabled";
++		};
++
++		uat_ttbs: uat-ttbs {
++			reg = <0 0 0 0>;
++			no-map;
++			status = "disabled";
++		};
++
++		uat_pagetables: uat-pagetables {
++			reg = <0 0 0 0>;
++			no-map;
++			status = "disabled";
++		};
++
++		uat_l2_pagetables: uat-l2-pagetables {
++			reg = <0 0 0 0>;
++			no-map;
++			status = "disabled";
++		};
++
++		uat_handoff: uat-handoff {
++			reg = <0 0 0 0>;
++			no-map;
++			status = "disabled";
++		};
++	};
++
++	/* The GPU block, outside die 0's MMIO range: arm-io's second range maps it 1:1. */
++	soc@2300000000 {
++		compatible = "simple-bus";
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges = <0x23 0x0 0x23 0x0 0x0 0x4000000>;
++		nonposted-mmio;
++
++		pmgr_gfx: power-management@2300e80000 {
++			compatible = "apple,t6050-pmgr", "apple,t8103-pmgr", "syscon", "simple-mfd";
++			#address-cells = <1>;
++			#size-cells = <1>;
++			reg = <0x23 0x00e80000 0x0 0x30000>;
++			status = "disabled";
++
++			ps_gpx: power-controller@0 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x0 4>;
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				label = "gpx";
++				apple,always-on;	/* [ADT] critical */
++			};
++
++			ps_afr: power-controller@100 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x100 4>;
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				label = "afr";
++				apple,always-on;	/* [ADT] critical */
++			};
++
++			ps_cs: power-controller@108 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x108 4>;
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				label = "cs";
++				power-domains = <&ps_afr>;
++			};
++
++			ps_gfx: power-controller@110 {
++				compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++				reg = <0x110 4>;
++				#power-domain-cells = <0>;
++				#reset-cells = <0>;
++				label = "gfx";
++				power-domains = <&ps_afr>, <&ps_gpx>;
++				/* As on J616/J700: the loaded firmware lives across sleep. */
++				apple,always-on;
++			};
++		};
++
++		gfx_mbox: mailbox@2302600000 {
++			compatible = "apple,t6050-native-ascwrap-v6";	/* placeholder, see above */
++			reg = <0x23 0x02600000 0x0 0x88000>,	/* filled in by the loader */
++			      <0x23 0x02050000 0x0 0x8>;
++			reg-names = "wrapper", "iop-vbar";
++			interrupt-parent = <&aic>;
++			interrupts = <AIC_IRQ 0 2797 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 2800 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "send-empty", "recv-not-empty";
++			apple,firmware-role = "GFX";
++			power-domains = <&ps_gfx>;
++			#mbox-cells = <0>;
++			status = "disabled";
++		};
++
++		gfx1_mbox: mailbox@2302e00000 {
++			compatible = "apple,t6050-native-ascwrap-v6";	/* placeholder, see above */
++			reg = <0x23 0x02e00000 0x0 0x88000>,	/* filled in by the loader */
++			      <0x23 0x02850000 0x0 0x8>;
++			reg-names = "wrapper", "iop-vbar";
++			interrupt-parent = <&aic>;
++			interrupts = <AIC_IRQ 0 2801 IRQ_TYPE_LEVEL_HIGH>,
++				     <AIC_IRQ 0 2804 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "send-empty", "recv-not-empty";
++			apple,firmware-role = "GFX1";
++			power-domains = <&ps_gfx>;
++			#mbox-cells = <0>;
++			status = "disabled";
++		};
++
++		gpu: gpu@2300000000 {
++			compatible = "apple,agx-g17s";
++			/* The G17 path maps only sgx; the coprocessor wrappers belong to the mailboxes. */
++			reg = <0x23 0x00000000 0x0 0x3fdc000>;
++			reg-names = "sgx";
++			mboxes = <&gfx_mbox>, <&gfx1_mbox>;
++			power-domains = <&ps_gfx>;
++			memory-region = <&uat_ttbs>, <&uat_pagetables>, <&uat_handoff>,
++					<&gpu_fw_data>, <&uat_l2_pagetables>, <&gpu_fw_text>;
++			memory-region-names = "ttbs", "pagetables", "handoff", "fw-data",
++					      "l2-pagetables", "fw-text";
++			/* No operating-points-v2: the M5 path takes its tables from the board table. */
++			status = "disabled";
++		};
++	};
++};
+-- 
+2.56.0
+

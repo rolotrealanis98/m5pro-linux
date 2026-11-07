@@ -1,0 +1,40 @@
+From c0838b776f2b6c5b8fd9c4bf9d839e3a91ffd67d Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 08:03:56 -0500
+Subject: [PATCH 2/2] arm64: configs: Add a J716s GPU bring-up fragment
+
+Build Rust and Aurora's GPU driver into the J716s kernel for the GPU
+experiments: make defconfig asahi.config j716s.config j716s-gpu.config.
+The PMP driver stays off; the G17 M5 path does not use it. phram is
+built in so that m1n1's stage-2 log can be read without modules.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/configs/j716s-gpu.config | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+ create mode 100644 arch/arm64/configs/j716s-gpu.config
+
+diff --git a/arch/arm64/configs/j716s-gpu.config b/arch/arm64/configs/j716s-gpu.config
+new file mode 100644
+index 000000000000..87ef36ed2f9e
+--- /dev/null
++++ b/arch/arm64/configs/j716s-gpu.config
+@@ -0,0 +1,15 @@
++# J716s GPU bring-up: on top of `make defconfig asahi.config j716s.config`.
++# Rust and Aurora's GPU driver built in (the root file system carries no modules); the PMP
++# driver stays off, nothing in the G17 M5 path needs it. Only the T6050 G17 backend: the
++# optional M4/M5 (T8142)/M6/M3 backends stay off.
++CONFIG_RUST=y
++CONFIG_DRM_ASAHI=y
++# CONFIG_DRM_ASAHI_G15 is not set
++# CONFIG_DRM_ASAHI_G16 is not set
++# CONFIG_DRM_ASAHI_G18 is not set
++# CONFIG_DRM_ASAHI_M5 is not set
++# CONFIG_DRM_ASAHI_DEBUG_ALLOCATOR is not set
++# CONFIG_APPLE_PMP is not set
++# m1n1's stage-2 log (reserved-memory "phram" node, label m1n1_stage2.log) readable as /dev/mtdN without
++# modules: the E1 checks read m1n1's GPU hand-off lines from it.
++CONFIG_MTD_PHRAM=y
+-- 
+2.56.0
+
