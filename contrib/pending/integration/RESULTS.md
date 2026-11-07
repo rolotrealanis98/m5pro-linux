@@ -799,3 +799,19 @@ errors; `macsmc_hwmon` plus a second Type-C source supply (`tps6598x_source_psy_
 The two DT patches are now series 0059 (sensors) and 0060 (right port); the combined DTB becomes the daily
 (`daily-20261107-*` built with `--daily --battery --force`, self-test flag off). Right-port host mode still needs a plug test.
 
+### Result (WFI-T1, 2026-11-07 10:08 UTC, self-revert loop + A/B stage-1, nobody at the machine)
+
+Payload `wfi-t1-20261107-040d4866.bin`: kernel `7.3.0-gf080637018df` (`j716s-betizzel` = the series + `contrib/pending/
+wfi-idle/patches/linux/0001` "T6050 idles in WFI even with idle=nop" + 0002 PM_DEBUG), the daily's DTB (series 0059+0060),
+battery on, `m5.selftest=1`, extra `kvm-arm.wfi_trap_policy=trap sysctl.kernel.panic_on_rcu_stall=1`; prev = the daily
+`275d84ec`. The command line still ends in m1n1's `idle=nop arm64.nowfxt`.
+
+**WORKS, and it is the biggest power change so far.** Primary slot, 18 CPUs, network, no revert, no RCU stall, no Oops or
+SError. dmesg: `Apple: preserving registers across WFI` and `Apple: idling in WFI, ignoring idle=nop`; cpuidle driver
+`apple_idle`, CPU 0 spent 209 s of its first 211 s in the WFI state (38814 entries), so the cores really sleep now.
+- **Idle power on the charger** (SMC `PSTR`, read moments apart at the same idle): daily (spinning idle) 16.4 W total,
+  5.7 W heatpipe -> WFI-T1 8.6 W total, 1.9 W heatpipe. Roughly half; betizzel saw 15.3 W -> 5.6 W on his J714s.
+- Nothing else changed: the series DT, battery, sensors, right-port probe, trackpad and USB as on the daily.
+- Not yet: the 1 h soak and the per-CPU register check (T1 soak), `apple_keep_idle_nop` A/B (T2), promotion to the daily
+  with `kvm-arm.wfi_trap_policy=trap` in BASE (T4 in `wfi-idle/REPORT.md`).
+
