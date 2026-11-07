@@ -1,0 +1,48 @@
+From d0b00a3a69650c78856db4ad89ed21225f5da739 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 06:28:09 -0500
+Subject: [PATCH] arm64: configs: j716s: Build in the MTP haptic driver
+
+HID_MAGICMOUSE, which drives the trackpad, depends on
+HID_APPLE_MTP_HAPTIC || !HID_APPLE_MTP_HAPTIC, and asahi.config has the
+haptic driver as =m, so with it left alone magicmouse would be capped at
+=m. The J716s root has no modules, so this fragment forced the haptic
+driver off. =y satisfies the same dependency, so build both in.
+
+The haptic driver binds to the trackpad's actuator HID device (the
+"actuator" node of the MTP DockChannel, already in t6050-j716s.dts), puts
+it in device-controlled mode, and gives hid-magicmouse the host haptics
+interface. The click strength stays with the firmware: no
+apple,click-strength is set for this board.
+
+With defconfig, asahi.config and j716s.config both are =y, and
+hid-apple-mtp-haptic.o and hid-magicmouse.o build. Not booted on the
+J716s.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/configs/j716s.config | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index caa69196ae0d..7d0db229893f 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -26,13 +26,14 @@ CONFIG_ARM_APPLE_SOC_CPUFREQ=y
+ CONFIG_PINCTRL_APPLE_GPIO=y
+ 
+ # Keyboard and trackpad: DockChannel HID. HID_MAGICMOUSE drives the
+-# trackpad; the MTP haptic driver would force it to =m, so it stays off
+-# (no click haptics).
++# trackpad and depends on HID_APPLE_MTP_HAPTIC || !HID_APPLE_MTP_HAPTIC, so
++# the MTP haptic driver (the trackpad's click actuator) is built in with it:
++# asahi.config has the haptic driver as =m, which would cap magicmouse at =m.
+ CONFIG_APPLE_DOCKCHANNEL=y
+ CONFIG_HID_DOCKCHANNEL=y
+ CONFIG_HID_APPLE=y
++CONFIG_HID_APPLE_MTP_HAPTIC=y
+ CONFIG_HID_MAGICMOUSE=y
+-CONFIG_HID_APPLE_MTP_HAPTIC=n
+ CONFIG_HIDRAW=y
+ 
+ # Keyboard backlight and the backlight class
