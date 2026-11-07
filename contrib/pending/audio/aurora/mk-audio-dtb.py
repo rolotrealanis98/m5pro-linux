@@ -21,6 +21,7 @@
 #                                       lowered from the ADT's 15 to SPK_LEVEL (16 dBV instead of 18.5 dBV).
 #                                       Use only after speakersafetyd is installed and verified (ROOT-SETUP.md).
 #                                       The kernel (patch 0011) holds the speaker volume at -30 dB in every state.
+#                                       Each amp also carries apple,deferred-shutdown (tdm 0002, B3-B5 2026-11-07).
 #
 # Every address, IRQ, GPIO, DART stream and slot is from the J716s ADT (adt-runtime-j716s.bin); node
 # shapes follow edimoldovan's working J714c DT (linux-aurora t6050-j714c @ 671fd38e1c0d). The fixed8-based
@@ -62,6 +63,9 @@ def amp(label, name, addr, ph, imon, vmon, spk):
     if spk:
         r = ROWS[label]
         cfg = "\t\t\t\tapple,speaker-config = [%02x %02x %02x %02x];\n" % (r[0], SPK_LEVEL, r[2], r[3])
+        # The AOP's serializer stops (pw0) only after ASoC has muted the amps; a muted amp then sees
+        # its clock stop, which this marks as expected (tas2764 deferred shutdown, as on the J713).
+        cfg += "\t\t\t\tapple,deferred-shutdown;\n"
     return (f"\n\t\t\tcodec@{addr:x} {{\n"
             f"\t\t\t\tcompatible = \"ti,sn012776\", \"ti,tas2764\";\n"
             f"\t\t\t\treg = <{addr:#04x}>;\n"

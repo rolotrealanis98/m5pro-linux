@@ -1,4 +1,4 @@
-From fa23c99a6b491b49e57a97c5f64aebe70b7d2bb5 Mon Sep 17 00:00:00 2001
+From 3d9937b55028fcdd47e81edb1e5b18f17dde76c2 Mon Sep 17 00:00:00 2001
 From: ed <edimoldovan@gmail.com>
 Date: Sat, 7 Nov 2026 01:23:00 +0100
 Subject: [PATCH 1/4] ASoC: apple: t8140_aop_audio: align Left Woofer 1's sense
