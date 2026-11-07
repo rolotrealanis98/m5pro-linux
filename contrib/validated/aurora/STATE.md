@@ -187,3 +187,10 @@ NVMe/SART commits are PR #936, the combo-PHY and dwc3 commits are PR #939 plus A
   renderD128) and the desktop launcher picks the zink GPU session when the driver is present.
 - Previous daily `4feff24c` kept in `~/Work/agents/next-daily/payloads/private/` for a manual rollback.
 - Open on the daily: a full desktop login on the GPU kernel (attended), DCP stage C, lid sleep on this kernel.
+
+## 2026-11-07 23:25 UTC
+- Daily: `daily-n1k-20261107-512a1c00.bin` = kernel `7.3.0-g36845aa5f650` (GPU tree + kernel-side N1 training + F6 fix +
+  NVRAM nodes) + m1n1 `n1-dt-gpu` (no N1 training; port kept enabled, host tunables copied), no `n1` variable, `gpu=1`,
+  battery on; rollback = the test twin `5c74c66c`. Previous daily `fd4b3b9e` kept on the Studio.
+- Every ESP write now waits 60 s before the reboot (esp-put default).
+- Open on the daily: native GL session switch (queued), DCP in the daily (after the constant-timestamp boots), F6 check.
