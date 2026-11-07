@@ -1120,3 +1120,23 @@ seconds`** -> SMC `03 00 01` -> `macsmc-input: lid open 72030001 at +40069 ms in
 0.7 s abort may have been timing-dependent); the patch's confirm path accepted the real opening. Promote the kernel
 (it is the series tip + this patch) to the daily; the patch becomes series 0066.
 
+### Result (R3-AUDIO-B6, 2026-11-07 14:20 UTC, Rolando listening): **the speakers play, clean**
+
+Payload `audio-b6-20261107-6478b765.bin` = B5's kernel (`7.3.0-ge5a4712a3f0d`, tdm 0001-0004) and defer DTB with
+`snd_soc_macaudio.speaker_max_db=-30`; speakersafetyd run with `-v` through a drop-in for the session; Mux Secondary,
+Switch on; 1 kHz, six channels, 2 s each through `plughw:AppleJ716,1`, raw device (no DSP graph).
+| level | amp IRQ delta | faults | daemon peak power |
+|---|---|---|---|
+| -30 dBFS | +18 | 0 | 0.00 W |
+| -20 | +14 | 0 | 0.00 W |
+| -12 | +20 | 0 | 0.00 W |
+| -6 | +21 | 0 | 0.01 W |
+| 0 dBFS | +15 | 0 | 0.04 W |
+| left only / right only, -12 dBFS, 3 s | +13 / +14 | 0 | 0.00 W |
+Rolando: "I heard the 1 kHz tone, sounded good, no distortion." speakersafetyd stayed up, no limiting, no warnings.
+The daemon's modelled coil temperatures sit at 52-71 C at rest (woofers 71 C, tweeters 58 C before the tones, falling
+to 63 / 52 C after), which looks like an ambient/scale offset in the J716 profile: it errs in the safe direction and is a
+follow-up for the sense scaling pass (left vs right power at a longer tone).
+Next: the PipeWire profile for the desktop user, the sense-scaling check, then the audio kernel candidate as the daily
+once the N1 restart issue is solved (the daily must carry both stacks).
+
