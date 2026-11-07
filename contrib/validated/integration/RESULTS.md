@@ -1376,3 +1376,21 @@ no-ASPM payload were exceptions (first boot fine). Stages B0 and B run next.
   then booted: the first-boot pattern happens to a re-written copy of a known-good file too, with the drop_caches
   mitigation in place. It is about freshly written files, not their content.
 
+### Result (GPU first frame, 2026-11-07 19:25-19:31 UTC, loop): VULKAN WORKS, GL SUBMITS REJECTED
+
+E2b payload again (`e2b-gpu-20261107-3f2fec04`), this time written with a real ESP unmount/remount-by-device and an
+on-disk re-hash before the reboot: **primary on the first boot** (the previous attempt, written the old way, fell back
+once). Aurora Mesa agx3c (`/opt/mesa-aurora`, `ASAHI_M5_BRINGUP=1`) via `gpu-first-frame.sh --screen`:
+- **Vulkan: PASS.** `deviceName = Apple M5 Pro (G17S B1)`, `driverName = Borealis`; gpubench `compute.light` and
+  `render.light` ok; **gpubench-stress `render.first` 206 iterations and `xq.chain` 8114 iterations / 132,939,776
+  checks, 0 errors**; vkmark headless cube runs on the GPU; aurora-diag gpu passes. No GPU kernel errors other than the
+  rejected GL submissions below.
+- **OpenGL / GLES: FAIL at submit.** Contexts create (`GL_RENDERER: Apple M5 Pro (G17S B1)`, GLES 3.2 / GL 4.6), but every
+  render submission is refused: userspace `DRM_IOCTL_ASAHI_SUBMIT render failed: Invalid argument (256x256 tile 32x32
+  layers 1 samples 1)` (also 64x64 and 3456x2234), kernel `aurora 2300000000.gpu: [File N Queue 1]: IOCTL: submit
+  failed! (submission ID: X err: EINVAL)`. So the Gallium render submit differs from the Vulkan one in something the
+  kernel validation refuses on this device. `eglinfo -B` exits 2; the GBM-to-simpledrm steps and the on-panel frame
+  (step 8) fail for the same reason; the gpubench-gl step "passed" only by its own criterion (context identity).
+- 7 of 12 steps pass. Agent on the GL submit EINVAL (kernel validation vs Gallium submission). Hyprland on the GPU
+  waits for it (Hyprland renders through GLES).
+
