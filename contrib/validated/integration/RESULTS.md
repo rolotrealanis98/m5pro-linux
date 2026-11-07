@@ -1244,3 +1244,30 @@ PipeWire J716 sink and mic. 2 s 1 kHz tone at -20 dBFS through the sink: `spkr: 
 netconsole: the UniFi gateway now forwards UDP 6666 to the Proxmox receiver (iptables, not persistent), but the gateway
 sits behind an ISP modem (double NAT), so nothing arrives until that modem forwards the port too.
 
+### Result (m1n1 #65 v2 cold boot of the exact aurora-wip tree, 2026-11-07 ~16:25 UTC, Rolando at the panel)
+
+Payload `m1n1-65v2-n1-20261107-22f89156` (aurora-wip b6b4592 + the four PR commits, W3b kernel/DTB/initramfs,
+`chosen.asahi,t6050-n1=4`), started from full power-off. Panel: the Aurora logo, then `FDT: CPU 6..17 is not alive,
+disabling` (aurora-wip brings up one cluster), `n1: chosen.asahi,t6050-n1=4: training apcie0 port 0 with ANS started
+after the SMC reset release`, `pcie-t6050: ANS stopped (0x0): starting it`, **`nvme: invalid split BAR geometry`**,
+`pcie-t6050: STOP: nvme_init failed, ANS stopped as before: not training`, `n1: port 0 training stopped; booting
+without the N1`, `n1: port 0 not up: root port and DART disabled`, then `Failed to prepare FDT!` (`too many
+/arm-io/i2c devices`, no GPU/display/sep/pmp/nvram handling) and `No valid payload found` -> `Running proxy...`.
+- The N1 code behaved as designed (safe STOP, port left disabled), but the training itself was not exercised because
+  aurora-wip has no T6050 bring-up (CPU clusters, NVMe split BAR, ADT quirks). Those live in our m1n1 0010-0021 and are
+  a separate series for Aurora.
+- The Aurora m1n1 disables the stage-1 watchdog at start, so the machine sat in the proxy and a power-button restart
+  booted the same slot again (the PMU boot-error count does not cover a boot that stops in the proxy). Recovery: macOS
+  over Tailscale, mount the ESP (`diskutil mount disk0s4`, `/Volumes/OMARCHY 1`), rewrite `boot.bin`/`boot.bin.prev`,
+  `shutdown -r now`. Rule: never put a loader without our watchdog behaviour on the boot slot unattended.
+
+### Result (N1-SLEEP, 2026-11-07 16:38-16:43 UTC, Rolando at the machine)
+
+Test payload `w4t-n1sleep-20261107-84957e95` (kernel `7.3.0-g85c770faad4b` = Wi-Fi+lid kernel + pcie-apple "keep
+the adopted link up through suspend-to-idle"): boots primary, N1 adopted, wlan0, hci0. Two lid-close sleeps (the third
+close did not start a suspend): `PM: suspend entry (s2idle)` -> `macsmc-input: lid open 72030001 at +41746 ms in
+sleep, MSLD=0: wakeup` / `+46683 ms` -> `pcie-apple 1cb0000000.pcie: port 0: adopted link kept through suspend-to-idle`
+-> `PM: suspend exit`; suspend_stats success 2 / fail 0; wlan0 associated after resume; hci0 present. **PASS.**
+Root cause of the regression: `apple_pcie_suspend_noirq()` returned -EBUSY unconditionally for any adopted-link host
+(Aurora's adoption commit). Fix = patch `contrib/pending/wireless/patches/linux/0003-PCI-apple-T6050-adopted-ports-keep-the-link-up-throu.patch`.
+
