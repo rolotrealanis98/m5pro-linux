@@ -1321,3 +1321,12 @@ m1n1: `FDT: GPU: T6050: hand-off off (chosen.m5pro,gpu=unset), GPU nodes as the 
 `CONTROL (no gpu var): gpu node disabled, driver idle = as designed`. The 0x410000 stage-2 image boots. **PASS.**
 Daily restored. E2b (hand-off on) is staged and waits for Rolando's go (one uncovered failure mode needs the power button).
 
+### Result (DCP stage A, 2026-11-07 18:38-18:42 UTC, loop)
+
+Payload `dcpa-20261107-e0a474e8` (daily kernel + daily DTB + m1n1 `n1-warm-gpu-dcp` = n1-warm + GPU hand-off 0028 +
+DCP 0024/0025, not armed): **fell back** on its first boot (stage-1 -> daily). The captured loader log belongs to the
+fallback boot, so the cause is open: the first-boot-of-a-new-file pattern again, or 0024's unconditional reservation of
+the nine coprocessor `__OS_LOG` segments (the one thing this loader does on every boot that the E2a loader does not).
+Retry once after the E2 chain; if it falls back again, the DCP loader needs the panel or a trace before stages B0/B
+(which use the same loader) can mean anything.
+
