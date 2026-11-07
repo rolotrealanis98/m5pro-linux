@@ -1,0 +1,31 @@
+From 0ba5df5db7b0aaf0c17a7b2954a54a5465f12e87 Mon Sep 17 00:00:00 2001
+From: Jeff Queisser <funkzy@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 02:24:07 -0800
+Subject: [PATCH 07/17] dt-bindings: iommu: apple,dart: Add the T6050 DART
+
+Add apple,t6050-dart, the DART of the T6050 (M5 Ultra) PCIe ports and
+display co-processors, with the t8110 fallback like the other recent
+SoCs.
+
+Signed-off-by: Jeff Queisser <funkzy@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ Documentation/devicetree/bindings/iommu/apple,dart.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/iommu/apple,dart.yaml b/Documentation/devicetree/bindings/iommu/apple,dart.yaml
+index a5455e4eac35..7dac23e6a73c 100644
+--- a/Documentation/devicetree/bindings/iommu/apple,dart.yaml
++++ b/Documentation/devicetree/bindings/iommu/apple,dart.yaml
+@@ -43,6 +43,7 @@ properties:
+               - apple,t6030-dart
+               - apple,t6031-dart
+               - apple,t6041-dart
++              - apple,t6050-dart
+               - apple,t8122-dart
+               - apple,t8132-dart
+               - apple,t8140-dart
+-- 
+2.56.0
+

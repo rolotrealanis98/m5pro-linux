@@ -1,0 +1,31 @@
+From 23c1d38ae64ae44c7794eb993472fcb0f82942cd Mon Sep 17 00:00:00 2001
+From: Erik Bourget <erik@ebourget.net>
+Date: Tue, 3 Nov 2026 20:32:07 -0500
+Subject: [PATCH 11/17] pinctrl: apple-gpio: Use the uncached regmap on T6050
+
+On J716c, reading pin 112 of the AP pin controller takes an SError. Use
+the uncached regmap on T6050, as on T8140 and T8132, so that only the
+pins a board names are ever read.
+
+Developed with Claude Code.
+
+Signed-off-by: Erik Bourget <erik@ebourget.net>
+---
+ drivers/pinctrl/pinctrl-apple-gpio.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/pinctrl/pinctrl-apple-gpio.c b/drivers/pinctrl/pinctrl-apple-gpio.c
+index 7679347046a1..d3c482fa4234 100644
+--- a/drivers/pinctrl/pinctrl-apple-gpio.c
++++ b/drivers/pinctrl/pinctrl-apple-gpio.c
+@@ -633,6 +633,7 @@ static int apple_gpio_pinctrl_probe(struct platform_device *pdev)
+ static const struct of_device_id apple_gpio_pinctrl_of_match[] = {
+ 	{ .compatible = "apple,t8140-pinctrl", .data = &apple_gpio_uncached_hw },
+ 	{ .compatible = "apple,t8132-pinctrl", .data = &apple_gpio_uncached_hw },
++	{ .compatible = "apple,t6050-pinctrl", .data = &apple_gpio_uncached_hw },
+ 	{ .compatible = "apple,t8103-pinctrl", },
+ 	{ .compatible = "apple,pinctrl", },
+ 	{ }
+-- 
+2.56.0
+
