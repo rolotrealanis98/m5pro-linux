@@ -1109,3 +1109,14 @@ with the link alive never reached m1n1" (fixed there with a pcie-apple shutdown 
 stack therefore stays a test payload; the daily remains `dcec81ed`. Work item `wireless/aurora-n1/w4`: loader branch for
 an already-trained port and a kernel shutdown that parks it.
 
+### Result (LID-SLEEP kernel, 2026-11-07 14:11 UTC, Rolando at the machine): **lid close sleeps, lid open wakes**
+
+Payload `lid-sleep-20261107-d332cf88.bin`: kernel `7.3.0-g82a7d71d217e` (series tip + `platform/lid-sleep` patch 0001:
+macsmc-input confirms a lid-open report during suspend against the SMC `MSLD` key and ignores one in the first
+`lid_wake_settle_ms` = 2000 ms), stack DTB, battery, selftest on, prev = the daily. Lid closed 30 s by Rolando:
+`Lid closed.` -> `Suspending...` -> `PM: suspend entry` -> `suspend-to-idle` -> **`Timekeeping suspended for 39.477
+seconds`** -> SMC `03 00 01` -> `macsmc-input: lid open 72030001 at +40069 ms in sleep, MSLD=0: wakeup` -> resume ->
+`Lid opened.`; `suspend_stats` 1/0, Ethernet and USB back. No spurious early event appeared in this run (the earlier
+0.7 s abort may have been timing-dependent); the patch's confirm path accepted the real opening. Promote the kernel
+(it is the series tip + this patch) to the daily; the patch becomes series 0066.
+
