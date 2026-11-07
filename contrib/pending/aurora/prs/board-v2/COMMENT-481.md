@@ -1,0 +1,5 @@
+I'm preparing the J716s (MacBook Pro 16-inch, M5 Pro, one T6050 die) device tree for integration/aurora. It uses the cluster nodes from t6050-dieX.dtsi unchanged, so it has the single apple,t6050-cluster-cpufreq compatible and apple,firmware-managed-thermal, and I'm planning to depend on this PR instead of carrying a T8112 fallback.
+
+Some background from the J716s: so far we have run cpufreq through apple,t8112-cluster-cpufreq. The status register at +0x50 has the T8112 layout (current p-state in bits 9:5, target in 4:0), and with schedutil a loaded cluster reaches 4308 MHz on all three clusters. We haven't run your T6050 profile on it yet. As on the J716c, no PMP driver runs and the SMC drives the fans.
+
+One question: what should a board do before it carries apple,firmware-managed-thermal? Is the qualification described in t6050-base.dtsi (all-core load at the top states while watching TCMb, the fans and the measured clock) what you want to see? If so, I'll run that on the J716s with this PR applied and post the results here, plus a Tested-by if it passes.
