@@ -1157,4 +1157,12 @@ once the N1 restart issue is solved (the daily must carry both stacks).
 - **D** (`7.3.0-g91812cddaf1c`, + 0064 netfilter/routing/WireGuard): boots; `ip rule` lists the local table; iwd active.
 - full2 (+ 0063 haptic) running next; if it boots, the one earlier failure of the combined kernel stays unexplained
   (no capture) and the crash-log work decides whether to trust it.
+- **full2** (`7.3.0-g24e777afc7f6`, + 0063 haptic + 0064 + 0065, same tree as the earlier failed "full"): **boots**
+  (169 s to ssh, primary slot, 18 CPUs, no revert); nft ok, `ip rule` ok, two haptic input devices, iwd active.
+  The earlier failure of the combined kernel did not reproduce; it stays unexplained until the crash-log capture
+  (ramoops + netconsole) is in place. 0063/0064/0065 are not in the daily yet.
+- Afterwards the lid daily `534ca146` was restored as `boot.bin` (verified by hash) and the previous WFI daily
+  `dcec81ed` put back as `boot.bin.prev`, so the fallback is a different kernel than the primary.
+- Desktop: `hypridle.conf` now locks after 10 min idle (`loginctl lock-session`); it takes effect at the next
+  Hyprland login (hypridle is started by `hyprland.lua`).
 
