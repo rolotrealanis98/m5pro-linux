@@ -1,0 +1,73 @@
+From 304e348ab548e706ebf286904e18f0ca89d0a5de Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:46:09 -0500
+Subject: [PATCH 11/11] arm64: configs: Add a J716s fragment
+
+Add j716s.config, the drivers on the J716s boot path built in, for a
+root file system that carries no modules: storage (ANS NVMe, SART,
+RTKit helper), the SMC and its consumers with the SPMI PMIC cells,
+cpufreq, the DockChannel keyboard and trackpad, and the keyboard
+backlight. Rust and the display controller driver stay off: nothing on
+this boot path needs them yet. Used as
+
+  make ARCH=arm64 LLVM=1 defconfig asahi.config j716s.config
+
+like the j813 fragments.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/configs/j716s.config | 41 +++++++++++++++++++++++++++++++++
+ 1 file changed, 41 insertions(+)
+ create mode 100644 arch/arm64/configs/j716s.config
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+new file mode 100644
+index 000000000000..0627a221cab3
+--- /dev/null
++++ b/arch/arm64/configs/j716s.config
+@@ -0,0 +1,41 @@
++# MacBook Pro (16-inch, M5 Pro, 2026), J716s: the drivers on its boot path
++# built in, for a root file system that carries no modules, on top of
++# defconfig and asahi.config:
++#   make ARCH=arm64 LLVM=1 defconfig asahi.config j716s.config
++
++# Nothing on the T6050 boot path needs Rust yet
++CONFIG_RUST=n
++CONFIG_DRM_APPLE=n
++
++# Storage: ANS NVMe behind SART, RTKit
++CONFIG_NVME_APPLE=y
++CONFIG_APPLE_SART=y
++CONFIG_APPLE_RTKIT_HELPER=y
++
++# SMC and its consumers; the PMIC NVMEM cells the RTC and reboot read
++CONFIG_MFD_MACSMC=y
++CONFIG_GPIO_MACSMC=y
++CONFIG_INPUT_MACSMC_INPUT=y
++CONFIG_POWER_RESET_MACSMC=y
++CONFIG_SENSORS_MACSMC_HWMON=y
++CONFIG_MACSMC_POWER=y
++CONFIG_RTC_DRV_MACSMC=y
++CONFIG_SPMI_APPLE=y
++CONFIG_NVMEM_APPLE_SPMI=y
++
++# CPU frequency
++CONFIG_ARM_APPLE_SOC_CPUFREQ=y
++
++# Keyboard and trackpad: DockChannel HID. HID_MAGICMOUSE drives the
++# trackpad; the MTP haptic driver would force it to =m, so it stays off
++# (no click haptics).
++CONFIG_APPLE_DOCKCHANNEL=y
++CONFIG_HID_DOCKCHANNEL=y
++CONFIG_HID_APPLE=y
++CONFIG_HID_MAGICMOUSE=y
++CONFIG_HID_APPLE_MTP_HAPTIC=n
++CONFIG_HIDRAW=y
++
++# Keyboard backlight
++CONFIG_PWM_APPLE=y
++CONFIG_LEDS_PWM=y
+-- 
+2.56.0
+

@@ -1,0 +1,52 @@
+From 7bdb2440665f480ac372f5511fb0e4e58b7f9acc Mon Sep 17 00:00:00 2001
+From: ed <edimoldovan@gmail.com>
+Date: Sat, 7 Nov 2026 18:45:04 +0100
+Subject: [PATCH 07/11] arm64: apple: t6050-j714c: Power off and restart
+ through the SMC
+
+Power-off from Omarchy halted with the boot logo on screen: nothing
+registered a power-off handler, so the kernel turned the request into a
+halt. Enable the SMC reboot node and build its driver: power-off writes
+MBSE = off1, and restart now goes through SMC phra ahead of the
+watchdog.
+
+Signed-off-by: Eduard Moldovan <edimoldovan@gmail.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+[Rolando: only the t6050-smc.dtsi part of commit 38e75c9f1c07 ("arm64:
+ apple: t6050-j714c: Power off and restart through the SMC") in
+ edimoldovan/linux-aurora; this tree has no j714c.config, and
+ j716s.config builds POWER_RESET_MACSMC in]
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-smc.dtsi | 9 ++-------
+ 1 file changed, 2 insertions(+), 7 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-smc.dtsi b/arch/arm64/boot/dts/apple/t6050-smc.dtsi
+index eb1b94b01a14..c38a76538d62 100644
+--- a/arch/arm64/boot/dts/apple/t6050-smc.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-smc.dtsi
+@@ -131,19 +131,14 @@ smc_hwmon: hwmon {
+ 		// Registers SYS_OFF_PRIO_HIGH (192) restart + power-off
+ 		// handlers; the apple,t6050-wdt restart handler is priority
+ 		// 128 (apple_wdt.c), so once this probes,
+-		// `reboot` goes through SMC 'phra' instead of the wdt.
+-		// Kept disabled until an SMC 'phra' restart is shown to land
+-		// in stage-1 m1n1 like the wdt reset does (remote reboots
+-		// depend on that). It also writes boot_stage/shutdown_flag in
+-		// the PMIC scratchpad, whose offsets are not yet verified.
++		// `reboot` goes through SMC 'phra' instead of the wdt. The
++		// PMIC scratchpad cells it writes match t6031 (M3 Max).
+ 		smc_reboot: reboot {
+ 			compatible = "apple,smc-reboot";
+ 			nvmem-cells = <&shutdown_flag>, <&boot_stage>,
+ 				      <&boot_error_count>, <&panic_count>;
+ 			nvmem-cell-names = "shutdown_flag", "boot_stage",
+ 					   "boot_error_count", "panic_count";
+-
+-			status = "disabled";
+ 		};
+ 
+ 		smc_rtc: rtc {
+-- 
+2.56.0
+

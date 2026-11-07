@@ -1,0 +1,210 @@
+From 04b821ea55684558dec3e3f202a6b0556c30c97a Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:46:08 -0500
+Subject: [PATCH 10/11] arm64: dts: apple: Add J716s (MacBook Pro 16-inch, M5
+ Pro)
+
+Add the 16-inch MacBook Pro with the M5 Pro (J716s, Mac17,8), a T6050
+board, on the T6050 files the J714c uses. Its Apple Device Tree lists
+the 18 CPUs in the order of t6050-base.dtsi. t6050-j716s.dts has:
+
+- memory, the boot framebuffer marked as the built-in panel, and the
+  serial console, as on the J714c;
+- the keyboard and trackpad (trackpad firmware apple/tpmtfw-j716s.bin,
+  power method 2, the host-driven AFE reset on SMC pcIO output 28, the
+  same ADT template as the J714c's);
+- the keyboard backlight (pwm-leds on fpwm0, 40000 ns period);
+- the SMC with the common, dual-fan and laptop sensors and the F0md/F1md
+  fan mode keys, as on the J714c. Restart and power-off go through the
+  SMC (t6050-smc.dtsi): on this board the PMIC scratchpad cells it
+  writes were read back (a restart from Linux is no longer counted as a
+  failed boot by iBoot), and an SMC restart comes back into the boot
+  loader as a watchdog restart does.
+
+Not described yet: USB on both Type-C ports, PCIe with the N1 (Wi-Fi
+and Bluetooth) and the SD reader, audio, the GPU and the display
+controller.
+
+As on the J714c, the keyboard and trackpad need the loader to program
+the MTP DAPF (m1n1 on T6050).
+
+Tested on J716s in the tree this description comes from (aurora-silicon
+integration/aurora with the equivalent nodes on its T6050 files): 18
+CPUs, the root file system on the internal SSD, the keyboard and the
+trackpad's multi-touch device, kbd_backlight, AC and battery, the SMC
+fan, power, voltage and current sensors, the panel as eDP-1, lid-close
+sleep and wake, and restart and power-off through the SMC. On this
+tree: dtbs and dtbs_check only, not booted. In the tested tree the AFE
+reset was driven as SMC GPIO gp1c of the second bank, active low, which
+the J716s ADT names as the same line; the pcIO path has not run on this
+board.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/boot/dts/apple/Makefile        |   1 +
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 140 ++++++++++++++++++++++
+ 2 files changed, 141 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/apple/t6050-j716s.dts
+
+diff --git a/arch/arm64/boot/dts/apple/Makefile b/arch/arm64/boot/dts/apple/Makefile
+index b59ae4f6a6c4..8b605c635d6c 100644
+--- a/arch/arm64/boot/dts/apple/Makefile
++++ b/arch/arm64/boot/dts/apple/Makefile
+@@ -95,6 +95,7 @@ dtb-$(CONFIG_ARCH_APPLE) += t6032-j575d.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6034-j514m.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6034-j516m.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t6050-j714c.dtb
++dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t8112-j413.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t8112-j415.dtb
+ dtb-$(CONFIG_ARCH_APPLE) += t8112-j473.dtb
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+new file mode 100644
+index 000000000000..761218d9d3ba
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -0,0 +1,140 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * Apple MacBook Pro (16-inch, M5 Pro, 2026)
++ *
++ * target-type: J716s (Mac17,8)
++ *
++ * The M5 Pro here is a T6050 with all 18 CPU cores, laid out as on the
++ * J714c. The loader supplies usable memory, CPU release addresses,
++ * framebuffer geometry and the keyboard layout. Peripheral power domains
++ * come from t6050-pmgr.dtsi; the framebuffer holds the display domain.
++ *
++ * Copyright The Asahi Linux Contributors
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/interrupt-controller/apple-aic.h>
++#include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/leds/common.h>
++
++#include "t6050.dtsi"
++#include "t6050-smc.dtsi"
++
++/ {
++	compatible = "apple,j716s", "apple,t6050", "apple,arm-platform";
++	#address-cells = <2>;
++	chassis-type = "laptop";
++	interrupt-parent = <&aic>;
++	model = "Apple MacBook Pro (16-inch, M5 Pro, 2026)";
++	#size-cells = <2>;
++
++	aliases {
++		keyboard = &keyboard;
++		serial0 = &serial0;
++	};
++
++	chosen {
++		ranges;
++		#address-cells = <2>;
++		#size-cells = <2>;
++		stdout-path = "serial0:1500000n8";
++
++		framebuffer@0 {
++			compatible = "apple,simple-framebuffer",
++				     "simple-framebuffer";
++			reg = <0 0 0 0>; /* Filled by the loader. */
++			power-domains = <&ps_disp_cpu>;
++			apple,internal-panel; /* simpledrm reports it as eDP */
++
++			/* m1n1 only enables it on chips it knows. */
++			status = "okay";
++		};
++	};
++
++	memory@10000000000 {
++		reg = <0x100 0 0 0>; /* Filled by the loader. */
++		device_type = "memory";
++	};
++
++	/* ADT pwm0/kbd-backlight: channel 0 at 25 kHz */
++	led-controller {
++		compatible = "pwm-leds";
++
++		led-0 {
++			color = <LED_COLOR_ID_WHITE>;
++			default-state = "keep";
++			function = LED_FUNCTION_KBD_BACKLIGHT;
++			label = "kbd_backlight";
++			max-brightness = <255>;
++			pwms = <&fpwm0 0 40000>;
++		};
++	};
++};
++
++&fpwm0 {
++	status = "okay";
++};
++
++&mtp {
++	status = "okay";
++};
++
++&mtp_mbox {
++	status = "okay";
++};
++
++&mtp_dart {
++	status = "okay";
++};
++
++&mtp_dockchannel {
++	status = "okay";
++};
++
++&mtp_hid {
++	/*
++	 * ADT multi-touch function-afe-reset = smc-pmu pKW8('pcIO', 0x10000,
++	 * 0x11c0000), SMC pcIO output 28 as on the J714c; level 1 asserts the
++	 * reset.
++	 */
++	apple,afe-reset-gpios = <&smc_gpio 28 GPIO_ACTIVE_HIGH>;
++
++	actuator {
++	};
++
++	keyboard: keyboard {
++		hid-country-code = <0>;
++		apple,keyboard-layout-id = <0>;
++	};
++
++	multi-touch {
++		firmware-name = "apple/tpmtfw-j716s.bin";
++		apple,power-method = <2>;
++	};
++
++	stm {
++	};
++
++	tp_accel {
++	};
++};
++
++#include "hwmon-common.dtsi"
++#include "hwmon-fan-dual.dtsi"
++#include "hwmon-laptop.dtsi"
++
++/*
++ * The T6050 SMC spells the fan mode keys F0md/F1md; F0Md/F1Md from
++ * hwmon-fan*.dtsi do not exist.
++ */
++&smc_hwmon {
++	fan-F0Ac {
++		apple,fan-mode = "F0md";
++	};
++
++	fan-F1Ac {
++		apple,fan-mode = "F1md";
++	};
++};
+-- 
+2.56.0
+

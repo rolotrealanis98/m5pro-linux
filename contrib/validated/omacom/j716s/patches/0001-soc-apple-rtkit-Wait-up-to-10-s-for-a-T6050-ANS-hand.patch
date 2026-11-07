@@ -1,0 +1,177 @@
+From 33298dd4b0407a2f2f020bb9e811f2f7bd0beeaf Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:23:44 -0500
+Subject: [PATCH 01/11] soc: apple: rtkit: Wait up to 10 s for a T6050 ANS
+ handshake reply
+
+apple_rtkit_wait_for_completion() gives the coprocessor 1 s to answer.
+On the T6050 (J716s, MacBook Pro 16-inch M5 Pro) the ANS firmware that
+iBoot hands over sometimes needs about 3 s to answer the power-state and
+endpoint-map handshake. With 1 s, nvme-apple fails with "ANS did not
+boot" / "Reset failure status: -62" and the root device never appears,
+although a later rebind of the same firmware succeeds.
+
+Make the handshake timeout a per-instance setting, set with
+apple_rtkit_set_handshake_timeout() and defaulting to the current
+1000 ms, and use it for every handshake wait, including the polled
+apple,sync-syslog-ack path. nvme-apple asks for 10 s on the T6050 ANS
+only, so a dead coprocessor on any other SoC is still reported after
+1 s, and a T6050 ANS that answers in time is not slowed down. The
+200 ms AP power ACK window on T6050 machines is not changed.
+
+Tested on J716s (MacBook Pro 16-inch, M5 Pro) in the tree these changes
+come from: the boot that failed with -62 after 1 s mounts the root on
+the internal SSD with 10 s, on every boot since. On this tree:
+compile-tested.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/nvme/host/apple.c          | 10 ++++++++++
+ drivers/soc/apple/rtkit-internal.h |  2 ++
+ drivers/soc/apple/rtkit.c          | 25 +++++++++++++++++++------
+ include/linux/soc/apple/rtkit.h    | 12 ++++++++++++
+ 4 files changed, 43 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/nvme/host/apple.c b/drivers/nvme/host/apple.c
+index c2921f1070d6..2a3167c9fcc1 100644
+--- a/drivers/nvme/host/apple.c
++++ b/drivers/nvme/host/apple.c
+@@ -43,6 +43,8 @@
+ #include "nvme.h"
+ 
+ #define APPLE_ANS_BOOT_TIMEOUT	  USEC_PER_SEC
++/* RTKit handshake timeout for the T6050 ANS, see apple_nvme_alloc() */
++#define APPLE_NVME_T6050_HANDSHAKE_TIMEOUT_MS 10000
+ 
+ #define APPLE_ANS_COPROC_CPU_CONTROL	 0x44
+ #define APPLE_ANS_COPROC_CPU_CONTROL_RUN BIT(4)
+@@ -2442,6 +2444,14 @@ static struct apple_nvme *apple_nvme_alloc(struct platform_device *pdev)
+ 		goto out_detach_genpd;
+ 	}
+ 
++	/*
++	 * The T6050 ANS firmware handed over by iBoot can take about 3 s to
++	 * answer the power-state and endpoint-map handshake.
++	 */
++	if (of_device_is_compatible(dev->of_node, "apple,t6050-nvme-ans2"))
++		apple_rtkit_set_handshake_timeout(anv->rtk,
++						  APPLE_NVME_T6050_HANDSHAKE_TIMEOUT_MS);
++
+ 	ret = devm_add_action_or_reset(dev, apple_nvme_free_rtkit, anv);
+ 	if (ret)
+ 		goto out_detach_genpd;
+diff --git a/drivers/soc/apple/rtkit-internal.h b/drivers/soc/apple/rtkit-internal.h
+index 417d4550ef3a..856b78d81fcd 100644
+--- a/drivers/soc/apple/rtkit-internal.h
++++ b/drivers/soc/apple/rtkit-internal.h
+@@ -47,6 +47,8 @@ struct apple_rtkit {
+ 
+ 	int boot_result;
+ 	int version;
++	/* How long to wait for each handshake reply from the co-processor. */
++	unsigned int handshake_timeout_ms;
+ 
+ 	unsigned int iop_power_state;
+ 	unsigned int ap_power_state;
+diff --git a/drivers/soc/apple/rtkit.c b/drivers/soc/apple/rtkit.c
+index c37008e2d86e..314fb8b44081 100644
+--- a/drivers/soc/apple/rtkit.c
++++ b/drivers/soc/apple/rtkit.c
+@@ -104,6 +104,9 @@ enum {
+ #define APPLE_RTKIT_MIN_SUPPORTED_VERSION 11
+ #define APPLE_RTKIT_MAX_SUPPORTED_VERSION 12
+ 
++/* Default wait for each handshake reply, see apple_rtkit_set_handshake_timeout() */
++#define APPLE_RTKIT_HANDSHAKE_TIMEOUT_MS 1000
++
+ struct apple_rtkit_rx_work {
+ 	struct apple_rtkit *rtk;
+ 	u8 ep;
+@@ -1138,6 +1141,7 @@ static struct apple_rtkit *__apple_rtkit_init(struct device *dev, void *cookie,
+ 	rtk->dev = dev;
+ 	rtk->cookie = cookie;
+ 	rtk->ops = ops;
++	rtk->handshake_timeout_ms = APPLE_RTKIT_HANDSHAKE_TIMEOUT_MS;
+ 	rtk->sync_syslog_ack =
+ 		of_property_read_bool(dev->of_node, "apple,sync-syslog-ack");
+ 	INIT_KFIFO(rtk->sync_ack_fifo);
+@@ -1208,7 +1212,8 @@ struct apple_rtkit *apple_rtkit_init_adopted(struct device *dev, void *cookie,
+ }
+ EXPORT_SYMBOL_GPL(apple_rtkit_init_adopted);
+ 
+-static int apple_rtkit_wait_for_completion(struct completion *c);
++static int apple_rtkit_wait_for_completion(struct apple_rtkit *rtk,
++					   struct completion *c);
+ 
+ /*
+  * apple,sync-syslog-ack (AsahiLinux/linux#607): the mailbox can leave
+@@ -1222,9 +1227,9 @@ static int apple_rtkit_wait(struct apple_rtkit *rtk, struct completion *c)
+ 	int ret;
+ 
+ 	if (!rtk->sync_syslog_ack)
+-		return apple_rtkit_wait_for_completion(c);
++		return apple_rtkit_wait_for_completion(rtk, c);
+ 
+-	timeout = jiffies + msecs_to_jiffies(1000);
++	timeout = jiffies + msecs_to_jiffies(rtk->handshake_timeout_ms);
+ 	do {
+ 		ret = apple_rtkit_poll(rtk);
+ 		if (ret < 0)
+@@ -1242,12 +1247,13 @@ static int apple_rtkit_wait(struct apple_rtkit *rtk, struct completion *c)
+ 	return try_wait_for_completion(c) ? 0 : -ETIME;
+ }
+ 
+-static int apple_rtkit_wait_for_completion(struct completion *c)
++static int apple_rtkit_wait_for_completion(struct apple_rtkit *rtk,
++					   struct completion *c)
+ {
++	unsigned long timeout = msecs_to_jiffies(rtk->handshake_timeout_ms);
+ 	long t;
+ 
+-	t = wait_for_completion_interruptible_timeout(c,
+-						      msecs_to_jiffies(1000));
++	t = wait_for_completion_interruptible_timeout(c, timeout);
+ 	if (t < 0)
+ 		return t;
+ 	else if (t == 0)
+@@ -1256,6 +1262,13 @@ static int apple_rtkit_wait_for_completion(struct completion *c)
+ 		return 0;
+ }
+ 
++void apple_rtkit_set_handshake_timeout(struct apple_rtkit *rtk,
++				       unsigned int timeout_ms)
++{
++	rtk->handshake_timeout_ms = timeout_ms ?: APPLE_RTKIT_HANDSHAKE_TIMEOUT_MS;
++}
++EXPORT_SYMBOL_GPL(apple_rtkit_set_handshake_timeout);
++
+ int apple_rtkit_reinit(struct apple_rtkit *rtk)
+ {
+ 	unsigned long flags;
+diff --git a/include/linux/soc/apple/rtkit.h b/include/linux/soc/apple/rtkit.h
+index 1ba27a92e2b1..a90ceb0de275 100644
+--- a/include/linux/soc/apple/rtkit.h
++++ b/include/linux/soc/apple/rtkit.h
+@@ -155,6 +155,18 @@ void apple_rtkit_free_retaining_buffers(struct apple_rtkit *rtk);
+  */
+ int apple_rtkit_reinit(struct apple_rtkit *rtk);
+ 
++/*
++ * Set how long each handshake step (power state and endpoint map replies)
++ * waits for the co-processor, for one that is known to answer slowly. Call
++ * before apple_rtkit_boot() or apple_rtkit_wake(). Zero restores the default
++ * of 1000 ms.
++ *
++ * @rtk:        Internal RTKit state initialized by apple_rtkit_init()
++ * @timeout_ms: Timeout in milliseconds
++ */
++void apple_rtkit_set_handshake_timeout(struct apple_rtkit *rtk,
++				       unsigned int timeout_ms);
++
+ /*
+  * Handle RTKit's boot process. Should be called after the CPU of the
+  * co-processor has been started.
+-- 
+2.56.0
+
