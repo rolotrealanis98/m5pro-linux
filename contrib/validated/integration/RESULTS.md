@@ -941,3 +941,30 @@ Docked=ignore), `/etc/systemd/sleep.conf.d/20-m5pro-s2idle.conf` (AllowSuspend=y
   (`~/Work/agents/lid-sleep/`); the power button and the command path (`systemctl suspend`) are unaffected.
 - The udev `power-switch` tag and ID_INPUT_SWITCH are correct; the device is `Apple SMC power/lid events` (event0).
 
+### Result (W2, 2026-11-07 12:26 UTC, attended: Rolando at the machine)
+
+Payload `w2-n1ans-20261107-2dedddda.bin` (`wireless/aurora-n1/w2/RUN-W2.md`): W1 plus m1n1 0025 (`n1=3`: start the ANS for
+the training window, read-verify a block, stop it again). Stage-2 log:
+
+    n1: chosen.m5pro,n1=3: training apcie0 port 0 with ANS started
+    pcie-t6050: ANS stopped (0x0): starting it
+    nvme: initialized at 0x45dcc0000
+    pcie-t6050: NVMe block 1 read (GPT header)
+    pcie-t6050: storage before: reference
+    pcie-t6050: storage after A: unchanged
+    pcie-t6050: storage after S: unchanged
+    pcie-t6050: STOP: link up: 0x410028208 = 0xab001208 after 500 ms
+    pcie-t6050: storage after training: 0x419600048 0x0000006e -> 0x0000006d  (allowed)
+    pcie-t6050: storage after training: NVMe read identical
+    nvme: shutdown done / ANS stopped again for Linux
+    n1: port 0: rc ctl 0x1 stat 0x1, port status 0xd linksts 0xab001208 ltssm 0x1
+
+- **Firsts:** m1n1 started a stopped T6050 ANS itself (10 s RTKit wait), read NVMe, trained with the storage snapshot
+  as designed, and handed Linux an ANS in today's state: Linux booted normally (NVMe "boot: mode normal"), root mounted,
+  network up, no revert, PMU count 0.
+- **Training:** PMGR/PHY stages A and S ran with storage unchanged; the link never came up within 500 ms (`ltssm 0x1`,
+  root port status 0xd). Per the plan this is the "N1 still in SMC reset" case: next W2b (`n1=4`, adds the SMC `gP13`
+  release before training), then the J813-style reset pulse and timings if that still stops.
+- Storage register 0x419600048 changed 0x6e -> 0x6d across the training and was classified allowed (the agent's
+  whitelist); the block read-back was identical.
+
