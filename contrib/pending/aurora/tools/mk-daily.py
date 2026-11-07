@@ -38,7 +38,7 @@ INGREDIENTS = {
     },
     "kernel": {  # Image.gz: ONE gzip member
         "default": "series",
-        "series": {"path": SERIES / "Image.gz",   # j716s-series dd6b39464ca9 (built as 4f630b11270d, same content); SHA256SUMS has 975dab00
+        "series": {"path": SERIES / "Image.gz",   # j716s-series c2e1be601fb4 (built as 4f630b11270d, same content); SHA256SUMS has 975dab00
                    "sha256": None},
         "audio": {"path": AUDIO / "kbuild/obj/arch/arm64/boot/Image.gz",   # Rust kernel 00e8df6f
                   "sha256": "00e8df6f06a95e7e48577784a75d95be054c0b148ca829a8375cf5ed476f0480"},
@@ -64,7 +64,7 @@ INGREDIENTS = {
 }
 
 BASE = ("earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused "
-        "no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5")
+        "no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5 kvm-arm.wfi_trap_policy=trap")
 BLACKLIST = "initcall_blacklist=macsmc_power_driver_init"   # battery driver: probe hang, attended only
 SELFTEST = "m5.selftest=1"
 NOTCH = b"chosen.asahi,show-notch=1\n"
