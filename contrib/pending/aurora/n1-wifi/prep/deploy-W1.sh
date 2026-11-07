@@ -6,7 +6,7 @@ set -eu
 # Policy: ESP-POLICY.md. a failed test reverts itself: if the root mounts but the network is not up 90 s after network-online, boot.bin.prev is copied over boot.bin and the machine reboots; a payload that never mounts the root is NOT covered (macOS: r1-deploy.sh restore prev).
 HOST=${HOST:?set HOST=root@<macbook-ip>}   # the running Linux root, over ssh
 SSHO=(-i "$HOME/.ssh/mbp" -o IdentitiesOnly=yes)
-PAYLOAD=/Users/rolo/Work/agents/aurora-kernel/payloads/w1-n1train-20261107-3c0a1eff.bin
+PAYLOAD=$HOME/Work/agents/aurora-kernel/payloads/w1-n1train-20261107-3c0a1eff.bin
 SHA=3c0a1eff5525cf20495e61f33481f2b9aec2d7d38a6b1322ae5d52468183e97b
 
 # 0. preflight on the machine: ESP mounted, room for two copies, at most four payloads at rest,

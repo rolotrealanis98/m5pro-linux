@@ -23,7 +23,7 @@ Source of the port: `github.com/edimoldovan/linux-aurora` branch `t6050-j714c` @
   R3-AUDIO-RECIPE.md §1).
 - Mic first: yes. The default DTB brings up AOP + mic + jack with the speakers held off (amps in hardware shutdown).
 
-## 2. Ed's commits since 2026-11-05 (author `ed <edimoldovan@gmail.com>`)
+## 2. Ed's commits since 2026-11-05 (author `ed`, GitHub edimoldovan)
 G = generic T6050 (ported), B = J714c board/config (not ported, J716 equivalent written instead), N = not audio.
 
 | commit | time | subject | class |

@@ -21,7 +21,7 @@ exactly today's sequence.
 
 ## 2. What the J716s runtime ADT says
 
-`/Users/rolo/Work/studio-artifacts/adt-runtime-j716s.bin`, via m1n1 `load_adt`:
+`~/Work/studio-artifacts/adt-runtime-j716s.bin`, via m1n1 `load_adt`:
 
 | node under /arm-io/dockchannel-mtp/mtp-transport | properties |
 |---|---|
@@ -174,7 +174,7 @@ word 0 unknown).
 6. Close/reopen, suspend/resume are not covered (reset runs on the first successful start
    only, as today).
 
-## 7. Files (/Users/rolo/Work/agents/trackpad)
+## 7. Files (~/Work/agents/trackpad)
 
 | file | sha256 / note |
 |---|---|
@@ -187,7 +187,7 @@ word 0 unknown).
 | Image.gz | 1dd78a8bd708545db0493599ddba466212618625090eeb5d8ea4f4a43e7c0572 |
 | build.log | full build log |
 
-Payload inputs: m1n1 = /Users/rolo/Work/m1n1-linuxbuild/m1n1-plain.bin (Nov 4 18:05, newer
+Payload inputs: m1n1 = ~/Work/m1n1-linuxbuild/m1n1-plain.bin (Nov 4 18:05, newer
 than 18:00), initramfs = omarchy-m5/build/initramfs-tp.cpio.gz, firmware =
 omarchy-m5/build/firmware-test (apple/tpmtfw-j716s.bin), default PAYLOAD_ARGS (kboot adds
 idle=nop arm64.nowfxt, as on the current boot). Both payloads contain their DTB and the

@@ -2,8 +2,8 @@
 
 Do not start while another agent owns reboots. Everything below runs from the Mac Studio.
 
-    B="/Users/rolo/Work/m1n1/.venv/bin/python /Users/rolo/Work/eem-vm/eem-vm.py --keep"
-    P=/Users/rolo/Work/agents/trackpad/payload-trackpad.bin
+    B="~/Work/m1n1/.venv/bin/python ~/Work/eem-vm/eem-vm.py --keep"
+    P=~/Work/agents/trackpad/payload-trackpad.bin
     # sha256 fcc402401b33325cac937037deb050660756a4d615182470b7dde3afad001a0d
 
 ## 0. Before deploying (current boot)
@@ -89,7 +89,7 @@ Decision:
 - 3/3 pass: done; keep payload-trackpad.bin.
 - 0/3, each with `AFE reset asserted`/`released` logged and `No HINT_L`: the polarity is
   probably inverted. Deploy the fallback the same way and repeat section 2 and 3:
-  `P=/Users/rolo/Work/agents/trackpad/payload-trackpad-active-high.bin`
+  `P=~/Work/agents/trackpad/payload-trackpad-active-high.bin`
   (sha256 59b5d00e8dc5bbf612bc069b45622b7a61b11ad898135f6861ec31d4bc87a260; only the DTB flag
   differs). Do not overwrite boot.bin.prev a second time: skip the first `cp` of step 1.
 - Mixed results with the reset logged: polarity is likely right but something else is

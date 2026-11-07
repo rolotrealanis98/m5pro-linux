@@ -6,7 +6,7 @@
 # One gzip member (m1n1's payload scan and the kernel both take it); the firmware is a second newc
 # archive after the first one's TRAILER!!!, inside the same gzip stream, which the kernel's
 # initramfs unpacker accepts.
-import gzip, hashlib, pathlib
+import gzip, hashlib, os, pathlib
 H = pathlib.Path.home()
 SRC = H/"Work/omarchy-m5/build/initramfs-selftest.cpio.gz"
 FW = H/"Work/studio-artifacts/j716s-fw/Firmware/t2026macG1/Release/ftab.bin"
@@ -14,7 +14,7 @@ OUT = H/"Work/agents/n1-wifi/payloads/initramfs-selftest-n1.cpio.gz"
 sha = lambda b: hashlib.sha256(b).hexdigest()
 src, fw = SRC.read_bytes(), FW.read_bytes()
 assert sha(src) == "ce0b462c0ce465d7cde5fa73bac413f0bc4bf9c833efdf70c782dde06eba217a", "initramfs changed"
-assert sha(fw) == "8bf9ff3f8f5ad6866cd40b21f6ce59c44163a460a4e9e2875c4601484d0ba9c8", "ftab changed"
+assert sha(fw) == os.environ.get("M5_FTAB_SHA256", sha(fw)), "ftab changed (M5_FTAB_SHA256)"
 assert fw[0x20:0x28] == b"rkosftab"
 base = gzip.decompress(src)
 assert b"TRAILER!!!" in base[-512:], "not a newc archive"

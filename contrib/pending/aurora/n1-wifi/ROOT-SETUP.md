@@ -13,7 +13,7 @@ from `/lib/firmware` of whatever root is mounted when the driver probes.
 
 | file | sha256 | size |
 |---|---|---|
-| `~/Work/studio-artifacts/j716s-fw/Firmware/t2026macG1/Release/ftab.bin` | 8bf9ff3f8f5ad6866cd40b21f6ce59c44163a460a4e9e2875c4601484d0ba9c8 | 31131284 |
+| `~/Work/studio-artifacts/j716s-fw/Firmware/t2026macG1/Release/ftab.bin` | sha256 of your own copy (not published) | about 31 MB |
 
 On the Studio:
 ```
@@ -21,7 +21,7 @@ scp ~/Work/studio-artifacts/j716s-fw/Firmware/t2026macG1/Release/ftab.bin root@<
 ```
 On the MacBook (root):
 ```
-echo '8bf9ff3f8f5ad6866cd40b21f6ce59c44163a460a4e9e2875c4601484d0ba9c8  /root/j716s-ftab.bin' | sha256sum -c
+sha256sum /root/j716s-ftab.bin     # must equal the sha256 of the copy on the Studio (not published: the file is per unit)
 install -D -m 0644 -o root -g root /root/j716s-ftab.bin /usr/lib/firmware/apple/centauri/j716s-ftab.bin
 ls -l /lib/firmware/apple/centauri/                  # /lib -> usr/lib on Arch
 head -c 40 /lib/firmware/apple/centauri/j716s-ftab.bin | tail -c 8; echo   # must print rkosftab
