@@ -1,0 +1,93 @@
+From c7cad7cbd86ead529bc07bf18ec77aa14967ece4 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 18:48:25 -0500
+Subject: [PATCH 2/4] hwmon: (macsmc) keep a fan whose optional keys are
+ missing
+
+macsmc_hwmon_create_fan() returns an error, dropping the whole fan, when
+any of apple,fan-minimum/-maximum/-target/-mode names a key the SMC does
+not have. The T6050 (M5 Pro) SMC spells the mode key F0md instead of
+F0Md, so a fan description shared with older machines loses both fans.
+Treat the optional keys as optional: warn, drop that attribute, and only
+allow manual control when the mode, target, minimum and maximum keys all
+exist.
+
+Port of m5pro-linux integration patch 0003 to the Aurora driver, which
+has since gained apple,fan-manual-control; that check is unchanged and
+still sees the mode key cleared when manual control is not possible.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/hwmon/macsmc-hwmon.c | 44 ++++++++++++++++++++----------------
+ 1 file changed, 25 insertions(+), 19 deletions(-)
+
+diff --git a/drivers/hwmon/macsmc-hwmon.c b/drivers/hwmon/macsmc-hwmon.c
+index cb824b252ddc..e78e71da59cd 100644
+--- a/drivers/hwmon/macsmc-hwmon.c
++++ b/drivers/hwmon/macsmc-hwmon.c
+@@ -961,37 +961,43 @@ static int macsmc_hwmon_create_fan(struct device *dev, struct apple_smc *smc,
+ 		fan->attrs |= HWMON_F_LABEL;
+ 	}
+ 
+-	/* The following keys are not required to simply monitor fan speed */
++	/*
++	 * The following keys are not required to simply monitor fan speed.
++	 * A key the firmware lacks (the T6050 SMC spells the mode key F0md,
++	 * not F0Md) drops only that attribute, not the whole fan.
++	 */
+ 	if (!of_property_read_string(fan_node, "apple,fan-minimum", &min)) {
+-		ret = macsmc_hwmon_parse_key(dev, smc, &fan->min, min);
+-		if (ret)
+-			return ret;
+-
+-		fan->attrs |= HWMON_F_MIN;
++		if (macsmc_hwmon_parse_key(dev, smc, &fan->min, min))
++			dev_warn(dev, "Fan %s: no minimum key %s\n", now, min);
++		else
++			fan->attrs |= HWMON_F_MIN;
+ 	}
+ 
+ 	if (!of_property_read_string(fan_node, "apple,fan-maximum", &max)) {
+-		ret = macsmc_hwmon_parse_key(dev, smc, &fan->max, max);
+-		if (ret)
+-			return ret;
+-
+-		fan->attrs |= HWMON_F_MAX;
++		if (macsmc_hwmon_parse_key(dev, smc, &fan->max, max))
++			dev_warn(dev, "Fan %s: no maximum key %s\n", now, max);
++		else
++			fan->attrs |= HWMON_F_MAX;
+ 	}
+ 
+ 	if (!of_property_read_string(fan_node, "apple,fan-target", &set)) {
+-		ret = macsmc_hwmon_parse_key(dev, smc, &fan->set, set);
+-		if (ret)
+-			return ret;
+-
+-		fan->attrs |= HWMON_F_TARGET;
++		if (macsmc_hwmon_parse_key(dev, smc, &fan->set, set))
++			dev_warn(dev, "Fan %s: no target key %s\n", now, set);
++		else
++			fan->attrs |= HWMON_F_TARGET;
+ 	}
+ 
+ 	if (!of_property_read_string(fan_node, "apple,fan-mode", &mode)) {
+-		ret = macsmc_hwmon_parse_key(dev, smc, &fan->mode, mode);
+-		if (ret)
+-			return ret;
++		if (macsmc_hwmon_parse_key(dev, smc, &fan->mode, mode))
++			dev_warn(dev, "Fan %s: no mode key %s, manual control disabled\n",
++				 now, mode);
+ 	}
+ 
++	/* Manual control needs the minimum, maximum and target keys too */
++	if ((fan->attrs & (HWMON_F_MIN | HWMON_F_MAX | HWMON_F_TARGET)) !=
++	    (HWMON_F_MIN | HWMON_F_MAX | HWMON_F_TARGET))
++		fan->mode.macsmc_key = 0;
++
+ 	if (of_property_read_bool(fan_node, "apple,fan-manual-control")) {
+ 		if (fan->mode.macsmc_key && (fan->attrs & HWMON_F_TARGET))
+ 			fan->manual_control = true;
+-- 
+2.56.0
+
