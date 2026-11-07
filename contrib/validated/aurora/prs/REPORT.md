@@ -75,3 +75,8 @@ Hold: cio-reset (#946 replaces it), cpufreq-binding (ask on #481), smc-match (#9
 - #1083 HID: dockchannel-hid: settle 50 ms after releasing the AFE reset (`pr/dockchannel-afe-settle` 227703b63d84)
 - #1084 hwmon: (macsmc) keep a fan whose optional keys are missing (`pr/macsmc-hwmon-optional-fan-keys` 8125f1376ef0)
 Held: cio-reset (#946), cpufreq-binding (#481), smc-match (#941), j716s-board (fixes listed above).
+
+## Sent, batch 2 (2026-11-07 14:45 UTC)
+- aurora-silicon/linux #1152 "arm64: idle: T6050 idles in WFI even with idle=nop" (`pr/t6050-wfi-idle` 72f8eecf708b on integration/aurora 4114f761f469; validated as our daily, soak + S1-S4).
+- aurora-silicon/m1n1 #65 "kboot: train the T6050 N1 link and fill its hand-off (J716s Wi-Fi/Bluetooth)" (`pr/t6050-n1-handoff` 4e76442c71c8 on aurora-wip b6b4592; 4 commits: N1 DT fill-in, opt-in training behind `chosen.asahi,t6050-n1`, ANS started for the storage checks, SMC reset pulse; build-tested on aurora-wip, hardware-tested on our lineage: W2c/W3b).
+Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeout, dev_dbg for the AFE lines, dev_info for the missing fan keys; v2 branches in preparation.
