@@ -1,0 +1,205 @@
+From f8a856c2b1fd47d1e34e517b1d34c023fde2693f Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:21:21 -0500
+Subject: [PATCH 02/13] drm/asahi: t6050: identify the M5 Pro's G17S firmware
+ builds
+
+The M5 Pro admits no firmware image (Firmware::Identified(&[])), so
+even with bare-metal tables it could only refuse whatever the boot
+loader left in fw-text.
+
+Pin the G17S builds of both roles, measured the way fwid defines a
+build (the SHA-256 of the primary's then the secondary's TEXT with the
+entropy records, the two header load fields and the two boot-argument
+sections of each role zeroed):
+
+  27.3 beta 1 (26C5035r)  b5537c8f06bd...66763600
+  27.2 (26B123)           2b4613c62a8a...913f0fd9
+  27.0 (26A428)           85d0fd8280f7...b94739c6
+
+The images are the a010 (FW Build variant: g17s) entries of
+armfw_g17x.im4p and armfw1_g17x.im4p: the public Mac17,8 IPSWs for
+27.0 and 27.2, and the 27.3 beta 1 restore bundle (im4p SHA-256
+ae7f35b1... and da8ff3fb...). The offsets come from each image's
+Mach-O load commands: TEXT 0x50000 + 0x54000, DATA 0x184000 as on the
+M5 Max, the _rtk_tunables and _rtk_patchbay sections per role. 27.2
+needs an entry of its own although its interface matches 27.3's: its
+primary entropy record sits at 0x49ea4, 27.3's at 0x49eac. Each image
+header still carries its load fields at 0x224/0x23c (zero in the file,
+the patchbay's offset and size at 0x22c/0x230, as in 26A428).
+
+The same digest tool reproduces Aurora's two pinned 26A428 digests,
+G17C 304d8544...ecb098f4 and G17D c3535440...e9cc8251, byte for byte
+(check_fwid.py, see below; it reads the firmware files locally and
+prints digests and offsets only).
+
+27.0 runs the 26A428 graph. 27.2 and, for now, 27.3 name V26B123_M5,
+whose layouts the M5 graph does not build yet, so they are identified
+and then refused before any GPU write; 27.3 gets its own variant once
+its HW data is built. Probe still refuses the M5 Pro for want of
+bare-metal tables. The fwid KUnit tests cover the new builds.
+
+The check scripts are in contrib/validated/aurora/prs/gpu-27.2/checks/
+of https://github.com/rolotrealanis98/m5pro-linux.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/gpu/drm/asahi/fwid.rs     | 26 ++++++++-
+ drivers/gpu/drm/asahi/hw/t6050.rs | 89 ++++++++++++++++++++++++++++++-
+ 2 files changed, 112 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/asahi/fwid.rs b/drivers/gpu/drm/asahi/fwid.rs
+index c9a0ef11d8b1..0ca0b1b858b8 100644
+--- a/drivers/gpu/drm/asahi/fwid.rs
++++ b/drivers/gpu/drm/asahi/fwid.rs
+@@ -495,7 +495,11 @@ fn j713_accepts_both_loaded_images() {
+ 
+     #[test]
+     fn t6050_admits_only_its_pinned_image() {
+-        for cfg in [&crate::hw::t6050::CONFIG_ULTRA, &crate::hw::t6050::CONFIG_MAX] {
++        for cfg in [
++            &crate::hw::t6050::CONFIG_ULTRA,
++            &crate::hw::t6050::CONFIG_MAX,
++            &crate::hw::t6050::CONFIG,
++        ] {
+             let crate::g17::fw::variant::Firmware::Identified(builds) = cfg.firmware else {
+                 panic!("an M5 board on bare metal must identify its loaded firmware");
+             };
+@@ -503,6 +507,26 @@ fn t6050_admits_only_its_pinned_image() {
+         }
+     }
+ 
++    #[test]
++    fn m5_pro_builds_name_their_layouts() {
++        use crate::g17::fw::variant::{Firmware, M5Layouts};
++        let Firmware::Identified(builds) = crate::hw::t6050::CONFIG.firmware else {
++            panic!("the M5 Pro must identify its loaded firmware");
++        };
++        for (i, build) in builds.iter().enumerate() {
++            // 27.2 (26B123) moved the InitData layouts; 27.3 kept them.
++            let layouts = if build.os_version >= [27, 2, 0] {
++                M5Layouts::V26B123
++            } else {
++                M5Layouts::V26A428
++            };
++            assert_eq!(build.variant.m5_layouts, Some(layouts));
++            for other in &builds[i + 1..] {
++                assert_ne!(build.images[0].text_sha256, other.images[0].text_sha256);
++            }
++        }
++    }
++
+     fn t6050_admits_only(builds: &[crate::g17::fw::variant::Build]) {
+         for image in builds.iter().flat_map(|build| build.images) {
+             // Both roles' records, inside TEXT.
+diff --git a/drivers/gpu/drm/asahi/hw/t6050.rs b/drivers/gpu/drm/asahi/hw/t6050.rs
+index 7856adc317e0..cd0250e16635 100644
+--- a/drivers/gpu/drm/asahi/hw/t6050.rs
++++ b/drivers/gpu/drm/asahi/hw/t6050.rs
+@@ -15,6 +15,92 @@
+     FixedBuffer { va: 0x100_0267_0000, size: 0x8000 },
+ ];
+ 
++/// The G17S builds the M5 Pro admits, newest first. The boot loader loads both roles' TEXT back
++/// to back into `fw-text`: the primary's 0x50000, then the secondary's 0x54000, each with its own
++/// GKTS/ECAP entropy records. Per role, two load fields of the image header and the boot loader's
++/// two boot-argument sections are zeroed, so a loaded copy normalizes to the digest of the
++/// firmware file's TEXT on every boot.
++const M5_PRO_BUILDS: &[crate::g17::fw::variant::Build] = &[
++    crate::g17::fw::variant::Build {
++        os_version: [27, 3, 0],
++        name: "27.3 (26C5035r), G17S",
++        images: &[crate::fwid::FirmwareBuild {
++            name: "26C5035r for T6050 G17S, primary then secondary",
++            text_size: 0xa4000,
++            data_size: 0x184000,
++            entropy: &[[0x49eac, 0x49f8f], [0x9d92c, 0x9da0f]],
++            boot_filled: &[
++                (0x224, 4),
++                (0x23c, 8),
++                (0x4976c, 0x740),
++                (0x49eac, 0x231),
++                (0x50224, 4),
++                (0x5023c, 8),
++                (0x9d1ec, 0x740),
++                (0x9d92c, 0x231),
++            ],
++            text_sha256: [
++                0xb5, 0x53, 0x7c, 0x8f, 0x06, 0xbd, 0x19, 0xeb, 0xf0, 0xef, 0xd0, 0xcb, 0xfb, 0x65,
++                0x52, 0x33, 0x9a, 0x10, 0xd4, 0xaf, 0xc4, 0xed, 0xa9, 0xd2, 0x1c, 0xbe, 0xdc, 0x36,
++                0x66, 0x76, 0x36, 0x00,
++            ],
++        }],
++        variant: &crate::g17::fw::variant::V26B123_M5,
++    },
++    crate::g17::fw::variant::Build {
++        os_version: [27, 2, 0],
++        name: "27.2 (26B123), G17S",
++        images: &[crate::fwid::FirmwareBuild {
++            name: "26B123 for T6050 G17S, primary then secondary",
++            text_size: 0xa4000,
++            data_size: 0x184000,
++            entropy: &[[0x49ea4, 0x49f87], [0x9d92c, 0x9da0f]],
++            boot_filled: &[
++                (0x224, 4),
++                (0x23c, 8),
++                (0x49764, 0x740),
++                (0x49ea4, 0x231),
++                (0x50224, 4),
++                (0x5023c, 8),
++                (0x9d1ec, 0x740),
++                (0x9d92c, 0x231),
++            ],
++            text_sha256: [
++                0x2b, 0x46, 0x13, 0xc6, 0x2a, 0x8a, 0x00, 0x7f, 0x22, 0xa9, 0x41, 0x01, 0x70, 0x2c,
++                0x9a, 0xc6, 0xc4, 0xe9, 0x0f, 0x2e, 0x12, 0x3f, 0x3b, 0x36, 0xfb, 0xe6, 0xff, 0xea,
++                0x91, 0x3f, 0x0f, 0xd9,
++            ],
++        }],
++        variant: &crate::g17::fw::variant::V26B123_M5,
++    },
++    crate::g17::fw::variant::Build {
++        os_version: [27, 0, 0],
++        name: "27.0 (26A428), G17S",
++        images: &[crate::fwid::FirmwareBuild {
++            name: "26A428 for T6050 G17S, primary then secondary",
++            text_size: 0xa4000,
++            data_size: 0x184000,
++            entropy: &[[0x49e60, 0x49f43], [0x9d918, 0x9d9fb]],
++            boot_filled: &[
++                (0x224, 4),
++                (0x23c, 8),
++                (0x49720, 0x740),
++                (0x49e60, 0x231),
++                (0x50224, 4),
++                (0x5023c, 8),
++                (0x9d1d8, 0x740),
++                (0x9d918, 0x231),
++            ],
++            text_sha256: [
++                0x85, 0xd0, 0xfd, 0x82, 0x80, 0xf7, 0x24, 0x65, 0x5c, 0xa9, 0xa9, 0x71, 0x7b, 0xc9,
++                0x1a, 0x8a, 0x5e, 0xf6, 0x09, 0x28, 0xd7, 0x72, 0x00, 0xf6, 0xd5, 0x3b, 0xd0, 0x99,
++                0xb9, 0x47, 0x39, 0xc6,
++            ],
++        }],
++        variant: &crate::g17::fw::variant::V26A428_M5,
++    },
++];
++
+ pub(crate) const CONFIG: Config = Config {
+     chip_id: 0x6050,
+     identity: Identity {
+@@ -44,8 +130,7 @@
+     fabric_bridge: false,
+     recovery_slot_keys: None,
+     gpu_generation: GpuGen::G17,
+-    // No loaded image is admitted: the board has no bare-metal page tables yet.
+-    firmware: crate::g17::fw::variant::Firmware::Identified(&[]),
++    firmware: crate::g17::fw::variant::Firmware::Identified(M5_PRO_BUILDS),
+     // Two clusters of ten cores. The buffers are sized for every core slot of the board, so the
+     // board's cluster and slot counts admit the GPU, whichever cores are fused off.
+     core_layout: CoreLayout {
+-- 
+2.56.0
+

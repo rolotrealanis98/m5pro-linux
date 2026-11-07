@@ -1,0 +1,33 @@
+From 4657fd4cd9029c0c39084fada98abde3fb0a356c Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:24:07 -0500
+Subject: [PATCH 04/13] dt-bindings: mailbox: apple,ascwrap-v6: Add the T6050
+ native-address mailboxes
+
+A boot loader that leaves the T6050 GPU coprocessors where the SoC
+puts them describes their mailboxes at the native wrapper and IOP VBAR
+addresses (the ADT gfx-asc/gfx1-asc reg[0] and reg[1]), not at the
+windows the existing T6050 compatibles expect. Add a compatible for
+that layout.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ Documentation/devicetree/bindings/mailbox/apple,ascwrap-v6.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/mailbox/apple,ascwrap-v6.yaml b/Documentation/devicetree/bindings/mailbox/apple,ascwrap-v6.yaml
+index 289c29ba752f..2593910e35c9 100644
+--- a/Documentation/devicetree/bindings/mailbox/apple,ascwrap-v6.yaml
++++ b/Documentation/devicetree/bindings/mailbox/apple,ascwrap-v6.yaml
+@@ -24,6 +24,7 @@ properties:
+       - apple,t8142-ascwrap-v6
+       - apple,t6050-apif-ascwrap-v6
+       - apple,t6050-ascwrap-v6
++      - apple,t6050-native-ascwrap-v6
+       - apple,t6050-x1n1-ascwrap-v6
+ 
+   reg:
+-- 
+2.56.0
+

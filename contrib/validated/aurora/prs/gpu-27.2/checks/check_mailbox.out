@@ -1,0 +1,3 @@
+ok   gfx-asc role GFX: wrapper 0x2302600000+0x88000 vbar 0x2302050000+0x8 table 0x2302600000/0x2302050000
+ok   gfx1-asc role GFX1: wrapper 0x2302e00000+0x88000 vbar 0x2302850000+0x60000 table 0x2302e00000/0x2302850000
+ok   compatible apple,t6050-native-ascwrap-v6 matched

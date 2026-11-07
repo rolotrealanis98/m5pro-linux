@@ -1,0 +1,121 @@
+From 27cd9cd6894cba94ef0c72015cdee80c6daf1427 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:19:29 -0500
+Subject: [PATCH 01/13] drm/asahi: g17: m5: refuse firmware whose InitData
+ layouts the graph cannot build
+
+From macOS 27.2 on, the M5 GPU firmware checks a different InitData
+graph than the 26A428 (27.0) one the M5 path builds. Measured in the
+AGXG17X kext of Apple's public Mac17,8 27.0 (26A428) and 27.2 (26B123)
+IPSWs and of the 27.3 beta 1 (26C5035r) restore bundle:
+
+- the root version word gains bit 46 (0x0c8e_0339_8728_04c0 ->
+  0x0c8e_4339_8728_04c0), in 27.2 and 27.3 alike;
+- the power policy grows from 0x126b0 to 0x12728 bytes and the status
+  config from 0x780 to 0x790, in 27.2 and 27.3 alike;
+- 27.3 beta 1 alone inserts a HW data word at 0x2720.
+
+Name the layouts a build needs (Variant::m5_layouts) and give the 27.2
+firmware its own variant, V26B123_M5: the 26A428 M5 protocol with the
+26B123 layouts. Until the M5 graph builds them, Gpu::new() refuses such
+a build right after identifying it, before anything is written to the
+GPU, instead of handing it a graph it would reject ("Host and FW
+Interface is mismatched") or misread.
+
+Every M5 build in the tree today is 26A428 and names
+M5Layouts::V26A428, so nothing changes for the M5 Max and M5 Ultra.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/gpu/drm/asahi/g17/fw/variant.rs | 21 +++++++++++++++++++++
+ drivers/gpu/drm/asahi/g17/mod.rs        | 10 ++++++++++
+ 2 files changed, 31 insertions(+)
+
+diff --git a/drivers/gpu/drm/asahi/g17/fw/variant.rs b/drivers/gpu/drm/asahi/g17/fw/variant.rs
+index 95a052fc5f5d..33ac7fce7c33 100644
+--- a/drivers/gpu/drm/asahi/g17/fw/variant.rs
++++ b/drivers/gpu/drm/asahi/g17/fw/variant.rs
+@@ -36,6 +36,16 @@ pub(crate) enum InitGraph {
+     V25G83,
+ }
+ 
++/// The InitData layouts of an M5 firmware build ([`super::m5::initdata`]).
++#[derive(Copy, Clone, Debug, PartialEq, Eq)]
++pub(crate) enum M5Layouts {
++    /// The 26A428 graph: version word 0x0c8e_0339_8728_04c0 and its allocation sizes.
++    V26A428,
++    /// The 27.2 (26B123) graph: version word 0x0c8e_4339_8728_04c0, a larger power policy
++    /// (0x12728) and status config (0x790), the 26A428 HW data.
++    V26B123,
++}
++
+ #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+ pub(crate) enum QueueRegistration {
+     Firmware,
+@@ -87,6 +97,8 @@ pub(crate) struct Variant {
+     /// work. The bare-metal M5 firmware powers the cores for work by its own policy: under a
+     /// hold, the M5 Ultra's core-power witness reads unpowered until the hold is released.
+     pub(crate) registration_power_hold: bool,
++    /// The InitData layouts the M5 graph must build for this firmware; `None` off M5.
++    pub(crate) m5_layouts: Option<M5Layouts>,
+ }
+ 
+ /// A firmware build a SoC supports, identified by its loaded TEXT.
+@@ -134,6 +146,7 @@ pub(crate) enum Firmware {
+     split_firmware_area: false,
+     m5_commands: false,
+     registration_power_hold: true,
++    m5_layouts: None,
+ };
+ 
+ /// The M4 Pro firmware (25G83, `mBoot-18000.161.10`).
+@@ -168,6 +181,7 @@ pub(crate) enum Firmware {
+     split_firmware_area: false,
+     m5_commands: false,
+     registration_power_hold: true,
++    m5_layouts: None,
+ };
+ 
+ /// The 26A428 firmware of the M5 GPUs, which runs the M5 protocol (the M5 graph, queues and
+@@ -176,9 +190,16 @@ pub(crate) enum Firmware {
+     m5_commands: true,
+     render_ray_query: false,
+     registration_power_hold: false,
++    m5_layouts: Some(M5Layouts::V26A428),
+     ..V26A428
+ };
+ 
++/// The 27.2 M5 firmware (26B123): the 26A428 M5 protocol with the 26B123 InitData layouts.
++pub(crate) const V26B123_M5: Variant = Variant {
++    m5_layouts: Some(M5Layouts::V26B123),
++    ..V26A428_M5
++};
++
+ pub(crate) const V25F84: Variant = Variant {
+     qid_floor: 0,
+     registration: QueueRegistration::Mailbox,
+diff --git a/drivers/gpu/drm/asahi/g17/mod.rs b/drivers/gpu/drm/asahi/g17/mod.rs
+index 81ffe37c872a..e3e737741e62 100644
+--- a/drivers/gpu/drm/asahi/g17/mod.rs
++++ b/drivers/gpu/drm/asahi/g17/mod.rs
+@@ -1485,6 +1485,16 @@ pub(crate) fn new(
+         }
+         let m5 = cfg.profile.is_m5();
+         if m5 {
++            // The M5 graph builds only the 26A428 InitData layouts. A firmware that checks
++            // another layout is refused here, before anything is written to the GPU.
++            if variant.m5_layouts != Some(fw::variant::M5Layouts::V26A428) {
++                dev_err!(
++                    dev.as_ref(),
++                    "No M5 InitData layouts for this GPU firmware build ({:?})\n",
++                    variant.m5_layouts
++                );
++                return Err(ENODEV);
++            }
+             let board = cfg.m5.ok_or(EINVAL)?;
+             // The M5 layouts are sized for every core slot of the board, fused-off cores
+             // included, so the GPU is matched on clusters and slots, not on enabled cores.
+-- 
+2.56.0
+

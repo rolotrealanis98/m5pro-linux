@@ -1,0 +1,95 @@
+From 584cc22bca3dd514d7f3ae94f156df88a07bff56 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:29:59 -0500
+Subject: [PATCH 11/13] drm/asahi: g17: m5: choose the status-config map from
+ the root profile
+
+Give RootProfile the status-config map of its M5 graph and have
+build_m5() pick the profile before it encodes the private cluster, so
+the status-B span, the link word and pointer and the submission-history
+reader all follow the profile's layout. Every existing profile keeps
+the 26A428 map, so the graph is unchanged.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs | 30 +++++++++++++++++----
+ drivers/gpu/drm/asahi/g17/initdata/m5.rs    |  3 ++-
+ 2 files changed, 27 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+index ec463088bfe2..a8b1dd9c2d6b 100644
+--- a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
++++ b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+@@ -156,6 +156,18 @@ pub(crate) const fn repeated_region_bundle_offset(self) -> usize {
+             _ => WORK_RING_BUNDLE_OFFSETS,
+         }
+     }
++
++    /// Status-config layout of the M5 graph built for this profile.
++    pub(crate) const fn m5_status_config(self) -> &'static M5StatusConfigMap {
++        match self {
++            Self::J714G17S26A428
++            | Self::J714G17S26B123
++            | Self::J714G17S26C5035
++            | Self::J700G17P
++            | Self::J813G17G25G76
++            | Self::J873G18G26A428 => &M5_26A428_STATUS_CONFIG,
++        }
++    }
+ }
+ 
+ const INITDATA_ADDR_MASK: u64 = 0x0000_0fff_ffff_ffff;
+@@ -3129,12 +3141,15 @@ fn write_m5_status_config_words(
+ }
+ 
+ pub(crate) fn encode_m5_private_cluster(
+-    m5_layout: &M5Layout,
++    profile: RootProfile,
+     private_base: u64,
+     fwctl_state: u64,
+     out: &mut [u8],
+ ) -> Result<(), InitdataError> {
+-    let layout = m5_layout.private;
++    let layout = profile
++        .m5_layout()
++        .ok_or(InitdataError::InterfaceMismatch)?
++        .private;
+     if out.len() != layout.total {
+         return Err(InitdataError::BufferSize);
+     }
+@@ -3154,9 +3169,14 @@ pub(crate) fn encode_m5_private_cluster(
+     out.fill(0);
+     let status_b = layout.status_b;
+     let status_a = layout.roles[0].status_a;
+-    encode_m5_primary_status_b(m5_layout, fwctl_state, fwctl_ring,
+-                                        private_base + status_b as u64,
+-                                        &mut out[status_b..status_a])?;
++    encode_m5_primary_status_b_for(
++        profile.m5_status_config(),
++        layout.status_config - status_b,
++        fwctl_state,
++        fwctl_ring,
++        private_base + status_b as u64,
++        &mut out[status_b..status_a],
++    )?;
+     for role in layout.roles {
+         encode_status_block(&mut out[role.status_a..role.status_a + STATUS_BLOCK_SIZE])?;
+     }
+diff --git a/drivers/gpu/drm/asahi/g17/initdata/m5.rs b/drivers/gpu/drm/asahi/g17/initdata/m5.rs
+index 644ca596a800..07d136bfd670 100644
+--- a/drivers/gpu/drm/asahi/g17/initdata/m5.rs
++++ b/drivers/gpu/drm/asahi/g17/initdata/m5.rs
+@@ -166,7 +166,8 @@ pub(crate) fn build_m5(
+         m::encode_common26_aon_ptd(board, &mut self.object_mut(aon)?.bytes_mut()[..m::M5_AON_PTD_SIZE])
+             .map_err(|_| EINVAL)?;
+         m::encode_m5_region_c(self.object_mut(self.region_c)?.bytes_mut()).map_err(|_| EINVAL)?;
+-        m::encode_m5_private_cluster(layout, PRIVATE, FWCTL,
++        self.m5_status_config = profile.m5_status_config();
++        m::encode_m5_private_cluster(profile, PRIVATE, FWCTL,
+             &mut self.object_mut(self.cluster)?.bytes_mut()[..private.total]).map_err(|_| EINVAL)?;
+         let windows = board.register_windows();
+         let windows = &windows[..board.register_window_count()];
+-- 
+2.56.0
+

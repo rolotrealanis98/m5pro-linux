@@ -1,0 +1,102 @@
+From 48899d4ecc7783d24b691d1add3c2e4f6e0aed27 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:24:07 -0500
+Subject: [PATCH 05/13] soc: apple: mailbox: Add the T6050 GPU ASCWrap v6
+ mailboxes at their native addresses
+
+The T6050 role table expects the GPU coprocessors' wrapper and IOP VBAR
+windows at 0x8_0260_0000/0x8_0205_0000 (GFX) and 0x8_02e0_0000/
+0x8_0285_0000 (GFX1), the windows Aura grants in its retained GPU
+aperture. A loader that leaves the SoC's own layout in place, as m1n1
+does on the 16-inch M5 Pro (J716s), hands the mailboxes over at their
+native addresses, and probe refuses them ("ASCWrap v6 resources do not
+match the SoC"), so the GPU defers forever.
+
+Add a role table and provider for the native layout, taken from the
+J716s ADT: gfx-asc (role GFX) reg[0] 0x23_0260_0000 + 0x88000 and
+reg[1] 0x23_0205_0000 + 0x8; gfx1-asc (role GFX1) reg[0]
+0x23_02e0_0000 + 0x88000 and reg[1] 0x23_0285_0000 (the ADT gives
+0x60000 bytes; the provider takes the 8-byte VBAR). Both are
+iop,ascwrap-v6 with iop-version 1, behind the sgx block at
+0x23_0000_0000. The register layout, the mailbox at +0x8000 and the
+CPU RUN/stop sequence are those of the other T6050 providers.
+
+On a J716s with this series both mailboxes bind and both GPU
+coprocessors start (RTKit protocol 12).
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/soc/apple/mailbox.c | 35 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/drivers/soc/apple/mailbox.c b/drivers/soc/apple/mailbox.c
+index c13c03f9d92a..0b4751b143ce 100644
+--- a/drivers/soc/apple/mailbox.c
++++ b/drivers/soc/apple/mailbox.c
+@@ -67,6 +67,11 @@
+ #define APPLE_T6040_GFX_WRAPPER_BASE 0x28a600000ULL
+ #define APPLE_T6040_GFX_IOP_VBAR_BASE 0x28a050000ULL
+ #define APPLE_T6050_ASCWRAP_BASE_DELTA 0x380000000ULL
++/* T6050 GPU ASCs at their native addresses (ADT gfx-asc/gfx1-asc reg[0], reg[1]). */
++#define APPLE_T6050_GFX_WRAPPER_BASE 0x2302600000ULL
++#define APPLE_T6050_GFX_IOP_VBAR_BASE 0x2302050000ULL
++#define APPLE_T6050_GFX1_WRAPPER_BASE 0x2302e00000ULL
++#define APPLE_T6050_GFX1_IOP_VBAR_BASE 0x2302850000ULL
+ /* T8142 (M5) moves T8140's 0x4... GPU ASC bank to 0x5.... */
+ #define APPLE_T8142_ASCWRAP_BASE_DELTA 0x100000000ULL
+ 
+@@ -1656,6 +1661,18 @@ static const struct apple_mbox_ascwrap_v6_role_desc apple_mbox_t6050_apif_ascwra
+ 	  APPLE_T8140_GFX1_IOP_VBAR_BASE + APPLE_T6050_ASCWRAP_BASE_DELTA },
+ };
+ 
++/*
++ * T6050 booted by a loader that leaves the GPU ASCs where the SoC puts them:
++ * the ADT gfx-asc and gfx1-asc wrappers (0x88000) and IOP VBARs (the first 8
++ * bytes of reg[1]), behind the sgx block at 0x2300000000.
++ */
++static const struct apple_mbox_ascwrap_v6_role_desc apple_mbox_t6050_native_ascwrap_v6_roles[] = {
++	{ "GFX", APPLE_MBOX_ASCWRAP_V6_ROLE_GFX,
++	  APPLE_T6050_GFX_WRAPPER_BASE, APPLE_T6050_GFX_IOP_VBAR_BASE },
++	{ "GFX1", APPLE_MBOX_ASCWRAP_V6_ROLE_GFX1,
++	  APPLE_T6050_GFX1_WRAPPER_BASE, APPLE_T6050_GFX1_IOP_VBAR_BASE },
++};
++
+ static const struct apple_mbox_hw apple_mbox_t6050_ascwrap_v6_hw = {
+ 	.reg_offset = APPLE_ASCWRAP_V6_MBOX_OFFSET,
+ 	.is_ascwrap_v6 = true,
+@@ -1672,6 +1689,22 @@ static const struct apple_mbox_hw apple_mbox_t6050_ascwrap_v6_hw = {
+ 	.has_irq_controls = false,
+ };
+ 
++static const struct apple_mbox_hw apple_mbox_t6050_native_ascwrap_v6_hw = {
++	.reg_offset = APPLE_ASCWRAP_V6_MBOX_OFFSET,
++	.is_ascwrap_v6 = true,
++	.ascwrap_v6_roles = apple_mbox_t6050_native_ascwrap_v6_roles,
++	.num_ascwrap_v6_roles = ARRAY_SIZE(apple_mbox_t6050_native_ascwrap_v6_roles),
++	.control_full = APPLE_ASC_MBOX_CONTROL_FULL,
++	.control_empty = APPLE_ASC_MBOX_CONTROL_EMPTY,
++	.a2i_control = APPLE_ASC_MBOX_A2I_CONTROL,
++	.a2i_send0 = APPLE_ASC_MBOX_A2I_SEND0,
++	.a2i_send1 = APPLE_ASC_MBOX_A2I_SEND1,
++	.i2a_control = APPLE_ASC_MBOX_I2A_CONTROL,
++	.i2a_recv0 = APPLE_ASC_MBOX_I2A_RECV0,
++	.i2a_recv1 = APPLE_ASC_MBOX_I2A_RECV1,
++	.has_irq_controls = false,
++};
++
+ /* Retained compatibility profile: unshifted wrapper aliases, native VBAR. */
+ static const struct apple_mbox_hw apple_mbox_t6050_apif_ascwrap_v6_hw = {
+ 	.reg_offset = APPLE_ASCWRAP_V6_MBOX_OFFSET,
+@@ -1716,6 +1749,8 @@ static const struct of_device_id apple_mbox_of_match[] = {
+ 	{ .compatible = "apple,t8142-ascwrap-v6", .data = &apple_mbox_t8142_ascwrap_v6_hw },
+ 	{ .compatible = "apple,t6050-apif-ascwrap-v6", .data = &apple_mbox_t6050_apif_ascwrap_v6_hw },
+ 	{ .compatible = "apple,t6050-ascwrap-v6", .data = &apple_mbox_t6050_ascwrap_v6_hw },
++	{ .compatible = "apple,t6050-native-ascwrap-v6",
++	  .data = &apple_mbox_t6050_native_ascwrap_v6_hw },
+ 	{ .compatible = "apple,t6050-x1n1-ascwrap-v6", .data = &apple_mbox_t6050_ascwrap_v6_hw },
+ 	{ .compatible = "apple,t8140-asc-mailbox", .data = &apple_mbox_t8140_asc_hw },
+ 	{ .compatible = "apple,t8140-aop-setup-mailbox", .data = &apple_mbox_t8140_aop_setup_hw },
+-- 
+2.56.0
+

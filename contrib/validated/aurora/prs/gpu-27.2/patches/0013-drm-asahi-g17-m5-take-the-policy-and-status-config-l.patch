@@ -1,0 +1,242 @@
+From 34f2f5bb4d03bbe3acce237cb67af8dc9972aa4a Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 12:55:22 -0500
+Subject: [PATCH 13/13] drm/asahi: g17: m5: take the policy and status-config
+ layouts from the firmware build
+
+build_m5() now selects the power-policy map from the same M5 layouts
+the root profile comes from, so a 26B123 or 26C5035 firmware gets its
+policy laid out to 0x12728 bytes and its 0x790-byte status config in
+the same graph. The policy and status-config sizes of 26B123 are
+entries 4 and 13 of its allocation size table, and a compile-time
+check holds every M5 build's policy and status-config maps to its own
+size table, with the policy at the offset the controller defaults
+write it.
+
+The controller defaults keep writing the 26A428 policy, which the
+relayout then moves; name that slice once. The private cluster encoder
+takes the root profile and derives both the cluster layout and the
+status-config map from it, which leaves the 26A428-only status-B
+wrapper without callers.
+
+With every 27.2+ layout in place, Gpu::new() now refuses only a build
+that names no M5 layouts, so the M5 Pro's 27.2 (26B123) and 27.3 beta 1
+(26C5035r) builds run their graphs. 26A428 builds, the only ones the
+M5 Max and M5 Ultra identify, take the identity maps and build the
+same bytes as before this series (check_layout.py, verify_policy.py,
+rustcheck.py).
+
+Tested on a J716s (16-inch M5 Pro) with the 27.3 beta 1 boot firmware,
+a device tree that describes the GPU and a loader that hands it over
+(neither part of this series):
+
+  aurora 2300000000.gpu: GPU firmware: 27.3 (26C5035r), G17S
+  aurora 2300000000.gpu: RTKit: Initializing (protocol version 12)
+  aurora 2300000000.gpu: M5 primary initdata acknowledged
+  aurora 2300000000.gpu: M5 secondary initdata acknowledged
+  aurora 2300000000.gpu: M5 firmware opening records retired
+  [drm] Initialized aurora 1.0.0 for 2300000000.gpu on minor 1
+
+with no coprocessor crash, SError, DART or UAT fault for the minutes
+the system ran. Not exercised yet: rendering from userspace, the 27.2
+firmware on hardware, the forced-idle sleep path, the M5 Max and
+M5 Ultra on 27.2+.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs | 85 +++++++++++++--------
+ drivers/gpu/drm/asahi/g17/initdata/m5.rs    |  4 +-
+ drivers/gpu/drm/asahi/g17/mod.rs            |  6 +-
+ 3 files changed, 58 insertions(+), 37 deletions(-)
+
+diff --git a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+index 7c30e07853b5..68c828d1b5e1 100644
+--- a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
++++ b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+@@ -162,10 +162,9 @@ pub(crate) const fn m5_status_config(self) -> &'static M5StatusConfigMap {
+         match self {
+             Self::J714G17S26B123 => &M5_26B123_STATUS_CONFIG,
+             Self::J714G17S26C5035 => &M5_26B123_STATUS_CONFIG,
+-            Self::J714G17S26A428
+-            | Self::J700G17P
+-            | Self::J813G17G25G76
+-            | Self::J873G18G26A428 => &M5_26A428_STATUS_CONFIG,
++            Self::J714G17S26A428 | Self::J700G17P | Self::J813G17G25G76 | Self::J873G18G26A428 => {
++                &M5_26A428_STATUS_CONFIG
++            }
+         }
+     }
+ }
+@@ -1508,7 +1507,8 @@ pub(crate) const fn relocate_by_bands(bands: &[LayoutBand], offset: usize) -> Op
+ ];
+ 
+ /// Status-config size of 26B123 (entry 13 of its allocation size table).
+-pub(crate) const M5_26B123_STATUS_CONFIG_SIZE: usize = 0x790;
++pub(crate) const M5_26B123_STATUS_CONFIG_SIZE: usize =
++    ABI_ALLOCATION_SIZES_26B123_M5[ALLOC_STATUS_CONFIG];
+ 
+ /// The words 26B123 has and 26A428 does not, at 26B123 offsets, with the values its kext
+ /// stores. Block 0's new value is configuration word +0x12d74 (0xfffffe0008bb71a8), 5000 by
+@@ -1961,10 +1961,41 @@ pub(crate) const fn hw_data_offset(&self, offset: usize) -> Option<usize> {
+     assert!(M5_LAYOUT_26B123.private.total == M5_LAYOUT_26A428.private.total);
+     // The kick-shared pointer and the last field the 26C5035r kext writes.
+     let kick = M5_KICK_SHARED_POINTER;
+-    assert!(matches!(M5_LAYOUT_26A428.hw_data_offset(kick), Some(0x27dc)));
+-    assert!(matches!(M5_LAYOUT_26C5035.hw_data_offset(kick), Some(0x27e0)));
+-    assert!(matches!(M5_LAYOUT_26C5035.hw_data_offset(0x2846), Some(0x284a)));
+-    assert!(matches!(M5_LAYOUT_26C5035.hw_data_offset(0x271c), Some(0x271c)));
++    assert!(matches!(
++        M5_LAYOUT_26A428.hw_data_offset(kick),
++        Some(0x27dc)
++    ));
++    assert!(matches!(
++        M5_LAYOUT_26C5035.hw_data_offset(kick),
++        Some(0x27e0)
++    ));
++    assert!(matches!(
++        M5_LAYOUT_26C5035.hw_data_offset(0x2846),
++        Some(0x284a)
++    ));
++    assert!(matches!(
++        M5_LAYOUT_26C5035.hw_data_offset(0x271c),
++        Some(0x271c)
++    ));
++};
++
++const _: () = {
++    use super::super::variant::M5Layouts;
++    // Every M5 build's policy map and status-config map fill the allocations of its size table,
++    // and the policy starts where the encoders write its 26A428 form.
++    let builds = [M5Layouts::V26A428, M5Layouts::V26B123, M5Layouts::V26C5035];
++    let mut index = 0;
++    while index < builds.len() {
++        let profile = RootProfile::for_m5_layouts(builds[index]);
++        let layout = match profile.m5_layout() {
++            Some(layout) => layout,
++            None => panic!("an M5 build without an M5 layout"),
++        };
++        assert!(m5_policy_size(builds[index]) == layout.policy_size());
++        assert!(profile.m5_status_config().size == layout.status_config_size());
++        assert!(layout.shared.policy == M5_SHARED_LAYOUT.policy);
++        index += 1;
++    }
+ };
+ 
+ pub(crate) const M5_SHARED_LAYOUT: SharedClusterLayout = M5_LAYOUT_26A428.shared;
+@@ -2330,7 +2361,7 @@ pub(crate) fn set_m5_enabled_cores(
+ ];
+ 
+ /// Power-policy size of 26B123 (entry 4 of its allocation size table).
+-pub(crate) const M5_26B123_POLICY_SIZE: usize = 0x12728;
++pub(crate) const M5_26B123_POLICY_SIZE: usize = ABI_ALLOCATION_SIZES_26B123_M5[ALLOC_POLICY];
+ 
+ /// The 26B123 controller-configuration words the 26A428 controller defaults do not write, at
+ /// 26B123 offsets. The kext copies them from its configuration words, which only the G17
+@@ -3043,26 +3074,6 @@ pub(crate) fn encode_m5_region_c(out: &mut [u8]) -> Result<(), InitdataError> {
+     Ok(())
+ }
+ 
+-pub(crate) fn encode_m5_primary_status_b(
+-    layout: &M5Layout,
+-    fwctl_state: u64,
+-    fwctl_ring: u64,
+-    status_b: u64,
+-    out: &mut [u8],
+-) -> Result<(), InitdataError> {
+-    if out.len() != layout.status_b_span() {
+-        return Err(InitdataError::BufferSize);
+-    }
+-    encode_m5_primary_status_b_for(
+-        &M5_26A428_STATUS_CONFIG,
+-        layout.status_config_in_status_b(),
+-        fwctl_state,
+-        fwctl_ring,
+-        status_b,
+-        out,
+-    )
+-}
+-
+ /// Encodes the primary status-B span (`out`, from status B to the primary status A) of a build
+ /// whose status config sits at `config` in the span and is laid out as `map` says.
+ pub(crate) fn encode_m5_primary_status_b_for(
+@@ -3249,6 +3260,14 @@ pub(crate) fn encode_m5_bundle_policy(
+     Ok(())
+ }
+ 
++/// The power policy in `out` (a bundle) in its 26A428 form, which the controller defaults write
++/// and [`relayout_m5_policy`] then lays out for the firmware build. Every M5 layout starts the
++/// policy at the same offset.
++fn m5_policy_source(out: &mut [u8]) -> Result<&mut [u8], InitdataError> {
++    out.get_mut(M5_SHARED_LAYOUT.policy..M5_SHARED_LAYOUT.policy + M5_POLICY_SIZE)
++        .ok_or(InitdataError::BufferSize)
++}
++
+ /// Initial controller inputs for J714 with the matched calibration.
+ pub(crate) fn encode_m5_policy_controller_defaults(out: &mut [u8]) -> Result<(), InitdataError> {
+     if out.len() < M5_SHARED_PREFIX_SIZE { return Err(InitdataError::BufferSize); }
+@@ -3267,7 +3286,7 @@ pub(crate) fn encode_m5_policy_controller_defaults(out: &mut [u8]) -> Result<(),
+         0x42b6ec22, 0x42c80000, 0x00000000, 0x00000000,
+     ];
+     for (index, &value) in RELATIVE_POWER_AUX.iter().enumerate() { put_u32(out, 0x1a64 + index * 4, value); }
+-    let policy = &mut out[M5_SHARED_LAYOUT.policy..M5_SHARED_LAYOUT.policy + M5_POLICY_SIZE];
++    let policy = m5_policy_source(out)?;
+     const INITIAL: &[(usize, u32)] = &[
+         (0xd4, 0x3f828f5c),
+         (0xd8, 0x3f828f5c),
+@@ -3518,7 +3537,7 @@ pub(crate) fn encode_m5_policy_controller_defaults(out: &mut [u8]) -> Result<(),
+ /// tags.
+ pub(crate) fn encode_m5_policy_controller_defaults_j716c(out: &mut [u8]) -> Result<(), InitdataError> {
+     encode_m5_policy_controller_defaults(out)?;
+-    let policy = &mut out[M5_SHARED_LAYOUT.policy..M5_SHARED_LAYOUT.policy + M5_POLICY_SIZE];
++    let policy = m5_policy_source(out)?;
+     const MAXIMUM_POWER: u32 = 196_098;
+     const MAXIMUM_POWER_F32: u32 = 0x483f_8080;
+     for offset in [M5_POLICY_MAXIMUM_POWER, 0xad0, 0x44a4, 0x44a8, 0x44ac, 0x45e4] {
+@@ -3557,7 +3576,7 @@ pub(crate) fn encode_m5_policy_controller_defaults_j775d(out: &mut [u8]) -> Resu
+         0x421c_12dd, 0x4230_6915, 0x4250_6a36, 0x427d_e40c, 0x4294_0cc0, 0x42bd_bd8e, 0x42c8_0000,
+     ];
+     for (index, &value) in RELATIVE_POWER_AUX.iter().enumerate() { put_u32(out, 0x1a64 + index * 4, value); }
+-    let policy = &mut out[M5_SHARED_LAYOUT.policy..M5_SHARED_LAYOUT.policy + M5_POLICY_SIZE];
++    let policy = m5_policy_source(out)?;
+     const MAXIMUM_POWER: u32 = 345_262;
+     const MAXIMUM_POWER_F32: u32 = 0x48a8_95c0;
+     for offset in [M5_POLICY_MAXIMUM_POWER, 0xad0, 0x44a4, 0x44a8, 0x44ac, 0x45e4] {
+diff --git a/drivers/gpu/drm/asahi/g17/initdata/m5.rs b/drivers/gpu/drm/asahi/g17/initdata/m5.rs
+index 07d136bfd670..4947fec91112 100644
+--- a/drivers/gpu/drm/asahi/g17/initdata/m5.rs
++++ b/drivers/gpu/drm/asahi/g17/initdata/m5.rs
+@@ -112,10 +112,12 @@ pub(crate) fn build_m5(
+     ) -> Result {
+         use mmu::{PROT_FW_SHARED_RW as RW, PROT_FW_SHARED_RO as RO,
+                   PROT_GPU_SHARED_RW as GPU};
+-        let profile = m::RootProfile::for_m5_layouts(variant.m5_layouts.ok_or(EINVAL)?);
++        let layouts = variant.m5_layouts.ok_or(EINVAL)?;
++        let profile = m::RootProfile::for_m5_layouts(layouts);
+         let layout = profile.m5_layout().ok_or(EINVAL)?;
+         self.m5 = true;
+         self.m5_layout = layout;
++        self.set_m5_policy_layouts(layouts);
+         // TA, fragment and compute share the compute work ring per priority; every
+         // preparation's claim on it is counted from the first publication on.
+         self.outer_credits = Some(super::outer_credit::Credits::new()?);
+diff --git a/drivers/gpu/drm/asahi/g17/mod.rs b/drivers/gpu/drm/asahi/g17/mod.rs
+index 2d8e05334979..2d7f660dac94 100644
+--- a/drivers/gpu/drm/asahi/g17/mod.rs
++++ b/drivers/gpu/drm/asahi/g17/mod.rs
+@@ -1483,9 +1483,9 @@ pub(crate) fn new(
+         }
+         let m5 = cfg.profile.is_m5();
+         if m5 {
+-            // The M5 graph builds only the 26A428 InitData layouts. A firmware that checks
+-            // another layout is refused here, before anything is written to the GPU.
+-            if variant.m5_layouts != Some(fw::variant::M5Layouts::V26A428) {
++            // The M5 graph builds the InitData layouts the firmware build names. A build that
++            // names none is refused here, before anything is written to the GPU.
++            if variant.m5_layouts.is_none() {
+                 dev_err!(
+                     dev.as_ref(),
+                     "No M5 InitData layouts for this GPU firmware build ({:?})\n",
+-- 
+2.56.0
+

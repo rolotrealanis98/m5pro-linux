@@ -1,0 +1,21 @@
+drivers/gpu/drm/asahi/driver.rs: 0 added lines, 0 not rustfmt-clean
+drivers/gpu/drm/asahi/fwid.rs: 28 added lines, 0 not rustfmt-clean
+drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs: 832 added lines, 5 not rustfmt-clean
+  924:                 RootProfile::J873G18G26A428
+  925:                 | RootProfile::J714G17S26A428
+  926:                 | RootProfile::J714G17S26B123
+  927:                 | RootProfile::J714G17S26C5035 => COMMON26_MAIN_SECONDARY_KIND,
+  932:                         bundle + layout.shared.policy as u64);
+drivers/gpu/drm/asahi/g17/fw/variant.rs: 31 added lines, 0 not rustfmt-clean
+drivers/gpu/drm/asahi/g17/initdata.rs: 24 added lines, 0 not rustfmt-clean
+drivers/gpu/drm/asahi/g17/initdata/m5.rs: 71 added lines, 8 not rustfmt-clean
+  172:         m::encode_m5_private_cluster(profile, PRIVATE, FWCTL,
+  198:         m::encode_m5_hw_data(layout, board, completions, QOS, windows,
+  199:             &mut self.object_mut(self.bundle)?.bytes_mut()[..hw_data]).map_err(|_| EINVAL)?;
+  200:         m::set_m5_kick_shared(layout,
+  201:             &mut self.object_mut(self.bundle)?.bytes_mut()[..hw_data], KICK_SHARED)
+  206:         m::set_m5_enabled_cores(layout,
+  207:             &mut self.object_mut(self.bundle)?.bytes_mut()[..hw_data], enabled_cores)
+  209:         m::encode_m5_bundle_policy(layout, m::M5PolicyBindings {
+drivers/gpu/drm/asahi/g17/mod.rs: 12 added lines, 0 not rustfmt-clean
+drivers/gpu/drm/asahi/hw/t6050.rs: 102 added lines, 0 not rustfmt-clean

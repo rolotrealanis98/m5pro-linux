@@ -1,0 +1,67 @@
+
+== 1. band table: ANALYSIS.md vs driver source
+driver: [0x0,0x4910) +0x0, [0x4910,0x491c) +0x10, [0x491c,0x49b8) +0x14, [0x49b8,0x4a98) +0x18, [0x4a98,0x12668) +0x30, [0x12668,0x126b0) +0x78
+equal; end 0x12728 size const 0x12728
+
+== 2. kext policy stores 27.0 -> 27.2 (26B123)
+  27.0 stores 363, 27.2 (26B123) stores 364; relocated and found: 363
+  relocated 27.0 stores missing in 27.2 (26B123): none
+  unexplained 27.2 (26B123) stores: ["0x492c ['str:w8']"]
+  same offset, other instruction form: 3 ["0x4918->0x4928 ['str:w8']->['str:w9']", "0x11988->0x119b8 ['str:w9']->['str:w8']", "0x119d4->0x11a04 ['str:w9']->['str:w8']"]
+
+== 2. kext policy stores 27.0 -> 27.3 (26C5035r)
+  27.0 stores 363, 27.3 (26C5035r) stores 364; relocated and found: 363
+  relocated 27.0 stores missing in 27.3 (26C5035r): none
+  unexplained 27.3 (26C5035r) stores: ["0x492c ['str:w8']"]
+  same offset, other instruction form: 3 ["0x4918->0x4928 ['str:w8']->['str:w9']", "0x11988->0x119b8 ['str:w9']->['str:w8']", "0x119d4->0x11a04 ['str:w9']->['str:w8']"]
+
+== 3. GFX1 firmware policy accesses 27.0 -> 27.2
+  27.0 offsets 209, 27.2 offsets 219
+  relocated 27.0 accesses missing in 27.2: none
+  new 0x4910: insert: u64 accumulator
+  new 0x4918: insert: u64 accumulator
+  new 0x94e4: firmware field in 27.0-unused space
+  new 0x9504: firmware field in 27.0-unused space
+  new 0x950c: firmware field in 27.0-unused space
+  new 0x9524: firmware field in 27.0-unused space
+  new 0x952c: firmware field in 27.0-unused space
+  new 0x9544: firmware field in 27.0-unused space
+  new 0x122e4: 27.0 0x122b4 via x26, missed by the 27.0 tracker
+  new 0x122ec: 27.0 0x122bc via x26, missed by the 27.0 tracker
+  unexplained 27.2 accesses: none
+
+== 3. GFX1 firmware policy accesses 27.0 -> 27.3
+  27.0 offsets 209, 27.3 offsets 219
+  relocated 27.0 accesses missing in 27.3: none
+  new 0x4910: insert: u64 accumulator
+  new 0x4918: insert: u64 accumulator
+  new 0x94e4: firmware field in 27.0-unused space
+  new 0x9504: firmware field in 27.0-unused space
+  new 0x950c: firmware field in 27.0-unused space
+  new 0x9524: firmware field in 27.0-unused space
+  new 0x952c: firmware field in 27.0-unused space
+  new 0x9544: firmware field in 27.0-unused space
+  new 0x122e4: 27.0 0x122b4 via x26, missed by the 27.0 tracker
+  new 0x122ec: 27.0 0x122bc via x26, missed by the 27.0 tracker
+  unexplained 27.3 accesses: none
+  pointer 0x8254 -> 0x8284: kext 27.0 True 27.2 True; fw 27.0 False 27.2 False
+  pointer 0x11a1c -> 0x11a4c: kext 27.0 True 27.2 True; fw 27.0 True 27.2 True
+
+== 4. driver policy words, encoded and laid out by the driver's own code (rustc)
+  compiled the driver items with rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew) ; 26A428 relayout byte-identical for every board; short slice refused
+  J714  base    : 292 non-zero 27.0 words; mismatches vs Python relocation 0; words in inserts none; lost none
+  J714  defaults: 529 non-zero 27.0 words; mismatches vs Python relocation 0; words in inserts ['0x492c']; lost none
+  J716C base    : 292 non-zero 27.0 words; mismatches vs Python relocation 0; words in inserts none; lost none
+  J716C defaults: 535 non-zero 27.0 words; mismatches vs Python relocation 0; words in inserts ['0x492c']; lost none
+  J775D base    : 292 non-zero 27.0 words; mismatches vs Python relocation 0; words in inserts none; lost none
+  J775D defaults: 559 non-zero 27.0 words; mismatches vs Python relocation 0; words in inserts ['0x492c']; lost none
+
+  27.0 source of the moved-in firmware fields [0x94b4, 0x951c) touched by the 27.0 kext, firmware or driver: no
+
+== 4b. driver words (all boards) at their 27.2 offsets vs the 27.2 kext stores / fw accesses
+  559 driver word offsets; written by a 27.0 kext store: 249, by the relocated 27.2 store: 249; read by 27.0 fw: 30, at the relocated 27.2 offset: 30
+  covered in 27.0 but not after relocation: kext none ; fw none
+  69 driver words at or above 0x4910, e.g. 0x4910->0x4920, 0x4914->0x4924, 0x4918->0x4928, 0x49b8->0x49d0, 0x1224c->0x1227c, 0x12280->0x122b0, 0x12284->0x122b4, 0x122e0->0x12310
+  controller words in the 27.2 kext stores: {'0x492c': True, '0x4a14': True}
+
+RESULT: PASS
