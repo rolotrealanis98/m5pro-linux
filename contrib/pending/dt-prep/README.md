@@ -3,7 +3,7 @@
 Base: `j716s-series` `aec60666a572` (the filter-branch rewrite of `4f630b11270d`, identical tree).
 Worktree `/Volumes/linux-cs/wt-dtprep` (branches `dtprep-work` = right-port, `dtprep-hwmon`, `dtprep-sleep`,
 `dtprep-stack` = all four applied with `git am`), build dir `/Volumes/linux-cs/wt-dtprep-out` (DTB only).
-Author Rolando Trevino, `Assisted-by: LLM` + `Co-Authored-By`, no `Signed-off-by` (add yours).
+Author and Signed-off-by: Rolando Trevino; no assistant trailers.
 Each patch applies alone on the base (`git apply --check`) and all four apply in the order below.
 
 | Patch | sha256 | Needs |

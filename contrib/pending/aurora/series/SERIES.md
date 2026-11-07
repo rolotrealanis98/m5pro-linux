@@ -6,7 +6,7 @@ for the J716s (MacBook Pro 16-inch, M5 Pro). Built from worktree `/Volumes/linux
 (branch `j716s-series`, tip `aec60666a572`, re-authored 2026-11-07 to `Rolando Trevino <rolotrealanis@gmail.com>` with `Signed-off-by` and without assistant trailers; the content is byte-identical to `4f630b11270d`, which is the hash in the booted kernel version string), checked by `git am` in `/Volumes/linux-cs/wt-series-verify`.
 
 - `patches/series/0001..0058-*.patch`, order in `patches/series/series`. Aurora's patches keep their
-  authors and messages; ours carry `Assisted-by: LLM` and no `Signed-off-by` (add yours before sending).
+  authors and messages; ours are authored and signed off by Rolando Trevino, without assistant trailers.
 - `patches/j716s.config`: the config fragment (also patch 0058, `arch/arm64/configs/j716s.config`).
 - `dt/t6050-j716s.dts`: the source device tree (patch 0057), `dt/t6050-j716s.dtb` built from the
   series, `dt/t6050-j716s.decompiled.dts`, `dt/dt-diff.txt` (against the booted DTB).
@@ -80,7 +80,7 @@ A = Aurora's work we carry, B = ours. "Upstream" is where the patch lives or sho
 
 Patches 0001-0044 are the commits of `aurora-j716s` cherry-picked unchanged in this order (PR #945 linearised
 instead of merged). 0045-0050 are `aurora-j716s`'s own commits with rewritten messages (the rtkit one gained
-a body; all gained `Assisted-by: LLM`); 0049 is Dj's and unchanged. 0051-0058 are new and replace
+a body); 0049 is Dj's and unchanged. 0051-0058 are new and replace
 `6a6d7dfdc307` (the J716s DT that was not what we boot) and the hand-edited DTB.
 
 ## Differences from `aurora-j716s`
