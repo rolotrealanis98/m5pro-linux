@@ -633,26 +633,26 @@ the decompiled file is kept as the reference.
 
 1. **R3-U**: m1n1 0024 (coprocessor-log reservations) plus the opt-in DCP handoff (new loader code; a stage-2
    failure needs a power-hold to recover).
-2. **W0 / W1 / W2** Wi-Fi steps (`../aurora/n1-wifi/R3-W-RECIPE.md`). W0 is a read-only port status. W1 and W2
+2. **W0 / W1 / W2** Wi-Fi steps (`../../pending/wireless/aurora-n1/R3-W-RECIPE.md`). W0 is a read-only port status. W1 and W2
    train apcie0 port 0 and may disturb NVMe, which sits on the same controller; the FTAB firmware has no ticket yet.
 3. **R3-S** battery (the probe hang history: a hang is not self-recoverable without the A/B stage-1 watchdog).
 4. **Audio** (attended only; the AOP setup mailbox may SError and the speakers can be damaged by a wrong amp setup).
-   Recipe: `../aurora/audio/R3-AUDIO-RECIPE.md`.
+   Recipe: `../../pending/audio/aurora/R3-AUDIO-RECIPE.md`.
    - **Kernel:** built in the Fedora container (Rust on, AOP stack), `Image.gz` `00e8df6f`, tree `wt-aurora-audio` tip
      `1d2ac24c066e` = the R3-X tree + 11 audio patches. It is not the series kernel (`RUST` is off there); folding the 11
      patches into the series is still to do.
    - **Payloads:** **R3-AUDIO-A** `a7c05d1a` (mic and jack on, speakers left in hardware shutdown) first, then
      **R3-AUDIO-B** `34e96037` (speakers at amp level 10, `speaker_max_db=-40`). Neither is run by the autonomous loop.
    - **Root userspace** is prepared from repo packages (pipewire, wireplumber, UCM, graphs, J716 speakersafetyd profile;
-     `../aurora/audio/audio-root-setup.sh`).
+     `../../pending/audio/aurora/audio-root-setup.sh`).
    - **Packages that must be built:** `speakersafetyd`, `asahi-audio` (with the `bankstown` and `triforce` lv2 plugins)
      and `alsa-ucm-conf-asahi` are **not in the Arch Linux ARM repos**. Script:
-     `../aurora/audio/build-audio-pkgs.sh`. Rolando runs it: the permission layer blocks agents from building
+     `../../pending/audio/aurora/build-audio-pkgs.sh`. Rolando runs it: the permission layer blocks agents from building
      external code.
    - **Speaker boot is blocked until `speakersafetyd` is installed** on the root; R3-AUDIO-A (no speakers) does not need it.
 
 Status lines for the rest: DCP is **no-go for scanout** until a 27.3 method table exists (firmware
-AppleDCP-1317.60.10, SDK 27.3, against the driver's exact `"27.0.0"`; `../aurora/dcp/ANALYSIS.md`); GPU is gated off
+AppleDCP-1317.60.10, SDK 27.3, against the driver's exact `"27.0.0"`; `../../pending/dcp/aurora/ANALYSIS.md`); GPU is gated off
 in Aurora's tree.
 
 ### Process: what went wrong and what we changed

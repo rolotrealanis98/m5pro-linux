@@ -3,7 +3,7 @@
 Planning agent, 2026-11-05. Design only; no hardware was touched. Read with `FRICTION.md` (how to
 make each hardware round need less of Rolando) and `SUMMARY.md` (top five changes).
 Sources: repo `README.md`, `docs/status-2026-11-05.md`, `contrib/pending/*/REPORT.md` +
-`TEST-PLAN.md`, `contrib/pending/integration/RESULTS.md`, `contrib/distro/{DESIGN,GAPS}.md`. Effort
+`TEST-PLAN.md`, `contrib/validated/integration/RESULTS.md`, `contrib/distro/{DESIGN,GAPS}.md`. Effort
 uses the distro GAPS scale: **S** <= 2 days, **M** <= 2 weeks, **L** <= 2 months, **XL** = new
 driver or upstream work with no date.
 
@@ -33,9 +33,9 @@ been booted).
 |---|---|---|---|---|---|
 | T1.0 | **Unattended reboot/recovery** (FRICTION P1-P4) | prototypes done: m1n1 0016, `m5-debug.config`, netconsole initramfs, `m5-deploy.sh` | one 1TR ceremony | S | R1 |
 | T1.1 | **macsmc-power probe bisect** | see below | T1.0; P3 kernel config | S-M | R2 (unattended) |
-| T1.2 | cpufreq stages 1-2 (`contrib/pending/cpufreq/TEST-PLAN.md`) | `userspace` governor checks per cluster, then `schedutil`. Never cpuidle (REPORT: WFI loses state on M4+) | T1.0 for safety | S | R2 |
+| T1.2 | cpufreq stages 1-2 (`contrib/validated/legacy-7.2/cpufreq/TEST-PLAN.md`) | `userspace` governor checks per cluster, then `schedutil`. Never cpuidle (REPORT: WFI loses state on M4+) | T1.0 for safety | S | R2 |
 | T1.3 | SMC fan keys and hwmon, thermal stage A (7 monitoring-only zones), keyboard backlight (`fpwm0` PWM, `PWM_APPLE=y`) | platform TEST-PLAN stage A, T1-T3; the stage-B thermal trips wait for T1.2 | T1.2 for stage B | S | R2 |
-| T1.4 | **USB 2.0 host, left-front** (`contrib/pending/usb/`) | step 0 (proxy probe of the PHY addresses), steps 1-5 (usbhost DTB, first device, Ethernet dongle, replug); 1b (PD controller) if VBUS reads 0 V | proxy access (see the R3 note); dongle, hub, meter | S (1a), M (1b) | R3 |
+| T1.4 | **USB 2.0 host, left-front** (`contrib/validated/legacy-7.2/usb/`) | step 0 (proxy probe of the PHY addresses), steps 1-5 (usbhost DTB, first device, Ethernet dongle, replug); 1b (PD controller) if VBUS reads 0 V | proxy access (see the R3 note); dongle, hub, meter | S (1a), M (1b) | R3 |
 | T1.5 | Network over USB Ethernet (FRICTION P8a) | systemd-networkd DHCP on `en*`, SSH straight from macOS, pacman over the LAN | T1.4 | S | R3 |
 | T1.6 | Wi-Fi/BT through a USB dongle (`contrib/pending/wireless/` README + `packages.txt`) | mt76/rtl8xxxu `=y`, firmware staged into the root (`mk-esp-install.sh --firmware`) | T1.4 | S | R4 |
 | T1.7 | Power-off, and the power key / lid under logind | platform TEST-PLAN P steps; logind config so the power key does not halt | a human, to power on after power-off | S | R1/R3 |

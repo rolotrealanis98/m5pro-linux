@@ -5,9 +5,9 @@ Two licences are used. Their texts are in [`LICENSES/`](LICENSES/):
 
 | What | Licence |
 |---|---|
-| Linux kernel patches: `patches/linux/**`, `contrib/pending/*/patches/linux/**`, `contrib/pending/cpufreq/linux/`, `contrib/pending/trackpad/000*.patch`, and kernel patches carried inside an omarchy-m5 patch (its `patches/linux/` files) | GPL-2.0-only |
+| Linux kernel patches: `patches/linux/**`, `contrib/pending/*/patches/linux/**`, `contrib/validated/legacy-7.2/cpufreq/linux/`, `contrib/validated/legacy-7.2/trackpad/000*.patch`, and kernel patches carried inside an omarchy-m5 patch (its `patches/linux/` files) | GPL-2.0-only |
 | m1n1 patches: `patches/m1n1/`, `contrib/pending/*/patches/m1n1/`, `contrib/distro/pkg/m1n1-m5pro/` | MIT (m1n1's own licence) |
-| Everything else: host scripts (`host/`, `host/macos/`), `scripts/`, tools under `contrib/`, `contrib/distro/`, docs, `dt/`, and the omarchy-m5 patches (`patches/omarchy-m5/`, `contrib/pending/*/patches/omarchy-m5/`, `contrib/pending/*/omarchy-m5/`, `contrib/pending/trackpad/dt-*.patch`, `contrib/distro/pkg/linux-m5pro/*.patch`: device tree, kernel config and build-script changes) | MIT |
+| Everything else: host scripts (`host/`, `host/macos/`), `scripts/`, tools under `contrib/`, `contrib/distro/`, docs, `dt/`, and the omarchy-m5 patches (`patches/omarchy-m5/`, `contrib/pending/*/patches/omarchy-m5/`, `contrib/pending/*/omarchy-m5/`, `contrib/validated/legacy-7.2/trackpad/dt-*.patch`, `contrib/distro/pkg/linux-m5pro/*.patch`: device tree, kernel config and build-script changes) | MIT |
 
 Two rules on top of the table:
 

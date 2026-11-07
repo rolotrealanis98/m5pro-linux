@@ -159,4 +159,4 @@ endpoints 0x20/0x23/0x32, no ALS endpoint 0x21). No im4p extraction tool is need
 - aurora-silicon/linux branches (ls-remote): j813-audio-initialization-20261106, t6050/*, j716c/*.
 - wt-aurora files: `drivers/soc/apple/aop.rs`, `rtkit.c`, `rust/kernel/soc/apple/rtkit.rs`, `sound/soc/apple/{aop_audio,aop_t8140,macaudio}`,
   `sound/soc/codecs/tas2764.c`, `drivers/dma/apple-admac.c`, `drivers/iommu/apple-dart.c:4204,4499`, `t6050-die0.dtsi`, `t6050-j775d.dts`.
-- Ours: `contrib/pending/audio/REPORT.md`, `contrib/pending/aurora/ANALYSIS.md` (m5pro-linux); J716s ADT via m1n1.adt.
+- Ours: `contrib/pending/audio/REPORT.md`, `contrib/validated/aurora/ANALYSIS.md` (m5pro-linux); J716s ADT via m1n1.adt.

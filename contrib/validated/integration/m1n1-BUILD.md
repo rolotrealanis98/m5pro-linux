@@ -10,7 +10,7 @@
 | commit | what |
 |---|---|
 | `459a3af2` | m5-t6050 as used for R1 (upstream 7cde7d1a + our patches 0001-0015) |
-| `01cf956d` | + `patches/0017-kboot-keep-the-notch-rows-with-chosen.asahi-show-not.patch` (diff identical to `contrib/pending/integration/patches/m1n1/0017`) |
+| `01cf956d` | + `patches/0017-kboot-keep-the-notch-rows-with-chosen.asahi-show-not.patch` (diff identical to `patches/m1n1/0017`) |
 | `ccbb51bc` | + `patches/0018-usb-pd-t6050-power-up-the-HPMs-with-bounded-SPMI-and.patch` (HEAD, tree `9edaae86`) |
 
 To integrate: keep the series 0001-0015 as is (0005 stays; 0018 undoes its hunk in `usb.c`),

@@ -13,7 +13,7 @@ cd ~/Work/m5-r1 && chmod +x r1-deploy.sh r1-local.sh
 ```
 `r1-deploy.sh` asks for your macOS login password at the `sudo` prompt (it needs it for `diskutil`). Run it as yourself, not with `sudo`.
 
-The files live in the repo as `host/macos/r1-deploy.sh` and `contrib/pending/integration/r1/r1-local.sh`; payloads and `SHA256SUMS` are built on the Studio (`mk-r1-payloads.py`) and carried over iCloud Drive.
+The files live in the repo as `host/macos/r1-deploy.sh` and `contrib/validated/integration/r1/r1-local.sh`; payloads and `SHA256SUMS` are built on the Studio (`mk-r1-payloads.py`) and carried over iCloud Drive.
 
 **Mount point on this Mac:** the ESP can mount as `/Volumes/OMARCHY 1` when a stale `/Volumes/OMARCHY` mount point exists. In that case mount it yourself (`sudo diskutil mount disk0s4`) and give the script the path, which it then treats as already mounted and leaves mounted:
 ```

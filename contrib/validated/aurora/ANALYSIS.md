@@ -212,8 +212,8 @@ git fetch https://github.com/aurora-silicon/linux.git \
 git worktree add -b j716s-aurora /Volumes/linux-cs/wt-aurora-j716s aurora/j716c-t6050-platform
 cd /Volumes/linux-cs/wt-aurora-j716s
 git cherry-pick 4253ee01142c                      # cpuidle: apple: Add T6050 (#826)
-git am ~/Documents/GitHub/m5pro-linux/contrib/pending/integration/patches/linux/0016-*.patch
-git am -3 ~/Documents/GitHub/m5pro-linux/contrib/pending/integration/patches/linux/0004-*.patch
+git am ~/Documents/GitHub/m5pro-linux/contrib/validated/integration/patches/linux/0016-*.patch
+git am -3 ~/Documents/GitHub/m5pro-linux/contrib/validated/integration/patches/linux/0004-*.patch
 # 0017: port only the macsmc-reboot.c + binding hunks (the t6050-smc.dtsi hunk has no target here)
 # add arch/arm64/boot/dts/apple/t6050-j716s.dts (from J716S-DELTA.dts.md) and
 #   dtb-$(CONFIG_ARCH_APPLE) += t6050-j716s.dtb   to arch/arm64/boot/dts/apple/Makefile

@@ -6,7 +6,7 @@
 #   python3 -I gen-deploy-w2.py w2-n1ans-20261107-2dedddda.bin [W2]
 import pathlib, subprocess, sys
 H = pathlib.Path.home()
-T = H/"Documents/GitHub/m5pro-linux/contrib/pending/aurora/tools"
+T = H/"Documents/GitHub/m5pro-linux/contrib/validated/aurora/tools"
 O = H/"Work/agents/aurora-kernel/payloads"
 HERE = pathlib.Path(__file__).resolve().parent
 name = sys.argv[1]

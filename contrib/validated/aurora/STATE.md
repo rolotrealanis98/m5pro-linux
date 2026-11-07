@@ -51,10 +51,10 @@ fallback (`apple,t8112-cluster-cpufreq`) against a `t6050` soc info; `dtbs_check
 simpledrm needs a binding patch; hwmon disabled in the DT until `F0md`/`F1md` are read; battery no longer blacklisted (R3-S).
 
 **Attended queue** (details: `../integration/RESULTS.md`): R3-U (m1n1 0024 + opt-in DCP handoff), W0/W1/W2 Wi-Fi
-(`n1-wifi/R3-W-RECIPE.md`), R3-S battery, audio (`audio/R3-AUDIO-RECIPE.md`: R3-AUDIO-A `a7c05d1a` mic and jack,
+(`../../pending/wireless/aurora-n1/R3-W-RECIPE.md`), R3-S battery, audio (`../../pending/audio/aurora/R3-AUDIO-RECIPE.md`: R3-AUDIO-A `a7c05d1a` mic and jack,
 R3-AUDIO-B `34e96037` speakers; Rust kernel `00e8df6f` from tree `wt-aurora-audio` `1d2ac24c066e` = R3-X tree + 11
 audio patches; `speakersafetyd`, `asahi-audio`, `alsa-ucm-conf-asahi` must be built with
-`audio/build-audio-pkgs.sh` before the speaker boot).
+`../../pending/audio/aurora/build-audio-pkgs.sh` before the speaker boot).
 
 # R3-V (2026-11-07; the base of R3-X, the delta below is against R3-R)
 
@@ -67,7 +67,7 @@ node) booted and is `boot.bin.prev` behind R3-SERIES.
 | m1n1 | `m1n1-plain-r2-pipepark-atc.bin`, sha256 prefix `28b26ebc` (full: `28b26ebcf91e11e512ef100aae0b3e66d174ebf8a380c243dea4763ae2459a33`), banner `v2.0.0-72-gf7555558` = `pipepark-atc` = stage 2 of R3-N + 0020 (PIPE park) + 0021 (ATC tunables from the ADT) | 0021 added (R3-R's `a28b1815` had 0020 only) |
 | Kernel tree | branch `aurora-j716s`, tip `302945c1ecb3` = `6d9f1ec652a6` (R3-R) + PR #937 (PCIe) + PR #938 (T6050 centauri, 16 patches) | +PR #937, +PR #938 |
 | Config | R3-R's, plus `SECURITY_LANDLOCK` (pacman's download sandbox), `ZRAM`, `PINCTRL_APPLE_GPIO`, `RFKILL`, `CFG80211`, `APPLE_CENTAURI`, `BT_HCICENTAURI`, `BACKLIGHT_CLASS_DEVICE` | the eight listed |
-| DT | `contrib/pending/aurora/dt/t6050-j716s-aurora-decompiled.dts` (retired, see git history) (compiled `t6050-j716s-typec-fixed8-notun.dtb` (retired, see git history) next to it): fixed8 **without** the 14 `apple,tunable-*` lists; m1n1 0021 fills them (14 properties seen in the live DT on R3-T). Publishable, no per-unit values | fixed8 (per-unit) for the committed DT |
+| DT | `contrib/validated/aurora/dt/t6050-j716s-aurora-decompiled.dts` (retired, see git history) (compiled `t6050-j716s-typec-fixed8-notun.dtb` (retired, see git history) next to it): fixed8 **without** the 14 `apple,tunable-*` lists; m1n1 0021 fills them (14 properties seen in the live DT on R3-T). Publishable, no per-unit values | fixed8 (per-unit) for the committed DT |
 | Initramfs | `initramfs-selftest.cpio.gz` (DIAG block + self-revert service), the same file as R3-Q/R3-R: sha256 `ce0b462c0ce465d7cde5fa73bac413f0bc4bf9c833efdf70c782dde06eba217a` | none |
 | Bootargs | R3-Q's (below) incl. `initcall_blacklist=macsmc_power_driver_init` and `m5.selftest=1` | none |
 | Seen on the console | `pcie-apple 1cb0000000.pcie: probe failed -22`: expected, the apcie0 port is untrained (m1n1 0023 is opt-in); harmless | new with PR #937 |
