@@ -1,0 +1,120 @@
+From c55f0a2b3ab6dc2f76d048aae12d25cff965eff8 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:45:01 -0500
+Subject: [PATCH 08/10] PCI: apple: T6050 cold train: reset a warm N1, power it
+ off at shutdown
+
+A restart resets the SoC but not the J716s N1: it keeps running its
+firmware with its power line (SMC gP13) released. m1n1 found that a
+50 ms power cycle does not bring such an N1 back in its ROM
+personality, and holds the line low for 250 ms when it reads released
+(the J716s warm-restart runs, three of three). The cold train cannot
+read the line back, so it always holds it low for 250 ms; a cold boot
+pays 200 ms.
+
+The train takes PERST# and the power line before its first register
+write: the SMC's GPIO bank probes late, and a probe deferred for it
+must not leave the shared PHY and the root complex half set up.
+
+The J716s N1 got up to 1 s for link up in m1n1 after its power-up;
+the train now allows the same instead of 500 ms. The root-port reset
+shares the wait, where only a failure takes longer.
+
+A port Linux trained keeps the endpoint's power line, and shutdown
+drops it after parking the port, so the boot after a restart finds the
+N1 cold whether its loader trains the port or the kernel does.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/pci/controller/pcie-apple.c | 41 ++++++++++++++++++++---------
+ 1 file changed, 29 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-apple.c b/drivers/pci/controller/pcie-apple.c
+index 91840e01476b..dbf3c8817a7f 100644
+--- a/drivers/pci/controller/pcie-apple.c
++++ b/drivers/pci/controller/pcie-apple.c
+@@ -474,6 +474,7 @@ struct apple_pcie_port {
+ 	u8			adopted_bus;	/* adopt_link: the secondary bus */
+ 	unsigned long		adopted_slots;	/* adopt_link: RID2SID slots routed (slot == SID) */
+ 	struct gpio_desc	*perst;		/* adopt_link: its PERST# line, for a root-port reset */
++	struct gpio_desc	*pwren;		/* adopt_link: the endpoint's power, if Linux trained it */
+ 	bool			s2idle_kept;	/* adopt_link: link kept up for this sleep */
+ 	bool			s2idle_down;	/* adopt_link: link-down latched before it */
+ };
+@@ -2148,8 +2149,9 @@ static int apple_pcie_t6050_port_train(struct apple_pcie_port *port)
+ 	if (ret)
+ 		return ret;
+ 	apple_pcie_t6050_rmw(port->base + PORT_LTSSMCTL, 0, PORT_LTSSMCTL_START);
++	/* Up to 1 s: what m1n1 allows the J716s N1 after its power-up */
+ 	ret = apple_pcie_t6050_wait(port, port->base, PORT_LINKSTS, PORT_LINKSTS_UP,
+-				    PORT_LINKSTS_UP, 500000);
++				    PORT_LINKSTS_UP, 1000000);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -2322,6 +2324,26 @@ static int apple_pcie_t6050_cold_train(struct apple_pcie_port *port)
+ 	bus = pcie->cfg->busr.start + 1 + port->idx;
+ 	if (bus > pcie->cfg->busr.end)
+ 		return -EINVAL;
++
++	/*
++	 * Both lines before the first register write: a line that is not there yet (the SMC
++	 * GPIO bank probes late) defers the probe with the hardware untouched. The endpoint
++	 * is held off from here. A restart resets the SoC but not the endpoint: after one
++	 * without a shutdown that powered it off, the J716s N1 still runs its firmware, and
++	 * only a power cycle of 250 ms (what m1n1 measured for a warm N1) brings it back in
++	 * its ROM personality.
++	 */
++	if (!port->perst)
++		port->perst = devm_fwnode_gpiod_get(pcie->dev, of_fwnode_handle(port->np),
++						    "reset", GPIOD_ASIS, "PERST#");
++	if (IS_ERR(port->perst))
++		return PTR_ERR(port->perst);
++	pwren = devm_fwnode_gpiod_get(pcie->dev, of_fwnode_handle(port->np), "pwren",
++				      GPIOD_OUT_LOW, "PWREN");
++	if (IS_ERR(pwren))
++		return PTR_ERR(pwren);
++	port->pwren = pwren;
++
+ 	ret = apple_pcie_t6050_shared_phy_on(pcie);
+ 	if (ret)
+ 		return ret;
+@@ -2338,21 +2360,12 @@ static int apple_pcie_t6050_cold_train(struct apple_pcie_port *port)
+ 		port->intr2axi = devm_platform_ioremap_resource_byname(pdev, name);
+ 	if (IS_ERR(port->intr2axi))
+ 		return PTR_ERR(port->intr2axi);
+-	if (!port->perst)
+-		port->perst = devm_fwnode_gpiod_get(pcie->dev, of_fwnode_handle(port->np),
+-						    "reset", GPIOD_ASIS, "PERST#");
+-	if (IS_ERR(port->perst))
+-		return PTR_ERR(port->perst);
+ 	ret = apple_pcie_t6050_perst(port, true);
+ 	if (ret)
+ 		return ret;
+ 
+ 	/* The endpoint held, then powered: the boot loader leaves it off */
+-	pwren = devm_fwnode_gpiod_get(pcie->dev, of_fwnode_handle(port->np), "pwren",
+-				      GPIOD_OUT_LOW, "PWREN");
+-	if (IS_ERR(pwren))
+-		return PTR_ERR(pwren);
+-	msleep(50);
++	msleep(250);
+ 	ret = gpiod_set_value_cansleep(pwren, 1);
+ 	if (ret)
+ 		return ret;
+@@ -4670,7 +4683,11 @@ static void apple_pcie_shutdown(struct platform_device *pdev)
+ 		apple_pcie_t6050_perst(port, true);
+ 		writel(readl(port->phy) & ~BIT(31), port->phy);
+ 		apple_pcie_t6050_port_disable(port, rp);
+-		dev_info(pcie->dev, "port %d held for the restart\n", port->idx);
++		/* An endpoint Linux powered goes off, so the next boot finds it cold */
++		if (port->pwren)
++			gpiod_set_value_cansleep(port->pwren, 0);
++		dev_info(pcie->dev, "port %d held for the restart%s\n", port->idx,
++			 port->pwren ? ", its endpoint powered off" : "");
+ 		pci_dev_put(rp);
+ 	}
+ 	mutex_unlock(&pcie->lock);
+-- 
+2.56.0
+

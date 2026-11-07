@@ -1,0 +1,192 @@
+From 50d99dcea7b413a536db996abfa9cb0dd1f5724c Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:54:46 -0500
+Subject: [PATCH 10/10] arm64: dts: apple: t6050-j716s: let the kernel train
+ the N1's port
+
+pcie-apple trains a T6050 port the loader left down if the root port
+names its endpoint's power line, and needs for it the shared PHY, the
+PHY common block and the windows of the host tunable lists. Describe
+them for the J716s, from its ADT (the same windows as the J714c's):
+
+- pcie0: phy-shared (reg[3]), phy-common (reg[2] + 0x4000) and the
+  axi2af (reg[5]), pcieclkgen (reg[6]), phy-window (reg[2]) and phy-ip
+  (reg[4]) windows; the lists themselves differ between machines and
+  come from the loader;
+- port00: pwren-gpios, SMC GPIO gP13, the N1's power
+  (pci-bridge0 function-reset = pKW4("gP13", 0x00800000));
+- the SMC's first GPIO bank (gP keys), which gP13 is on;
+- dart_apcie0 waits for its root complex (apple,manual-availability):
+  enabled with the port down, it is probed only once pcie-apple has the
+  port up;
+- the power of the port: iBoot leaves APCIE_SYS_GP, APCIE_PHY_SW and
+  APHY_GP_AUS5 in automatic power management with the block gated, and
+  the train needs them on and staying on, as m1n1 raises them. They and
+  their parents are always on, with auto-PM off on the three: the
+  port's link is kept through suspend-to-idle, so they must not follow
+  the host's sleep.
+
+port00 and dart_apcie0 stay disabled in the DT: the loader enables them
+when the port is up or the kernel can train it.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 120 ++++++++++++++++++++--
+ 1 file changed, 114 insertions(+), 6 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 0b7ed533e3a5..16706fb06342 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -195,20 +195,36 @@ ps_fpwm0: power-controller@2a8 {
+ 
+ /*
+  * PCIe port 0: the N1 (Wi-Fi and Bluetooth). Port 1 is the SD reader
+- * ([ADT] apcie0/pci-bridge1/pcie-sdreader), not described. The loader must
+- * train port 0 and then enable port00 and dart_apcie0; until it does, both
+- * stay disabled. m1n1 does not do this today.
++ * ([ADT] apcie0/pci-bridge1/pcie-sdreader), not described. Port 0 and
++ * dart_apcie0 stay disabled until the loader enables them: m1n1 does once
++ * the port is up (it trained it, chosen.m5pro,n1), or, with the port down,
++ * because the kernel can train it: port00 names the N1's power line
++ * (pwren-gpios) and the DART waits for its root complex
++ * (apple,manual-availability). The kernel's train needs the shared PHY and
++ * its common block, and applies the host tunable lists the loader copies
++ * from the ADT (apple,tunable-*) to the windows named after them.
+  * [ADT] /arm-io/apcie0 reg[0] 0x1cb0000000, reg[1] 0x414000000 (rc),
+  * reg[16] 0x410028000 (port0), reg[18] 0x417010000 (phy0), reg[19]
+- * 0x410024000 (intr2axi0), interrupts[0] 1523: identical to J716c.
++ * 0x410024000 (intr2axi0), interrupts[0] 1523: identical to J716c;
++ * reg[2] 0x417000000 (PHY window; its common block at +0x4000), reg[3]
++ * 0x417020000 (shared PHY), reg[4] 0x417800000 (PHY IP), reg[5]
++ * 0x416000000 (AXI2AF), reg[6] 0x415044000 (PCIe clock generator), as on
++ * the J714c. The PHY and AXI2AF windows are cut to what their lists reach.
+  */
+ &pcie0 {
+ 	reg = <0x1c 0xb0000000 0x0 0x10000000>,
+ 	      <0x4 0x14000000 0x0 0x4000>,
+ 	      <0x4 0x10028000 0x0 0x8000>,
+ 	      <0x4 0x17010000 0x0 0x4000>,
+-	      <0x4 0x10024000 0x0 0x4000>;
+-	reg-names = "config", "rc", "port0", "phy0", "intr2axi0";
++	      <0x4 0x10024000 0x0 0x4000>,
++	      <0x4 0x17020000 0x0 0x4000>,
++	      <0x4 0x17004000 0x0 0x4000>,
++	      <0x4 0x16000000 0x0 0x24000>,
++	      <0x4 0x15044000 0x0 0x4000>,
++	      <0x4 0x17000000 0x0 0x24000>,
++	      <0x4 0x17800000 0x0 0x1b4000>;
++	reg-names = "config", "rc", "port0", "phy0", "intr2axi0", "phy-shared", "phy-common",
++		    "axi2af", "pcieclkgen", "phy-window", "phy-ip";
+ 	interrupts = <AIC_IRQ 0 1523 IRQ_TYPE_LEVEL_HIGH>;
+ 	interrupt-names = "port0";
+ 
+@@ -223,6 +239,8 @@ port00: pci@0,0 {
+ 		apple,link-trained-by-bootloader;
+ 		/* PERST#: [ADT] pci-bridge0 function-perst = GPIO 80 */
+ 		reset-gpios = <&pinctrl_ap 80 GPIO_ACTIVE_LOW>;
++		/* The N1's power: [ADT] pci-bridge0 function-reset = pKW4("gP13", 0x00800000) */
++		pwren-gpios = <&smc_gpio 0x13 GPIO_ACTIVE_HIGH>;
+ 		status = "disabled";
+ 
+ 		#address-cells = <3>;
+@@ -267,6 +285,96 @@ n1_beta: bluetooth@0,2 {
+ 	};
+ };
+ 
++/* Its registers answer only once port 0's root complex is up: pcie-apple makes it available */
++&dart_apcie0 {
++	apple,manual-availability;
++};
++
++/*
++ * The SMC's first GPIO bank, the gP keys: the N1's power line is gP13. gpio-macsmc
++ * drives it with the line's ADT template (0x00800000 | level), as m1n1 does.
++ */
++&smc {
++	smc_gpio: gpio@67500000 {
++		compatible = "apple,smc-gpio";
++		gpio-controller;
++		#gpio-cells = <2>;
++	};
++};
++
++/*
++ * The power of the N1's port. iBoot leaves APCIE_SYS_GP, APCIE_PHY_SW and APHY_GP_AUS5
++ * in automatic power management with the block gated (boot state 0x1000030f,
++ * 0x1400024f, 0x1000030f); the train needs them on and staying on, as m1n1 raises them
++ * (target active, auto-PM off). Always on: the port's link is kept through
++ * suspend-to-idle, and the host has no power domain of its own. Parents as the ADT
++ * names them, the register-less APCIE_SYS_GE left out.
++ * [ADT] pmgr devices APCIE_GP +0x118, FAB6_SOC +0x138, APCIE_SYS_GP +0x148,
++ * APCIE_PHY_SW +0x1b0, APHY_GP_AUS5_A +0x258, APHY_GP_AUS5 +0x280 (group 1).
++ */
++&pmgr1 {
++	ps_apcie_gp: power-controller@118 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x118 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "apcie_gp";
++		apple,always-on;
++	};
++
++	ps_fab6_soc: power-controller@138 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x138 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "fab6_soc";
++		apple,always-on;
++	};
++
++	ps_apcie_sys_gp: power-controller@148 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x148 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "apcie_sys_gp";
++		power-domains = <&ps_apcie_gp>, <&ps_fab6_soc>;
++		apple,always-on;
++		apple,no-auto-pm;
++	};
++
++	ps_apcie_phy_sw: power-controller@1b0 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x1b0 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "apcie_phy_sw";
++		power-domains = <&ps_apcie_sys_gp>;
++		apple,always-on;
++		apple,no-auto-pm;
++	};
++
++	ps_aphy_gp_aus5_a: power-controller@258 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x258 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "aphy_gp_aus5_a";
++		power-domains = <&ps_apcie_phy_sw>;
++		apple,always-on;
++	};
++
++	ps_aphy_gp_aus5: power-controller@280 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x280 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "aphy_gp_aus5";
++		power-domains = <&ps_aphy_gp_aus5_a>;
++		apple,always-on;
++		apple,no-auto-pm;
++	};
++};
++
+ /*
+  * Type-C. [ADT] port map:
+  *   ATC0 usb-drd0 port 1 left-back  hpm0 nub-spmi-a0 SID 0x0c  (tether, dwc3_0 above)
+-- 
+2.56.0
+

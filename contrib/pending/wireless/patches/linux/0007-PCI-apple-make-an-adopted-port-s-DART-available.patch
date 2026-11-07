@@ -1,0 +1,48 @@
+From 6ad425139037057685ba891092731ae8e982ac6d Mon Sep 17 00:00:00 2001
+From: ed <edimoldovan@gmail.com>
+Date: Sat, 7 Nov 2026 09:50:13 +0100
+Subject: [PATCH 07/10] PCI: apple: make an adopted port's DART available
+
+Once a port is adopted, trained by the bootloader or by Linux, the root
+complex is up: make the port's DART available.
+
+(cherry picked from commit 3291060c462a3308d74296eb5c68f3c0e747b657)
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/pci/controller/pcie-apple.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-apple.c b/drivers/pci/controller/pcie-apple.c
+index 0602e2cae00c..91840e01476b 100644
+--- a/drivers/pci/controller/pcie-apple.c
++++ b/drivers/pci/controller/pcie-apple.c
+@@ -2297,6 +2297,18 @@ static int apple_pcie_t6050_shared_phy_on(struct apple_pcie *pcie)
+ 	return 0;
+ }
+ 
++/* The port's DART answers once the root complex is up (apple,manual-availability) */
++static void apple_pcie_dart_available(struct apple_pcie_port *port)
++{
++	struct of_phandle_args iommu = {};
++
++	if (of_map_iommu_id(port->pcie->dev->of_node, port->adopted_bus << 8, &iommu) ||
++	    !iommu.np)
++		return;
++	apple_dart_make_available(iommu.np);
++	of_node_put(iommu.np);
++}
++
+ static int apple_pcie_t6050_cold_train(struct apple_pcie_port *port)
+ {
+ 	struct apple_pcie *pcie = port->pcie;
+@@ -2696,6 +2708,7 @@ static int apple_pcie_setup_port(struct apple_pcie *pcie,
+ 		}
+ 		if (ret)
+ 			goto err_teardown;
++		apple_pcie_dart_available(port);
+ 	} else {
+ 		if (pcie->hw->retain_clocks)
+ 			rmw_set(PORT_APPCLK_EN, port->base + PORT_APPCLK);
+-- 
+2.56.0
+
