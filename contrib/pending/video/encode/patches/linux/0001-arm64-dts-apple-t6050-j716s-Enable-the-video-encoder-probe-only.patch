@@ -1,0 +1,56 @@
+From 307f106086b8bda23c69c15999a18bf25fd3f716 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 08:15:57 -0500
+Subject: [PATCH 1/2] arm64: dts: apple: t6050-j716s: Enable the video encoder,
+ probe only
+
+Enable the encoder and its two DARTs on the J716s so the apple-ave
+driver's T6050 variant binds: it finds the firmware iBoot preloaded
+(ADT /arm-io/ave0, pre-loaded, __TEXT 0x158000 and __DATA 0x134000
+bytes, handed over by the loader as the node's memory regions with
+their CRCs under /chosen), checks that it is where the loader left it
+and that DATA is untouched, keeps a copy of DATA, and registers nothing
+that can start the coprocessor: encoding is refused until the T6050's
+boot identity and its firmware's command layout are qualified.
+
+Without the loader's hand-off the node is disabled by the loader or the
+driver returns "no preloaded firmware"; either way the machine boots as
+before.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index f058b55..31e5760 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -1150,3 +1150,24 @@
+ 		apple,color-gamut = "display-p3";
+ 	};
+ };
++
++/*
++ * The video encoder, probe only. The loader hands over the firmware iBoot
++ * preloads (ADT /arm-io/ave0, pre-loaded, __TEXT;__DATA) as the node's two
++ * memory regions and records their CRCs under /chosen; the apple,t6050-ave
++ * variant checks the hand-off and keeps a copy of DATA, but never starts the
++ * coprocessor and refuses to encode (its boot identity and the layout of its
++ * firmware's commands are not qualified). Both DART instances translate for
++ * it; without the loader's regions the driver does not bind.
++ */
++&ave_dart0 {
++	status = "okay";
++};
++
++&ave_dart1 {
++	status = "okay";
++};
++
++&ave {
++	status = "okay";
++};
+-- 
+2.56.0
+

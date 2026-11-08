@@ -1,0 +1,30 @@
+From 8d64d712f14cb9e82f3656c7881239fee3e3f584 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 08:15:57 -0500
+Subject: [PATCH 2/2] arm64: configs: j716s: Build the video encoder driver
+
+Build apple-ave as a module, so the J716s fragment lists what its device
+tree enables. The daily configuration already carries
+CONFIG_VIDEO_APPLE_AVE=m from asahi.config; this makes the fragment say
+so. On the T6050 the driver is probe-only.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/configs/j716s.config | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index d011225..873d71f 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -224,3 +224,7 @@ CONFIG_BRIDGE_NETFILTER=y
+ CONFIG_FUSE_FS=y
+ CONFIG_OVERLAY_FS=y
+ CONFIG_VETH=y
++
++# The AVE video encoder, as a module, like the other media engines: on the
++# T6050 it is probe-only (the firmware hand-off is checked, nothing starts).
++CONFIG_VIDEO_APPLE_AVE=m
+-- 
+2.56.0
+
