@@ -5,6 +5,11 @@ Studio-only analysis of the two failed boots recorded in `contrib/validated/inte
 so the cause is not proven. This note ranks the candidates from the code and the boot timing, and gives the payloads
 that separate them. Private inputs (the m1n1 logs with the board serial, the ADT) stay on the Studio.
 
+**Update (round 1):**
+- B2 fell back the same way as the twin (stage-1 watchdog), so **H1 is out**.
+- B3 booted, so the kernel build is fine as a plain daily (H4 is out).
+- Section 7 has the results and the round-2 payloads B5, B6 and B7.
+
 Failed payloads: `daily-dcp-test-20261107-dfe0c6cc` and `daily-dcp-test-vrr-20261107-3606884e`. Kernel `7.3.0-gbd53915f2ef1`,
 DTB `t6050-j716s-daily-dcp.dtb` (in-tree), loader `m1n1-plain-n1-dt-gpu-dcp`, variables `chosen.m5pro,gpu=1` and
 `chosen.m5,t6050-display=1`, no `n1` variable.
@@ -171,3 +176,66 @@ Deploy plans: `python3 -I ~/Work/agents/daily-dcp/mk-daily-dcp.py plan <payload>
 No B4: no concrete bug was found in the code. If H1a is confirmed, the next step is a probe-order experiment, either
 the DCP takeover before the GPU firmware boot or the GPU deferred until the DCP is bound. Its first payload should
 carry `initcall_debug`, with the panel filmed.
+
+## 7. Round 1 results and round 2 (2026-11-08 03:27 UTC onwards)
+
+Runner: `~/Work/agents/daily-dcp/loop/run-dcp-bisect.sh`, log `run-dcp-bisect.log`.
+
+| Payload | Result | Reading |
+|---|---|---|
+| B2 `b6298d9c` (no `gpu=1`) | **fell back**: delta 208 s, `attempt-stage1-watchdog`, pmu 300130 | **H1 is out.** The DCP takeover fails without the GPU, before any restart handler, the same way as the twin |
+| B3 `b62bf9e5` (daily-n1k DTB, no display variable) | **booted** on `7.3.0-gbd53915f2ef1`: delta 49 s, clean; simpledrm + aurora; Wi-Fi associated | **H4 is out**, and the twin loader's display code is harmless when unarmed |
+| B1 `583dce9f` (daily loader, twin DTB, `gpu=1` only) | running when this was written | expected to boot: the display nodes stay disabled without the hand-off |
+
+That leaves the display hand-off on the daily-n1k base (H2), with H3 (the B2 loader) still open.
+
+Pre-watchdog differences between B2 and the stage C boot that worked:
+- **DT** (in-tree vs dcp9d):
+  - three apcie power-controllers set always-on with auto-PM off, plus their parents; `pmgr_pwrstate` probes them before
+    any restart handler and raises them;
+  - port00 and `dart_apcie0` enabled by 0028 with the link down (`apple,manual-availability`, `pwren-gpios`, SMC GPIO
+    bank);
+  - GPU/UAT placeholders (disabled) and the NVRAM NOR (module).
+- **Loader:** 0028 against stage C's loader with `n1=4`. Without `n1`, nothing in the loader trains the port, and 0028
+  copies the host tunables.
+- **Kernel:** the daily base (pcie-apple cold train and adopt, DART manual-availability, gpio-macsmc, F6, NVRAM DT)
+  against the dcp120 base. The promotion and VRR deltas touch no probe path.
+
+Round 2: each payload differs from B2 in one part, except B7. All are built by `mk-bisect2.py` (copy next to this
+file), which first rebuilds B2 byte for byte. They are byte-verified, 0600, and listed in `SHA256SUMS`. Every one
+keeps B2's self-test, battery, initramfs-ftab and bootargs, and has no watchdog bootargs.
+
+| Payload | sha256 | Differs from B2 | Splits |
+|---|---|---|---|
+| B5 `dcpbis-b5-dcp9d-20261107-438f2685.bin` | 438f2685… | DTB `t6050-j716s-daily-dcp9d.dtb` (dab1b4f3) | the daily-n1k DT additions under the hand-off. Under dcp9d (no `pwren-gpios`, no manual-availability), 0028 keeps port00 and `dart_apcie0` disabled: no N1 on this boot |
+| B6 `dcpbis-b6-stagec-loader-n1-20261107-47036123.bin` | 47036123… | loader `m1n1-plain-n1-warm-gpu-dcp.bin` (085a2734, no 0028) plus `chosen.m5pro,n1=4` (stage C's variable order) | loader-trained, kernel-adopted N1 instead of 0028 leaving the port down for the kernel's own train, with the in-tree DT and the new kernel |
+| B7 `dcpbis-b7-stagec-kernel-dcp9d-20261107-d2ea6fb3.bin` | d2ea6fb3… | kernel `7.3.0-dcp-g22ec57f56b27` (b9e1bafd) **and** DTB dcp9d; that is B5 plus the old kernel | read against B5: the kernel delta. It equals stage C with the B2 loader and no `n1` |
+
+**Why B7 pairs the old kernel with dcp9d and not with the in-tree DTB:**
+- With the in-tree DTB and no `n1`, 0028 enables port00 and `dart_apcie0` with the link down (`kboot_n1.c`, the
+  `kernel` condition in 3e2321df).
+- The old kernel has no `apple,manual-availability` support (14a41f5612e2 is not in 22ec57f56b27), so it would probe
+  that DART at once.
+- That probe takes the SError 0028's own comment describes, a false failure unrelated to the DCP.
+- Under dcp9d the port and the DART stay disabled, so the old kernel meets the DT it was built and booted with.
+
+Recommended order (decide once B1's result is in the log):
+- **B1 boots (expected):**
+  1. Run **B5** first: it removes every DT addition and the kernel N1 path in one boot.
+  2. If B5 boots, the trigger is in the in-tree DT additions. Run **B6**:
+     - B6 boots: the kernel-trained N1 port (0028 leaving it down, `dart_apcie0` deferred, cold train) breaks the
+       hand-off;
+     - B6 falls back: another DT addition. Prime suspect: the apcie power-controllers forced always-on with auto-PM
+       off, raised by `pmgr_pwrstate` before the DCP probes. Next payload: the in-tree DTB with only those reverted.
+  3. If B5 falls back, run **B7**:
+     - B7 boots: the kernel delta (the daily base's pcie/DART/gpio code) breaks the hand-off even with the port disabled;
+     - B7 falls back: the B2 loader. Run B6 to confirm; it should boot if 0028 is the trigger.
+  4. Two boots in every branch.
+- **B1 falls back:** the twin DTB breaks the daily even without the hand-off. B3 booted with the daily-n1k DTB, and
+  the only enabled node the twin adds over it is the `clk_disp0` fixed clock; the rest of the display nodes are
+  disabled.
+  1. Run **B5** to confirm a DT cause.
+  2. B6 and B7 add little; the next step is the twin DTB minus `clock-disp0` (`dtchk/vs-n1k.txt`).
+
+Every result: read the `firstboot-probe.sh` delta. A delta of 170 s or more means failure before a restart handler.
+An attended boot with the panel filmed still gives the most per boot.
