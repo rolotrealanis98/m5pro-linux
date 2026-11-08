@@ -26,7 +26,13 @@ SETS = {  # key: (base label, base sha256, mode flags, extra, new label)
               "log_buf_len=16M appledrm.fw27_panel_vrr=1", "daily-dcp-lfix-test-vrr"),
     "L-daily": ("daily-dcp", "3706058ae1d0cdc0e87ea96040d7edb06ec802f598c49b95ffd5d383a349a2de", DAILY,
                 "log_buf_len=16M", "daily-dcp-lfix"),
+    # L-daily-vrr: the daily form + appledrm.fw27_panel_vrr=1. It has no old-loader base payload, so its base check is
+    # L-daily itself (rebuilt with the phfix loader below, must give 689facad); then only the bootargs change.
+    "L-daily-vrr": ("daily-dcp-lfix", "689facad94cb4aafa813ed888c7d0e580142bab050cc99acbbc6c38fdc7b12da", DAILY,
+                    "log_buf_len=16M appledrm.fw27_panel_vrr=1", "daily-dcp-lfix-vrr"),
 }
+BASE_EXTRA = {"L-daily-vrr": "log_buf_len=16M"}
+BASE_LOADER = {"L-daily-vrr": "fix"}
 sha = lambda b: hashlib.sha256(b).hexdigest()
 WANT = sys.argv[1:] or list(SETS)
 for f, h in PINS.items():
@@ -44,14 +50,17 @@ OUT.mkdir(mode=0o700, exist_ok=True)
 for key in WANT:
     base, bsha, mode, extra, label = SETS[key]
     with tempfile.TemporaryDirectory() as td:
-        got = sha(build(base, M_OLD, mode, extra, pathlib.Path(td)).read_bytes())
+        got = sha(build(base, M_FIX if BASE_LOADER.get(key) == "fix" else M_OLD, mode, BASE_EXTRA.get(key, extra),
+                        pathlib.Path(td)).read_bytes())
         if got != bsha: sys.exit(f"mk-lfix: {base} rebuilds to {got}, not {bsha}: stop")
         print(f"{key}: base {base} rebuilds byte-identical ({bsha[:8]})")
     p = build(label, M_FIX, mode, extra, OUT)
     r = p.with_name(p.name + ".recipe.txt")
     if "note      lfix" not in r.read_text():
         with open(r, "a") as f:
-            f.write(f"note      lfix {key}: {base}-*-{bsha[:8]} with ONLY the loader swapped: m1n1-plain-n1-dt-gpu-dcp-phfix.bin "
+            f.write(f"note      lfix {key}: L-daily 689facad + appledrm.fw27_panel_vrr=1 (only the bootargs differ); L-vrr "
+                    f"54b4d1c9 is this payload + m5.selftest=1\n" if key == "L-daily-vrr" else
+                    f"note      lfix {key}: {base}-*-{bsha[:8]} with ONLY the loader swapped: m1n1-plain-n1-dt-gpu-dcp-phfix.bin "
                     f"(98906d29, n1-dt-gpu-dcp-phfix @ 694d4040: display nodes without a phandle get one, so the T6050 "
                     f"display hand-off no longer bails on the in-tree DTB, kboot.c:2290-2296); in-tree DTB c8f1b960 unchanged\n"
                     f"note      variables: show-notch + chosen.m5pro,gpu=1 + chosen.m5,t6050-display=1; no n1 line\n"
