@@ -2133,3 +2133,23 @@ edimoldovan's late-heap commit, daily kernel a0f2f30c967b, `t6050-n1=4`, self-te
   GPU crash interrupted the check. The A/B moves to a dedicated session, not next to the zink compositor.
 - `j716-listen` (local listening-test TUI) installed; fixed its pre-play gate (the daemon prints speaker lines only
   during playback).
+
+## 2026-11-08 11:15 UTC: DCP daily DEMOTED for now: GPU client faults wedge the display
+
+Three times today a GPU fault from an ordinary client (Google Chrome, Claude Desktop, then quickshell on a fresh boot
+with Chromium/Electron already running GPU-less) was followed by the aurora recovery declaring Hyprland's context
+lost, a zink SIGSEGV in `dri_create_fence_fd`, and on the DCP daily a display pipeline stuck on a page flip that
+never completes ("Cannot commit when a page-flip is awaiting", 0 `iomfb_swap_complete`), which only a reboot clears.
+Evidence captured on the machine before the last two reboots (`/root/wedge-1056`, `/root/wedge-1112`: dmesg,
+dma-buf fence table, sysrq blocked-task dump with one kworker in D, DRM state, Hyprland logs).
+
+Analysis (`contrib/pending/gpu/GPU-RECOVERY-KILLS-COMPOSITOR.md`): on M5 the recovery has no blame evidence, the
+unclassified dropped work poisons its VM (bystanders included), spared compute fences can stay unsignalled, and the
+apple-drm atomic commit waits on the plane's in-fence with no timeout. Fixes being built as a test payload
+(`contrib/pending/gpu/recovery/`): no poisoning by dropped work, bounded fence signalling on recovery, a 1 s bounded
+fence wait in apple-drm, plus a deliberate-hang reproducer.
+
+Interim: the boot slot is back on `daily-n1k-20261107-512a1c00.bin` (simpledrm scanout, GPU render through zink):
+a client fault can still crash Hyprland there but cannot wedge the panel, and the session restarts within seconds.
+GPU acceleration stays off for Chrome, Chromium and Electron apps (flags files). The VRR DCP daily returns once the
+recovery fixes pass the reproducer. `run-restore-daily.sh` points at daily-n1k again. Tracker: issue #36.
