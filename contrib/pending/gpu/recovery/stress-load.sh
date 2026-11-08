@@ -33,6 +33,8 @@ while IFS= read -r -d '' kv; do
   esac
 done < "/proc/$HPID/environ"
 ENVV+=("WAYLAND_DISPLAY=wayland-1" "XDG_RUNTIME_DIR=$XRD" "HYPRLAND_INSTANCE_SIGNATURE=$SIG" "HOME=$(getent passwd "$HUSER" | cut -d: -f6)")
+# The session may pin QT_QUICK_BACKEND=software for the bar (hypr-session); the QML windows here must use the GPU.
+ENVV+=("QT_QUICK_BACKEND=rhi")
 asuser() { if [ "$(id -u)" = 0 ]; then runuser -u "$HUSER" -- env "${ENVV[@]}" "$@"; else env "${ENVV[@]}" "$@"; fi; }
 
 W=$(mktemp -d /tmp/gpu-stress.XXXXXX); chmod 755 "$W"; PROF=$W/chromium-profile

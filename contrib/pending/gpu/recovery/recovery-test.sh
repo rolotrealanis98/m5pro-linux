@@ -44,7 +44,7 @@ log "kernel $(uname -r)  Hyprland pid $HPID user $HUSER  trigger '${TRIG[*]}'  l
 HLINES=$( [ -n "$HLOG" ] && wc -l < "$HLOG" || echo 0)
 cat /sys/kernel/debug/dri/*/state > "$OUT/drm-state-before.txt" 2>/dev/null
 
-asuser vkcube > "$OUT/vkcube.log" 2>&1 & VK=$!
+asuser vkcube --wsi wayland > "$OUT/vkcube.log" 2>&1 & VK=$!
 sleep 5
 BASE=$(swaps 10); log "baseline: $BASE swaps in 10 s (vkcube pid $VK)"
 MARK="recovery-test mark $(date +%s)"; echo "$MARK" > /dev/kmsg
