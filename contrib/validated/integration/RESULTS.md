@@ -2088,3 +2088,10 @@ Promotion: `daily-dcp-lfix-vrr-20261107-7e244836.bin` (sha256 7e244836c80aa6ca83
 clean on the primary slot (delta 50 s): `card0` aurora, `card1` apple-drm, DCP session active, Hyprland up.
 `boot.bin.prev` stays `daily-n1k-test-20261107-5c74c66c.bin`; `run-restore-daily.sh` now restores the VRR daily.
 Open: direct scanout for fullscreen clients, the Mesa shader refusal (native GL), the idle-flip warning on the daily boot.
+
+## 2026-11-08 08:18 UTC: OMACOM-WDT-KEEP r2 (stack on #30 140a36b), PASS
+
+Payload `omacom-wdt-keep-r2-20261108-e52ca584.bin` (m1n1 v1.6.1-430-g64c8ce2 = our omacom stack rebased onto
+edimoldovan's late-heap commit, daily kernel a0f2f30c967b, `t6050-n1=4`, self-test on): booted on the primary slot,
+54 s to ssh, 18 CPUs, N1 trained by the loader and adopted, Wi-Fi and Bluetooth up, stage-2 log shows
+`FDT: retained heap [...]` and `FDT: late heap [...] retained` before the jump. The VRR daily was restored afterwards.

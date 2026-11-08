@@ -251,3 +251,15 @@ and the trackpad reset route as later PRs.
   t6050 block of the binding extended with our six reg-names; 9 commits, per-commit W=1 compile clean; mergeable again.
 - Both pushed with --force-with-lease to the fork PR branches; notes posted on both PRs. Report:
   `contrib/validated/aurora/prs/REBASE-1183-1182.md`. Still open: edimoldovan's Signed-off-by on six of his commits.
+
+## 2026-11-08 08:25 UTC: omacom/m1n1 #33-#37 rebased onto #30's 140a36b and re-validated on hardware
+
+edimoldovan pushed 140a36b3 to #30 (late-heap retention: `kboot_retain_late_heap()` before the jump, answering a
+greptile finding about USB DART tables). Our stack rebased with no conflicts (`contrib/validated/omacom/m1n1/
+REBASE-ON-30-140a36b.md`): #33 ff75a40 (test-fix commit also declares the new statics so two host tests build),
+#34 9879c2f, #37 2bebfe7, #35 5818f6b (keeps the phandle fix), #36 64c8ce2. None of our hand-offs allocates after
+the new reservation point; the N1 training's SMC/ANS sessions and the display hand-off's temporary DT copies are
+swept into the retained range. Builds 0x410000 / 0x420000, 15 warnings as before, pytest 442-443 pass, clang-format
+empty. Hardware: the #36 tip booted the J716s (m1n1 v1.6.1-430-g64c8ce2, `FDT: late heap [...] retained`, N1 trained,
+18 CPUs, Wi-Fi, Bluetooth; `~/Work/agents/omacom-m1n1/loop/run-wdt-keep-v30r3.log`), daily restored. Branches
+force-pushed with lease, notes posted on all five PRs.
