@@ -172,3 +172,7 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
 ## 2026-11-08 02:20 UTC: omacom/linux-aurora J716s PR opened
 
 - https://github.com/omacom/linux-aurora/pull/413 "Add the 16-inch MacBook Pro with the M5 Pro (J716s)" (12 commits on edimoldovan's #404, from the re-created fork rolotrealanis98/linux-aurora, branch j716s). The first fork never indexed pushes; the new one needed pushes by explicit URL because the old remote-tracking refs made git skip the push.
+- 2026-11-08 03:05 UTC: #293 reply 4 posted (Rolando's go, as a correction): 27.3 looked required only because the
+  multi-core blocker was fixed on the 27.3 side; the kernel/loader work is firmware-version keyed (27.2 and 27.3 share
+  the layouts except one word); the Omarchy repos are the shared place; a cross-machine tracker/wiki proposal is being
+  drafted (`contrib/community/SHARED-REPO-PLAN.md`, agent).
