@@ -2431,3 +2431,24 @@ Rolando home, Studio-to-MacBook cable in place. `m1n1-hv27-proxy.bin` (3ea65595,
   the hypervisor shell is not reachable in this session; next run goes through `run-hv27-tmux.sh` (tmux) so Ctrl-C
   and the shell work. Open: where XNU's console went (panel in verbose mode? dockchannel?), whether the guest is
   spinning or waiting for the root device.
+
+## 2026-11-08 20:47-21:30 UTC — hv27 rung (iii-a) runs 2-5: what the guest does after the CPU starts
+
+Panel observations by Rolando (the guest owns the display after `Shutting down framebuffer`): with `serial=3` XNU's
+verbose text runs up to **"initializing serial KDP"** and stops there (runs 1, 2 and 4); no Apple logo. Nothing ever
+arrived on the hypervisor's virtual UART (mapped on `/arm-io/uart0`, `defaults/serial_device` pointed at it), so
+after XNU moves its console to serial we are blind.
+- Run 3 (shell first, watchdog kept): the stage-1 watchdog is not fed while the hypervisor shell is idle; it reset
+  the machine as the guest started. Shell-first runs need the watchdog disarmed.
+- Run 3b (dockchannel UART traced in SYNC mode): the guest faulted at its first instructions (vector 0x200, VBAR not
+  yet set), which the untraced runs never did; synchronous tracing of that UART breaks the guest's firmware, which
+  uses it for its own console. Do not trace it.
+- Run 4 (`--strip-node dockchannel-uart`, `serial=3`): identical to runs 1/2 (all 18 cores, panel stops at serial
+  KDP, nothing on the virtual UART). So XNU's serial output does not simply go to the dockchannel; the suspicion
+  is now XNU hanging in the uart0 driver init against the emulated UART.
+- Run 5 (`serial=0`, node stripped): watchdog reset after one secondary start, no client attached (the tmux server
+  the client ran in had died), so no exception context. Single data point.
+- Tooling: a running hypervisor does not answer a new proxy client once the first one is gone, and the hypervisor
+  keeps the watchdog fed while the guest runs, so a headless guest can only be ended by a power-hold. The tmux
+  wrapper was replaced by a pipe-driven runner (`run-hv27-fifo.sh`) whose client survives the agent's tool calls.
+- Run 6 (`serial=0`, dockchannel node kept, otherwise = runs 1/2) in progress: the panel is the console.
