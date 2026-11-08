@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "rolo.mission-control",
+  "name": "Mission Control",
+  "version": "1.0.0",
+  "author": "rolo",
+  "license": "MIT",
+  "description": "A macOS-style overview: every workspace on the monitor along the top, live thumbnails of the selected workspace's windows below.",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "MissionControl.qml"
+  }
+}
