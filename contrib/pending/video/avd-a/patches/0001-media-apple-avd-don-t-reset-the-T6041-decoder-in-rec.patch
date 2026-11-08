@@ -1,0 +1,66 @@
+From bdbbb93b645beae25e9a43c8674f6f2b3c9f5b6b Mon Sep 17 00:00:00 2001
+From: AxxzyWasTaken <axxzytte@gmail.com>
+Date: Sat, 7 Nov 2026 11:19:07 +0000
+Subject: [PATCH 1/9] media: apple: avd: don't reset the T6041 decoder in
+ recovery
+
+On the J616C the machine hangs right after the recovery reset, while the
+decoder's DART domain is restored, so one decoder timeout takes the
+whole Mac down. Until the cause is known, stay parked on T6041: the
+decoder retires and players fall back to software. Other SoCs recover
+fine and keep the reset.
+
+Signed-off-by: AxxzyWasTaken <axxzytte@gmail.com>
+(cherry picked from commit 0c94baf620c7ab85ba2fd251fd985eebda143bba)
+---
+ drivers/media/platform/apple/avd/avd-drv.c | 2 +-
+ drivers/media/platform/apple/avd/avd-pm.c  | 9 +++++++++
+ drivers/media/platform/apple/avd/avd.h     | 2 ++
+ 3 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/apple/avd/avd-drv.c b/drivers/media/platform/apple/avd/avd-drv.c
+index 2cba04cd6f44..b6e071493a9a 100644
+--- a/drivers/media/platform/apple/avd/avd-drv.c
++++ b/drivers/media/platform/apple/avd/avd-drv.c
+@@ -548,7 +548,7 @@ static const struct avd_variant avd_t6041_variant = {
+ 	.submit_offset = 0x40,
+ 	.submit_queue_max_offset = 0x44,
+ 	.submit_queue_status_offset = 0x7c,
+-	.quirks = AVD_QUIRK_HEVC_V5_HEADER,
++	.quirks = AVD_QUIRK_HEVC_V5_HEADER | AVD_QUIRK_NO_RECOVERY_RESET,
+ };
+ 
+ /*
+diff --git a/drivers/media/platform/apple/avd/avd-pm.c b/drivers/media/platform/apple/avd/avd-pm.c
+index 01b9069e113a..d6b45ba78e84 100644
+--- a/drivers/media/platform/apple/avd/avd-pm.c
++++ b/drivers/media/platform/apple/avd/avd-pm.c
+@@ -336,6 +336,15 @@ int avd_pm_recover(struct avd_dev *avd)
+ 	ret = avd_pm_park(avd);
+ 	if (ret)
+ 		return ret;
++	/*
++	 * On the J616C the machine hangs right after this reset, while the
++	 * decoder's DART domain is restored. The cause is not known yet, so
++	 * stay parked: players fall back to software.
++	 */
++	if (avd->variant && avd->variant->quirks & AVD_QUIRK_NO_RECOVERY_RESET) {
++		dev_err(avd->dev, "recover: staying parked, no reset on this SoC\n");
++		return -EIO;
++	}
+ 	dev_warn(avd->dev, "recover: reset\n");
+ 	ret = reset_control_reset(avd->rstc);
+ 	if (ret) {
+diff --git a/drivers/media/platform/apple/avd/avd.h b/drivers/media/platform/apple/avd/avd.h
+index 1313a07e0038..d187639ddedf 100644
+--- a/drivers/media/platform/apple/avd/avd.h
++++ b/drivers/media/platform/apple/avd/avd.h
+@@ -43,6 +43,8 @@
+ #define AVD_QUIRK_V5_QUEUE_PACING	BIT(3)
+ /* H.264 co-located motion vectors take 128 bytes per macroblock, not 64. */
+ #define AVD_QUIRK_H264_MV_128	BIT(4)
++/* A reset after a timeout hangs the machine: stay parked and retire the decoder */
++#define AVD_QUIRK_NO_RECOVERY_RESET BIT(5)
+ 
+ #define VP_SLOT_NONE		255
+ #define INST_FIFO_SLOT_NONE	255

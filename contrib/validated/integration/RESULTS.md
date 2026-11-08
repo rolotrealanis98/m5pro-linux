@@ -2346,3 +2346,12 @@ Daily restored as boot.bin (26ca25f0, prev 26ca25f0), one clean boot after.
   the daily loader; identical bytes to the agent's `hv27-plain-test`), to promote at the next attended slot.
 - Rungs (ii) and (iii-a) wait for the Studio-to-MacBook cable (Rolando away from home); plan in
   `contrib/pending/hv/PLAN-27.3.md`.
+
+## 2026-11-08 15:50 UTC — upstream: PRs #1240-#1243 opened on aurora-silicon/linux (GPU recovery, fault blame)
+
+See `contrib/validated/aurora/prs/REPORT.md`. Studio note: five sparsebundle build volumes (`linux-cs-gpurec`,
+`linux-cs-capture`, `linux-cs-aurprs`, `linux-cs-hdr`, `linux-cs-sep`) became unreadable (APFS ENXIO) while four
+container kernel builds ran at once (host `kern.maxfiles` pressure: each VM holds 60-110k fds); `kern.maxfiles`
+raised to 1572864; the agents finished their builds from `git archive` inside the containers. The images need a
+detach and re-attach (journal replay) once the running builds end; payloads live under `~/Work/agents/`, not on
+those images. Rule from now: at most two concurrent container kernel builds.

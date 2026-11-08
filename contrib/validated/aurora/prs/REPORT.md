@@ -272,3 +272,18 @@ force-pushed with lease, notes posted on all five PRs.
   workflows, `machines/j716s` with 23 scrubbed results and the daily recipe, J714s and J714c drafts that only link to
   their owners' posts, nine topic pages. To be transferred to `omacom/m4plus-linux` when the omacom side confirms.
 - Reply posted on aurora-silicon/linux #1167: https://github.com/aurora-silicon/linux/pull/1167#issuecomment-6719931337
+
+## 2026-11-08 15:50 UTC — GPU recovery and fault-blame PRs opened
+
+- **#1240** `pr/g17-recovery-dropped-work` on `integration/aurora` (bdb99945db71): recovery 0001 + 0002 (spared and
+  bounded work a GPU recovery dropped; a bystander compositor keeps its device) + a 5-line `Completion::signalled()`
+  accessor the base lacks.
+- **#1241** `pr/apple-drm-bounded-fence-wait` on `integration/aurora`: recovery 0003 (a GPU fence that never signals no
+  longer wedges the display).
+- **#1242** `pr/m5-recovery-cause-log` on `funkzy/t6050-gpu-on-integration`, stacked on #1173's head 34f2f5bb4d03:
+  faults 0001 (firmware reason code and blamed client logged per recovery).
+- **#1243** `pr/m5-fault-experiment-params` stacked on #1242: faults 0002 (`aurora.m5_pause_timeout_us` and
+  friends; default stays 150 us; the 2000 us result is one 10-min run).
+Checks: W=1 + CLIPPY=1 over `drivers/gpu/drm/{asahi,apple}` per commit, no new warnings (68 at the integration
+base, 53 at #1173's), checkpatch --strict 0 errors, rustfmt-clean hunks. Hardware evidence in RESULTS.md (12:08,
+12:24, 14:19 entries). Branches live in `/Volumes/linux-cs/linux`, pushed to the `rolotrealanis98/linux` fork.
