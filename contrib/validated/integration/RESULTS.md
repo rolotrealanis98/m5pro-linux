@@ -2407,3 +2407,27 @@ Rolando home, Studio-to-MacBook cable in place. `m1n1-hv27-proxy.bin` (3ea65595,
   = the Omarchy screensaver client was animating; no direct scanout for fullscreen mpv = blocked by USER, the launcher's
   `M5PRO_DCP_DIRECT_SCANOUT=0` under `AQ_NO_MODIFIERS`, as intended). glmark2 swapchain reconfigured 0 times. The latch
   package behaves like stock with scanout off; re-enabling direct scanout for a test of the latch itself is a later item.
+
+## 2026-11-08 20:28-20:41 UTC — hv27 rung (iii-a): macOS 27.3 guest files fetched; SPTM/TXM/XNU start, all 18 cores enter the guest
+
+- Guest files: `apfs-fuse` built as an Arch ARM package (Rolando ran the build; upstream needed `#include <cstdint>` for
+  GCC 16 and a non-fatal container-keybag failure, the 27.x FileVault keybag format is unknown to it while Preboot
+  itself is unencrypted). Preboot (volume 1 of the main container, apfs-fuse exposes it under `root/`) mounted
+  read-only on the daily, `fetch-27.3-guest-files.sh` produced the tarball (558 MB), `run-hv27.sh prep` unwrapped
+  SPTM, TXM, cL4 bundle (DNUB), Exclave trust cache and integrity catalog, kernelcache = the installed BootKC =
+  derived kc.macho (26C5035r). All checks ok.
+- Proxy loader back on `boot.bin` (prev = daily), reboot; `run-hv27.sh guest nodisk` with `HV27_WDT=keep`
+  (hv tick and proxy requests pet the stage-1 watchdog). Runner fixes along the way: empty bash arrays under
+  `set -u` on macOS bash 3.2, Preboot index parsing, apfs-fuse `root/` prefix.
+- run_guest: ADT node `/arm-io/ans/iop-ans-nub` removed, SPTM/TXM/cL4 images and the 2 GiB SPRR pool placed
+  (`RESERVED SPRR POOL` 0x10024688000-0x100a4688000), ADT uploaded, jump to 0x10021704388 at 20:35:23. Then PMGR
+  reads/writes from the guest (power-state registers at 0x280600208, 0x2809002xx, 0x2883001xx, logged as
+  "Dangerous write"), `hv_sprr` table-attribute notices, and **CPUSTART writes for all 17 secondaries**, each
+  accepted (`HV: Entering guest secondary N at 0x10021704000`, cores 1-17). `hv_amcc: no amcc-metadata in
+  error-handler, not hooking AMCC IRQs` as expected (our 0008).
+- After CPU #17 (≈20:36) no further output: no guest serial text at all, although the hypervisor maps the virtual
+  UART on `/arm-io/uart0` (present in the J716s ADT at 0x305200000) and points `defaults/serial_device` at it. The
+  hypervisor itself is alive (watchdog kept, no reset for 5+ min). The run was launched non-interactively (nohup), so
+  the hypervisor shell is not reachable in this session; next run goes through `run-hv27-tmux.sh` (tmux) so Ctrl-C
+  and the shell work. Open: where XNU's console went (panel in verbose mode? dockchannel?), whether the guest is
+  spinning or waiting for the root device.
