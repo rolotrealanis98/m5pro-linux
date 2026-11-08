@@ -205,3 +205,5 @@ NVMe/SART commits are PR #936, the combo-PHY and dwc3 commits are PR #939 plus A
   battery on; rollback = the test twin `5c74c66c`. Previous daily `fd4b3b9e` kept on the Studio.
 - Every ESP write now waits 60 s before the reboot (esp-put default).
 - Open on the daily: native GL session switch (queued), DCP in the daily (after the constant-timestamp boots), F6 check.
+- 2026-11-08 02:24 UTC: the GPU session renders with the native Gallium driver (/opt/mesa-aurora-gl, session-gl.env);
+  zink stays installed as the rollback (session.env.zink). glmark2 1278 in-session.

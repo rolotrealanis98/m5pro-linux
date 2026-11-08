@@ -1833,3 +1833,17 @@ pass, 55 s to SSH; 60 s settle rule; GPU daily restored afterwards (primary).
   stall result is the one that matters.
 - Conclusion for the daily: carry the 120 Hz v2 patches (constant timestamps + brightness guard) and the VRR pair
   rebased on v2 (opt-in by default); Hyprland `misc:vrr = 1` becomes usable once the session scans out through the DCP.
+
+## GL-NATIVE: the native Gallium driver is the desktop's GL (2026-11-08 02:23 UTC) — PASS
+
+/opt/mesa-aurora-gl at MESA_COMMIT 043a4c58080c4951fea3797fe45fc6898ce77632 (agx3c + the five patches in
+`contrib/pending/gpu/gl-native/`), on the daily `7.3.0-g36845aa5f650`, no reboot.
+- Headless A/B: all 12 steps pass on both trees. Native: eglinfo renderer `Apple M5 Pro (G17S B1)` (GL 4.6 core),
+  gl-native-smoke 12/12 with pixel checks, gl-native-probe (blend/mask alpha, GBM LINEAR buffers, GBM window surface),
+  egl-offscreen-test, gbm-scanout-test (LINEAR into simpledrm) and gpubench-gl render.light; zink the same.
+- Session: `/etc/mesa-aurora/session.env` now points at the native tree (zink copy kept as `session.env.zink`); the
+  restarted GPU session came up with Hyprland on the native driver (`GL_RENDERER: Apple M5 Pro (G17S B1)`, aquamarine
+  renderer with high context priority and robustness), Quickshell running; `glmark2-es2-wayland` short run inside the
+  session scored 1278 (zink: 597-890 during the earlier soak). No GPU errors.
+- A 30-minute desktop soak on the native session is running next; the launcher keeps the 30 s fallback to the software
+  session and `/etc/mesa-aurora/session.env.zink` is the one-file rollback.
