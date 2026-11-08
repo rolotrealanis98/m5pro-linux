@@ -1,0 +1,26 @@
+From e98959c4bc21f568c3aabd8a764039454d6b5930 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:51:57 -0500
+Subject: [PATCH 4/9] dt-bindings: media: apple,jpeg: Add T6050
+
+The M5 Pro/Max JPEG engines take 64-bit buffer addresses like T8140's,
+so they use the DART's full window and take no apple,dma-range.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ Documentation/devicetree/bindings/media/apple,jpeg.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/media/apple,jpeg.yaml b/Documentation/devicetree/bindings/media/apple,jpeg.yaml
+index 056e1d33c00f..dd2a773cfa72 100644
+--- a/Documentation/devicetree/bindings/media/apple,jpeg.yaml
++++ b/Documentation/devicetree/bindings/media/apple,jpeg.yaml
+@@ -23,6 +23,7 @@ properties:
+   compatible:
+     enum:
+       - apple,t6041-jpeg
++      - apple,t6050-jpeg
+       - apple,t8140-jpeg
+ 
+   reg:

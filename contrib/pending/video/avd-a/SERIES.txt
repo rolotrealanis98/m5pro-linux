@@ -1,0 +1,42 @@
+avd-a series: branch j716s-avd-a in the main repository /Volumes/linux-cs/linux (made in the worktree /Volumes/linux-cs-gpurec/wt-avd;
+  that disk image died during the first build attempt, see AVD-BOOT-A.md, so the kernel is built from `git archive` of the branch
+  on the container's own disk; the stale worktree entry stays until the gpurec image is remounted and `git worktree prune` runs)
+base: j716s-video-observe @ 0933f881d736 (the daily kernel 7.3.0-g0933f881d736, 2026-11-08: daily-dcp-rec-video-20261108-26ca25f0,
+      = j716s-daily-dcp-recovery2 12c445fa5371 + video 0006/0008 + encode 0001/0002 + prores 0001/0003/0004/0005; the base already
+      carries CONFIG_VIDEO_APPLE_AVD=m / CONFIG_VIDEO_APPLE_JPEG=m and builds apple-avd.ko / apple-jpeg.ko, without a T6050 entry)
+applied with `git am --3way`, in this order (P = ~/Documents/GitHub/m5pro-linux/contrib/pending/video/patches/linux); the branch was then
+rebuilt once (cherry-picks, same content) to put the Aurora quirk commit first, hashes below are the final ones:
+
+ 0  bdbbb93b645b  cherry-pick -x of 0c94baf620c7 (Aurora, AxxzyWasTaken, 2026-11-07: media: apple: avd: don't reset the T6041 decoder in
+                  recovery). Defines AVD_QUIRK_NO_RECOVERY_RESET (avd.h BIT(5)), checks it in avd_pm_recover() (stay parked, -EIO, no
+                  reset_control_reset) and sets it on the T6041 variant. 0002 uses the quirk; the daily does not carry this commit (the
+                  first build stopped on the undeclared identifier), video/t6050 (the series' base) did.
+
+ 1  f1bef0234eba  P/0001-dt-bindings-media-apple-avd-Add-T6050.patch                      clean
+ 2  cc7c9356ce50  P/0002-media-apple-avd-Add-T6050-M5-Pro-Max.patch                       clean (avd_t6050_variant: T8142 layout, fw apple/avd-fw-v5-t2.bin,
+                                                                                            revision 4, AVD_QUIRK_NO_RECOVERY_RESET)
+ 3  e98959c4bc21  P/0003-dt-bindings-media-apple-jpeg-Add-T6050.patch                     CONFLICT resolved by hand: the daily's apple,jpeg.yaml has a plain
+                                                                                            enum (t6041, t8140), not the oneOf the patch was made against;
+                                                                                            apple,t6050-jpeg added to that enum, nothing else
+ 4  99e710a7613e  P/0004-media-apple-jpeg-Admit-the-T6050-engines.patch                   clean (HWREV 0x110010 under the 0xffff0fff mask, KUnit case)
+ 5  131a45992d98  P/0009-arm64-dts-apple-t6050-j716s-Enable-the-video-decoder.patch       CONFLICT resolved by hand: end-of-file collision with the daily's GPU,
+                                                                                            AVE and ProRes blocks in t6050-j716s.dts; the patch's &avd_dart/&avd
+                                                                                            block appended after the &apr0 block, content unchanged
+ 6  4abb7f79fb5e  P/0010-arm64-dts-apple-t6050-j716s-Enable-the-JPEG-engines.patch        clean (after 5)
+ 7  9d395d16c6f3  P/0011-arm64-configs-j716s-Build-the-AVD-and-JPEG-drivers.patch        CONFLICT resolved by hand: end-of-file collision with the daily's AVE
+                                                                                            and ProRes lines in j716s.config; the patch's block appended
+ 8  83dd5fa316b5  (new) arm64: dts: apple: t6050: Record the AVD's ADT windows and interrupt roles
+                                                                                            comment only, in t6050-media.dtsi next to &avd: ADT /arm-io/avd0 regs
+                                                                                            (0x2308000000+0x1404000, 0x2388090000+0x4000), interrupts 2417/2418,
+                                                                                            dart-avd0, perf-floor functions; upstream apple,avd v3 mapping (piodma
+                                                                                            0x2309070000+0x4000, mbox0/mbox1 = 2417/2418, the rest unlisted)
+
+left out, and why:
+ - P/0005 (AVE binding), P/0006, P/0008: 0006 and 0008 are already in the base; 0005 is the encoder's binding, not needed for the decoder/JPEG test
+   (the base's apple,t8140-ave.yaml is whatever the encode series left; untouched here).
+ - P/0007 (ProRes binding): replaced in the base by prores 0001.
+
+config: kbuild-video/config (= kbuild-r2/config.daily-dcp + CONFIG_VIDEO_APPLE_PRORES_T6050_OBSERVE=y) unchanged; olddefconfig changed nothing
+(kbuild-avd/config.diff empty). CONFIG_VIDEO_APPLE_AVD=m and CONFIG_VIDEO_APPLE_JPEG=m were already set; 0011 only records them in the J716s fragment.
+Build: build-kernel-avd.sh (this directory). Firmware: build-avd-fw.sh -> firmware/avd-fw-v5-t2.bin (aurora-silicon/avd-fw ea3a65cc, v5 tier 2).
+Exported patches (resolved): ~/Documents/GitHub/m5pro-linux/contrib/pending/video/avd-a/patches/0001-0009 (0001 = the quirk commit).

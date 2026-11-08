@@ -1,0 +1,86 @@
+From cc7c9356ce509f607ad2969024f061db297b8e82 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:51:57 -0500
+Subject: [PATCH 3/9] media: apple: avd: Add T6050 (M5 Pro/Max)
+
+The T6050 decoder is the T8142 generation: ADT avd-version 4, CM3 code and
+SRAM 0x14000 each at +0x1080000 and +0x1094000, the SRAM window avd-fw's v5
+tier 2 image is built for (the J716s ADT, /arm-io/avd0).
+
+Give it T8142's VP layout, HEVC header and 128-byte H.264 motion vectors.
+Its VP pool size is not known; T8142's slots are a subset of the larger
+pools, so they stay within the hardware either way.
+
+Do not reset the decoder in recovery: the T6041 hangs on that reset while
+its DART domain is restored, and the T6050 has not been through one. A
+timeout then retires the decoder until the next boot, and players fall
+back to software. Drop the quirk once a recovery reset has been tested.
+
+Without this entry the apple,t8142-avd fallback binds the same variant,
+minus the quirk.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/media/platform/apple/avd/avd-drv.c | 41 ++++++++++++++++++++++
+ 1 file changed, 41 insertions(+)
+
+diff --git a/drivers/media/platform/apple/avd/avd-drv.c b/drivers/media/platform/apple/avd/avd-drv.c
+index b6e071493a9a..c51a4d221e13 100644
+--- a/drivers/media/platform/apple/avd/avd-drv.c
++++ b/drivers/media/platform/apple/avd/avd-drv.c
+@@ -583,6 +583,43 @@ static const struct avd_variant avd_t8142_variant = {
+ 	.quirks = AVD_QUIRK_HEVC_V5_HEADER | AVD_QUIRK_H264_MV_128,
+ };
+ 
++/*
++ * M5 Pro/Max: the T8142 generation (ADT avd-version 4) with the SRAM window
++ * at +0x1094000 that avd-fw's v5 tier 2 image expects. The VP layout and
++ * the H.264 motion vector size are T8142's; a larger T6050 VP pool would
++ * be a superset, so these slots stay within the hardware either way.
++ * Recovery does not reset the block: the M4 Max hangs on that reset, and
++ * this decoder has not been through one yet.
++ */
++static const struct avd_variant avd_t6050_variant = {
++	.vp_slots = {
++		[AVD_CODEC_HEVC] = 2,
++		[AVD_CODEC_H264] = 1,
++		[AVD_CODEC_VP9] = 1,
++		[AVD_CODEC_AV1] = 1,
++	},
++	.vp_slot_base = {
++		[AVD_CODEC_HEVC] = 0,
++		[AVD_CODEC_H264] = 4,
++		[AVD_CODEC_VP9] = 8,
++		[AVD_CODEC_AV1] = 9,
++	},
++	.fifo_slots = 7,
++	.configure_stream = t8122_configure_stream,
++	.capabilities = AVD_CAPABILITY_HEVC |
++			AVD_CAPABILITY_H264 |
++			AVD_CAPABILITY_VP9 |
++			AVD_CAPABILITY_AV1,
++	.fw_name = "apple/avd-fw-v5-t2.bin",
++	.revision = 4,
++	.vp_slot_offset = 0xc,
++	.submit_offset = 0x40,
++	.submit_queue_max_offset = 0x44,
++	.submit_queue_status_offset = 0x7c,
++	.quirks = AVD_QUIRK_HEVC_V5_HEADER | AVD_QUIRK_H264_MV_128 |
++		  AVD_QUIRK_NO_RECOVERY_RESET,
++};
++
+ /* can also be derived from a version register */
+ static const struct of_device_id avd_of_match[] = {
+ 	{
+@@ -613,6 +650,10 @@ static const struct of_device_id avd_of_match[] = {
+ 		.compatible = "apple,t6041-avd",
+ 		.data = &avd_t6040_variant
+ 	},
++	{
++		.compatible = "apple,t6050-avd",
++		.data = &avd_t6050_variant
++	},
+ 	{
+ 		.compatible = "apple,t8132-avd",
+ 		.data = &avd_t8132_variant

@@ -1,0 +1,51 @@
+From 83dd5fa316b5a89c1823a3dc629e42e8418bb38a Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:00:36 -0500
+Subject: [PATCH 9/9] arm64: dts: apple: t6050: Record the AVD's ADT windows
+ and interrupt roles
+
+Next to the decoder node, note what the J716s ADT gives for /arm-io/avd0
+and dart-avd0 (both register windows, the two interrupts, the DART, the
+perf-floor functions) and how upstream's apple,avd binding (five regs
+with piodma first, seven named interrupts, two iommus) maps onto this
+block, so the node can be re-targeted in one edit once upstream grows an
+M5 entry. Comment only; the node is unchanged.
+---
+ arch/arm64/boot/dts/apple/t6050-media.dtsi | 24 ++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-media.dtsi b/arch/arm64/boot/dts/apple/t6050-media.dtsi
+index bfa3c45f9f79..a2222805bcd5 100644
+--- a/arch/arm64/boot/dts/apple/t6050-media.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-media.dtsi
+@@ -212,6 +212,30 @@
+ 		 * dart-avd0 SIDs 0-2: mapper-avd0, mapper-avd0-piodma,
+ 		 * mapper-avd0-adsbuf. CM3 code and SRAM 0x14000 each at
+ 		 * +0x1080000, mailbox +0x10a8000, decode control +0x1100000.
++		 *
++		 * The node follows Aurora's apple,avd binding (4 regs, 2
++		 * interrupts, 1-3 iommus). The ADT /arm-io/avd0 behind it
++		 * (avd-version 4, compatible avd,t8103 avd,t6020):
++		 *   reg[0]      0x2308000000 + 0x1404000  the whole block; the
++		 *               four windows above are offsets into it
++		 *   reg[1]      0x2388090000 + 0x4000     second window, not
++		 *               covered by any other ADT node; unused here
++		 *   interrupts  2417, 2418 (two; the ADT lists no others)
++		 *   dart-avd0   0x2309020000 + 0x20000, interrupt 2424,
++		 *               sid-count 16, SIDs 0-2 as above
++		 *   function-set_perf_state_floor / get_valid_perf_states ->
++		 *               pmgr entity 0x258 (AVD_SYS), arg 0x20: the
++		 *               optional "perf" domain, not wired here
++		 * Upstream's binding (media: apple: add avd driver, v3, M1-M3)
++		 * wants 5 regs with "piodma" first, 7 named interrupts and 2
++		 * iommus. Mapped onto this block, for a one-edit re-target:
++		 *   piodma  0x2309070000 + 0x4000 (block + 0x1070000, as the
++		 *           upstream example's piodma sits 0x10000 below code;
++		 *           the open firmware addresses it as CM3 0x41070000)
++		 *   mbox0   2417    mbox1  2418 (the interrupt this driver takes)
++		 *   mbox2, mbox3, flag0, flag1, piodma: no T6050 numbers; the
++		 *           ADT lists only the two above
++		 *   iommus  <&avd_dart 0> decode, <&avd_dart 1> piodma DMA
+ 		 */
+ 		avd: avd@2309080000 {
+ 			compatible = "apple,t6050-avd", "apple,t8142-avd";

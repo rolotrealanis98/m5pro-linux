@@ -1,0 +1,34 @@
+From 4abb7f79fb5e4f364e958a90e82c4712fd64ab26 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:53:04 -0500
+Subject: [PATCH 7/9] arm64: dts: apple: t6050-j716s: Enable the JPEG engines
+
+Enable both JPEG engines and the DART they share. They need no firmware.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 14fe3fce3546..f50d352fb117 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -1193,3 +1193,16 @@
+ &avd {
+ 	status = "okay";
+ };
++
++/* Both JPEG engines; they share one DART. */
++&jpeg_dart {
++	status = "okay";
++};
++
++&jpeg0 {
++	status = "okay";
++};
++
++&jpeg1 {
++	status = "okay";
++};

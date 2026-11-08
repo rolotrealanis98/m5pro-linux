@@ -1,0 +1,31 @@
+From 131a45992d9899301fa2668b606bb5b7daae9f0a Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 13:53:04 -0500
+Subject: [PATCH 6/9] arm64: dts: apple: t6050-j716s: Enable the video decoder
+
+Enable the AVD and its DART. The decoder runs the open CM3 firmware
+(avd-fw v5 tier 2), which the driver loads from /lib/firmware.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 1cbe955b9072..14fe3fce3546 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -1184,3 +1184,12 @@
+ &apr0 {
+ 	status = "okay";
+ };
++
++/* The video decoder; it loads its open CM3 firmware (avd-fw v5 tier 2). */
++&avd_dart {
++	status = "okay";
++};
++
++&avd {
++	status = "okay";
++};
