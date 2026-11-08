@@ -57,7 +57,9 @@ prepared path, and the plan keeps the stub (Omarchy) as the default and macOS as
   (U+F0709, U+F02CA, U+F02FD, U+F073A). One icon was first written as an empty string and fixed with a \u escape.
 - `bash -n` passes on the wrapper; `omarchy-startup-disk bogus` prints its usage line and exits 1 with no sudo and no NVRAM access.
 - `Menu.qml` loads the user file through a `FileView` with `watchChanges: true`.
-- NOT verified: that the rows render in the menu (nobody opened it); a click (needs the sudo password, and
+- Seen by Rolando: the "Reboot into macOS" row shows in the Quickshell System menu (he did not comment on the
+  Startup Disk submenu rows).
+- NOT verified: a click (needs the sudo password, and
   `nvram-next-boot.sh` refuses without its `probe.pass` marker, so today it ends in a REFUSED line); the NVRAM write
   itself and the return from macOS to Linux (one-shot consumption by iBoot is unverified on M5). Those are issue #4.
 
