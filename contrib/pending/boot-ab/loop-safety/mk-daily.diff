@@ -1,0 +1,110 @@
+--- contrib/validated/aurora/tools/mk-daily.py	2026-11-07 09:26:48
++++ mk-daily.py	2026-11-07 21:39:47
+@@ -57,9 +57,11 @@
+                       "args": ["snd_soc_macaudio.speaker_max_db=-40"]},
+     },
+     "initramfs": {  # ONE gzip member (m1n1 keeps only the last); DIAG block + self-revert installer
+-        "default": "selftest",
+-        "selftest": {"path": H / "Work/omarchy-m5/build/initramfs-selftest.cpio.gz",
++        "default": "selftest-wdt",
++        "selftest": {"path": H / "Work/omarchy-m5/build/initramfs-selftest.cpio.gz",   # no watchdog opener: not for --selftest
+                      "sha256": "1f61a850fb49764126d7a79e9f8adce5508cd6109b302e1441989bb89cd7903b"},
++        "selftest-wdt": {"path": H / "Work/agents/loop-safety/private/initramfs-selftest-wdt.cpio.gz",   # + /dev/watchdog0 opener (add-wdt-opener.py)
++                         "sha256": "d6d83a9dd96a08e6dbd77309daa9eda485ac44dc9f0530d4efcdef3b75741f23"},
+     },
+ }
+ 
+@@ -67,6 +69,12 @@
+         "no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5 kvm-arm.wfi_trap_policy=trap")
+ BLACKLIST = "initcall_blacklist=macsmc_power_driver_init"   # battery driver: probe hang, attended only
+ SELFTEST = "m5.selftest=1"
++# Test payloads (m5.selftest=1) also get watchdog.open_timeout=N: after N s without a userspace open of
++# /dev/watchdog0 the kernel core stops feeding the stage-1 watchdog (m1n1.wdt=keep), the dog bites within 30 s and
++# stage 1 falls back. The initramfs must carry the opener (add-wdt-opener.py, marker below) or systemd must open the
++# device (RuntimeWatchdogSec), else a healthy test boot is reset at N+30 s. Never set for the daily.
++WDT_OPEN_TIMEOUT = 300
++WDT_MARK = b"m5-wdt-opener v1"
+ NOTCH = b"chosen.asahi,show-notch=1\n"
+ M1N1_SIZE = 0x400000
+ KINDS = ("m1n1", "kernel", "dtb", "initramfs")
+@@ -146,12 +154,14 @@
+ 
+ 
+ # ---------------------------------------------------------------- bootargs and layout
+-def bootargs(battery, selftest, dtb_args, extra):
++def bootargs(battery, selftest, dtb_args, extra, wdt_open=0):
+     parts = [BASE]
+     if not battery:
+         parts.append(BLACKLIST)
+     if selftest:
+         parts.append(SELFTEST)
++        if wdt_open:
++            parts.append(f"watchdog.open_timeout={wdt_open}")
+     parts += dtb_args
+     if extra:
+         parts.append(extra.strip())
+@@ -181,9 +191,10 @@
+ 
+ 
+ # ---------------------------------------------------------------- recipe
+-def recipe(name, blob, rows, ing, args, mode, selftest, battery, force_notes):
++def recipe(name, blob, rows, ing, args, mode, selftest, battery, force_notes, wdt_open=0):
+     L = [f"payload   {name}", f"size      {len(blob)} bytes", f"sha256    {sha(blob)}",
+          f"mode      {mode}; m5.selftest {'ON (self-reverts to boot.bin.prev without network in 90 s)' if selftest else 'OFF (no watchdog)'}"
++         f"; hw watchdog {f'bounded: open_timeout {wdt_open} s' if wdt_open else 'not bounded by the payload'}"
+          f"; battery driver {'ENABLED (attended boot only)' if battery else 'gated (initcall_blacklist)'}"]
+     for k in KINDS:
+         e = ing[k]
+@@ -299,6 +310,11 @@
+                     help="omit the macsmc_power blacklist (battery driver on; attended boots only, R3-S)")
+     ap.add_argument("--selftest", action=argparse.BooleanOptionalAction, default=None,
+                     help="append m5.selftest=1 (self-revert). Default: on for test payloads, off for --daily")
++    ap.add_argument("--wdt-open-timeout", type=int, default=WDT_OPEN_TIMEOUT, metavar="SECONDS",
++                    help=f"with m5.selftest=1: append watchdog.open_timeout=SECONDS (default {WDT_OPEN_TIMEOUT}; 0 = omit). "
++                         "Needs an initramfs with the watchdog opener (checked)")
++    ap.add_argument("--no-wdt-check", action="store_true",
++                    help="skip the check that the initramfs has the watchdog opener (negative test: open_timeout without an opener)")
+     ap.add_argument("--extra", default="", help='extra bootargs, appended last, e.g. --extra "foo=1"')
+     for k in KINDS:
+         ap.add_argument(f"--{k}", help=f"{k}: a table name ({', '.join(x for x in INGREDIENTS[k] if x != 'default')}) or a file path")
+@@ -335,7 +351,12 @@
+             "self-recoverable. Use a test payload attended, or --force.")
+     if SELFTEST.split("=")[0] in a.extra:
+         die("use --selftest/--no-selftest, not --extra, for m5.selftest")
++    if "watchdog.open_timeout" in a.extra:
++        die("use --wdt-open-timeout, not --extra, for watchdog.open_timeout")
++    if a.wdt_open_timeout < 0:
++        die("--wdt-open-timeout must be >= 0")
+     selftest = (not a.daily) if a.selftest is None else a.selftest
++    wdt_open = a.wdt_open_timeout if selftest else 0
+ 
+     notes = []
+     # DTB first: it can name the kernel it needs.
+@@ -362,7 +383,17 @@
+     if not a.daily and not selftest:
+         notes.append("test payload without m5.selftest: no self-revert, boot.bin.prev is not used automatically")
+ 
+-    args = bootargs(a.battery, selftest, ing["dtb"].get("args", []), a.extra)
++    if wdt_open and not a.no_wdt_check:
++        ir_raw = zlib.decompress(ing["initramfs"]["bytes"], 31)
++        if WDT_MARK not in ir_raw:
++            die(f"initramfs {ing['initramfs']['name']} has no watchdog opener ('{WDT_MARK.decode()}'): with "
++                f"watchdog.open_timeout={wdt_open} a healthy test boot would be reset at {wdt_open + 30} s. Use an "
++                f"initramfs made by add-wdt-opener.py (table name selftest-wdt), or --wdt-open-timeout 0 if the root's "
++                f"systemd opens the watchdog (RuntimeWatchdogSec).")
++    if wdt_open:
++        notes.append(f"watchdog.open_timeout={wdt_open}: a test boot that never reaches userspace is reset at ~{wdt_open + 30} s "
++                     f"and stage 1 falls back; the initramfs opener (m5.selftest=1) pets the dog until switch_root, then systemd")
++    args = bootargs(a.battery, selftest, ing["dtb"].get("args", []), a.extra, wdt_open)
+     blob, line = assemble(ing["m1n1"]["bytes"], args, ing["kernel"]["bytes"], ing["dtb"]["bytes"], ing["initramfs"]["bytes"])
+     rows = verify_payload(blob, ing["m1n1"]["bytes"], line, ing["kernel"]["bytes"], ing["dtb"]["bytes"], ing["initramfs"]["bytes"])
+     digest = sha(blob)
+@@ -382,7 +413,7 @@
+     if sline not in have:
+         with open(sums, "a") as f:
+             f.write(sline + "\n")
+-    text = recipe(name, blob, rows, ing, args, mode, selftest, a.battery, notes)
++    text = recipe(name, blob, rows, ing, args, mode, selftest, a.battery, notes, wdt_open)
+     (a.out / (name + ".recipe.txt")).write_text(text)
+     print(text, end="")
+     print(f"wrote     {dest}\nappended  {sums}: {sline}")
