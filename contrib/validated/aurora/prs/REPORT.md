@@ -233,3 +233,10 @@ fine; the cpufreq override with the T8112 fallback stays until #481 lands; a pan
 the trackpad reset route can be follow-ups. "Build-tested here, and you've booted it on the J716s, so this goes in
 once CI is green." PR now 26 commits, head 36aba43. Follow-ups for us: #1183 (DT half of the N1 training) sits on
 #1167 and may need a rebase after the merge; our daily's `j716s.config` fragment stays local (or goes to asahi.config).
+
+## 2026-11-08 06:11 UTC: aurora-silicon/linux #1167 MERGED (merge commit e636747)
+
+The J716s board device tree is upstream in `integration/aurora` with the maintainers' fixups (no per-board config
+fragment, no `maxcpus=1` default). Follow-ups: rebase #1183 (DT half of the N1 training, carried #1167 underneath)
+onto the new tip, and resolve #1182's conflict with its base (#937's branch); panel node for the boot framebuffer
+and the trackpad reset route as later PRs.
