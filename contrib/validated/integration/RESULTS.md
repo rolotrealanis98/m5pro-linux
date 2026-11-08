@@ -1786,3 +1786,13 @@ fallback twin (`daily-n1k-test 5c74c66c`) also fails to get network after this k
 the USB4/ATC bring-up, e.g. the N1 or the Type-C ports, which the kernel-side training may not recover), or the machine is
 hung with the watchdog disarmed, or it is looping on the twin. The queued display, GL-session and camera I2 steps are
 waiting behind it. Recovery: power button (cold start), then macOS if the loader slot needs the daily put back by hand.
+
+### TB-T0: what the panel showed (2026-11-08, Rolando's photo)
+
+Kernel `7.3.0-g121f7cde7d92` (the T0 Thunderbolt payload) hung in kernel init: `INFO: task swapper/0:1 blocked for more
+than 1087 seconds ... Tainted: G S`, call trace `wait_for_completion -> __flush_work -> flush_work ->
+deferred_probe_initcall -> do_one_initcall -> kernel_init_freeable`, repeating at 1209 and 1330 s. A deferred driver
+probe blocked forever on a completion (prime suspect: the USB4/CIO controller or acio router probe without the loader's
+combo-PHY tunables), so userspace and the self-test never started; Linux had taken over the watchdog, so no reset
+happened. Rolando power-cycled it. Rule: Thunderbolt/USB4 bring-up payloads are attended-only; the kernel-side hang
+needs a probe timeout (and a boot-time watchdog that only Linux's init completion pets) before another loop attempt.
