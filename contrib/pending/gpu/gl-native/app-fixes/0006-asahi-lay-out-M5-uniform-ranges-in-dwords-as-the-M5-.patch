@@ -1,0 +1,45 @@
+From bb443aa678af4c7623544bbc524a8a3d284df488 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:04:58 +0000
+Subject: [PATCH 6/8] asahi: lay out M5 uniform ranges in dwords, as the M5
+ program loader needs
+
+The M5 graphics program builder (agx_build_agx3_graphics_program) moves
+uniform dwords and refuses a push range that starts at an odd half
+("push range shape"), but agx_nir_layout_uniforms only aligned ranges
+for G17P. A fragment shader that samples a texture (one 16-bit lod_bias
+half) and also reads a 16-bit root sysval (no_epilog_discard and
+provoking_vertex, for discard or flat inputs) got the second range at
+an odd uniform, so its program was never built and every draw using it
+was dropped. Alacritty's text shader is that shape: every frame was
+discarded and its windows stayed black on the M5 Pro.
+
+Request dword ranges on every M5 part too.
+---
+ src/gallium/drivers/asahi/agx_state.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/src/gallium/drivers/asahi/agx_state.c b/src/gallium/drivers/asahi/agx_state.c
+index 2653aea86e2..339797c5c54 100644
+--- a/src/gallium/drivers/asahi/agx_state.c
++++ b/src/gallium/drivers/asahi/agx_state.c
+@@ -2016,11 +2016,13 @@ agx_compile_nir(struct agx_device *dev, nir_shader *nir,
+          compiled->g17p_texture_resources
+             ? AGX_ABI_G17P_TEXTURE_POINTER_HALFS
+             : 0;
+-      /* G17P's Ioto loader moves uniform dwords: lay the ranges out so
+-       * that each starts at an even half and covers an even count. */
++      /* G17P's Ioto loader and the M5 program builder move uniform dwords
++       * (agx_build_agx3_graphics_program refuses an odd range): lay the
++       * ranges out so that each starts at an even half and covers an even
++       * count. */
+       NIR_PASS(_, nir, agx_nir_layout_uniforms, compiled,
+                &key.reserved_preamble, uniform_base,
+-               agx_native_graphics(dev));
++               agx_native_graphics(dev) || agx_chip_g17_m5(dev->chip));
+       if (agx_native_graphics(dev))
+          NIR_PASS(_, nir, agx_nir_lower_g17p_storage_records,
+                   texture_descriptor_size);
+-- 
+2.56.0
+

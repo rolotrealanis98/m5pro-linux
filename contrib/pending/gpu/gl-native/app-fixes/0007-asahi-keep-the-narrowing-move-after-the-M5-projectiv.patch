@@ -1,0 +1,80 @@
+From 3d97cd816434890082508c51cb8a1a252f333ea9 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:06:08 +0000
+Subject: [PATCH 7/8] asahi: keep the narrowing move after the M5 projective
+ multiply
+
+persp_mul_agx3 (f32mul.ep4) has no half-destination form, and the
+packer refuses it into a 16-bit register. agx_optimizer_fmov_rev folded
+the f32-to-f16 move that follows a mediump smooth varying into it, so
+every GLES fragment shader with a default-precision perspective varying
+(glmark2-es2's build and texture scenes) was unencodable on G17S and
+G17C, which take the native projective sequence. G17G is unaffected: it
+keeps the generic interpolation sequence.
+
+Keep the explicit narrowing move after persp_mul_agx3.
+---
+ src/asahi/compiler/agx_optimizer.c         |  9 ++++++++
+ src/asahi/compiler/test/test-optimizer.cpp | 26 ++++++++++++++++++++++
+ 2 files changed, 35 insertions(+)
+
+diff --git a/src/asahi/compiler/agx_optimizer.c b/src/asahi/compiler/agx_optimizer.c
+index 57b2e4cbed2..833f8707dbe 100644
+--- a/src/asahi/compiler/agx_optimizer.c
++++ b/src/asahi/compiler/agx_optimizer.c
+@@ -678,6 +678,15 @@ agx_optimizer_fmov_rev(agx_context *ctx, agx_instr *I, agx_instr *use)
+         I->op == AGX_OPCODE_DFDY))
+       return false;
+ 
++   /* The native projective multiply (f32mul.ep4) has no half-destination
++    * form on either AGX3 encoding: the packer refuses persp_mul_agx3 into a
++    * 16-bit register, which is what a mediump (fp16-lowered) smooth GLES
++    * varying folded into (glmark2's default fragment precision). Keep the
++    * explicit f32-to-f16 move after it. */
++   if (I->op == AGX_OPCODE_PERSP_MUL_AGX3 &&
++       use->dest[0].size == AGX_SIZE_16)
++      return false;
++
+    /* saturate(saturate(x)) = saturate(x) */
+    I->saturate |= use->saturate;
+    I->dest[0] = use->dest[0];
+diff --git a/src/asahi/compiler/test/test-optimizer.cpp b/src/asahi/compiler/test/test-optimizer.cpp
+index 0bd63a55091..cfce275678d 100644
+--- a/src/asahi/compiler/test/test-optimizer.cpp
++++ b/src/asahi/compiler/test/test-optimizer.cpp
+@@ -155,6 +155,32 @@ TEST_F(Optimizer, G17PPreservesNarrowingAfterAdd)
+    ASSERT_SHADER_EQUAL(actual->shader, expected->shader);
+ }
+ 
++/* The native projective multiply has no half-destination form on either
++ * AGX3 encoding, so a mediump smooth varying keeps its narrowing move. */
++TEST_F(Optimizer, NativePreservesNarrowingAfterProjectiveMultiply)
++{
++   for (enum agx_isa_encoding encoding :
++        {AGX_ISA_ENCODING_AGX3B, AGX_ISA_ENCODING_AGX3C}) {
++      agx_builder *actual = agx_test_builder(mem_ctx);
++      agx_builder *expected = agx_test_builder(mem_ctx);
++      struct agx_shader_key key = {};
++      key.dev.encoding = encoding;
++      actual->shader->key = &key;
++      expected->shader->key = &key;
++
++      for (agx_builder *b : {actual, expected}) {
++         agx_index product = agx_temp(b->shader, AGX_SIZE_32);
++         agx_persp_mul_agx3_to(b, product, wx, wy, 1);
++         agx_index narrowed = agx_temp(b->shader, AGX_SIZE_16);
++         agx_fmov_to(b, narrowed, product);
++         agx_unit_test(b, narrowed);
++      }
++
++      agx_optimize_and_dce(actual->shader);
++      ASSERT_SHADER_EQUAL(actual->shader, expected->shader);
++   }
++}
++
+ TEST_F(Optimizer, G17PPreservesZeroExtensionsBeforeExtract)
+ {
+    agx_builder *actual = agx_test_builder(mem_ctx);
+-- 
+2.56.0
+

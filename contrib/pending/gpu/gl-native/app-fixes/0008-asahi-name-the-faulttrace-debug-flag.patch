@@ -1,0 +1,30 @@
+From 4adc73eb731abc5b231c02fc00dc306e07418b2e Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:06:08 +0000
+Subject: [PATCH 8/8] asahi: name the faulttrace debug flag
+
+AGX_DBG_FAULTTRACE gates the M5 draw and program refusal reasons
+(M5_DRAW_REJECT, M5_PROGRAM_REJECT) but had no entry in the option
+table, so ASAHI_MESA_DEBUG could not turn it on and "could not build
+the native fragment program" carried no reason on the machine.
+
+Expose it as ASAHI_MESA_DEBUG=faulttrace.
+---
+ src/asahi/lib/agx_device.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/asahi/lib/agx_device.c b/src/asahi/lib/agx_device.c
+index e675687e756..52efa26718a 100644
+--- a/src/asahi/lib/agx_device.c
++++ b/src/asahi/lib/agx_device.c
+@@ -115,6 +115,7 @@ static const struct debug_named_value agx_debug_options[] = {
+    {"nomerge",   AGX_DBG_NOMERGE,  "Disable control stream merging"},
+    {"asynctrace",AGX_DBG_ASYNCTRACE,"Trace command streams without waiting"},
+    {"bodumpverbose", AGX_DBG_BODUMPVERBOSE,   "Include extra info with dumps"},
++   {"faulttrace",AGX_DBG_FAULTTRACE,"Name refused native draws and programs"},
+    DEBUG_NAMED_VALUE_END
+ };
+ /* clang-format on */
+-- 
+2.56.0
+
