@@ -2514,3 +2514,25 @@ Attended, Rolando at the panel; runner `~/Work/agents/hdr/run-hdr-test-v2.sh` (r
 - Conclusion: HDR10 on the internal panel is blocked at the firmware-offered colour elements, not in Hyprland. Next
   step for HDR is the hypervisor trace of macOS's DCP mode set when it enables HDR/EDR on this panel (rung iv, dcp
   group), to see which element/eotf macOS requests and through which call.
+
+## 2026-11-08 22:45-23:45 UTC — hv27 rung (iv): live tracing installs, then the guest panics
+
+Cycles with the proxy loader on the slot (prev = hv27 daily), pipe-driven client, tracers installed live:
+- Install verified: `hv_pt_walk` shows the traced pages as trace descriptors (read+write flags set, invalid PTE) in
+  ASYNC mode and as hook-type entries in SYNC mode; `hv.mmio_maps` carries the PrintTracer above the HW entry; an
+  explicit `dsb ishst; tlbi vmalls12e1is; dsb ish; isb` added afterwards. HCR_EL2.VM = 1 and VTTBR_EL2 = the
+  hypervisor's table on the running core. So the mechanism is in place.
+- Zero events in every configuration: SEP+ESM after SMP (6 min), SEP+ESM+DCP after SMP (link lost after 2 min,
+  guest still alive on the panel), DCP only, SMC only (ASYNC then SYNC, 100 s each), single-core guest (`cpus=1`)
+  with SEP+ESM+DCP+SMC. The pre-start PMGR hooks produced their 44 events during early boot only (the registers
+  they cover are not touched later), so they say nothing about the late phase.
+- What the paused guest shows after a live install (single-core run): the PC does not move between pauses 20 s
+  apart; the code there is `wfe; b .-4` with DAIF masked at EL1t, XNU's halt loop after a panic; `ESR_EL12` =
+  0x02000000 (EC 0, "unknown reason") with `FAR_EL12` in the device-mapping VA range. So the first traced access
+  after the install ends in a fault delivered to XNU rather than an emulated access, XNU panics, and any ASYNC
+  events stay unflushed in m1n1's buffer. The two panel photos of traced guests stopping at the same 101 s frame
+  fit this. Next: the panel's panic text (framebuffer read through the proxy) to name the driver and instruction,
+  then the hypervisor's emulation path for that access form under SPTM emulation (study: `TRACE-UNDER-SPTM.md`).
+- Tooling lessons: a stale client holding the proxy port corrupts the next session (runner kills them); a daily
+  younger than ~60 s reboots into the fallback; `pkill -f` patterns must not match their own shell; the `exec`
+  name in the m1n1 shell is the assembler helper.
