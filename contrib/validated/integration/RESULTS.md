@@ -2290,3 +2290,16 @@ first try (58 s, DCP + GPU, Hyprland up).
   no kernel-side blacklist, a modprobe.d blacklist on the root instead
   (`video-observe2-test-20261108-8e71e548.bin`).
 - Artefacts (Studio, private): `~/Work/agents/video-observe/observe-20261108-1354/`.
+
+## 2026-11-08 14:01-14:08 UTC — video observe boot 2: ProRes engine observed (PASS)
+
+`video-observe2-test-20261108-8e71e548.bin` (same kernel 7.3.0-g0933f881d736 and loader, no `module_blacklist`;
+a modprobe.d blacklist was placed on the root instead). Booted first try (59 s). The observer bound at 2.6 s
+(it loaded at boot despite the modprobe.d entry, which is fine for an observation): "observing the ProRes
+engine: irqs 113 114, aux window present"; **id 0x00040018**; mode, irq_enable, irq_status, st0, st1 and the
+five ring registers all 0; "observation only: no V4L2 device registered". No DART fault, no SError; the
+engine powered through `ps_scodec` and back down. Both video blocks have now passed rung (a):
+- AVE: firmware handed over and bound, TEXT c25b4ddb / DATA d2223517 (build 9013.55.1), `/dev/video0`.
+- ProRes: `apr,n0` engine identity 0x00040018 read once at reset state.
+Next for both: hand the identifiers to Aurora (AVE command layout for 9013.55.1 and the T6050 boot identity;
+ProRes n0 tunables/descriptor), then rung (b). Artefacts: `~/Work/agents/video-observe/observe-20261108-0901/`.
