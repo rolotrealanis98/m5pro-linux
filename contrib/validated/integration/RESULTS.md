@@ -2303,3 +2303,19 @@ engine powered through `ps_scodec` and back down. Both video blocks have now pas
 - ProRes: `apr,n0` engine identity 0x00040018 read once at reset state.
 Next for both: hand the identifiers to Aurora (AVE command layout for 9013.55.1 and the T6050 boot identity;
 ProRes n0 tunables/descriptor), then rung (b). Artefacts: `~/Work/agents/video-observe/observe-20261108-0901/`.
+
+## 2026-11-08 14:19-14:29 UTC — daily-dcp-rec-video promoted (video blocks carried in the daily)
+
+`daily-dcp-rec-video-20261108-26ca25f0.bin` = kernel 7.3.0-g0933f881d736 (daily-dcp-rec-p2000 + the video observe
+series: AVE node probe-only, ProRes engine node + observer, `t6050-media.dtsi`, bindings) with loader
+`m1n1-plain-n1-dt-gpu-dcp-phfix-ave` (the daily's + the AVE firmware hand-off), no test flags, VRR on, pause bound
+2000 us. Built by `mk-daily-video.py` (observe-test tools). Booted first try (clean, 58 s). Verifier **23 passed,
+0 failed, 1 warning** (first fully clean run today). AVE bound probe-only with `/dev/video0`; ProRes observer id
+0x00040018 again. `boot.bin.prev` unchanged (daily-n1k-test 5c74c66c).
+- The AVE DATA segment checksum differs per boot (d2223517 twice, 73cbcb65 now) while TEXT stays c25b4ddb: iBoot's
+  preloaded DATA carries per-boot content, so any firmware-layout table must key on the TEXT checksum only.
+- Power: 18.7 W total system a minute after the verifier, load 1.0 with a terminal and the text-effects tool busy;
+  not an idle figure. Settled idle to be compared against the 9.8 W baseline during normal use (the encoder's
+  power domain is kept on for its DARTs; if idle rises, the AVE node goes back to disabled in the next daily).
+- Restore target for test runners is now this payload; `fault-watch.sh` runs for the boot under
+  `/root/fault-watch-daily/`.
