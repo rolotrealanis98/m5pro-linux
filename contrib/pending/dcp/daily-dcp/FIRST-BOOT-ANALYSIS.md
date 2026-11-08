@@ -239,3 +239,89 @@ Recommended order (decide once B1's result is in the log):
 
 Every result: read the `firstboot-probe.sh` delta. A delta of 170 s or more means failure before a restart handler.
 An attended boot with the panel filmed still gives the most per boot.
+
+## 8. Round 2 results and round 3 (2026-11-08 03:42 UTC onwards)
+
+| Payload | Result |
+|---|---|
+| B1 `583dce9f` (daily loader, twin DTB, `gpu=1`) | **booted**, clean, delta 51 s |
+| B5 `438f2685` (B2 with the dcp9d DTB) | **booted**, clean, delta 50 s. card1 = apple-drm, eDP-2 connected, six modes. No flip_done or transaction timeouts, no crash, no faults. `apple-dcp` probed at 0.127 s (before any restart handler). No N1 (`wlan=0`), no GPU node |
+| B6 `47036123` (stage C loader + `n1=4`, in-tree DTB) | **fell back**: delta 208 s, `attempt-stage1-watchdog` (03:50 UTC). The kernel train is out, and so is 0028: a loader-trained, kernel-adopted port fails too, on the in-tree DTB |
+
+Conclusion so far:
+- The DCP takeover works on the daily kernel and the B2 loader with the dcp9d DTB.
+- The same takeover fails, before any restart handler, with the in-tree daily-dcp DTB.
+- The trigger is one of the in-tree DTB's additions over dcp9d, acting together with the display hand-off. Without the
+  hand-off (B1, B3) the same DTB boots.
+
+### Every difference between the twin DTB and dcp9d (from `dtchk/vs-dcp9d.txt`)
+
+| Group | Lines in vs-dcp9d.txt | Enabled before the root mounts? | Rank |
+|---|---|---|---|
+| **A. kernel-train pcie description** | pcie `reg`/`reg-names` (+6 windows), `pci@0,0 pwren-gpios`, new node `smc/gpio@67500000`, `iommu@410000000 apple,manual-availability` | Yes. With no `n1`, 0028 enables port00 and `dart_apcie0` because of `pwren-gpios` + manual-availability. gpio-macsmc binds the bank when macsmc probes. pcie-apple maps the extra windows and cold-trains the N1 | **1** |
+| **B. apcie power-controllers** | `power-controller@118 @138 @148 @1b0 @258 @280` (apcie_gp, fab6_soc, apcie_sys_gp, apcie_phy_sw, aphy_gp_aus5_a, aphy_gp_aus5), all `apple,always-on`, three `apple,no-auto-pm` | Yes. `pmgr_pwrstate` (initcall #1346, before appledrm #1490) raises them out of iBoot's automatic gating and disables auto-PM | **2** |
+| C. NVRAM | `spi@505118000` disabled -> okay, `flash@0`, `partitions`, `partition@700000`, alias `nvram` | No: `CONFIG_SPI_APPLE=m`; nothing binds before the root mounts | 4 |
+| D. GPU | `/soc@2300000000` (gpu, two mailboxes, PMGR node, four power-controllers), six `/reserved-memory` GPU/UAT placeholders, alias `gpu` | No without `gpu=1`: all `status = "disabled"` (the power-controllers sit under a disabled parent) | 3 |
+| E. renumbering only | aop `audio dmas`, nvme `apple,sart`, smc `reboot`/`rtc` `nvmem-cells` | Not a difference: the phandles resolve to the same nodes in both DTBs (checked) | - |
+
+### Round 3 payloads
+
+All are in `~/Work/agents/daily-dcp/bisect/`, files 0600, listed in `SHA256SUMS`, built by `mk-bisect3.py`, which
+first rebuilds B2 byte for byte.
+- The DTBs come from `dt/mk-dt3.py`. It decompiles c8f1b960, edits by node path and recompiles. The unmodified DTS
+  recompiles byte-identical.
+- The semantic diff of each DTB against the twin's shows exactly the intended edits. No phandle is left dangling: no
+  other property's resolved form changed.
+- B12's pcie, DART and GPIO lines are equal to dcp9d's.
+- Each payload differs from B2 in exactly one part: the DTB, or for B9 the variables.
+
+| Payload | sha256 | Differs from B2 |
+|---|---|---|
+| B9 `dcpbis-b9-n1loader-20261107-974350b6.bin` | 974350b6… | `chosen.m5pro,n1=4` added (same 0028 loader): the loader trains the N1 port and the kernel adopts it. In-tree DTB unchanged |
+| B8 `dcpbis-b8-nopwren-20261107-990ca745.bin` | 990ca745… | DTB d5765d18: in-tree minus port00's `pwren-gpios`, so 0028 keeps port00 and `dart_apcie0` disabled (no N1). Everything else in the DTB stays |
+| B10 `dcpbis-b10-nopwrctl-20261107-f475d784.bin` | f475d784… | DTB 3ef4428b: in-tree minus the six apcie power-controllers (group B) |
+| B12 `dcpbis-b12-notrain-dt-20261107-3e693699.bin` | 3e693699… | DTB 99655db5: group A reverted to dcp9d (pcie windows, `pwren-gpios`, SMC GPIO bank, manual-availability); port00 and the DART stay disabled |
+| B11 `dcpbis-b11-nogpu-nonvram-20261107-5da555da.bin` | 5da555da… | DTB 7492c2f6: in-tree minus groups C and D |
+
+**About B9 against the requested "pwren-gpios / manual-availability removed so the kernel does not train":**
+- Removing those properties does not make an adopted port. Nothing trains the port, so 0028 just disables it; that is
+  B8.
+- A plain adopted port needs the loader to train it, so B9 adds `n1=4` and keeps the B2 loader.
+- B9 differs from B6 only in the loader (0028 or not), which splits B6's two changes.
+
+### Order once B6 is in the log (B6 fell back: take the second branch)
+- **B6 boots** (the kernel train of a down port, or 0028, is the trigger):
+  1. Run **B9**.
+     - B9 boots: the kernel's own N1 train is the trigger, and loader-trained N1 on the in-tree DTB is a daily
+       candidate (B9 itself, or B9 with `gpu=1`).
+     - B9 falls back: 0028 is the trigger.
+  2. Then **B8**, to confirm that no-N1 boots with every other addition present.
+- **B6 falls back** (the train path is out; a static addition is the trigger):
+  1. Run **B10** (group B). It acts before the DCP probes and is the only enabled block of hardware state that dcp9d
+     lacks entirely.
+  2. Then **B12** (group A's static parts).
+  3. **B11** last; it is expected to fall back.
+  4. If B10 and B12 both fall back, run B8 and then B11.
+
+### Could a daily ship on dcp9d plus a DT patch?
+B5 drives the panel through the DCP on the daily kernel. As a daily, dcp9d loses three things:
+- **Wi-Fi/BT:** 0028 leaves the N1 port disabled because dcp9d has no `pwren-gpios` or manual-availability.
+- **The GPU:** dcp9d has no GPU nodes.
+- **NVRAM.**
+
+Minimal deltas from dcp9d:
+- **Wi-Fi with no DT change at all:** add `chosen.m5pro,n1=4`. The loader trains the port and the kernel adopts it,
+  which is the stage C and e2b-era recipe. dcp9d's `dart_apcie0` has no manual-availability, which is correct when the
+  loader brings the port up. The B2 loader has the 0027 warm-N1 code. The payload would be B5 + `n1=4`; it is not
+  built yet.
+- **Kernel-side training instead:** that needs all of group A plus group B, which is exactly what is under suspicion.
+- **The GPU:** needs group D plus `gpu=1`. The GPU next to the DCP has still never booted: B2 removed `gpu=1`, so H1
+  was ruled out for this failure only, not shown to work.
+- **NVRAM:** group C (inert until the module loads).
+
+After B6:
+- B9 (the in-tree DTB with `n1=4`) is expected to fall back like B6, so the daily cannot be "in-tree + `n1=4`" until
+  the static trigger is found.
+- The quickest shippable display daily is **B5 + `n1=4`**: dcp9d with loader-trained Wi-Fi, no GPU, no NVRAM. It
+  equals stage C on the daily kernel and the B2 loader.
+- Better: the in-tree DTB minus whichever group B10/B12/B11 names, once known.
