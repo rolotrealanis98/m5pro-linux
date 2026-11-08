@@ -2248,3 +2248,28 @@ reconfigure to AR24 (the direct-scanout attempt for the fullscreen client), not 
 - Evidence (Studio, private): `~/Work/agents/gpu-recovery/oom-1254/` (dmesg with the OOM reports, the three
   session logs, DRM state, the verifier directory). Omarchy-side: the promotion runner was stopped before it turned
   the Electron GPU flags back on (still `--disable-gpu`).
+
+## 2026-11-08 13:15 UTC — the 12:47 OOM explained: a Hyprland direct-scanout retry storm, not the kernel
+
+Analysis of the dead session's log and the OOM report: 1557 "GBM: Allocated a new buffer" lines (519 swapchain
+reconfigures x 3) and 260 modesets; each buffer 30883840 bytes = 48 GB, matching the 47 GB missing; Hyprland's
+accepted fds grew from 131 to 1659 (one dma-buf fd per buffer, never released); the memory came back when the
+process died; the scanout objects are apple-drm dumb buffers (`drm_gem_dma_create` -> `dma_alloc_wc` through the
+DART), which no /proc/meminfo bucket counts. Mechanism: the fullscreen zink glmark2 offered a tiled buffer for
+direct scanout; with `AQ_NO_MODIFIERS=1` aquamarine cannot add it ("drmModeAddFB2WithModifiers unsupported and
+buffer has explicit modifiers", 4 times = once per client buffer, then cached), but Hyprland 0.57.1 keeps the
+candidate and reconfigures the swapchain to AR24 and back to XR24 with a modeset on every client frame: six new
+31 MB buffers per frame at 5-9 GB/s, the replaced ones never freed. The 26.5 displayed fps was a symptom (a
+modeset per frame). Windowed and composited clients never become candidates, which is why the stress runs and the
+later probes were flat; the storm also needs an idle cursor, which the untouched first session had.
+- Patch 0003 (bounded fence wait) read line by line against the tree: no double swap, no skipped cleanup; the
+  recovery and faults patches never ran a recovery in that boot. The 05:28 "good" verifier run used native GL,
+  not zink, so it was not a kernel comparison.
+- Fix (commit e62e3db): `hypr-gpu-session` exports `M5PRO_DCP_DIRECT_SCANOUT=0` whenever it runs aquamarine
+  without modifiers, `m5pro-dcp.lua` reads it, `hypr-dcp-verify` fails on more than 4 swapchain reconfigures
+  during glmark2. Direct scanout was never reachable on this path (blockedBy CANDIDATE on every measured run), so
+  nothing is lost; `/etc/hypr-dcp-modifiers` turns it back on. The buffer leak itself belongs upstream (Hyprland
+  0.57.1 / aquamarine 0.16): replaced swapchain buffers are not released.
+- Reproduction attempts on the same boot (glmark2 windowed, fullscreen with and without direct scanout, the
+  verifier's own steps, the full verifier at 13:04 and at 75 s uptime, a 0.5 s-sampled run with the cursor hidden)
+  all stayed flat with `directScanoutBlockedBy: CANDIDATE`; the storm did not re-arm after the first session.
