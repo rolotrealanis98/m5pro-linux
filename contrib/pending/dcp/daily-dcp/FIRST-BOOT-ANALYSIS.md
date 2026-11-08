@@ -5,6 +5,17 @@ Studio-only analysis of the two failed boots recorded in `contrib/validated/inte
 so the cause is not proven. This note ranks the candidates from the code and the boot timing, and gives the payloads
 that separate them. Private inputs (the m1n1 logs with the board serial, the ADT) stay on the Studio.
 
+**ROOT CAUSE FOUND (section 9).** m1n1's T6050 display hand-off needs a phandle on every display node it edits,
+and bails if one has none (`kboot.c:2290-2296`). The in-tree DTB has no phandle on `dcp@48ae00000` or
+`display-subsystem`; dcp9d has `0xd3`/`0xd4`. So `kboot_prepare_dt()` fails, stage 2 drops into the proxy with no host,
+nothing feeds the watchdog, and stage 1 resets after 150 s.
+
+That accounts for every result:
+- every in-tree DTB with the hand-off armed fell back (twin, B2, B6, B10, B12);
+- every boot without the hand-off (B1, B3) or with dcp9d (B5) booted.
+
+The fix payloads are in section 9.
+
 **Update (round 1):**
 - B2 fell back the same way as the twin (stage-1 watchdog), so **H1 is out**.
 - B3 booted, so the kernel build is fine as a plain daily (H4 is out).
@@ -325,3 +336,114 @@ After B6:
 - The quickest shippable display daily is **B5 + `n1=4`**: dcp9d with loader-trained Wi-Fi, no GPU, no NVRAM. It
   equals stage C on the daily kernel and the B2 loader.
 - Better: the in-tree DTB minus whichever group B10/B12/B11 names, once known.
+
+## 9. Root cause: the in-tree DTB has no phandle on the dcp and display-subsystem nodes
+
+Round 3 so far:
+- B10 (no apcie power-controllers) **fell back**, delta 208 s.
+- B12 (kernel-train pcie description reverted) **fell back**, delta 208 s.
+- B8 and B11 were still running when this was written.
+
+No single DT group made a difference. That pointed at what the semantic diff hides by design: `norm.py` drops
+`phandle` lines. So I compared the display nodes byte for byte.
+
+### Byte-level differences between the display nodes (dcp9d against the in-tree twin DTB)
+
+| Node | dcp9d | in-tree | Matters? |
+|---|---|---|---|
+| `dcp@48ae00000` | `phandle = <0xd3>` | **no phandle** | **yes** |
+| `display-subsystem` | `phandle = <0xd4>` | **no phandle** | **yes** |
+| `dcp@48ae00000` | `mboxes <0xd2>`, `iommus <0xd0 0x17>`, `apple,bw-scratch <0x12 0 5 0x20000>`, `clocks <0x5f>`; `status` after the gamut property | `<0x4d>`, `<0x4e 0x17>`, `<0x17 0 5 0x20000>`, `<0x4f>`; `status` before `clocks` | no: the same targets, renumbered; property order is irrelevant |
+| `piodma`, `display-subsystem` `iommus` | `<0xd1 0x10>`, `<0xd1 0x00>` | `<0x50 0x10>`, `<0x50 0x00>` | no: renumbered |
+| `clock-disp0`, both display DARTs, `mailbox@48ae08000`, `pmc-metadata` | phandles 0x5f, 0xd0, 0xd1, 0xd2, 0x12 | 0x4f, 0x4e, 0x50, 0x4d, 0x17 | no: renumbered |
+| `panel` under the dcp | **present**: `apple,panel-j716`, 345x223 mm, max-brightness 600, `apple,color-gamut = "display-p3"` | identical | no |
+| `/chosen/framebuffer@0` | - | identical | no |
+
+**The panel node: lowest rank, not a candidate.** dcp9d has the same panel node as the in-tree DTB, property for
+property. B5's `panel identity fallback: ADT parsed, panel node absent` is about the **ADT**: it has no top-level
+`panel` node, so the sizes come from the DT panel node (`stage-c-analysis.md` row 21). Stage C printed the same line
+with that panel node present.
+
+### Why the missing phandles stop the boot
+
+`dt_set_display_t6050()`, branch `n1-dt-gpu-dcp` @ 3e2321df:
+
+```c
+/* Node offsets move as properties are added: re-find each node by its phandle. */
+u32 ph_dcp = fdt_get_phandle(dt, dcp), ph_disp = fdt_get_phandle(dt, disp);
+u32 ph_on[] = {ph_dcp, ph_disp, fdt_get_phandle(dt, dart_dcp), fdt_get_phandle(dt, dart_disp),
+               fdt_get_phandle(dt, mbox)};
+for (unsigned i = 0; i < ARRAY_SIZE(ph_on); i++)
+    if (!ph_on[i])
+        bail("DCP: T6050: a display node has no phandle\n");     /* kboot.c:2296 */
+```
+
+The chain from there:
+1. `bail` returns -1.
+2. `dt_set_display()` returns -1 (`kboot.c:2336`).
+3. `kboot_prepare_dt()` returns -1 (`kboot.c:3237`).
+4. `payload_run()` prints "Failed to prepare FDT!" (`payload.c:345-347`).
+5. `main.c:131` runs the proxy. `wdt_kick()` runs only per proxy request (`proxy.c:41`), and there is no host.
+6. The stage-1 watchdog bites at 150 s. Error stage `0x30` is iBoot's value.
+
+Why the in-tree DTB has no phandle on those nodes:
+- dtc gives a node a phandle only when a property references it with `<&label>`.
+- In the in-tree source, `dcp:` (`t6050-die0.dtsi:830`) and `display_subsystem:` (`:1106`) are labelled but only
+  extended (`&dcp { ... }`, `t6050-j716s.dts:1140`), never referenced.
+- The three DART and mailbox nodes are referenced by `iommus` and `mboxes`, so they have phandles.
+- dcp9d came from `mk-dcp-dtb.py`, which gave all five nodes phandles.
+
+Correction to section 3: I ranked H3 low because "only libfdt write errors bail". That was wrong: this `bail` is a
+DT-shape check, and it is the cause.
+
+What every boot did under this cause (all observed):
+
+| Boot | Hand-off armed? | dcp/display-subsystem phandles? | Outcome |
+|---|---|---|---|
+| twin, twin-vrr, B2, B6, B10, B12 | yes | no (in-tree) | proxy, stage-1 watchdog: fell back |
+| B1, B3 | no | n/a | booted |
+| B5, stage C, dcp120 | yes | yes (dcp9d) | booted, DCP on the panel |
+| B8 (in-tree minus `pwren-gpios`) | yes | no | **fell back**, delta 209 s, as predicted |
+| B11 (in-tree variant) | yes | no | predicted to fall back; can be skipped |
+
+The forward set (dcp9d plus one group each, and F-ALL) is **not built**. Every forward payload keeps dcp9d's phandles,
+so all of them would boot and say nothing about the groups. F-X (the in-tree DTB with dcp9d's display nodes) would
+boot only because it brings the phandles. One boot of B4 below is the direct test.
+
+How to confirm without a boot: during the 150 s before the bite, stage 2 sits in the proxy with USB up. A host on the
+tether can replay its log (`host/macos/m5.sh log`) and should see `DCP: T6050: a display node has no phandle` and
+`Failed to prepare FDT!`.
+
+### Fix payloads (`~/Work/agents/daily-dcp/bisect/`, 0600, `SHA256SUMS`)
+
+The DTB is the in-tree one plus `phandle = <0x74>` on `dcp@48ae00000` and `phandle = <0x75>` on
+`display-subsystem`. It is built by `fix/mk-dt-fix.py`: decompile c8f1b960, insert the two properties, recompile; the
+unmodified DTS recompiles byte-identical. The result, `t6050-j716s-daily-dcp-phfix.dtb`, is sha256 67f43890.
+- The raw DTS diff against the twin is exactly those two lines; the semantic diff is empty.
+
+`mk-phfix.py` builds each payload. It first rebuilds the base payload byte for byte, then swaps the DTB. I re-parsed
+each payload against its base: only the DTB differs. No watchdog bootargs.
+
+| Payload | sha256 | Base (only the DTB differs) |
+|---|---|---|
+| **B4** `dcpfix-b4-nogpu-20261107-2b6f5c26.bin` | 2b6f5c26… | B2 `b6298d9c` (display hand-off, no GPU) |
+| **B4-twin** `daily-dcp-phfix-test-20261107-e03be5ac.bin` | e03be5ac… | twin `dfe0c6cc` (`gpu=1` + display): the daily-dcp candidate |
+| **B4-vrr** `daily-dcp-phfix-test-vrr-20261107-be84bb7d.bin` | be84bb7d… | VRR twin `3606884e` |
+
+Boot order:
+1. **B4**: should boot like B5 but on the in-tree DTB, with the DCP on the panel and the kernel-trained N1 (Wi-Fi up).
+   That confirms the cause in one boot.
+2. **B4-twin**: the real candidate. It is also the first boot ever of the GPU next to the DCP (H1 was never shown to
+   work, only shown not to be this failure). If it falls back while B4 booted, the GPU + DCP pair is a second,
+   separate problem, and section 3's H1 applies.
+3. **B4-vrr**.
+4. Skip B8, B11 and the forward set.
+
+### Permanent fixes
+- **m1n1 (preferred):** `m1n1-0029-dcp-give-display-nodes-a-phandle.diff` (next to this file). It is an uncommitted
+  diff against `n1-dt-gpu-dcp` @ 3e2321df. A display node without a phandle gets a new one (`fdt_generate_phandle`),
+  set from the highest offset down so the remaining offsets stay valid, and the rest of the function re-finds nodes by
+  those phandles. A loader should not require the DT to reference a node. **Not built or compile-tested yet**; build
+  with `build-m1n1.sh` and re-check the 0x410000 size.
+- **DT, if the loader stays as it is:** make the in-tree DT reference `&dcp` and `&display_subsystem`, or carry the
+  phfix DTB.
