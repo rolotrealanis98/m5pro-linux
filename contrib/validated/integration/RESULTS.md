@@ -2452,3 +2452,19 @@ after XNU moves its console to serial we are blind.
   keeps the watchdog fed while the guest runs, so a headless guest can only be ended by a power-hold. The tmux
   wrapper was replaced by a pipe-driven runner (`run-hv27-fifo.sh`) whose client survives the agent's tool calls.
 - Run 6 (`serial=0`, dockchannel node kept, otherwise = runs 1/2) in progress: the panel is the console.
+
+## 2026-11-08 21:31-21:40 UTC — **hv27 rung (iii-a) PASS: macOS 27.3 boots into IOKit under the m1n1 hypervisor on the J716s**
+
+Run 6 = runs 1/2 minus `serial=3` (`HV27_ARGS="-v debug=0x14e wdt=-1"`, dockchannel node kept, watchdog kept,
+pipe-driven client attached). Guest entry 21:32:39, all 17 secondaries entered within a minute, hypervisor quiet
+after that. Panel (photographed by Rolando at ~21:38): XNU verbose boot deep in IOKit matching: the Exclaves
+section, `AppleA7IOPNub` nubs, `RTBuddy(ACIO1)` / `RTBuddy(ACIOPHY0)` start (Thunderbolt coprocessor firmware
+dated Oct 30 2026), `ApplePMGR: Started AppleT6050PMGR`, `[uart] Started AppleSerialShim`, `AppleCLPCv3 start`,
+`AppleS5L8940XI2CController` i2c1/2/3/5/7/8, `AppleHPMARMSPMI` register-length warnings, `AppleHPMInterfaceType10/11`
+starts, `AppleTCControllerAssignableTransport::probe failed` (expected: the proxy port's Type-C chain is stripped),
+`admac-leap-s` / `admac-dispext1/2` ("Running on silicon"), `kpc: pm registered pmc_mask=0x7`.
+- So the earlier stop at "initializing serial KDP" was XNU hanging while moving its console to the hypervisor's
+  emulated uart0, not a boot failure. Until the virtual UART is fixed, the guest console is the panel; the
+  hypervisor-side tracers (rung iv) do not depend on it.
+- Expected end state of this run: a wait for the root device (ANS stripped). Everything the guest touches is real
+  hardware passed through by the hypervisor; no SSD, no APFS, no xART.
