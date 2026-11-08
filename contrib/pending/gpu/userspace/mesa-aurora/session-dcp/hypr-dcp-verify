@@ -169,7 +169,9 @@ grep -a -E '^(Explicit sync|GL ver|FP16|Backend):|Panel |explicit|vrr capable' "
 grep -a -q '^Explicit sync: supported' "$OUT/systeminfo.txt" && ok "EGL native fence sync (explicit sync to KMS and clients)" || meh "EGL_ANDROID_native_fence_sync missing: implicit sync"
 ds=$(getopt_int render:direct_scanout); vr=$(getopt_int misc:vrr); hw=$(getopt_int cursor:no_hardware_cursors)
 info "options: render:direct_scanout=$ds misc:vrr=$vr cursor:no_hardware_cursors=$hw debug:vfr=$(getopt_int debug:vfr) animations:enabled=$(getopt_int animations:enabled) blur=$(getopt_int decoration:blur:enabled)"
-[ "$ds" = 1 ] && ok "m5pro-dcp profile active (direct_scanout=1)" || bad "m5pro-dcp profile not active (direct_scanout=$ds): check hyprland.lua profile switch and M5PRO_HYPR_PROFILE"
+# The launcher turns direct scanout off without modifiers (M5PRO_DCP_DIRECT_SCANOUT=0).
+want_ds=$(tr '\0' '\n' < "/proc/$HPID/environ" 2>/dev/null | sed -n 's/^M5PRO_DCP_DIRECT_SCANOUT=//p'); want_ds=${want_ds:-1}
+[ "$hw" = 1 ] && [ "$ds" = "$want_ds" ] && ok "m5pro-dcp profile active (direct_scanout=$ds as the launcher set)" || bad "m5pro-dcp profile not active (direct_scanout=$ds, launcher wants $want_ds, no_hardware_cursors=$hw): check hyprland.lua profile switch and M5PRO_HYPR_PROFILE"
 
 # --- 4. kernel health -------------------------------------------------------
 hdr "4. kernel log"
@@ -297,7 +299,13 @@ fi
 # swap rate is what the DCP showed. Informational: how late compositor frames
 # land (16.7 ms at fixed 120 Hz, 12.5 ms = 3 subframes with VRR).
 if [ "$MODE" = full ] && command -v glmark2-es2-wayland >/dev/null; then
+  swapchains() { tr -d '\000' < "$HLOG" 2>/dev/null | grep -ac 'Reconfigured a swapchain'; }
+  sc0=$(swapchains)
   if record glmark2 "$RUN" 8.333 glmark2-es2-wayland --fullscreen -b "build:duration=$((RUN + 5))"; then
+    sc=$(( $(swapchains) - sc0 ))
+    # Each reconfigure allocates 3 scanout buffers (31 MB dumb buffers); a
+    # direct-scanout retry storm does 2 per client frame and leaks them.
+    [ "$sc" -le 4 ] && ok "glmark2: swapchain reconfigured $sc times" || bad "glmark2: swapchain reconfigured $sc times (direct-scanout retry storm; 3 new 31 MB buffers each)"
     info "glmark2 client: $(grep -m1 'GL_RENDERER' "$OUT/glmark2.client.txt" | sed 's/^ *//') ; $(grep -m1 -oE 'FPS: [0-9]+ FrameTime: [0-9.]+ ms' "$OUT/glmark2.client.txt")"
     grep -q 'cannot encode\|dropping work' "$OUT/glmark2.client.txt" && meh "glmark2: Mesa skipped draws (shader the AGX backend refused): its FPS overstates the GPU"
     ok "glmark2 fullscreen traced: display showed $(jv glmark2 .rate_per_s.median) frames/s while the client rendered unthrottled"
