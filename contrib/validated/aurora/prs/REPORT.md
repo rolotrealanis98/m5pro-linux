@@ -195,3 +195,8 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
 - Nothing has been created on GitHub yet (no org, repo or invitations). Next: after the day passes without objection,
   create the org and seed the J716s entry; the AI policy and the licence question for the J714s repos are decided
   before the repo opens.
+- 2026-11-08 03:20 UTC: TripleU613 answered (name **M4Plus-Linux**, new repo under omacom, needs dhh/team
+  confirmation, active developers onto the M team). Reply posted:
+  https://github.com/omacom/linux-aurora/issues/293#issuecomment-6716546581 (agree on both; content staged under
+  rolotrealanis98 and transferred to `omacom/m4plus-linux` when omacom confirms; neutral org as the fallback; J716s
+  seeded and J714s/J714c drafts for their owners this weekend).
