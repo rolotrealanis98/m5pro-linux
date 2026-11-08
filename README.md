@@ -72,8 +72,8 @@ layout), **#1182** (kernel-side N1 training, driver half, on #937's branch), **#
 on #1167); `aurora-silicon/m1n1` **#65** (train the N1 link and fill its hand-off). For the Omarchy project (`omacom`):
 `omarchy-mac-pkgs` **#103** (J716s in the audio tests and the manual) and `m1n1` **#33** (T6050 bring-up), **#34** (N1
 training and hand-off), **#37** (GPU hand-off), **#35** (internal display hand-off), **#36** (`m1n1.wdt=keep`), stacked on
-#30; the stacks based on #26 and on #30 both booted the J716s and the review fixes are in; the `linux-aurora` J716s PR is
-being opened from a fresh fork. Held: CIO reset (#946 replaces it), cpufreq binding (#481), SMC match (#941).
+#30; the stacks based on #26 and on #30 both booted the J716s and the review fixes are in; the `linux-aurora` J716s PR is open:
+[omacom/linux-aurora #413](https://github.com/omacom/linux-aurora/pull/413). Held: CIO reset (#946 replaces it), cpufreq binding (#481), SMC match (#941).
 [`contrib/validated/aurora/prs/`](contrib/validated/aurora/prs/)
 
 ## Quick start: build and install a payload
