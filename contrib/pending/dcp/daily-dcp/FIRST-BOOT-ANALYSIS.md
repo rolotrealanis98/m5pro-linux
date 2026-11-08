@@ -447,3 +447,24 @@ Boot order:
   with `build-m1n1.sh` and re-check the 0x410000 size.
 - **DT, if the loader stays as it is:** make the in-tree DT reference `&dcp` and `&display_subsystem`, or carry the
   phfix DTB.
+
+### Loader-fix payloads (2026-11-08)
+
+The loader fix is built: `m1n1-plain-n1-dt-gpu-dcp-phfix.bin`, 0x410000 bytes, sha256 98906d29, branch
+`n1-dt-gpu-dcp-phfix` @ 694d4040.
+- It is the diff above plus a NULL guard on the node name in the log line.
+
+Each payload is an existing one with **only the loader** swapped, and the in-tree DTB c8f1b960 unchanged:
+- They are in `~/Work/agents/daily-dcp/lfix/`, files 0600, built by `mk-lfix.py` (copy next to this file).
+- Each base payload was rebuilt byte for byte first.
+- I re-parsed every payload against its base: only `m1n1` differs (fe7820d2 -> 98906d29).
+
+| Payload | sha256 | Base |
+|---|---|---|
+| L-test `daily-dcp-lfix-test-20261107-14f93bfc.bin` | 14f93bfcc08a9f6a1271a346e2fd0c4c496904b37b9406adf9403af0073eb4f7 | `daily-dcp-test` dfe0c6cc (self-test ON) |
+| L-vrr `daily-dcp-lfix-test-vrr-20261107-54b4d1c9.bin` | 54b4d1c98adffa8d1e0c8ad7023c6772802812b10e5d15bfdfdcc9ba175e8df6 | `daily-dcp-test-vrr` 3606884e |
+| L-daily `daily-dcp-lfix-20261107-689facad.bin` | 689facad94cb4aafa813ed888c7d0e580142bab050cc99acbbc6c38fdc7b12da | `daily-dcp` 3706058a (`--daily --no-selftest --force`) |
+
+`~/Work/agents/daily-dcp/mk-daily-dcp.py` now pins the phfix loader:
+- The previous version is kept as `mk-daily-dcp.py.pre-phfix`.
+- A copy of the new builder writing to a scratch directory reproduces all three hashes above.
