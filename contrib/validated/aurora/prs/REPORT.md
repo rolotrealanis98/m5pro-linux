@@ -263,3 +263,12 @@ swept into the retained range. Builds 0x410000 / 0x420000, 15 warnings as before
 empty. Hardware: the #36 tip booted the J716s (m1n1 v1.6.1-430-g64c8ce2, `FDT: late heap [...] retained`, N1 trained,
 18 CPUs, Wi-Fi, Bluetooth; `~/Work/agents/omacom-m1n1/loop/run-wdt-keep-v30r3.log`), daily restored. Branches
 force-pushed with lease, notes posted on all five PRs.
+
+## 2026-11-08 09:35 UTC: M4Plus-Linux tracker published; #1167 reply posted
+
+- https://github.com/rolotrealanis98/m4plus-linux (public; Pages at https://rolotrealanis98.github.io/m4plus-linux/,
+  wiki off, Discussions on). Staged content as planned in `contrib/community/SHARED-REPO-PLAN.md`: README with the
+  rules and AI policy, schemas, validator / generator / privacy scanner / PR-status tools with 81 tests, four
+  workflows, `machines/j716s` with 23 scrubbed results and the daily recipe, J714s and J714c drafts that only link to
+  their owners' posts, nine topic pages. To be transferred to `omacom/m4plus-linux` when the omacom side confirms.
+- Reply posted on aurora-silicon/linux #1167: https://github.com/aurora-silicon/linux/pull/1167#issuecomment-6719931337
