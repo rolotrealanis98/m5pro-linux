@@ -2024,3 +2024,17 @@ logs are valid and say:
   (`persp_mul_agx3`), so 911 FPS overstates the GPU; to report on the native-GL work.
 - Not measured yet: direct scanout (mpv never started) and the 50 fps VRR pacing test. The fixed verifier
   (`contrib/pending/gpu/userspace/mesa-aurora/session-dcp/hypr-dcp-verify`) runs next on the promoted daily.
+
+## 2026-11-08 04:53 UTC: DAILY-DCP PROMOTED: `daily-dcp-lfix-20261107-689facad.bin` is the daily
+
+Kernel `7.3.0-gbd53915f2ef1` (daily 36845aa5f650 + 120 Hz v2 constant timestamps + dcp9d display DT + VRR pair,
+opt-in off), loader `m1n1-plain-n1-dt-gpu-dcp-phfix` (display hand-off + GPU hand-off + N1 port kept enabled, gives
+the display nodes a phandle), in-tree DTB, variables `chosen.m5pro,gpu=1` + `chosen.m5,t6050-display=1`, no self-test.
+The first write-and-reboot was counted as a failed restart (first pass, 55 s, the intermittent counted-restart class;
+the new file was never read) and stage 1 booted prev; a plain reboot 30 s later booted the new daily on the primary
+slot: `card0` aurora, `card1` apple-drm with eDP-2 connected, no flip or transaction timeouts, no DCP crash, no
+faults, Hyprland on the two-card session (`AQ_DRM_DEVICES=/dev/dri/card1`, render node `renderD128`), Wi-Fi
+connected, Bluetooth `hci0`, backlight 300/600 and writes reach the panel. Rollback: `boot.bin.prev` =
+`daily-n1k-test-20261107-5c74c66c.bin` (the previous daily's self-test twin; reaches the network; N1-aware loader);
+`~/Work/agents/daily-n1k/loop/run-restore-daily.sh` now restores the new daily. Loop runners written before this
+point still name the old daily as their restore target and must be updated before reuse.
