@@ -1,0 +1,410 @@
+From 81af85a1004cacd6efe14a8eb0f5a890fd9d2026 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 06:35:36 -0500
+Subject: [PATCH 1/2] drm/asahi: g17: Name the cause and the clients of every
+ M5 GPU recovery
+
+On M5 every firmware recovery logs "reason None slot_mask ... sampled 0
+known_keys 0": the driver reads only the slot mask of the firmware's
+recovery record, so a recovery never says why the firmware stopped or
+whose work was running. With several GPU clients that leaves nothing
+to act on.
+
+The firmware fills the rest of that record in the primary status B
+before it announces the restart (26C5035r primary TEXT 0x7808..0x7834,
+the same code in 26B123):
+- +0x4aac: the reason (bundle view 3 +0x48). 3 is a GPU page fault,
+  5 a scheduling pause the hardware did not acknowledge within the HW
+  data's pause timeout (macOS: "DSF Pause Timeout"), 6 a forced idle
+  that timed out after a sleep request (27.3 on).
+- +0x4aa0: the number of busy slots the routine walked.
+- +0x4aa8: word +0x44 of the hardware record of the slot the report
+  names, or 0.
+- +0x4ab0: a u64 the reason's raiser leaves (a page fault stores its
+  latched MMU fault status).
+With the report's host-request word set, the routine zeroes the whole
+area instead, slot mask included.
+
+Read the record with the slot mask and log it next to the snapshot,
+with the reason's meaning, the macOS kext's restart reason for it and
+the queue the firmware's restart event blames. After the handshake,
+name the client (process name and tgid) and the retained command count
+of every queue the recovery table lists and of the blamed queue.
+
+The record changes no blame by default: attribution on M5 keeps its
+unknown reason. The module parameter m5_recovery_reason_blame=1 hands
+the firmware reason to attribution as on G17P, so a timeout can move
+the firmware's blame to the VM whose render was running.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/gpu/drm/asahi/asahi_core.rs           |  4 +
+ drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs   | 18 +++++
+ drivers/gpu/drm/asahi/g17/initdata.rs         | 30 ++++++-
+ drivers/gpu/drm/asahi/g17/recovery.rs         | 49 +++++++++++-
+ .../gpu/drm/asahi/g17/recovery/attribution.rs | 78 ++++++++++++++++++-
+ drivers/gpu/drm/asahi/g17/runtime/events.rs   |  3 +-
+ drivers/gpu/drm/asahi/g17/status.rs           |  6 ++
+ 7 files changed, 181 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/gpu/drm/asahi/asahi_core.rs b/drivers/gpu/drm/asahi/asahi_core.rs
+index 3713e5e3e7cf..922dfa827e24 100644
+--- a/drivers/gpu/drm/asahi/asahi_core.rs
++++ b/drivers/gpu/drm/asahi/asahi_core.rs
+@@ -142,6 +142,10 @@ fn init(module: &'static kernel::ThisModule) -> impl PinInit<Self, Error> {
+             default: 1,
+             description: "Enable single-layer D32 compressed 2x/4x ZLS admission",
+         },
++        m5_recovery_reason_blame: u32 {
++            default: 0,
++            description: "M5: let the firmware's recovery reason steer blame as on G17P (1); 0 only logs it",
++        },
+         debug_flags: u64 {
+             default: 0,
+             // permissions: 0o644,
+diff --git a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+index 68c828d1b5e1..b809c352aea6 100644
+--- a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
++++ b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+@@ -2088,6 +2088,24 @@ pub(crate) fn set_m5_kick_shared(
+ pub(crate) const M5_RECOVERY_INFO: usize = 0x4298;
+ pub(crate) const M5_RECOVERY_SLOT_MASK: usize = 0x4ab8;
+ 
++/// The rest of the M5 firmware's recovery record in the primary status B, beside the slot mask.
++/// Its recovery routine fills them from the recovery report (bundle view 3) before it announces
++/// the restart (26C5035r primary TEXT 0x7808..0x7834; 26B123 has the same code):
++///
++/// - +0x4aa0: view 3 +0x38, the number of busy slots the routine walked;
++/// - +0x4aa8: word +0x44 of the hardware record (register 0xc0f8) of the slot the report names
++///   (view 3 +0x24), or 0 without one;
++/// - +0x4aac: the reason, view 3 +0x48 (`recovery::cause`);
++/// - +0x4ab0: view 3 +0x40, a u64 the reason's raiser leaves (a page fault stores its latched
++///   MMU fault status there).
++///
++/// With the report's host-request word (view 3 +0x4) set, the routine zeroes the whole recovery
++/// area (0x4298..0x4ac0) instead, and every word, the slot mask included, reads 0.
++pub(crate) const M5_RECOVERY_SLOTS_WALKED: usize = 0x4aa0;
++pub(crate) const M5_RECOVERY_SLOT_WORD: usize = 0x4aa8;
++pub(crate) const M5_RECOVERY_REASON: usize = 0x4aac;
++pub(crate) const M5_RECOVERY_DETAIL: usize = 0x4ab0;
++
+ pub(crate) const M5_STATUS_CONFIG_LINK_WORD: usize = 0x774;
+ 
+ pub(crate) const M5_STATUS_CONFIG_LINK_PTR: usize = 0x778;
+diff --git a/drivers/gpu/drm/asahi/g17/initdata.rs b/drivers/gpu/drm/asahi/g17/initdata.rs
+index 1bdd13447895..aa59d3f7c4db 100644
+--- a/drivers/gpu/drm/asahi/g17/initdata.rs
++++ b/drivers/gpu/drm/asahi/g17/initdata.rs
+@@ -1881,6 +1881,25 @@ fn recovery_state_offset(&self) -> usize {
+     }
+ }
+ 
++impl InitData {
++    /// The M5 firmware's recovery record, read in recovery state 1 like the slot mask.
++    fn m5_recovery_record(&self) -> Result<super::recovery::Record> {
++        use super::fw::m5::initdata as m5;
++        let base = self.m5_layout.private.status_b;
++        let object = self.object(self.cluster)?;
++        let word = |offset: usize| -> Result<u32> {
++            Ok(object.word(base + offset)?.load(Ordering::Relaxed))
++        };
++        fence(Ordering::Acquire);
++        Ok(super::recovery::Record {
++            reason: word(m5::M5_RECOVERY_REASON)?,
++            slots_walked: word(m5::M5_RECOVERY_SLOTS_WALKED)?,
++            slot_word: word(m5::M5_RECOVERY_SLOT_WORD)?,
++            detail: object.dword(base + m5::M5_RECOVERY_DETAIL)?.load(Ordering::Relaxed),
++        })
++    }
++}
++
+ impl super::recovery::Memory for InitData {
+     fn is_m5(&self) -> bool {
+         self.m5
+@@ -1897,9 +1916,16 @@ fn fault_sources(&self) -> Result<super::recovery::Sources> {
+             .load(Ordering::Relaxed);
+         // M5's slot-identity storage is not available through this mapping.
+         // Keep firmware's explicit blame when attribution evidence is missing,
+-        // while still allowing the recovery handshake to complete.
++        // while still allowing the recovery handshake to complete. Its firmware's
++        // recovery record names the cause in the log; it steers blame only when
++        // m5_recovery_reason_blame asks, since the M5 reasons are unproven there.
+         if self.m5 {
+-            return Ok(super::recovery::Sources::sample(mask as u32, |_| None));
++            let mut sources = super::recovery::Sources::sample(mask as u32, |_| None);
++            sources.record = self.m5_recovery_record().ok();
++            if crate::module_parameters::m5_recovery_reason_blame.value() != 0 {
++                sources.reason = sources.record.map(|record| record.reason);
++            }
++            return Ok(sources);
+         }
+         let mut sources = super::recovery::Sources::sample(mask as u32, |slot| {
+             // Progress is independently available even when this firmware's key
+diff --git a/drivers/gpu/drm/asahi/g17/recovery.rs b/drivers/gpu/drm/asahi/g17/recovery.rs
+index 36de1d65f4c2..dd1707c04b6d 100644
+--- a/drivers/gpu/drm/asahi/g17/recovery.rs
++++ b/drivers/gpu/drm/asahi/g17/recovery.rs
+@@ -11,7 +11,7 @@
+ mod slot;
+ mod safety;
+ pub(crate) use safety::{note_retired, since_retired};
+-pub(crate) use attribution::{Sources, PAGE_FAULT};
++pub(crate) use attribution::{Record, Sources, PAGE_FAULT};
+ use attribution::Attribution;
+ 
+ pub(super) fn slot_key(slot: usize, slot_keys: Option<u64>) -> Option<u64> {
+@@ -47,6 +47,8 @@ pub(super) struct Entries {
+     pub(super) fallback: u32,
+     /// QIDs with a listed command found by its exact stamp: that command was dropped.
+     exact_qids: u128,
++    /// QIDs with a valid record.
++    queues: u128,
+ }
+ 
+ impl Entries {
+@@ -64,6 +66,7 @@ pub(super) fn include(&mut self, flags: u32) -> bool {
+         if flags & u32::from(CANCELLED) != 0 {
+             self.cancelled |= bit;
+         }
++        self.queues |= bit;
+         self.listed += 1;
+         true
+     }
+@@ -258,7 +261,8 @@ pub(super) fn service<H: Host>(
+         host.clear_timestamps()?;
+     }
+     let mut sources = host.fault_sources()?;
+-    sources.report(request.generation, super::queue::compute::retirement::stampless_total());
++    sources.report(request.generation, super::queue::compute::retirement::stampless_total(),
++        request.blamed);
+     if let Some(qid) = request.blamed {
+         host.report_blamed_render(qid);
+     }
+@@ -300,6 +304,7 @@ pub(super) fn service<H: Host>(
+         return Err(EIO);
+     }
+     host.recovery_mut().pending = None;
++    report_clients(host, request.generation, &entries, request.blamed);
+ 
+     let (listed, exact, fallback) = (entries.listed, entries.exact, entries.fallback);
+     let (cancelled, blame, leftover) = classify(host, entries, request.blamed, attribution);
+@@ -321,7 +326,7 @@ pub(super) fn service<H: Host>(
+     if let Some(qid) = request.blamed {
+         pr_warn!(
+             "G17: GPU recovery (reason {:?}): firmware blamed queue {}, {}\n",
+-            sources.reason,
++            sources.firmware_reason(),
+             qid,
+             if blame { "failing its oldest render" } else { "attribution cleared it; spared" }
+         );
+@@ -337,6 +342,44 @@ pub(super) fn service<H: Host>(
+     Ok(ServiceResult { scan_error, target_error, leftover })
+ }
+ 
++/// Names the client of each queue the recovery table lists, and of the blamed queue, before any
++/// classification changes: every recovery then says whose work was in flight. Diagnostics only.
++fn report_clients<Q: Queues>(queues: &Q, generation: u64, entries: &Entries, blamed: Option<u8>) {
++    let named = entries.queues | blamed.map_or(0, |qid| 1u128 << qid);
++    for qid in (0..QIDS).filter(|qid| named & (1u128 << qid) != 0) {
++        let bit = 1u128 << qid;
++        let mut first: Option<Arc<VmStatus>> = None;
++        let (mut commands, mut others) = (0u32, 0u32);
++        queues.visit_owners(qid, &mut |status| {
++            commands += 1;
++            match first.as_ref().map(|known| Arc::ptr_eq(known, status)) {
++                None => first = Some(status.clone()),
++                Some(false) => others += 1,
++                Some(true) => {}
++            }
++        });
++        let flags = (
++            if blamed == Some(qid) { " blamed" } else { "" },
++            if entries.guilty & bit != 0 { " guilty" } else { "" },
++            if entries.cancelled & bit != 0 { " cancelled" } else { "" },
++        );
++        match first {
++            Some(status) => {
++                let (name, tgid) = status.client();
++                let shared = if others != 0 { " and other clients" } else { "" };
++                pr_warn!(
++                    "G17: recovery gen {} queue {}{}{}{}: {} retained commands, client {}[{}]{}\n",
++                    generation, qid, flags.0, flags.1, flags.2, commands, name, tgid, shared
++                );
++            }
++            None => pr_warn!(
++                "G17: recovery gen {} queue {}{}{}{}: no retained commands\n",
++                generation, qid, flags.0, flags.1, flags.2
++            ),
++        }
++    }
++}
++
+ /// Walks the recovery table. G17P's is a packed list: records after its first invalid one are
+ /// left over from an earlier restart, so the walk ends there. M5's need not be packed, so all
+ /// of its records are walked and invalid ones skipped; they only classify the recovery, while
+diff --git a/drivers/gpu/drm/asahi/g17/recovery/attribution.rs b/drivers/gpu/drm/asahi/g17/recovery/attribution.rs
+index 9c7f42c83988..80f5bbc06b47 100644
+--- a/drivers/gpu/drm/asahi/g17/recovery/attribution.rs
++++ b/drivers/gpu/drm/asahi/g17/recovery/attribution.rs
+@@ -6,6 +6,45 @@
+ const STAMP_MASK: u64 = (1 << 40) - 1;
+ /// Firmware recovery reason for a GPU MMU fault.
+ pub(crate) const PAGE_FAULT: u32 = 3;
++/// M5 firmware recovery reason (27.2 on) for a scheduling pause the hardware did not acknowledge
++/// within the HW data's pause timeout; macOS names it "DSF Pause Timeout".
++pub(crate) const DSF_PAUSE_TIMEOUT: u32 = 5;
++/// M5 firmware recovery reason (27.3 on) for a GPU that did not reach forced idle after a sleep
++/// request; macOS names it "Sleep Forced Idle Timeout".
++pub(crate) const SLEEP_FORCED_IDLE_TIMEOUT: u32 = 6;
++
++/// What a firmware recovery reason means, as far as the firmware and the macOS kext name it.
++/// The M5 firmware stores 3 on a GPU page fault, 5 when a scheduling pause times out and 6 when
++/// forced idle times out; macOS gives 0 to 4 no name of their own.
++pub(crate) fn cause(reason: u32) -> &'static str {
++    match reason {
++        PAGE_FAULT => "GPU MMU page fault",
++        DSF_PAUSE_TIMEOUT => "DSF pause timeout: the GPU did not pause scheduling in time",
++        SLEEP_FORCED_IDLE_TIMEOUT => "sleep forced-idle timeout",
++        0..=4 => "unnamed firmware reason",
++        _ => "unknown firmware reason",
++    }
++}
++
++/// The macOS kext's restart reason for a firmware reason (`processFirmwareInitiatedRecovery`), to
++/// match a Linux log against macOS's.
++fn macos_restart_reason(reason: u32) -> Option<u32> {
++    match reason {
++        0 | 1 => Some(2),
++        2..=6 => Some(reason + 2),
++        _ => None,
++    }
++}
++
++/// The M5 firmware's recovery record in the primary status B (`M5_RECOVERY_REASON` and its
++/// neighbours), read while the firmware waits in recovery state 1.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub(crate) struct Record {
++    pub(crate) reason: u32,
++    pub(crate) slots_walked: u32,
++    pub(crate) slot_word: u32,
++    pub(crate) detail: u64,
++}
+ 
+ #[derive(Clone, Copy, Default)]
+ pub(super) struct Source {
+@@ -17,7 +56,11 @@ pub(super) struct Source {
+ }
+ 
+ pub(crate) struct Sources {
++    /// The reason attribution uses. M5 leaves it unknown unless `m5_recovery_reason_blame` is set
++    /// or an MMU fault is latched; its firmware's own word is in `record`.
+     pub(crate) reason: Option<u32>,
++    /// The M5 firmware's recovery record, for the log.
++    pub(crate) record: Option<Record>,
+     mask: u32,
+     records: [Source; SLOTS],
+     count: usize,
+@@ -33,13 +76,26 @@ pub(super) enum Attribution {
+ impl Sources {
+     /// Bounded evidence from the existing halted-firmware snapshot. No guessed
+     /// MMIO/key addresses or additional firmware reads are used for diagnostics.
+-    pub(super) fn report(&self, generation: u64, stampless_total: u64) {
++    pub(super) fn report(&self, generation: u64, stampless_total: u64, blamed: Option<u8>) {
+         kernel::pr_warn!(
+             "G17: recovery snapshot gen {} reason {:?} slot_mask {:#x} sampled {} known_keys {}; stampless lifetime total {} before restart\n",
+             generation, self.reason, self.mask, self.count,
+             self.records[..self.count].iter().filter(|source| source.qid.is_some()).count(),
+             stampless_total
+         );
++        match self.record {
++            Some(record) if record == Record::default() && self.mask == 0 => kernel::pr_warn!(
++                "G17: recovery cause gen {}: none recorded (the firmware cleared its record); firmware blames queue {:?}\n",
++                generation, blamed
++            ),
++            Some(record) => kernel::pr_warn!(
++                "G17: recovery cause gen {}: {} (firmware reason {}, macOS restart reason {:?}); firmware blames queue {:?}; slots walked {}, slot word {:#x}, detail {:#x}\n",
++                generation, cause(record.reason), record.reason,
++                macos_restart_reason(record.reason), blamed, record.slots_walked,
++                record.slot_word, record.detail
++            ),
++            None => {}
++        }
+         for source in &self.records[..self.count] {
+             kernel::pr_warn!(
+                 "G17: recovery slot {} queue {:?} kick {:#x} monitor {:#x}\n",
+@@ -53,6 +109,7 @@ pub(super) fn report(&self, generation: u64, stampless_total: u64) {
+     pub(crate) fn sample(mask: u32, mut read: impl FnMut(usize) -> Option<(u64, u32)>) -> Self {
+         let mut sources = Self {
+             reason: None,
++            record: None,
+             mask,
+             records: [Source::default(); SLOTS],
+             count: 0,
+@@ -77,6 +134,11 @@ pub(crate) fn sample(mask: u32, mut read: impl FnMut(usize) -> Option<(u64, u32)
+         sources
+     }
+ 
++    /// The firmware's reason: the one attribution uses, else the M5 record's.
++    pub(super) fn firmware_reason(&self) -> Option<u32> {
++        self.reason.or(self.record.map(|record| record.reason))
++    }
++
+     pub(super) fn attribute(
+         &mut self,
+         blamed: Option<u8>,
+@@ -200,6 +262,20 @@ fn host_records_move_a_keyless_timeout_blame_to_the_running_vm() {
+         assert_eq!(sources.host_fallback(attribution, || None), Attribution::Firmware);
+     }
+ 
++    #[test]
++    fn m5_record_names_the_cause_without_steering_blame() {
++        let mut sources = Sources::sample(0b101, |_| None);
++        sources.record = Some(Record { reason: DSF_PAUSE_TIMEOUT, ..Record::default() });
++        assert_eq!(sources.firmware_reason(), Some(DSF_PAUSE_TIMEOUT));
++        assert_eq!(cause(DSF_PAUSE_TIMEOUT), "DSF pause timeout: the GPU did not pause scheduling in time");
++        assert_eq!(macos_restart_reason(DSF_PAUSE_TIMEOUT), Some(7));
++        assert_eq!(macos_restart_reason(1), Some(2));
++        assert_eq!(macos_restart_reason(7), None);
++        assert_eq!(sources.attribute(Some(38), |_, _| panic!("no keys")), Attribution::Firmware);
++        assert_eq!(sources.host_fallback(Attribution::Firmware, || panic!("reason unused")),
++            Attribution::Firmware);
++    }
++
+     #[test]
+     fn host_records_never_override_a_page_fault_or_slot_evidence() {
+         let mut sources = Sources::sample(0b10, |_| Some((0, 2)));
+diff --git a/drivers/gpu/drm/asahi/g17/runtime/events.rs b/drivers/gpu/drm/asahi/g17/runtime/events.rs
+index b66f1a17444c..03dd4bd95f0f 100644
+--- a/drivers/gpu/drm/asahi/g17/runtime/events.rs
++++ b/drivers/gpu/drm/asahi/g17/runtime/events.rs
+@@ -162,7 +162,8 @@ fn fault_sources(&self) -> Result<recovery::Sources> {
+             }
+         }
+         let mut sources = self.firmware.init.fault_sources()?;
+-        // M5 reads no firmware reason word; a latched MMU fault is reason 3.
++        // M5 attribution leaves the firmware reason out (see InitData::fault_sources); a
++        // latched MMU fault is reason 3.
+         if mmu_fault && sources.reason.is_none() {
+             sources.reason = Some(recovery::PAGE_FAULT);
+         }
+diff --git a/drivers/gpu/drm/asahi/g17/status.rs b/drivers/gpu/drm/asahi/g17/status.rs
+index 3b9edc279786..ddc6002b1e80 100644
+--- a/drivers/gpu/drm/asahi/g17/status.rs
++++ b/drivers/gpu/drm/asahi/g17/status.rs
+@@ -68,6 +68,12 @@ pub(crate) fn get(&self) -> i32 {
+         self.error.load(Ordering::Acquire)
+     }
+ 
++    /// The process that created the VM: its name and thread-group ID.
++    pub(crate) fn client(&self) -> (&BStr, Pid) {
++        let len = self.comm.iter().position(|&b| b == 0).unwrap_or(self.comm.len());
++        (BStr::from_bytes(&self.comm[..len]), self.tgid)
++    }
++
+     pub(crate) fn note_recovery_guilty(&self) {
+         self.recovery_guilty.store(true, Ordering::Release);
+     }
+-- 
+2.56.0
+

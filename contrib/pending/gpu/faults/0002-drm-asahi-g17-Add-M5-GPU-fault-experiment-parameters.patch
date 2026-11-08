@@ -1,0 +1,134 @@
+From 0ee8790a2c726aaa57fdc2aa576b9d5261323230 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 06:37:33 -0500
+Subject: [PATCH 2/2] drm/asahi: g17: Add M5 GPU fault experiment parameters
+
+M5 GPU clients trigger firmware recoveries with no MMU fault, even an
+almost idle one (a Qt Quick bar) next to the compositor. Three firmware
+policies the driver sets are candidates, and testing each one needs a
+rebuild. Make them boot parameters, all off by default:
+
+- m5_pause_timeout_us: the HW data word +0x271c bounds how long the
+  firmware waits for the hardware to acknowledge a scheduling (DSF)
+  pause, in us, before it raises recovery reason 5. The firmware reads
+  it each time it pauses (26B123 primary TEXT 0x231d0); the M5
+  encoding holds the inherited fixed word 150 there. A nonzero value
+  replaces it; 0xffffffff waits without a bound.
+- m5_idle_standby_us: Region C +0x7c8, how long the idle GPU waits
+  before standby (image default 1500 us), clamped to 100..100000.
+- m5_idle_hold: M5 takes no host idle hold. With 1, the
+  idle_off_delay_ms sysfs attribute drives the hold the other G17
+  parts use, so the delay can be changed at runtime: above 2 ms the
+  cores stay powered until the GPU has been idle that long.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/gpu/drm/asahi/asahi_core.rs         | 12 ++++++++++++
+ drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs | 13 +++++++++++++
+ drivers/gpu/drm/asahi/g17/initdata/m5.rs    | 18 +++++++++++++++++-
+ drivers/gpu/drm/asahi/g17/mod.rs            |  5 +++--
+ 4 files changed, 45 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/asahi/asahi_core.rs b/drivers/gpu/drm/asahi/asahi_core.rs
+index 922dfa827e24..e24f64afb383 100644
+--- a/drivers/gpu/drm/asahi/asahi_core.rs
++++ b/drivers/gpu/drm/asahi/asahi_core.rs
+@@ -146,6 +146,18 @@ fn init(module: &'static kernel::ThisModule) -> impl PinInit<Self, Error> {
+             default: 0,
+             description: "M5: let the firmware's recovery reason steer blame as on G17P (1); 0 only logs it",
+         },
++        m5_pause_timeout_us: u32 {
++            default: 0,
++            description: "M5 experiment: firmware scheduling (DSF) pause timeout, us (HW data +0x271c; 0 keeps the encoded 150, 0xffffffff waits without a timeout)",
++        },
++        m5_idle_standby_us: u32 {
++            default: 0,
++            description: "M5 experiment: firmware idle standby time, us (Region C +0x7c8, 100..100000; 0 keeps the board's or image's)",
++        },
++        m5_idle_hold: u32 {
++            default: 0,
++            description: "M5 experiment: 1 lets the idle_off_delay_ms sysfs attribute hold the GPU cores powered after work, as on G17P; 0 leaves idle power-off to the firmware",
++        },
+         debug_flags: u64 {
+             default: 0,
+             // permissions: 0o644,
+diff --git a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+index b809c352aea6..c22928dbbd8e 100644
+--- a/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
++++ b/drivers/gpu/drm/asahi/g17/fw/m5/initdata.rs
+@@ -2158,6 +2158,19 @@ pub(crate) const fn relocate(&self, offset: usize) -> Option<usize> {
+ 
+ pub(crate) const M5_HW_DATA_INSERT_LEN: usize = 8;
+ 
++/// The HW data word bounding a scheduling (DSF) pause, us; u32::MAX waits without a bound. The
++/// 26B123 firmware reads it live each time it pauses scheduling (`ldr w23, [x10, #0x271c]` at
++/// primary TEXT 0x231d0), polls the pause acknowledge for that long x 24 ticks, and past it
++/// raises recovery reason 5 ("Unexpected scheduling pause timeout after %uus"). The M5 encoding
++/// holds the inherited fixed word (150) there: [`COMMON26_HW_FIXED_WORD_OFFSET`] moved by the
++/// M5 insert.
++pub(crate) const M5_HW_PAUSE_TIMEOUT_US: usize = 0x271c;
++
++const _: () = assert!(
++    M5_HW_DATA_INSERT < COMMON26_HW_FIXED_WORD_OFFSET
++        && COMMON26_HW_FIXED_WORD_OFFSET + M5_HW_DATA_INSERT_LEN == M5_HW_PAUSE_TIMEOUT_US
++);
++
+ /// What the M5 graph's HW data and power policy depend on per board. Every board is a T6050
+ /// running the same firmware build; [`crate::g17::Config::m5`] names the board's.
+ pub(crate) struct Board {
+diff --git a/drivers/gpu/drm/asahi/g17/initdata/m5.rs b/drivers/gpu/drm/asahi/g17/initdata/m5.rs
+index 4947fec91112..a5336f20193a 100644
+--- a/drivers/gpu/drm/asahi/g17/initdata/m5.rs
++++ b/drivers/gpu/drm/asahi/g17/initdata/m5.rs
+@@ -206,6 +206,14 @@ pub(crate) fn build_m5(
+         m::set_m5_enabled_cores(layout,
+             &mut self.object_mut(self.bundle)?.bytes_mut()[..hw_data], enabled_cores)
+             .map_err(|_| EINVAL)?;
++        let pause_us = crate::module_parameters::m5_pause_timeout_us.value();
++        if pause_us != 0 {
++            let at = layout.hw_data_offset(m::M5_HW_PAUSE_TIMEOUT_US).ok_or(EINVAL)?;
++            self.object_mut(self.bundle)?.bytes_mut()[..hw_data]
++                .get_mut(at..at + 4).ok_or(EINVAL)?
++                .copy_from_slice(&pause_us.to_le_bytes());
++            pr_info!("G17: firmware scheduling pause timeout {} us (m5_pause_timeout_us)\n", pause_us);
++        }
+         m::encode_m5_bundle_policy(layout, m::M5PolicyBindings {
+             state: PRIVATE + private.policy_state as u64, aon_ptd: AON, boot_timestamp: 0,
+         }, self.object_mut(self.bundle)?.bytes_mut()).map_err(|_| EINVAL)?;
+@@ -242,7 +250,15 @@ pub(crate) fn build_m5(
+             &mut self.object_mut(self.bundle)?.bytes_mut()[shared.policy..policy_end],
+         )
+         .map_err(|_| EINVAL)?;
+-        if let Some(microseconds) = board.idle_standby_us {
++        let idle_standby_us = match crate::module_parameters::m5_idle_standby_us.value() {
++            0 => board.idle_standby_us,
++            microseconds => {
++                let microseconds = microseconds.clamp(100, 100_000);
++                pr_info!("G17: firmware idle standby {} us (m5_idle_standby_us)\n", microseconds);
++                Some(microseconds)
++            }
++        };
++        if let Some(microseconds) = idle_standby_us {
+             m::set_m5_region_idle_standby(self.object_mut(self.region_c)?.bytes_mut(), microseconds)
+                 .map_err(|_| EINVAL)?;
+         }
+diff --git a/drivers/gpu/drm/asahi/g17/mod.rs b/drivers/gpu/drm/asahi/g17/mod.rs
+index 2d7f660dac94..9986b08c260c 100644
+--- a/drivers/gpu/drm/asahi/g17/mod.rs
++++ b/drivers/gpu/drm/asahi/g17/mod.rs
+@@ -948,8 +948,9 @@ fn idle_hold(&mut self, now_ns: u64, in_flight: bool) -> Option<u64> {
+         const RETRY_NS: u64 = 1_000_000;
+         // The M5 firmware powers the cores for work by its own policy, and under a host
+         // hold J775D's core-power witness reads unpowered until the hold is released. M5
+-        // takes no host hold, whatever delay the tree or sysfs asks for.
+-        if self.init.is_m5() {
++        // takes no host hold, whatever delay the tree or sysfs asks for, unless the
++        // m5_idle_hold experiment lets the sysfs delay hold the cores.
++        if self.init.is_m5() && crate::module_parameters::m5_idle_hold.value() == 0 {
+             return None;
+         }
+         let hold_ms = power::IDLE_HOLD_MS.load(Ordering::Relaxed);
+-- 
+2.56.0
+
