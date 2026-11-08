@@ -2197,3 +2197,28 @@ glmark2-es2-wayland, two Qt Quick windows (GPU backend), a Chromium WebGL tab, w
   enable order; not a display problem).
 - Artefacts (Studio, private): `~/Work/agents/gpu-recovery/recovery2-recovery2/` (events, journal, test dir).
   Restore: the slot already held `daily-n1k-20261107-512a1c00.bin`; reboot into it at 12:20 UTC.
+
+## 2026-11-08 12:24-12:41 UTC — same kernel with `aurora.m5_pause_timeout_us=2000`: zero recoveries (one run)
+
+Payload `daily-dcp-recovery2-pause2000-test-20261108-08515814.bin` (same kernel 7.3.0-g12c445fa5371 and
+flags as the 12:08 run plus the pause bound 2000 us; the driver logged "firmware scheduling pause timeout 2000
+us" at boot). Booted first try at 12:26 UTC; same 10 min load 12:28:00-12:37:50 with `fault-watch.sh`.
+
+- **0 GPU recoveries in 10 min** under the load that produced 3 (all "DSF pause timeout") at 150 us in the
+  run just before. Hyprland pid 933 alive throughout, no crash report, no new page-flip error, no RCU stall,
+  no client lost its device.
+- One run each, and the 150 us run's three faults came in a single 3 s burst, so this is a strong lead, not
+  proof. The firmware's own reason code and the parameter's effect agree with H1 (`faults/HYPOTHESES.md`):
+  the GPU occasionally needs more than 150 us to pause scheduling on this machine, even though macOS ships
+  the same 150 us bound (it may pause less often, or at different moments).
+- The two "Cannot commit when a page-flip is awaiting" lines of each session are at session start (log lines
+  599-600 of 2945 here), before any load, and the session draws afterwards; the recovery-test check only
+  counts new lines, which is right. `recovery-test.sh`'s swap counter read 0 both before and after in this
+  run (1024 after in the first run); the counter is unreliable as a display-health signal and the rescue
+  tool's `draws()` has an arithmetic bug on it (fix pending).
+- Artefacts (Studio, private): `~/Work/agents/gpu-recovery/recovery2-pause2000/` (events, journal, test
+  dir, `wedge-p2000/` = Hyprland log + DRM state saved before the restore). Restore: `daily-n1k` written
+  12:39, reboot 12:41 UTC.
+- Next: build a real daily from this kernel (no test flags) with the 2000 us bound, promote it after a loop
+  boot, re-enable GPU for the Electron apps, keep `fault-watch.sh` running during normal use to count any
+  remaining recoveries and their reasons.
