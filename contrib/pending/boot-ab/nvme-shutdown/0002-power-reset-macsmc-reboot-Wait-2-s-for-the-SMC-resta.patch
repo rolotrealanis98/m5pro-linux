@@ -1,0 +1,61 @@
+From 68f0712f46f61440e2006c5cb0205dfe504273cf Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 21:16:55 -0500
+Subject: [PATCH 2/3] power: reset: macsmc-reboot: Wait 2 s for the SMC restart
+
+After MBSE = phra is accepted, macsmc_restart() waited 100 ms and then
+returned, letting the next restart handler (apple_wdt, priority 128) reset
+the SoC by watchdog. iBoot counts that as a failed boot, and boot_stage
+was already cleared by the reboot notifier, so the fall-through is a
+counted restart of a clean shutdown. The T6050 does not always act on
+phra within 100 ms while the SSD controller finishes its shutdown.
+
+Wait up to 2 s (the SMC resets the machine inside that time when it acts,
+so a successful restart is not slowed) and log with dev_emerg when the
+fall-through happens, with the wait it gave up after. The wait is an
+atomic mdelay() as before, it is not repeated for power off, and a
+failed phra write still falls through at once.
+
+This is the handler of every SMC machine: where phra works the machine
+resets inside the wait, where it does not the fall-through is 1.9 s later.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/power/reset/macsmc-reboot.c | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
+index 7688cfd4ed60..b5855ea71583 100644
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -13,6 +13,14 @@
+ #include <linux/reboot.h>
+ #include <linux/slab.h>
+ 
++/*
++ * How long to wait for the SMC to act on MBSE = phra before falling through
++ * to the next restart handler (apple_wdt resets the SoC, which iBoot counts
++ * as a failed boot). The restart is not instant when the SSD controller is
++ * still finishing its shutdown.
++ */
++#define MACSMC_RESTART_WAIT_MS	2000
++
+ struct macsmc_reboot_nvmem {
+ 	struct nvmem_cell *shutdown_flag;
+ 	struct nvmem_cell *boot_stage;
+@@ -118,7 +126,10 @@ static int macsmc_restart(struct sys_off_data *data)
+ 	if (apple_smc_write_u32_atomic(reboot->smc, SMC_KEY(MBSE), SMC_KEY(phra)) < 0) {
+ 		dev_err(reboot->dev, "Failed to issue MBSE = phra (restart)\n");
+ 	} else {
+-		mdelay(100);
++		mdelay(MACSMC_RESTART_WAIT_MS);
++		dev_emerg(reboot->dev,
++			  "MBSE = phra had no effect after %u ms, falling through to the next restart handler\n",
++			  MACSMC_RESTART_WAIT_MS);
+ 		WARN_ONCE(1, "Unable to restart system\n");
+ 	}
+ 
+-- 
+2.56.0
+

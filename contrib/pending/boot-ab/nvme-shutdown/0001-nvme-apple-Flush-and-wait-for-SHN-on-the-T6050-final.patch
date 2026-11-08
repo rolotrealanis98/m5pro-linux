@@ -1,0 +1,179 @@
+From 9cebb24ac980d2da45b7357a60b0df95d7f15e1f Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 21:16:44 -0500
+Subject: [PATCH 1/3] nvme: apple: Flush and wait for SHN on the T6050 final
+ shutdown
+
+A reboot issued while the T6050 ANS is still working after a write burst
+fails about one time in three (a 70 MB fsync burst, then an immediate
+reboot; 0 failures in 17 with 60 s of idle first). The mechanism is
+inferred, not captured on a console: the controller stays busy for seconds
+after the last Flush, so either the final SHN runs into its 5 s
+shutdown_timeout and the SMC restart then misses its window, the watchdog
+resets the machine after boot_stage was cleared and iBoot counts the
+restart, or the controller is reset mid-work and the next boot starts one
+that is still recovering and panics early.
+
+On T6050, in the final shutdown:
+
+- send a Flush to every namespace before the queues are frozen, so the
+  controller has the last writes before it is asked to shut down;
+- wait for SHN to complete for at least 30 s (apple_nvme_hw::
+  shutdown_min_timeout) and at most 60 s, instead of the 5 s default:
+  nvme_core's shutdown_timeout, raised to the controller's RTD3E, still
+  applies and only the floor and the cap are new;
+- skip SHN when the controller is not ready (CSTS.RDY clear, e.g. the
+  inherited controller was disabled and never brought back), so the longer
+  wait is only spent on a controller that can answer;
+- clear CC.EN afterwards as before, whatever SHN did.
+
+The elapsed SHN time is logged at info level on every post-M4 final
+shutdown, and a failure keeps its warning with the time and timeout added.
+T6040, T8132, T8140 and T8142 keep their timeout and send no extra Flush.
+The path is the platform driver's shutdown(), which device_shutdown() runs
+for reboot, halt and power off alike.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/nvme/host/apple.c | 96 +++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 91 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/nvme/host/apple.c b/drivers/nvme/host/apple.c
+index ef52797a0e3e..67933005cfb9 100644
+--- a/drivers/nvme/host/apple.c
++++ b/drivers/nvme/host/apple.c
+@@ -210,6 +210,15 @@ struct apple_nvme_hw {
+ 	bool cold_reset;
+ 	/* The ANS is never reset through PMGR here, so no reset is named. */
+ 	bool reset_optional;
++	/*
++	 * T6050: the ANS keeps working for seconds after the last flush of a
++	 * write burst and a platform reset in that window is an unsafe
++	 * shutdown. The final shutdown sends a Flush first and waits at least
++	 * this many seconds (capped at APPLE_NVME_SHN_MAX_TIMEOUT) for the
++	 * shutdown notification to complete. 0: the controller's
++	 * shutdown_timeout is used as is.
++	 */
++	u32 shutdown_min_timeout;
+ 	u32 max_queue_depth;
+ 	unsigned long quirks;
+ };
+@@ -1323,6 +1332,82 @@ static void apple_nvme_quarantine(struct apple_nvme *anv, int error)
+ 		 error);
+ }
+ 
++/* Upper bound of the final SHN wait, as nvme_core's RTD3E clamp. */
++#define APPLE_NVME_SHN_MAX_TIMEOUT	60
++
++/*
++ * Send a Flush to every namespace while the I/O queues still accept requests,
++ * so that the controller has the data of the last writes before it is asked
++ * to shut down. Returns the number of failed flushes.
++ */
++static int apple_nvme_flush_all(struct apple_nvme *anv)
++{
++	struct nvme_ns *ns;
++	int srcu_idx, failed = 0;
++
++	if (nvme_ctrl_state(&anv->ctrl) != NVME_CTRL_LIVE ||
++	    READ_ONCE(anv->quarantined) || apple_rtkit_is_crashed(anv->rtk))
++		return 0;
++
++	srcu_idx = srcu_read_lock(&anv->ctrl.srcu);
++	list_for_each_entry_srcu(ns, &anv->ctrl.namespaces, list,
++				 srcu_read_lock_held(&anv->ctrl.srcu)) {
++		struct nvme_command c = { };
++		int ret;
++
++		c.common.opcode = nvme_cmd_flush;
++		c.common.nsid = cpu_to_le32(ns->head->ns_id);
++		ret = nvme_submit_sync_cmd(ns->queue, &c, NULL, 0);
++		if (ret) {
++			dev_warn(anv->dev, "shutdown flush of nsid %u failed: %d\n",
++				 ns->head->ns_id, ret);
++			failed++;
++		}
++	}
++	srcu_read_unlock(&anv->ctrl.srcu, srcu_idx);
++
++	return failed;
++}
++
++/*
++ * Final-shutdown SHN. Where the hardware asks for it, wait generously for the
++ * controller to finish (it may still be busy with the last writes) and say how
++ * long that took. The caller clears CC.EN afterwards whatever happened here.
++ */
++static void apple_nvme_final_shn(struct apple_nvme *anv)
++{
++	u32 min_timeout = anv->hw->shutdown_min_timeout;
++	u32 saved = anv->ctrl.shutdown_timeout;
++	u32 csts = readl(anv->mmio_nvme + NVME_REG_CSTS);
++	ktime_t start;
++	s64 ms;
++	int ret;
++
++	if (min_timeout) {
++		if (!(csts & NVME_CSTS_RDY)) {
++			/* Not enabled: there is nothing to notify. */
++			dev_info(anv->dev,
++				 "controller not ready (CSTS=%#x), no shutdown notification\n",
++				 csts);
++			return;
++		}
++		anv->ctrl.shutdown_timeout = clamp(saved, min_timeout,
++						   APPLE_NVME_SHN_MAX_TIMEOUT);
++	}
++
++	start = ktime_get();
++	ret = nvme_disable_ctrl(&anv->ctrl, true);
++	ms = ktime_ms_delta(ktime_get(), start);
++	if (ret)
++		dev_warn(anv->dev,
++			 "shutdown notification failed after %lld ms (timeout %u s): %d\n",
++			 ms, anv->ctrl.shutdown_timeout, ret);
++	else
++		dev_info(anv->dev, "shutdown notification completed in %lld ms\n",
++			 ms);
++	anv->ctrl.shutdown_timeout = saved;
++}
++
+ static int apple_nvme_disable_locked(struct apple_nvme *anv, bool shutdown)
+ {
+ 	enum nvme_ctrl_state state;
+@@ -1358,11 +1443,8 @@ static int apple_nvme_disable_locked(struct apple_nvme *anv, bool shutdown)
+ 	 * loader and the first seconds of I/O. A failed SHN changes nothing:
+ 	 * the CC.EN clear below still runs.
+ 	 */
+-	if (READ_ONCE(anv->final_shutdown) && !apple_rtkit_is_crashed(anv->rtk)) {
+-		ret = nvme_disable_ctrl(&anv->ctrl, true);
+-		if (ret)
+-			dev_warn(anv->dev, "shutdown notification failed: %d\n", ret);
+-	}
++	if (READ_ONCE(anv->final_shutdown) && !apple_rtkit_is_crashed(anv->rtk))
++		apple_nvme_final_shn(anv);
+ 	ret = nvme_disable_ctrl(&anv->ctrl, false);
+ 	if (ret) {
+ 		apple_nvme_quarantine(anv, ret);
+@@ -2597,6 +2679,9 @@ static void apple_nvme_shutdown(struct platform_device *pdev)
+ 	WRITE_ONCE(anv->final_shutdown, true);
+ 	apple_nvme_set_reset_ready(anv, false);
+ 	flush_delayed_work(&anv->flush_dwork);
++	/* The queues are not frozen yet: Flush before SHN, see apple_nvme_final_shn(). */
++	if (anv->hw->shutdown_min_timeout)
++		apple_nvme_flush_all(anv);
+ 	if (apple_nvme_disable(anv, true))
+ 		return;
+ 	cancel_work_sync(&anv->recovery_work);
+@@ -2770,6 +2855,7 @@ static const struct apple_nvme_hw apple_nvme_t6050_hw = {
+ 	.needs_ioq_registers = true,
+ 	.lsq_in_nvmmu = true,
+ 	.reset_optional = true,
++	.shutdown_min_timeout = 30,
+ 	.max_queue_depth = 64,
+ 	/* FUA is not shown durable on this ANS: flush instead. */
+ 	.quirks = NVME_QUIRK_NO_APST | NVME_QUIRK_BROKEN_FUA,
+-- 
+2.56.0
+

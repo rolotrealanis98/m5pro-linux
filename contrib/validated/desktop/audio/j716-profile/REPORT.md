@@ -34,3 +34,22 @@ inferred; macOS runs amp level 15 (18.5 dBV) vs our DT 10 (16 dBV), the daemon r
 
 Next: Rolando runs LISTENING-TEST.md (~30 min, ceiling kept); raise the graph cap to 0 dB and settle the tweeter gain;
 explain/fix the 2x sense reading, then `j716-audio-ab safety aid41`; build bankstown-lv2 for profile-bankstown.
+
+## Speaker sense 4x: cause found (2026-11-08, static analysis, not yet verified on the machine)
+
+The 2x per word comes from the kernel's Speaker Sense capture: `sound/soc/apple/aop_t8140.rs:2811` re-slices every
+16-bit sense word one bit later (`(w << 1) | (next >> 15)`, series patch 0072), written for the J714c where the
+serializer samples the amps' words one BCLK early under the old `IB_IF` format. It applies to every `apple,t6050-aop-audio`
+machine, so also to the J716s, whose speaker link now uses the J616s `NB_IF` format (patch 0081/0004) that flips the
+amps' TX edge; if the stream arrives bit-aligned, the shift doubles V and I (power 4x, V/I sane), matching the
+observation. Not the cause: slot width (ADT: six 32-bit playback slots, twelve 16-bit sense slots like the J616s), codec
+gain (tas2764 has no sense gain register), the config scales (is_scale 3.75 / vs_scale 14 identical in j316.conf and in
+Apple's AID41/AID35/AID29, which also give Rshunt 0.09). Fix: make the one-bit realign per board (HwConfig field or DT
+property; default on for the J714c, off in t6050-j716s.dts); keep `sense_late_current` for now.
+Rebuild-free check: stop the daemon (volumes stay at the ceiling), `arecord -D hw:AppleJ716,2 -c 12 -f S16_LE -r 48000
+-d 3 sense.wav` during a 1 kHz 0 dBFS tone; LSB test (bit 0 of word k == sign of word k+1 ~100 % when wrongly shifted,
+~50 % when correct); amplitude Vpk ~0.20-0.28 V; Z = Vrms/Irms within 3.1-5.5 ohm. After the fix the reading must drop
+4.0x on every amp (expected 7.5-10 mW per amp at the ceiling; coil rise ~0.22 C per 10 mW over 10 s).
+Lifting the ceiling is NOT safe until: the realign fix is in and the 4x drop verified (the shift drops bit 15: words
+wrap at 7 V / 1.875 A raw, near level-10 full scale), and the LW1 late-current correction (also measured under IB_IF) is
+re-checked at 4/8/12 kHz, LW1 vs LW2 within ~5 %. Notes: ~/Work/agents/audio-profile/SENSE.md.
