@@ -207,3 +207,20 @@ NVMe/SART commits are PR #936, the combo-PHY and dwc3 commits are PR #939 plus A
 - Open on the daily: native GL session switch (queued), DCP in the daily (after the constant-timestamp boots), F6 check.
 - 2026-11-08 02:24 UTC: the GPU session renders with the native Gallium driver (/opt/mesa-aurora-gl, session-gl.env);
   zink stays installed as the rollback (session.env.zink). glmark2 1278 in-session.
+
+## 2026-11-08 04:53 UTC: daily-dcp-lfix promoted (the DCP drives the panel, the GPU renders)
+
+- Payload `daily-dcp-lfix-20261107-689facad.bin` (sha256 689facad94cb4aafa813ed888c7d0e580142bab050cc99acbbc6c38fdc7b12da);
+  test twin `daily-dcp-lfix-test-20261107-14f93bfc.bin`; VRR test twin `daily-dcp-lfix-test-vrr-20261107-54b4d1c9.bin`.
+- Kernel `7.3.0-gbd53915f2ef1` = the daily-n1k tree (36845aa5f650) + 120 Hz promotion v2 (0001-0002) + the display DT
+  commit (clk_disp0 712 MHz, DCP nodes enabled, P3 gamut, panel node) + the VRR pair on v2 (opt-in
+  `appledrm.fw27_panel_vrr`, off in the daily). Config adds `DRM_APPLE=y` and tracing; `DRM_ASAHI=y` as before.
+- Loader `m1n1-plain-n1-dt-gpu-dcp-phfix.bin` (0x410000, sha256 98906d2912b9de1b384065ad316d25eac88b56286ac495c0d7e2dbd6f8abd477):
+  n1-warm-gpu-dcp + wireless 0028 + "give the display nodes a phandle if the DT has none" (branch n1-dt-gpu-dcp-phfix
+  @ 694d4040; the in-tree DTB has none on `dcp` and `display-subsystem`).
+- Variables after the notch line: `chosen.m5pro,gpu=1`, `chosen.m5,t6050-display=1`; no `n1` line. Bootargs: the daily's
+  plus `log_buf_len=16M`.
+- Cards: `card0` aurora (render, `renderD128`), `card1` apple-drm (eDP-2). Desktop: the two-card Hyprland session
+  (`contrib/pending/gpu/userspace/mesa-aurora/session-dcp/`), native GL.
+- Rollback: `boot.bin.prev` = `daily-n1k-test-20261107-5c74c66c.bin`; the previous daily `daily-n1k-20261107-512a1c00.bin`
+  stays on the Studio. `~/Work/agents/daily-n1k/loop/run-restore-daily.sh` restores the new daily.
