@@ -1774,3 +1774,15 @@ across the omacom-loader, power-kernel and daily sessions; 5 of 14 failed with a
 default in `esp-put.sh`; the loop scripts and the daily's own habits should avoid rebooting right after large writes until
 the NVMe shutdown path is fixed (next: kernel-side analysis of apple-nvme shutdown vs an in-flight background write, and
 what iBoot/ANS does on the next start).
+
+## TB-T0: Thunderbolt kernel boot lost the machine (2026-11-08 00:02 UTC) — OPEN, needs hands
+
+Payload `tb-t0-20261107-ee8f136e.bin` (kernel `7.3.0-g121f7cde7d92` = tb/j716s-daily with USB4/Thunderbolt built in,
+T0 DTB with the ATC1/ATC2 acio routers, pcie tunnels and their DARTs/NHIs; m1n1 `n1-warm-gpu`; self-test on; 60 s settle)
+written from the new daily (primary, `300030`). After `systemctl reboot` the machine never answered again: no SSH, no
+Tailscale (node last seen at the reboot), 100 % ping loss for 50+ minutes. Neither the self-test revert (no network
+within 90 s -> previous slot) nor the stage-1 watchdog (150 s -> previous slot) brought the network back, so either the
+fallback twin (`daily-n1k-test 5c74c66c`) also fails to get network after this kernel ran (warm hardware state left by
+the USB4/ATC bring-up, e.g. the N1 or the Type-C ports, which the kernel-side training may not recover), or the machine is
+hung with the watchdog disarmed, or it is looping on the twin. The queued display, GL-session and camera I2 steps are
+waiting behind it. Recovery: power button (cold start), then macOS if the loader slot needs the daily put back by hand.
