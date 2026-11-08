@@ -176,3 +176,12 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
   multi-core blocker was fixed on the 27.3 side; the kernel/loader work is firmware-version keyed (27.2 and 27.3 share
   the layouts except one word); the Omarchy repos are the shared place; a cross-machine tracker/wiki proposal is being
   drafted (`contrib/community/SHARED-REPO-PLAN.md`, agent).
+
+## 2026-11-08 03:30 UTC: aurora-silicon/mesa #194 opened
+
+- https://github.com/aurora-silicon/mesa/pull/194 "asahi: native Gallium GL on the M5 Pro and M5 Max (G17S, G17C)":
+  five commits on agx3c a8e86a80cdc (drm-shim M5 gate, M5 path for G17S/G17C, program storage lists, tile kept under
+  fully masked draws, GBM map waits for writers), from the new fork rolotrealanis98/mesa (Rolando's consent), branch
+  g17s-gallium-native = the exact tree running as the MacBook's desktop GL (MESA_COMMIT 043a4c58). Hardware section:
+  A/B 12/12 on both trees, Hyprland on the native driver, glmark2 1278 vs zink 597-890; asahi suite 108/110 (two
+  pre-existing G17P blit failures).
