@@ -236,3 +236,24 @@ NVMe/SART commits are PR #936, the combo-PHY and dwc3 commits are PR #939 plus A
 - The root also carries `/etc/systemd/system.conf.d/m5pro-watchdog.conf` (`RuntimeWatchdogSec=60`) since the loop-safety v2
   positive test; the daily runs with the systemd runtime watchdog.
 
+## daily-dcp-rec-p2000 (2026-11-08 12:45 UTC, current)
+
+`daily-dcp-rec-p2000-20261108-f185b487.bin`, kernel `7.3.0-g12c445fa5371` = daily-dcp (`bd53915f2ef1`) +
+`contrib/pending/gpu/recovery/0001-0003` (GPU recovery isolation, bounded fences, apple-drm bounded wait) +
+`contrib/pending/gpu/faults/0001-0002` (recovery cause/blame log, `aurora.m5_*` experiment parameters).
+Loader `m1n1-plain-n1-dt-gpu-dcp-phfix` (98906d29), initramfs `initramfs-ftab-wdt2`, variables as
+daily-dcp-lfix-vrr, bootargs = the VRR daily's + `log_buf_len=16M rcupdate.rcu_cpu_stall_timeout=21
+aurora.m5_pause_timeout_us=2000`; no `m5.selftest`. Built by `contrib/pending/gpu/recovery/tools/mk-recovery2-daily.py`.
+Modules `modules-7.3.0-g12c445fa5371.tar.zst` installed on the root. `boot.bin.prev` = `daily-n1k-test-20261107-5c74c66c`.
+
+Why: GPU client faults (all "DSF pause timeout", firmware reason 5) took Hyprland down with ENODATA and wedged the
+DCP; with the recovery patches Hyprland survived 3 recoveries under a 10 min load, and with the 2000 us pause
+bound the same load produced none (one run each; RESULTS 12:08 and 12:24 entries). Promoted 12:45 (clean boot,
+74 s); the 12:47 OOM was a Hyprland direct-scanout retry storm, not the kernel (RESULTS 13:15 entry), fixed in the
+session launcher (direct scanout off without modifiers). Verifier after the fix: 22 passed, the one FAIL a false
+positive since removed. Electron apps run with the GPU again (`--disable-gpu` removed 13:25); Chrome/Chromium had
+it since the morning. Quickshell stays on the Qt software backend (exported by `hypr-session`). A per-boot
+`fault-watch.sh` runs under `/root/fault-watch-daily/`.
+
+Open: one day of normal use; the recovery patches go to aurora-silicon after that; the fault stress matrix
+(`faults/STRESS.md`) for the pause bound; direct scanout needs modifiers (`AQ_NO_MODIFIERS`) before it can be on.
