@@ -2222,3 +2222,29 @@ us" at boot). Booted first try at 12:26 UTC; same 10 min load 12:28:00-12:37:50 
 - Next: build a real daily from this kernel (no test flags) with the 2000 us bound, promote it after a loop
   boot, re-enable GPU for the Electron apps, keep `fault-watch.sh` running during normal use to count any
   remaining recoveries and their reasons.
+
+## 2026-11-08 12:43-12:58 UTC — daily-dcp-rec-p2000 promoted, then an OOM during the verifier (open)
+
+`daily-dcp-rec-p2000-20261108-f185b487.bin` (kernel 7.3.0-g12c445fa5371, DCP + VRR, `aurora.m5_pause_timeout_us=2000`,
+no test flags) booted first try at 12:45 UTC (probe: clean, 74 s), DCP session, pause bound logged. `hypr-dcp-verify`
+ran at 12:47: 20 passed, 2 failed. During its glmark2 fullscreen step (uptime 113.8 s) the kernel ran out of memory:
+48 GB total, 19 MB free, while the LRU/slab/shmem accounting held under 1.1 GB (active_anon 2 MB, file 2 MB, shmem
+960 MB pinned, slab 28 MB, swap untouched), so about 46 GB sat in driver page/DMA allocations the OOM report does
+not attribute. The OOM killer took uwsm, superwhisper, wireplumber, fcitx5, pipewire and the portals; Hyprland exited
+without a crash report, `start-hyprland` relaunched it in safe mode, and the panel no longer updated afterwards
+("nothing reaches the panel"; the two "Cannot commit when a page-flip is awaiting" lines are the usual session-start
+pair, so this wedge is not the page-flip class). No GPU recovery in this boot. The session log shows four "drmModeAddFB2WithModifiers
+unsupported and buffer has explicit modifiers / Failed to submit a buffer to KMS" groups, each after a swapchain
+reconfigure to AR24 (the direct-scanout attempt for the fullscreen client), not a retry storm.
+- Rate estimate: 46 GB over the glmark2 step, about 0.8 GB/s, which matches the 26.5 displayed frames/s the verifier
+  measured times a 31 MB 3456x2234 framebuffer; working hypothesis: a per-displayed-frame leak in the apple-drm
+  (DCP) path, introduced or exposed by recovery patch 0003 or by the fullscreen/direct-scanout attempt. Not seen in
+  the two 10 min windowed stress runs on the same kernel, nor in the 05:28 verifier run on the daily without the
+  patches.
+- Per Rolando (12:53 UTC): no revert while he is not using the machine. Rebooted into the same daily at 12:57
+  (clean, MemAvailable 43.7 GB) for an observed reproduction (`leak-probe.sh`: glmark2 windowed, fullscreen with
+  direct scanout off, fullscreen; MemAvailable, shmem, dma-buf bytes and framebuffer counts per second, stop at
+  12 GB). Analysis agent on the apple-drm commit path in parallel.
+- Evidence (Studio, private): `~/Work/agents/gpu-recovery/oom-1254/` (dmesg with the OOM reports, the three
+  session logs, DRM state, the verifier directory). Omarchy-side: the promotion runner was stopped before it turned
+  the Electron GPU flags back on (still `--disable-gpu`).
