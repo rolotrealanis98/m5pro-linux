@@ -1,0 +1,120 @@
+#!/bin/bash
+# Hyprland rendering on the Apple GPU (aurora DRM driver, Aurora Mesa).
+# hypr-session starts this automatically when an aurora DRM device exists
+# (opt out: /etc/hypr-gpu-disable; force for one boot: /run/hypr-gpu).
+#
+# Two display paths, chosen by which cards exist (found by driver, never by
+# card number; see /usr/local/lib/hypr-cards.sh):
+#  DCP (apple card with a connected eDP): aquamarine drives the apple card
+#    (KMS), renders on the aurora render node, and scans out LINEAR dumb
+#    buffers of the apple card that the GPU renders into directly; the DCP
+#    flips them at the panel's 120 Hz. Profile m5pro-dcp.lua.
+#  simpledrm (no apple card): as before: scanout buffers are LINEAR buffers
+#    imported into simpledrm, which copies them to the iBoot framebuffer with
+#    the CPU. Profile m5pro.lua (effects off).
+#
+# aquamarine 0.16 only takes KMS devices: the aurora card has no KMS, is
+# skipped at enumeration, and is therefore not listed in AQ_DRM_DEVICES. The
+# render device is the render node aquamarine pairs with the display card: no
+# parent match on Apple Silicon (split display/GPU devices), so it falls back
+# to "the sole renderD on the system" (renderD128). With two renderD nodes it
+# refuses to guess and Mesa renders in software: checked below.
+#
+# Mesa: /etc/mesa-aurora/session.env (zink over Borealis, or the native
+# Gallium tree in /opt/mesa-aurora-gl), exported to Hyprland and user services.
+# Knobs (files, so they survive a reboot without editing this script):
+#   /etc/hypr-dcp-disable    never use the DCP path (simpledrm / software instead)
+#   /etc/hypr-dcp-modifiers  DCP path without AQ_NO_MODIFIERS (aquamarine reads
+#                            the plane's IN_FORMATS and adds FBs with modifiers)
+#   /run/hypr-dcp-trace      this boot only: AQ_TRACE=1 HYPRLAND_TRACE=1 (very
+#                            verbose, costs frame time at 120 Hz)
+#   HYPR_DCP_WAIT=<s>        how long to wait for the apple card (default 20)
+ENV_FILE=${HYPR_MESA_ENV:-/etc/mesa-aurora/session.env}
+LIB=${HYPR_CARDS_LIB:-/usr/local/lib/hypr-cards.sh}
+log=$HOME/.cache/hyprland-gpu.log
+[ -f "$log" ] && mv -f "$log" "$log.old"
+say() { echo "hypr-gpu-session $(date -Is): $*" >> "$log"; }
+
+if [ ! -r "$LIB" ]; then
+  say "missing $LIB"; exit 1
+fi
+# shellcheck source=hypr-cards.sh
+. "$LIB"
+
+# The DCP may bind a few seconds after autologin: wait for it when this kernel
+# has the driver, so the session never starts on a simpledrm that is about to go.
+dcp=0
+if [ ! -e /etc/hypr-dcp-disable ] && hypr_wait_for_dcp "${HYPR_DCP_WAIT:-20}"; then
+  dcp=1
+else
+  hypr_cards_scan
+fi
+
+# The Mesa environment, shared with every GL/Vulkan client of the session.
+unset LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER LP_NUM_THREADS WLR_RENDERER_ALLOW_SOFTWARE
+unset MESA_LOADER_DRIVER_OVERRIDE AQ_NO_MODIFIERS AQ_TRACE HYPRLAND_TRACE
+set -a
+# shellcheck disable=SC1090
+. "$ENV_FILE"
+set +a
+mesa_vars=$(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$ENV_FILE" | tr '\n' ' ')
+# Name the override even when the active session.env has none (native GL), so
+# a zink value left in the user manager from an earlier session is cleared.
+case " $mesa_vars " in *" MESA_LOADER_DRIVER_OVERRIDE "*) ;; *)
+  systemctl --user unset-environment MESA_LOADER_DRIVER_OVERRIDE 2>/dev/null ;;
+esac
+# User services (xdg-desktop-portal-hyprland, D-Bus activated apps) get it too.
+# A portal still running from an earlier session keeps its old environment, so
+# stop it; D-Bus starts it again on first use.
+# shellcheck disable=SC2086
+systemctl --user import-environment $mesa_vars 2>/dev/null
+# shellcheck disable=SC2086
+dbus-update-activation-environment --systemd $mesa_vars 2>/dev/null
+systemctl --user stop xdg-desktop-portal-hyprland.service 2>/dev/null
+mesa_prefix=${LIBGL_DRIVERS_PATH%/lib/dri}
+gl=native; [ "${MESA_LOADER_DRIVER_OVERRIDE:-}" = zink ] && gl=zink
+
+if [ $dcp = 1 ]; then
+  # Only the apple card: it is the only KMS device Hyprland should drive. If
+  # simpledrm is still registered it stays out of the list.
+  export AQ_DRM_DEVICES=$APPLE_CARD
+  # apple-drm's primary plane on firmware 27 advertises LINEAR and
+  # APPLE_INTERCHANGE (compressed). With AQ_NO_MODIFIERS aquamarine ignores
+  # IN_FORMATS, allocates its scanout buffers LINEAR and adds them with plain
+  # AddFB2 (apple-drm treats "no modifier" as LINEAR): the path proven on
+  # simpledrm, and never an interchange surface. Client buffers keep their
+  # modifiers; a tiled one is refused for direct scanout and composited.
+  if [ ! -e /etc/hypr-dcp-modifiers ]; then export AQ_NO_MODIFIERS=1; fi
+  export M5PRO_HYPR_PROFILE=m5pro-dcp
+  M5PRO_PANEL_VRR=$(hypr_panel_vrr); export M5PRO_PANEL_VRR
+  # Hyprland may raise its main thread to SCHED_RR (needs RLIMIT_RTPRIO or
+  # rtkit; harmless when refused): steadier 8.3 ms pacing.
+  unset HYPRLAND_NO_RT
+  if [ -e /run/hypr-dcp-trace ]; then export AQ_TRACE=1 HYPRLAND_TRACE=1; fi
+  say "DCP path: display $APPLE_CARD ($APPLE_CONNECTOR, apple), GPU ${AURORA_CARD:-none} render ${AURORA_RENDER:-none}, renderD nodes $RENDER_COUNT, GL $gl, Mesa $mesa_prefix $(cat "$mesa_prefix/MESA_COMMIT" 2>/dev/null), panel VRR $M5PRO_PANEL_VRR, AQ_NO_MODIFIERS=${AQ_NO_MODIFIERS:-unset}, trace ${AQ_TRACE:-0}"
+  if [ "$RENDER_COUNT" != 1 ] || [ -z "$AURORA_RENDER" ]; then
+    say "WARNING: aquamarine pairs the apple card with the sole renderD only; found $RENDER_COUNT (aurora: ${AURORA_RENDER:-none}). Expect software rendering; check 'Creating CDRMRenderer on gpu' in the Hyprland log"
+  fi
+else
+  card=${SIMPLE_CARD:-/dev/dri/card0}
+  export AQ_DRM_DEVICES=$card
+  # simpledrm scans out LINEAR only; without modifiers the scanout buffers are
+  # allocated LINEAR (first-frame step 4b checks that path).
+  export AQ_NO_MODIFIERS=1
+  export HYPRLAND_NO_RT=1
+  export M5PRO_HYPR_PROFILE=m5pro
+  if [ -e /etc/hypr-dcp-disable ]; then why="DCP disabled by /etc/hypr-dcp-disable"
+  elif hypr_dcp_expected; then why="apple-drm present but no connected eDP after ${HYPR_DCP_WAIT:-20} s"
+  else why="no DCP driver in this kernel"; fi
+  say "simpledrm path ($why): display $card, GPU ${AURORA_CARD:-none} render ${AURORA_RENDER:-none}, GL $gl, Mesa $mesa_prefix $(cat "$mesa_prefix/MESA_COMMIT" 2>/dev/null)"
+fi
+export XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=Hyprland XDG_SESSION_DESKTOP=Hyprland
+export LANG=C.UTF-8
+export PATH=$HOME/.local/bin:$PATH
+export XCURSOR_THEME=Adwaita XCURSOR_SIZE=24
+export QT_QPA_PLATFORM="wayland;xcb" ELECTRON_OZONE_PLATFORM_HINT=wayland MOZ_ENABLE_WAYLAND=1
+export TERMINAL=alacritty EDITOR=nvim BROWSER=chromium
+# hypr-session counts its 30 s fallback window from here, not from the DCP wait.
+[ -n "${HYPR_GPU_START_STAMP:-}" ] && touch "$HYPR_GPU_START_STAMP"
+unset HYPR_GPU_START_STAMP
+exec start-hyprland >> "$log" 2>&1

@@ -1,0 +1,22 @@
+--- a/.config/hypr/hyprland.lua
++++ b/.config/hypr/hyprland.lua
+@@ -40,5 +40,18 @@
+ -- o.window("qemu", { workspace = "5" })
+ 
+ -- M5 Pro (J716s) machine specifics, then the trackpad preset (keep it last).
+-require("hypr.m5pro")
++-- The launcher picks the profile: m5pro-dcp when the DCP (apple DRM card)
++-- drives the panel and Hyprland renders on the GPU, m5pro otherwise
++-- (simpledrm or software). M5PRO_PANEL_MODE pins the panel mode (the software
++-- session on the DCP asks for 60 Hz).
++do
++  local profile = os.getenv("M5PRO_HYPR_PROFILE") == "m5pro-dcp" and "m5pro-dcp" or "m5pro"
++  require("hypr." .. profile)
++  local mode = os.getenv("M5PRO_PANEL_MODE")
++  if mode and mode ~= "" then
++    for _, out in ipairs({ "eDP-1", "eDP-2" }) do
++      hl.monitor({ output = out, mode = mode, position = "0x0", scale = 2 })
++    end
++  end
++end
+ dofile(os.getenv("HOME") .. "/.config/hypr/trackpad/select.lua")
