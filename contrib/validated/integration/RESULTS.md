@@ -2468,3 +2468,20 @@ starts, `AppleTCControllerAssignableTransport::probe failed` (expected: the prox
   hypervisor-side tracers (rung iv) do not depend on it.
 - Expected end state of this run: a wait for the root device (ANS stripped). Everything the guest touches is real
   hardware passed through by the hypervisor; no SSD, no APFS, no xART.
+
+## 2026-11-08 21:38-22:20 UTC — hv27 rung (iv) first attempts: tracing under SPTM emulation does not take yet
+
+- Runs 7-10 (clean clients, `serial=0`): the guest reaches the DCP display stack (panel: `IOMFB: service matched
+  AppleDCPExpert`, `AppleDCPLinkService` pipe 0 with firmware hash crc32 0x22783959, `UnifiedPipeline::start_ios_gated`
+  "Created AP Services" and the pending HPD notification, Thunderbolt NHI `unpoweredStart`, USB-C port 3 registration,
+  `AppleFileSystemDriver: using apfs-preboot-uuid`). Two stale-client failures in between: a client from an earlier run
+  still held the proxy serial port; the runner now kills stale clients.
+- Tracers installed before guest start (SEP + ESM group, earlier the dockchannel UART) fault the guest's first stage
+  at its first instructions; the same guest boots without them. Tracers installed live after SMP bring-up (SEP/ESM,
+  then DCP mailbox in SYNC mode while the DCP driver was visibly starting) apply on the client side (`dirty_maps`
+  clear, `pt_update` done) but produce zero events. Working hypothesis: under SPTM emulation the guest's device
+  mappings are created by the emulated SPTM path and are not rewritten by a later client-side map change, while
+  pre-start hooks are hit by the first stage before it has vectors. Handed to a code study
+  (`~/Work/agents/hv27/TRACE-UNDER-SPTM.md` when done); no more blind reboots for this.
+- Method notes (m1n1 shell `exec` is the assembler helper, use `builtins.exec`; `live-trace.sh`, `cycle.sh`,
+  `run-hv27-fifo.sh` in the agent dir) are in `contrib/pending/hv/tools/README.md` once published.
