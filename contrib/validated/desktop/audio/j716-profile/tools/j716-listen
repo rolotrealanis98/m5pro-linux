@@ -1707,6 +1707,7 @@ def do_selftest():
         check(not s3.tripped, "dmesg ceiling line does not trip")
         s4 = Safety()
         s4.begin_play()
+        s4.play_t0 = time.time() - 10.0  # past the 3 s grace after play start
         s4.check_stale(time.time())
         check(s4.tripped, "stale telemetry during play trips")
         s4.reset()
