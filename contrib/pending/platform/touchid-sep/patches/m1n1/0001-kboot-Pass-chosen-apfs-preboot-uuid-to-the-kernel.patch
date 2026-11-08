@@ -1,0 +1,72 @@
+From a1e855e823383700ea45ce618987a6be951225b3 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Sun, 8 Nov 2026 10:15:36 -0500
+Subject: [PATCH] kboot: Pass /chosen/apfs-preboot-uuid to the kernel
+
+The SEP driver (Aurora's apple_sep) selects its xART OS identity, the
+anti-replay lane the enclave keeps an OS in, from /chosen/apfs-preboot-uuid
+and never invents one when the property is missing: the enclave's
+GET_OS_UUID request is then answered "unavailable". Aura forwards the
+property on every Mac; m1n1 did not. Copy it from the ADT as the
+36-character string it carries there (16 raw bytes are spelled out), and
+log only its length, never the value, which names this install's volume
+group.
+
+Step for rung (a) of the J716s Touch ID study (touchid-sep/FEASIBILITY.md,
+section 3 "Bootloader"), after 72ed8f9c kept m1n1 off the SEP mailbox on
+T6050.
+---
+ src/kboot.c | 37 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index b7fbcfda..55eb8068 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -351,6 +351,43 @@ static int dt_set_chosen(void)
+     if (fdt_setprop(dt, node, "asahi,m1n1-stage2-version", m1n1_version, strlen(m1n1_version) + 1))
+         bail("FDT: couldn't set asahi,m1n1-stage2-version\n");
+ 
++    /*
++     * The booted volume group's UUID. The SEP driver takes it as its xART OS
++     * identity, the anti-replay lane the enclave keeps this OS in, and refuses
++     * to invent one when it is missing (Aurora's OS-IDENTITY.md); Aura forwards
++     * it on every Mac. Passed on as the 36-character string the ADT carries
++     * (iBoot also spells it as 16 raw bytes on some builds). The value is never
++     * printed: it names the volume group of this install.
++     */
++    int anode = adt_path_offset(adt, "/chosen");
++    if (anode >= 0) {
++        u32 uuid_len = 0;
++        const u8 *uuid = adt_getprop(adt, anode, "apfs-preboot-uuid", &uuid_len);
++        char uuid_str[37];
++
++        if (uuid && uuid_len == 16) {
++            snprintf(uuid_str, sizeof(uuid_str),
++                     "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", uuid[0],
++                     uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7], uuid[8], uuid[9],
++                     uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
++            uuid_len = 36;
++        } else if (uuid && (uuid_len == 36 || uuid_len == 37)) {
++            memcpy(uuid_str, uuid, 36);
++            uuid_str[36] = 0;
++            uuid_len = 36;
++        } else {
++            uuid_len = 0;
++        }
++
++        if (uuid_len) {
++            if (fdt_setprop(dt, node, "apfs-preboot-uuid", uuid_str, sizeof(uuid_str)))
++                bail("FDT: couldn't set apfs-preboot-uuid\n");
++            printf("FDT: Passing apfs-preboot-uuid (%u characters)\n", uuid_len);
++        } else {
++            printf("FDT: no usable apfs-preboot-uuid in the ADT (%u bytes)\n", uuid_len);
++        }
++    }
++
+     /*
+      * T6050/T6051: iBoot boots SEPOS and registers it warm before the handoff
+      * (ADT sepfw-booted = 1). A getrand on the SEP ROM endpoint times out there
+-- 
+2.56.0
+

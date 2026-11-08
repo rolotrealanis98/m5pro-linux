@@ -1,0 +1,141 @@
+From 2e2b6931d83db1484704a3cab9aa3533d86730de Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:03:12 -0500
+Subject: [PATCH 1/3] soc: apple: sep: Add the T6050/J716s platform profile
+
+The J716s (MacBook Pro 16-inch, M5 Pro) ADT describes its Secure Enclave
+as the J616s's: a pre-booted iop-sep,ascwrap-v6 SEP behind a dart,t8110
+whose stream-0 aperture starts at the BIT(40) alias, and the J700/J616s
+Mesa sensor (sensor-id 0x3356, mesaType 1) on spi2 at 0x505108000, 8 MHz,
+chip select 0, powered from NUB GPIO 21 with its data-ready line on AP
+GPIO 138. So the T6050 profile is T6040's with the sensor's controller
+address, selected only on apple,j716s (the other T6050 Macs are unread).
+
+Nothing has been exchanged with this SEP yet: the profile exists for the
+discovery-only attach with xart_writes=0 provision_keybag=0, which is why
+persistent_enrol is off here, and the xART guard stays at level 1 as on
+every warm-attach enclave shared with macOS. The ADT spells the sensor's
+SPI configuration in the child's reg words rather than as a mode, so the
+profile keeps the sensor family's mode 2 and the device-tree node decides
+what the bus runs.
+
+New against the M4 trees, and left alone: an exclave SEP manager
+(/arm-io/esm) beside the SEP.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/soc/apple/profile.rs | 63 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 63 insertions(+)
+
+diff --git a/drivers/soc/apple/profile.rs b/drivers/soc/apple/profile.rs
+index b7a7a40b328d..f63676db1c06 100644
+--- a/drivers/soc/apple/profile.rs
++++ b/drivers/soc/apple/profile.rs
+@@ -26,6 +26,8 @@
+ //!   the T8140 SEP DART aperture above 4 GiB.
+ //! * `T6040` / J616s (MacBook Pro 16", M4 Pro): iBoot boots sepOS, so the
+ //!   driver uses the warm registration path; the sensor is the J700 part.
++//! * `T6050` / J716s (MacBook Pro 16", M5 Pro): the T6040 model on the next
++//!   SoC, from its ADT alone; nothing has been exchanged with this SEP yet.
+ 
+ // The boot handshake, identity source, sensor and DART fields are consumed by
+ // the boot-endpoint, identity and sensor-transport paths.
+@@ -457,6 +459,36 @@ pub(crate) struct PlatformProfile {
+     ..T6040
+ };
+ 
++/// MacBook Pro 16" M5 Pro (J716s). The J716s ADT (27.3, 26C5035r) records a
++/// pre-booted SEP (`sepfw-booted`, `sepfw-load-at-boot`): an
++/// `iop-sep,ascwrap-v6` SEP at `0x502600000` whose DART (`dart,t8110`, three
++/// streams, `exclave-sid` 2) puts stream 0 at the BIT(40) alias (`vm-base-0`
++/// 0x10000004000, `vm-size-0` 0xffff0000), and the Mesa sensor J700 and J616s
++/// carry (`sensor-id` 0x3356, `mesaType` 1) on spi2 at `0x505108000`, 8 MHz,
++/// chip select 0. Its power is NUB GPIO 21 and its data-ready line AP GPIO
++/// 138. `/defaults` carries `cpx-encryption-mode = 2`. New against the M4
++/// trees: an exclave SEP manager (`/arm-io/esm`) beside the SEP, which this
++/// driver does not use.
++///
++/// So this is J616s's profile on the T6050. It is written from the ADT only:
++/// the discovery-only attach (`xart_writes=0 provision_keybag=0`) is the
++/// first thing to run on it, and the SPI mode is the sensor family's (the
++/// J716s ADT spells the sensor's SPI configuration in its `reg` words, not as
++/// a mode; the sensor node in the device tree decides what the bus runs).
++pub(crate) const T6050: PlatformProfile = PlatformProfile {
++    name: "T6050/J716s",
++    sensor: SensorProfile {
++        controller_base: 0x5_0510_8000,
++        ..T6040.sensor
++    },
++    // Untested on this SoC: no reboot-tested owner export yet.
++    persistent_enrol: false,
++    // macOS shares this enclave and Linux has no records here: keep Linux
++    // to its own xART records from the first boot, as on J616s.
++    xart_guard: 1,
++    ..T6040
++};
++
+ /// MacBook Air M4 (J713). The J713 ADT (26.6.2, 25G83) puts the Mesa sensor
+ /// on spi2 at `0x3ad108000`, 8 MHz, chip select 0, with power on the NUB GPIO
+ /// controller (pin 28) and data-ready on AP GPIO 199. The SEP is
+@@ -501,6 +533,11 @@ pub(crate) struct PlatformProfile {
+ static_assert!(T8132.sensor.controller_base == 0x3ad108000);
+ static_assert!(T8132.sensor.expected_id == T8140.sensor.expected_id);
+ static_assert!(T8132.nonce_session && T8132.wide_dma_mask);
++static_assert!(T6050.sensor.controller_base == 0x505108000);
++static_assert!(T6050.sensor.expected_id == T6040.sensor.expected_id);
++static_assert!(T6050.shmem_capacity == T6040.shmem_capacity);
++static_assert!(T6050.nonce_session && T6050.wide_dma_mask && T6050.xart_guard == 1);
++static_assert!(!T6050.persistent_enrol);
+ 
+ /// Whether the machine root declares `compatible`.
+ ///
+@@ -663,6 +700,11 @@ fn select(
+     if has(b"apple,t6041") && has(b"apple,j616c") {
+         return Ok(&T6041);
+     }
++    // Only the J716s, whose ADT was read; the other T6050 Macs (J716c, J714s,
++    // J714c, J775d) share the SoC but their sensor wiring is unchecked.
++    if has(b"apple,t6050") && has(b"apple,j716s") {
++        return Ok(&T6050);
++    }
+     // Only J713: the other T8132 Macs are unread.
+     if has(b"apple,t8132") && has(b"apple,j713") {
+         return Ok(&T8132);
+@@ -743,6 +785,26 @@ fn t8132_selection_is_limited_to_j713() {
+         assert_eq!(picked(&[b"apple,j614s", b"apple,t6040"]), Some(T6040.name));
+         assert_eq!(picked(&[b"apple,j616c", b"apple,t6041"]), Some(T6041.name));
+         assert_eq!(picked(&[b"apple,j713", b"apple,t6041"]), None);
++        assert_eq!(picked(&[b"apple,j716s", b"apple,t6050"]), Some(T6050.name));
++        assert_eq!(picked(&[b"apple,t6050"]), None);
++        assert_eq!(picked(&[b"apple,j716c", b"apple,t6050"]), None);
++        assert_eq!(picked(&[b"apple,j716s", b"apple,t6040"]), None);
++    }
++
++    #[test]
++    fn j716s_takes_the_j616s_profile_on_the_t6050() {
++        assert!(T6050.bootstrap == Bootstrap::WarmRegister);
++        assert!(T6050.identity == IdentitySource::Chosen);
++        assert!(T6050.sensor.expected_id == T6040.sensor.expected_id);
++        assert!(T6050.sensor.mode == T6040.sensor.mode);
++        assert!(T6050.nonce_session && T6050.wide_dma_mask);
++        assert!(!T6050.persistent_enrol);
++        assert!(T6050.shmem_capacity == T6040.shmem_capacity);
++        assert!(T6050.shmem_first_item == T6040.shmem_first_item);
++        assert!(matches!(T6050.key_store, KeyStore::Variant5));
++        assert!(T6050.keybag_create.variant == 5);
++        assert!(T6050.xart_guard == 1);
++        assert!(core::ptr::eq(T6050.dart_window, T6040.dart_window));
+     }
+ 
+     #[test]
+@@ -792,6 +854,7 @@ fn the_other_profiles_keep_the_bit40_window() {
+             &T8122,
+             &T6040,
+             &T6041,
++            &T6050,
+             &T8132,
+         ] {
+             assert_eq!(offset(profile.dart_window), 1 << 40);
+-- 
+2.56.0
+

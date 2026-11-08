@@ -1,0 +1,35 @@
+From a826082e87def54924bfb421dfb5beed90ed3dfa Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:03:13 -0500
+Subject: [PATCH 3/3] arm64: configs: j716s: Build the SEP driver and the Touch
+ ID bus driver as modules
+
+Aurora's apple_sep as a module, loaded by hand: it has no module alias, and
+the J716s test payloads blacklist it. The daily configuration already has
+CONFIG_APPLE_SEP=m and CONFIG_SPI_APPLE=m from asahi.config; the fragment
+now says so, and the module tarball has to ship both.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/configs/j716s.config | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index 037db96c004c..3d62663c1f1e 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -233,3 +233,11 @@ CONFIG_VIDEO_APPLE_AVE=m
+ # T6050 observation probe. Load it by hand; the payload blacklists it.
+ CONFIG_VIDEO_APPLE_PRORES=m
+ CONFIG_VIDEO_APPLE_PRORES_T6050_OBSERVE=y
++
++# Touch ID / Secure Enclave: Aurora's apple_sep as a module, loaded by hand
++# (it has no module alias, and the J716s test payloads blacklist it). Its
++# dependencies are already on: RUST, SPI, RUST_APPLE_MAILBOX, OF_DYNAMIC,
++# HW_RANDOM, TRUSTED_KEYS, PM. The sensor's bus driver is a module too and
++# must ship with it.
++CONFIG_APPLE_SEP=m
++CONFIG_SPI_APPLE=m
+-- 
+2.56.0
+

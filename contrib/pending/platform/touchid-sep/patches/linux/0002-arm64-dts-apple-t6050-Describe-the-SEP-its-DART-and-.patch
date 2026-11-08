@@ -1,0 +1,324 @@
+From 2ca988a9fa01d3c734ad2cbf8a063e80ebba27c3 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:03:13 -0500
+Subject: [PATCH 2/3] arm64: dts: apple: t6050: Describe the SEP, its DART and
+ the Touch ID bus; wire them on the J716s
+
+From the J716s runtime ADT (27.3), arm-io ranges +0x200000000:
+- sep_dart: /arm-io/dart-sep reg[0] 0x300b80000 +0x20000, interrupt 543,
+  dart,t8110 with three streams (mapper-sep 0, mapper-sep-exclave 2). The
+  SEP only accepts IOVAs in the window iBoot programmed for stream 0,
+  vm-base-0 0x10000004000 + vm-size-0 0xffff0000, so the window is static
+  here as it is on t604x.
+- sep: /arm-io/sep reg[0] 0x302600000 +0x88000, iop-sep,ascwrap-v6,
+  clock-gate SEP; its mailbox is the ASC v4 block at +0x8000 with the ADT
+  interrupts [534, 533, 536, 535] in the order the SMC's and ANS's are
+  listed ([send-not-empty, send-empty, recv-not-empty, recv-empty]).
+- spi2: /arm-io/spi2 reg 0x305108000 +0x4000, interrupt 1369, clock-gate
+  SPI2 under SPI_P, with the Mesa child (biosensor,mesa, sensor-id 0x3356,
+  8 MHz, chip select 0).
+- pinctrl_nub: /arm-io/nub-gpio0, 61 pins at 0x881e4000, interrupts
+  706..718 in steps of two, power state NUB_GPIO.
+- Power states: SEP (group 1 +0x298, critical), SPI2 (group 1 +0x330,
+  parent SPI_P) and NUB_GPIO (group 2 +0x88, critical).
+
+iBoot boots sepOS before the kernel (sepfw-booted, sepfw-load-at-boot), so
+the SEP and its DART ship disabled and apple_sep enables them with a
+runtime changeset when it loads, as on J616s. The mailbox, the sensor bus
+and the sensor are disabled in the SoC file and enabled by the board.
+
+J716s: the sep alias, through which the loader reserves the SEP firmware
+and copies the running boot's manifests onto the node; the mailbox; the
+always-on GPIO bank with only the sensor's power pin exposed and no
+interrupts (the AOP owns some of them, as on J616s); spi2 and the sensor
+with its power on NUB GPIO 21, its data-ready line on AP GPIO 138 (taken
+out of pinctrl_ap's reserved range; the ADT lists [138, 3], the other
+boards with this sensor take the line as a rising edge), the 20 ns
+chip-select delays, and the names of this unit's factory data, which is
+not redistributable and is extracted on the machine itself. The SPI mode
+is the sensor family's (spi-cpol): the ADT carries the bus configuration
+in the child's reg words (word 2 0x08010100 against 0x08010000 for the
+SoC's other SPI slaves), not as a mode, and nothing binds the sensor until
+/dev/sep-bio is first opened.
+
+This is the discovery-only configuration of rung (a) in
+touchid-sep/FEASIBILITY.md: the module is loaded by hand with
+xart_writes=0 provision_keybag=0.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-die0.dtsi | 148 ++++++++++++++++++++++
+ arch/arm64/boot/dts/apple/t6050-j716s.dts |  60 ++++++++-
+ 2 files changed, 207 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-die0.dtsi b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+index 2497157689f5..3f834406e077 100644
+--- a/arch/arm64/boot/dts/apple/t6050-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+@@ -181,6 +181,58 @@ nvme: nvme@45dcc0000 {
+ 		apple,sart = <&ans_sart>;
+ 	};
+ 
++	/*
++	 * The Secure Enclave. iBoot boots sepOS before the kernel (ADT /arm-io/sep
++	 * sepfw-booted, /chosen sepfw-load-at-boot) and hands over a running SEP, so
++	 * Linux must not touch its DART or its mailbox at boot: both stay disabled
++	 * until apple_sep brings them up with a runtime changeset, and the SEP only
++	 * accepts IOVAs in the window iBoot programmed, stream 0 of dart-sep
++	 * (vm-base-0 0x10000004000, vm-size-0 0xffff0000, the BIT(40) alias the
++	 * DART translates). ADT: sep reg[0] 0x302600000 +0x88000 (iop-sep,ascwrap-v6,
++	 * interrupts [534, 533, 536, 535], clock-gate SEP), dart-sep reg[0]
++	 * 0x300b80000 +0x20000 (dart,t8110, interrupt 543, sid-count 3, mapper-sep
++	 * stream 0, mapper-sep-exclave stream 2), arm-io ranges +0x200000000. The
++	 * mailbox is the ASC v4 block at the SEP ASC + 0x8000, as on the SMC and
++	 * ANS; the ADT lists its interrupts in the same order as theirs
++	 * ([send-not-empty, send-empty, recv-not-empty, recv-empty]). The exclave
++	 * SEP manager beside it (ADT /arm-io/esm, iop,exclave-sep-manager, stream 2)
++	 * is not described: nothing in Linux speaks to it.
++	 */
++	sep_dart: iommu@500b80000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x5 0x00b80000 0x0 0x20000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 543 IRQ_TYPE_LEVEL_HIGH>;
++		#iommu-cells = <1>;
++		apple,dma-range = /bits/ 64 <0x10000004000 0xffff0000>;
++		apple,dma-offset = /bits/ 64 <0x0>;
++		status = "disabled";
++	};
++
++	sep: sep@502600000 {
++		compatible = "apple,sep";
++		reg = <0x5 0x02600000 0x0 0x88000>;
++		mboxes = <&sep_mbox>;
++		mbox-names = "mbox";
++		iommus = <&sep_dart 0>;
++		power-domains = <&ps_sep>;
++		status = "disabled";
++	};
++
++	sep_mbox: mailbox@502608000 {
++		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
++		reg = <0x5 0x02608000 0x0 0x4000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 533 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 534 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 535 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 536 IRQ_TYPE_LEVEL_HIGH>;
++		interrupt-names = "send-empty", "send-not-empty",
++				  "recv-empty", "recv-not-empty";
++		#mbox-cells = <0>;
++		status = "disabled";
++	};
++
+ 	/* The DARTs of PCIe ports 2 and 3 */
+ 	dart_apcie2: iommu@412000000 {
+ 		compatible = "apple,t6050-dart", "apple,t8110-dart";
+@@ -673,6 +725,35 @@ pinctrl_ap: pinctrl@29c000000 {
+ 			     <AIC_IRQ 0 492 IRQ_TYPE_LEVEL_HIGH>;
+ 	};
+ 
++	/*
++	 * The always-on GPIO bank (ADT /arm-io/nub-gpio0, gpio,t8101, 61 pins,
++	 * reg 0x881e4000 +0x4000, interrupts 706, 708, ... 718), whose power state
++	 * is in the always-on PMGR. The Touch ID sensor's power line is here.
++	 * Matched as pinctrl_ap is (no register cache read-back).
++	 */
++	pinctrl_nub: pinctrl@2881e4000 {
++		compatible = "apple,t6050-pinctrl", "apple,t8103-pinctrl";
++		reg = <0x2 0x881e4000 0x0 0x4000>;
++		power-domains = <&ps_nub_gpio>;
++
++		gpio-controller;
++		#gpio-cells = <2>;
++		gpio-ranges = <&pinctrl_nub 0 0 61>;
++		apple,npins = <61>;
++
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 706 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 708 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 710 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 712 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 714 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 716 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 718 IRQ_TYPE_LEVEL_HIGH>;
++		status = "disabled";
++	};
++
+ 	i2c1: i2c@505014000 {
+ 		compatible = "apple,t6050-i2c", "apple,t8103-i2c";
+ 		reg = <0x5 0x05014000 0x0 0x4000>;
+@@ -713,6 +794,38 @@ qspi: spi@505118000 {
+ 		status = "disabled";
+ 	};
+ 
++	/*
++	 * Touch ID: the sensor's SPI controller (ADT /arm-io/spi2, spi-1,spimc,
++	 * reg 0x305108000 +0x4000, interrupt 1369, clock-gate SPI2 under SPI_P;
++	 * the ADT's SIO DMA channels are not used). iBoot leaves the pads muxed
++	 * and the controller uses its native chip select, so there is no pinctrl
++	 * here, as on T604x. The sensor (ADT /arm-io/spi2/mesa, biosensor,mesa,
++	 * sensor-id 0x3356, mesaType 1, spi-frequency 8000000) is the J700/J616s
++	 * part, in their SPI mode; the J716s ADT spells its bus configuration in
++	 * the child's reg words (word 2 0x08010100 against 0x08010000 for the
++	 * SoC's other SPI slaves), not as a mode. The board file wires its power,
++	 * data-ready line and factory data.
++	 */
++	spi2: spi@505108000 {
++		compatible = "apple,t6050-spi", "apple,t8103-spi";
++		reg = <0x5 0x05108000 0x0 0x4000>;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 1369 IRQ_TYPE_LEVEL_HIGH>;
++		clocks = <&clkref>;
++		power-domains = <&ps_spi2>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++		status = "disabled";
++
++		mesa: fingerprint@0 {
++			compatible = "apple,mesa-fingerprint";
++			reg = <0>;
++			spi-max-frequency = <8000000>;
++			spi-cpol;
++			status = "disabled";
++		};
++	};
++
+ 	/* The ASC v4 mailbox at the AOP ASC + 0x8000; ADT interrupts 578..581 in mailbox order */
+ 	aop_mbox: mailbox@290608000 {
+ 		compatible = "apple,t6050-asc-mailbox", "apple,asc-mailbox-v4";
+@@ -949,6 +1062,21 @@ ps_atc3_cio_auss: power-controller@420 {
+ };
+ 
+ &pmgr1 {
++	/*
++	 * The SEP's power state: ADT pmgr device SEP (id 185, +0x298, group 1,
++	 * critical; parent FAB8_SOC left undescribed, as SIO is for the I2C
++	 * states below). Always on: the enclave runs from boot to shutdown and
++	 * stops reading its mailbox for good once it is switched off.
++	 */
++	ps_sep: power-controller@298 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x298 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "sep";
++		apple,always-on;
++	};
++
+ 	ps_i2c1: power-controller@2c8 {
+ 		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+ 		reg = <0x2c8 4>;
+@@ -986,9 +1114,29 @@ ps_qspi: power-controller@350 {
+ 		label = "qspi";
+ 		power-domains = <&ps_spi_p>;
+ 	};
++
++	/* The Touch ID SPI controller: ADT pmgr device SPI2 (id 204, +0x330, parent SPI_P) */
++	ps_spi2: power-controller@330 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x330 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "spi2";
++		power-domains = <&ps_spi_p>;
++	};
+ };
+ 
+ &pmgr2 {
++	/* The always-on GPIO bank's power state: ADT pmgr device NUB_GPIO (id 236, +0x88, group 2, critical) */
++	ps_nub_gpio: power-controller@88 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x88 4>;
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		label = "nub_gpio";
++		apple,always-on;
++	};
++
+ 	ps_atc2_usb_aon: power-controller@178 {
+ 		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
+ 		reg = <0x178 4>;
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 1cbe955b9072..37a4a32d465c 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -37,6 +37,12 @@ aliases {
+ 		keyboard = &keyboard;
+ 		/* m1n1 dt_set_gpu_t6050() fills the GPU hand-off, opt-in (see the GPU nodes below) */
+ 		gpu = &gpu;
++		/*
++		 * m1n1 dt_set_sep() reserves the SEP firmware and copies the running
++		 * boot's iBoot and local-policy manifests onto &sep through this alias;
++		 * apple_sep refuses to attach without them [OURS touchid-sep/RUNG-A.md]
++		 */
++		sep = &sep;
+ 	};
+ 
+ 	chosen {
+@@ -785,7 +791,59 @@ speaker_rt: codec@3d {
+  * t6050-j775d.dts.
+  */
+ &pinctrl_ap {
+-	gpio-reserved-ranges = <0 80>, <81 25>, <108 26>, <135 4>, <140 81>;
++	gpio-reserved-ranges = <0 80>, <81 25>, <108 26>, <135 3>, <140 81>;
++};
++
++/*
++ * Touch ID, discovery-only test (rung (a) of touchid-sep/FEASIBILITY.md).
++ * apple_sep enables the SEP and its DART itself when it loads; the loader
++ * fills the manifests through the sep alias above. The sensor's bus and
++ * node are described so the next rung can read the sensor back: nothing
++ * binds the sensor until /dev/sep-bio is first opened, which this test
++ * never does. Pin 138 above is the sensor's data-ready line, taken out of
++ * the reserved range; the other reserved pins stay as they were.
++ */
++&sep_mbox {
++	status = "okay";
++};
++
++/*
++ * The always-on GPIO bank, for the sensor's power line only (pin 21). As on
++ * J616s the AP takes none of its interrupts: the AOP firmware owns some of
++ * its pins and interrupt registers, and a chained handler here would see
++ * their pending bits without a handler of ours. Only pin 21 is exposed: the
++ * T6050 GPIO blocks have slots that fault when read (pinctrl_ap above).
++ */
++&pinctrl_nub {
++	status = "okay";
++	gpio-reserved-ranges = <0 21>, <22 39>;
++	/delete-property/ interrupt-controller;
++	/delete-property/ #interrupt-cells;
++	/delete-property/ interrupts;
++};
++
++/*
++ * [ADT] /arm-io/spi2/mesa: power = nub-gpio0 pin 21 (function-mesa_pwr,
++ * GPIO form, not an SMC rail), data-ready = gpio0 pin 138 (interrupts
++ * [138, 3]; the J616s, J700 and J713 board files take the same line as a
++ * rising edge), spi-frequency 8 MHz, chip select 0, sensor-id 0x3356.
++ * The factory data is this unit's and is not redistributable: the files
++ * named here are extracted from this Mac's iBoot System Container on the
++ * machine itself [OURS tools/aurora-sep/extract-mesa-calibration]; with
++ * them absent the sensor cannot be brought up, which this rung does not do.
++ */
++&spi2 {
++	status = "okay";
++};
++
++&mesa {
++	status = "okay";
++	enable-gpios = <&pinctrl_nub 21 GPIO_ACTIVE_HIGH>;
++	interrupt-parent = <&pinctrl_ap>;
++	interrupts = <138 IRQ_TYPE_EDGE_RISING>;
++	spi-cs-setup-delay-ns = <20>;
++	spi-cs-hold-delay-ns = <20>;
++	firmware-name = "apple/mesacal-j716s.bin", "apple/msrk-j716s.bin";
+ };
+ 
+ /*
+-- 
+2.56.0
+
