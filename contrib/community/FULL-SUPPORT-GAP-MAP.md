@@ -32,7 +32,7 @@ offsets and sizes. The ADT dump, the N1 firmware, calibration data and NVRAM con
   NVRAM write via `asahi-bless`, ambient light sensor, an installer, hibernation-free but measured s2idle.
 - **What Aurora adds on M3/M4 that the J716s lacks**: Touch ID with fprintd (SEP), HDR/EDR output, Thunderbolt + DP
   tunnels, fan control (impossible as-is on the T6050 SMC: no `Ftst`), ANE driver, video encode and ProRes, RTC wake,
-  NVRAM writes, Aura (EL2 monitor, nested virt), speakerguardd/aurora-audio profiles, `aura recover`.
+  NVRAM writes, Aura (EL2 loader (Aura PR #77, merged 2026-11-07, removed the EL2 monitor, PSCI, NV2 and PV-KVM: Linux now runs at EL2 inside the CTXR window; monitor-free build untested on hardware at merge time)), speakerguardd/aurora-audio profiles, `aura recover`.
 - **What macOS does that no Linux on Apple Silicon has a name for yet** (from the macOS 27.3 kext list and the ADT):
   the always-on display coprocessor (`aod2`), voice trigger and always-listening mics, USB audio offload (`auss`),
   the AES engine, the USB-C retimers (`uatcrt0..2`), the DP input muxes (`atc*-dpin*`), the panel TCON and its PMIC/EEPROM/temperature
