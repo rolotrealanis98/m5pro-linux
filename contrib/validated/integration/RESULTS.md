@@ -1980,3 +1980,19 @@ drivers or the two hand-offs. No console capture exists for it yet. Next: a capt
 module so the panic lands in the journal, and code reading of the two probe paths
 (`contrib/pending/dcp/daily-dcp/GPU-DCP-PANIC-ANALYSIS.md`, in progress). The loader-fix twin (phfix m1n1, in-tree
 DTB) boots next to validate the loader side of the fix; its expected outcome is the same 55 s panic.
+
+## 2026-11-08 04:26 UTC: DAILY-DCP VRR twin: GPU + DCP together BOOTED, two-card Hyprland session live
+
+`daily-dcp-phfix-test-vrr` (be84bb7d: kernel `7.3.0-gbd53915f2ef1`, phandle-fixed DTB, `chosen.m5pro,gpu=1` +
+`chosen.m5,t6050-display=1`, `appledrm.fw27_panel_vrr=1`) booted cleanly (delta 50 s) three minutes after the
+non-VRR twin with the same kernel and DTB had panicked at 55 s. So the GPU + DCP early panic is intermittent, not
+deterministic; the only static difference is the VRR module parameter.
+
+On this boot: `card0` aurora (GPU), `card1` apple-drm (DCP, eDP-2 connected, six 3456x2234 timings), `renderD128`,
+no flip or transaction timeouts, no DCP crash, no faults, Wi-Fi and Bluetooth up. The two-card session launcher took
+the DCP path (`AQ_DRM_DEVICES=/dev/dri/card1`, render node `/dev/dri/renderD128`), Hyprland ran for user rolo on
+tty2, and glmark2 inside the session reported `GL_RENDERER Apple M5 Pro (G17S B1)` at 911 FPS: the first desktop
+with GPU rendering and DCP scanout on this machine. The verifier `hypr-dcp-verify` could not read Hyprland's state
+when run as root over ssh (empty hyprctl fields, `as_user` helper not found under `timeout`, swap tracing printed a
+PASS with no captured events), so the 120 Hz pacing, direct scanout and VRR numbers are not yet measured; the
+verifier is being fixed. The daily was restored afterwards.
