@@ -1919,3 +1919,22 @@ Kernel `7.3.0-ga0f2f30c967b` twins of next-daily-wifi (loader-trained N1, `chose
   in the initramfs and the open_timeout value.
 - The daily was restored after the series (primary slot, 58 s to ssh). The desktop came up on the daily with the new
   two-card launcher installed (simpledrm path): Hyprland running on tty2.
+
+## 2026-11-08 03:46 UTC: DAILY-DCP bisect, rounds 1 and 2 (in progress)
+
+Each payload differs from the failed twin (or from B2) in one part; `firstboot-probe.sh` classifies every boot.
+Kernel `7.3.0-gbd53915f2ef1` throughout unless noted.
+
+| boot | change | result |
+|---|---|---|
+| B2 | no `chosen.m5pro,gpu=1` (display hand-off, kernel N1 training) | fell back, delta 208 s, stage-1 watchdog |
+| B3 | daily-n1k DTB, no display variable | booted, clean (GPU, Wi-Fi, desktop) |
+| B1 | loader `n1-dt-gpu` (no display hand-off), twin DTB | booted, clean |
+| B5 | B2 with the stage C DTB (dcp9d) | booted, clean: `card1` apple-drm, eDP-2 connected, six 3456x2234 timings, no flip or transaction timeouts, Hyprland up; no N1 port under dcp9d |
+| B6 | B2 with the stage C loader and `chosen.m5pro,n1=4` (loader-trained N1) | running |
+
+Conclusions so far: the kernel build is fine (B3, B1), the GPU + DCP combination is not the trigger (B2), the display
+hand-off with the DCP kernel works on the stage C device tree (B5). The trigger is in the in-tree daily-dcp DTB's
+additions over dcp9d under the display hand-off: the kernel-trained N1 port, the apcie power-controller settings, the
+reserved-memory, NVRAM/SPI or GPU nodes. B6 splits the N1 path; round 3 payloads are being prepared for both outcomes.
+Logs: `~/Work/agents/daily-dcp/loop/run-dcp-bisect.log`, `run-dcp-bisect2.log`; B5's journal `journal-B5.txt` there.
