@@ -1996,3 +1996,11 @@ with GPU rendering and DCP scanout on this machine. The verifier `hypr-dcp-verif
 when run as root over ssh (empty hyprctl fields, `as_user` helper not found under `timeout`, swap tracing printed a
 PASS with no captured events), so the 120 Hz pacing, direct scanout and VRR numbers are not yet measured; the
 verifier is being fixed. The daily was restored afterwards.
+
+Correction (04:45 UTC): the 55 s fallback of `daily-dcp-phfix-test` (e03be5ac) was most likely a counted restart of
+the previous (B4) session, not a GPU + DCP panic: clean boots in the same runner measure 49-51 s, so +4-6 s matches
+the "counted restart, error stage 00, the new file is never read" class of `firstboot/REPORT.md`; a panic path skips
+the reboot notifiers and would have left error stage 0x30, and a panic in the GPU probe (which runs before
+macsmc-reboot registers on the good dual boot) would have ended in the stage-1 watchdog at about 208 s. The
+`firstboot-probe.sh` bands predate the 20 s shutdown settle hook, which moved clean boots from about 27 s to about
+50 s, so the probe mislabelled it. The loader-fix twin now booting is the re-run of that configuration.
