@@ -1808,3 +1808,28 @@ needs a probe timeout (and a boot-time watchdog that only Linux's init completio
 - POWER-T1 "FAIL" above is superseded by the retest (PASS) and the baseline section.
 - m1n1 0028 (keep a down N1 port enabled, copy host tunables) lives in `contrib/pending/wireless/patches/m1n1/`; the GPU
   hand-off patch also numbered 0028 lives in `contrib/pending/gpu/patches/m1n1/`.
+
+## DCP-120 constant timestamps: no stall, 120 Hz mode set, VRR works (2026-11-08 02:10 UTC) — PASS
+
+Same DCP kernel (`7.3.0-dcp-g22ec57f56b27`, tracing on) with `appledrm.fw27_counter_timestamps=0` (= the v2 patch 0001,
+constant 120 in the swap timestamp words) and `drm.debug=0x16`, dcp9d DTB (clock + gamut); two boots, both primary first
+pass, 55 s to SSH; 60 s settle rule; GPU daily restored afterwards (primary).
+
+- Stall check at 62 s on both boots: `flip_done timed out` 0, `IOMFB transaction timed out` 0, crashed 0, 14 swap
+  completions already traced (fbcon). The first-swap stall of the earlier series is gone: counter timestamps were the
+  cause, constant timestamps are the fix (120 Hz v2 series `contrib/pending/dcp/promotion/`).
+- `dcpc-120d-ct0-vrr` (opt-ins `fw27_panel_vrr=1 promotion_rates=1`), `vrrflip` (atomic, `contrib/pending/dcp/vrr/tools/`):
+  modes listed 120 (preferred), 100 (synthesized), 60, 59.94, 50, 48, 47.95; `vrr_capable 1`; atomic mode set at
+  3456x2234@120 OK; `VRR_ENABLED 1` committed in a plain flip: the driver re-selects timing 2 with vrr on
+  (`set_digital_out_mode ... vrr:1`, firmware `IOMFBParameter_adaptive_sync Req minRR = 0x180000` = 24 Hz, ~385 ms for
+  the mode set), `VRR_ENABLED 0` re-selects with minRR 0. Phases (page-flip intervals): fixed p50 13.2 ms, vrr-on p50
+  8.35 ms, **vrr-on-50 p50 20.8 ms** (a 50 fps-paced client is shown every 5 subframes, i.e. real adaptive refresh),
+  vrr-off p50 8.34 ms, **vrr-off-50 p50 16.65 ms** (fixed 120 Hz alternating 16.7/25 ms as predicted). Swap completions
+  per phase 400-452. The tool draws the 31 MB frame on the CPU into a dumb buffer, so the fps averages (50-59) and the
+  p95 outliers (50-140 ms) are the test program's CPU fill, not the display path; a GPU-rendered client is the next
+  measurement (Hyprland on the DCP). One `swap failed! status 4294967295` at 106 s (during vrr-off-50) without a
+  crash flag: to be understood (a single rejected swap after the VRR-off re-select).
+- The non-VRR boot ran the tool with a wrong option, so only the stall check and a 1-swap modetest ran there; its
+  stall result is the one that matters.
+- Conclusion for the daily: carry the 120 Hz v2 patches (constant timestamps + brightness guard) and the VRR pair
+  rebased on v2 (opt-in by default); Hyprland `misc:vrr = 1` becomes usable once the session scans out through the DCP.
