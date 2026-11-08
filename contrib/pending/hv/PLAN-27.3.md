@@ -3,6 +3,13 @@
 Studio-side preparation only; nothing here has touched the MacBook. This is the repo-safe copy: volume-group UUIDs, boot-manifest hashes and payload hashes are replaced by
 placeholders; the private plan, scripts and binaries are in the Studio's `~/Work/agents/hv27/` (0700).
 
+## Status (2026-11-08)
+
+- Rung i PASS (14:40 UTC), rung ii PASS (19:37 UTC: proxy on the Studio 70 s after reboot, identity and watchdog
+  control OK; details and the GIC probes taken in that session in `contrib/validated/integration/RESULTS.md`).
+- Rung iii-a waits for the guest files from the Preboot volume (apfs-fuse route, `tools/README.md` of the
+  attended kit); rung iii-b waits for Rolando's decision below.
+
 ## 0. Decision needed before rung iii-b (read first)
 
 The guest's boot session is the Linux stub's: iBoot booted the stub volume group (`/chosen/boot-uuid` =
