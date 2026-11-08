@@ -209,3 +209,13 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
   without the display, our stage-2 variant bailed into the proxy and the stage-1 watchdog reset the machine (nine
   bisect boots, `contrib/pending/dcp/daily-dcp/FIRST-BOOT-ANALYSIS.md`). Hardware: the same fix in our loader
   (`n1-dt-gpu-dcp-phfix`) booted the in-tree DTB with the DCP driving the panel next to the GPU (`daily-dcp-lfix-test`).
+
+## 2026-11-08 04:43 UTC: aurora-silicon/linux #1082, #1083, #1084 MERGED
+
+RyanTheTide merged the three driver PRs after a fleet test (one-shot kernel = integration/aurora 36d91984 + #1082,
+#1083, #1084, #1060 and the Touch ID series; booted on J413, J316s, J616s and J700; regression suite against the
+fleet30 rows: no regression; for #1082 every fleet Mac kept the 1000 ms default, only `apple,t6050-nvme-ans2` gets
+10 s, zero RTKit timeout lines). Merged: `soc: apple: rtkit: wait up to 10 s for a handshake reply`,
+`HID: dockchannel-hid: settle 50 ms after releasing the AFE reset`, `hwmon: (macsmc) keep a fan whose optional keys
+are missing`. Still open: #1152 (WFI idle), #1160 (lid confirm), #1167 (J716s DT), #1173 (M5 InitData), #1174
+(27.3 IOMFB), #1182/#1183 (kernel-side N1 training), mesa #194, m1n1 #65.
