@@ -2382,3 +2382,28 @@ Rolando home, Studio-to-MacBook cable in place. `m1n1-hv27-proxy.bin` (3ea65595,
   is); they sit in the Preboot `restore/` folder on the MacBook. Plan: `apfs-fuse` as an Arch ARM package
   (`~/Work/agents/hv27/apfs/build.sh`; the agent's classifier blocks external-source builds, Rolando runs it),
   read-only FUSE mount of the Preboot volume on the daily, `fetch-27.3-guest-files.sh`, then back into the proxy.
+
+## 2026-11-08 20:08-20:30 UTC — proxy recovery (fallback semantics learned); hyprland-m5pro installed
+
+- After the wedged proxy session Rolando power-cycled the MacBook: every boot came back into the proxy loader
+  (`boot.bin`), unplugged too. Cause: the stage-2 m1n1 resets the PMU boot-failure counter at its own init, so a
+  power-hold (which does not count as a failed boot) leaves the counter at 0 and the stage-1 keeps choosing
+  `boot.bin`. A **watchdog reset does count**: when a chainload attempt wedged the proxy (two attempts; the stock
+  `chainload.py` places the 42 MB image at m1n1's base, which the M4+/M5 CTRR check refuses, and a copy with a
+  `--base 0x10011a00000` placement hung the proxy mid-upload), the stage-1 WDT fired 150 s later and the stage-1
+  booted `boot.bin.prev` = the daily (`slot=fallback-after-failure`, pmu scratch 300130). Rule: to leave a proxy
+  session, let the watchdog fire (or wedge it); do not power-hold. `run-hv27-recover.sh` (agent dir) then put the
+  daily back into `boot.bin` over SSH (boot.bin = prev = 26ca25f0). Chainloading a full daily payload over the
+  proxy remains unsolved (placement + upload hang); not needed while the watchdog path works.
+- `hyprland-m5pro 0.57.1-1` (direct-scanout failed-candidate latch, `contrib/validated/desktop/hyprland/`) installed
+  with `pacman -U` (stock package kept in the pacman cache for rollback), `hyprland` added to the IgnorePkg line,
+  session restarted via `getty@tty2`. `hyprctl version` shows the m5pro-ds-latch build. First look said "display
+  wedged": a fresh idle session with no client produces no frames (one swap after the modeset, two benign
+  "Cannot commit when a page-flip is awaiting" lines at start-up), and `hyprctl dispatch` on 0.57 wants the Lua
+  call syntax, so the forced redraws never ran. With a client animating (the screensaver) 735 swaps in 4 s, rescue
+  "the desktop draws". Follow-up: make `m5pro-rescue`'s draws() force damage with the 0.57 dispatch syntax so an
+  idle session is not reported as wedged. `hypr-dcp-verify` run on the new package follows.
+- 20:20-20:26 UTC `hypr-dcp-verify` on hyprland-m5pro: **22 passed, 0 failed, 2 warnings** (idle desktop flipping 343×/3 s
+  = the Omarchy screensaver client was animating; no direct scanout for fullscreen mpv = blocked by USER, the launcher's
+  `M5PRO_DCP_DIRECT_SCANOUT=0` under `AQ_NO_MODIFIERS`, as intended). glmark2 swapchain reconfigured 0 times. The latch
+  package behaves like stock with scanout off; re-enabling direct scanout for a test of the latch itself is a later item.
