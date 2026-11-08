@@ -101,3 +101,13 @@ Settle before a reboot into a twin: `esp-put` already idles 60 s and the runner 
 (cost one extra minute), and treat "fallback with no twin journal and stage 0x30/0x00" as an inconclusive run to repeat,
 not a result. The `unsafe_shutdowns=` field of `esp-put` printed empty on the MacBook root in that run (`nvme smart-log`
 gave nothing), so the counter did not guard anything; install `nvme-cli` or read the counter another way.
+
+## Hardware results, round 2 (2026-11-08 05:10 UTC)
+
+Negative PASS (marks 0x31/0x33/0x34, bite at ~150 s, fallback with error stage 0x34, twin journal kept). Positive:
+hand-over PASS (opened, drop-in installed, released, systemd took the device at 1.4 s, `RuntimeWatchdogUSec=1min`,
+100 s with PID 1 feeding, no reset); the boot ended in the twin's own self-test revert after a failed ping despite
+Wi-Fi association (one occurrence, not the watchdog). The drop-in is now on the shared root: the daily runs with the
+systemd runtime watchdog. Details in `contrib/validated/integration/RESULTS.md` (LOOP-SAFETY v2). Remaining: the
+400 s criterion on a positive boot whose self-test passes, a clean reboot of an opener twin, and the lid-close sleep
+check on the daily (attended).
