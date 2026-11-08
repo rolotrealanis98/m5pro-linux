@@ -185,3 +185,13 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
   g17s-gallium-native = the exact tree running as the MacBook's desktop GL (MESA_COMMIT 043a4c58). Hardware section:
   A/B 12/12 on both trees, Hyprland on the native driver, glmark2 1278 vs zink 597-890; asahi suite 108/110 (two
   pre-existing G17P blit failures).
+
+## 2026-11-08 02:40 UTC: shared-tracker proposal posted on omacom/linux-aurora #293
+
+- Comment: https://github.com/omacom/linux-aurora/issues/293#issuecomment-6716271037 (the follow-up to Rolando's
+  earlier "get something up early tomorrow"). Proposes one tracker repo (status matrix, result logs, build recipes
+  with hashes, topic notes; code stays upstream), asks for a name (`m4plus-linux` suggested) and a home (new neutral
+  org, or omacom), with a one-day default. Full plan: `contrib/community/SHARED-REPO-PLAN.md`.
+- Nothing has been created on GitHub yet (no org, repo or invitations). Next: after the day passes without objection,
+  create the org and seed the J716s entry; the AI policy and the licence question for the J714s repos are decided
+  before the repo opens.
