@@ -2536,3 +2536,11 @@ Cycles with the proxy loader on the slot (prev = hv27 daily), pipe-driven client
 - Tooling lessons: a stale client holding the proxy port corrupts the next session (runner kills them); a daily
   younger than ~60 s reboots into the fallback; `pkill -f` patterns must not match their own shell; the `exec`
   name in the m1n1 shell is the assembler helper.
+- 23:41 UTC, framebuffer read through the proxy (the guest's panel as a PNG, `runs/shots/` in the agent dir): the
+  single-core traced guest had **panicked**: `panic(cpu 0 caller 0xfffffe003e5588c8): Undefined kernel instruction:
+  pc=0xfffffe003c4fc398 instr=d51ffb68 @sleh.c:1953` = `msr S3_7_C15_C11_3, x8`, in
+  `com.apple.driver.AppleT6050CLPC` (deps AppleARMPlatform, ApplePMGR, IOReportFamily, IOSurface); "Exclaves boot
+  status: NOT_STARTED"; last started kext IONVMeFamily. So that run died on an Apple implementation-defined system
+  register the hypervisor does not virtualise in the `cpus=1` configuration, not on a traced access. The multi-core
+  traced runs (stalled at the same 101 s frame, link lost) still need the same screenshot check. The screenshot
+  method (`iface.readmem` of the boot-args framebuffer, 31 MB, ~20 s) replaces photos of the panel from now on.
