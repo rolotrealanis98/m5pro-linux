@@ -2325,3 +2325,24 @@ series: AVE node probe-only, ProRes engine node + observer, `t6050-media.dtsi`, 
   brightness 570, the same band the previous daily showed (15.0 W at 14:14). The 9.8 W README figure is a dimmed
   idle from an earlier day; a like-for-like idle series (panel level fixed, 10 min) is still to be taken. The
   AVE driver has no unbind attribute (sysfs write refused), so the A/B was by domain state, not by unbinding.
+
+## 2026-11-08 14:40-14:48 UTC — hv27 rung (i): the rebased hypervisor-era m1n1 boots the daily (PASS)
+
+`hv27-plain-selftest-20261108-8117f8a9.bin` = the daily (kernel 7.3.0-g0933f881d736) with loader
+`m1n1-hv27-plain` (v2.0.0-132-g63e6053c: our series rebased onto Asahi `m5-hv` 2e685f21 + main up to 8c22e3c5;
+SPRR patches 0009-0011 dropped as upstream covers them; SEP RNG query skipped on T6050; T6050 added to the hv
+CPU-start table; AVE hand-off adapted; size 0x430000). Before the boot `boot.bin.prev` was set to the current
+daily (26ca25f0), so every fallback now lands on it. Booted first try (58 s, primary slot), DCP session, GPU,
+Hyprland; stage-2 log: "SEP: Preserving iBoot warm registration; seeding RNG from ADT", "FDT: KASLR seed
+initialized" (the old "couldn't get enough random bytes" line is gone), still "MCC: Unsupported version:mcc,t6050".
+Daily restored as boot.bin (26ca25f0, prev 26ca25f0), one clean boot after.
+- The rescue tool reported "nothing reaches the panel" on the hv27 boot while 311 swaps were counted in 4 s with
+  a forced window: the test tools leave the top-level trace instance's `tracing_on` at 0, so the rescue's
+  counter never moved. Fixed (`swaps()` turns tracing on) and installed; it now reports the live desktop.
+- Guest-file fetch for rungs (ii)/(iii): no APFS tooling on the root (`apfsprogs`/`linux-apfs-rw-dkms` exist in
+  the Arch repos; the DKMS module would need headers for the custom kernel). The fetch script also runs on
+  macOS, so the files come out of the Preboot volume at the next macOS boot.
+- Next daily payload prepared: `daily-dcp-rec-video-hv27-20261108-c7f84366.bin` (same kernel, hv27 loader as
+  the daily loader; identical bytes to the agent's `hv27-plain-test`), to promote at the next attended slot.
+- Rungs (ii) and (iii-a) wait for the Studio-to-MacBook cable (Rolando away from home); plan in
+  `contrib/pending/hv/PLAN-27.3.md`.
