@@ -11,7 +11,7 @@ U=${M5PRO_USER:-rolo}; UIDN=$(id -u "$U" 2>/dev/null || echo 1001); X=/run/user/
 [ "$(id -u)" = 0 ] || { echo "run as root: sudo m5pro-rescue $*"; exit 1; }
 live_sig() { for d in "$X"/hypr/*/; do p=$(head -1 "$d/hyprland.lock" 2>/dev/null); [ -n "$p" ] && kill -0 "$p" 2>/dev/null && { basename "$d"; return; }; done; }
 hc() { local s; s=$(live_sig); [ -n "$s" ] && runuser -u "$U" -- env XDG_RUNTIME_DIR="$X" HYPRLAND_INSTANCE_SIGNATURE="$s" WAYLAND_DISPLAY=wayland-1 hyprctl "$@" 2>/dev/null; }
-swaps() { mountpoint -q /sys/kernel/tracing || mount -t tracefs tracefs /sys/kernel/tracing 2>/dev/null; echo 1 > /sys/kernel/tracing/events/dcp/iomfb_swap_complete/enable 2>/dev/null; grep -c iomfb_swap_complete /sys/kernel/tracing/trace 2>/dev/null || echo 0; }
+swaps() { mountpoint -q /sys/kernel/tracing || mount -t tracefs tracefs /sys/kernel/tracing 2>/dev/null; echo 1 > /sys/kernel/tracing/events/dcp/iomfb_swap_complete/enable 2>/dev/null; local n; n=$(grep -c iomfb_swap_complete /sys/kernel/tracing/trace 2>/dev/null); echo "${n:-0}"; }
 has_dcp() { for c in /sys/class/drm/card[0-9]; do [ "$(basename "$(readlink "$c/device/driver")")" = apple-drm ] && return 0; done; return 1; }
 draws() {  # returns 0 if a forced redraw reaches the panel (DCP) or Hyprland answers (simpledrm)
   if has_dcp; then local a b; a=$(swaps); hc dispatch exec "alacritty --title m5pro-rescue-probe -e sleep 2" >/dev/null; sleep 3; b=$(swaps); hc dispatch closewindow "title:m5pro-rescue-probe" >/dev/null 2>&1; [ $((b-a)) -gt 0 ]
