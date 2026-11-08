@@ -1,0 +1,333 @@
+From ed7e1d0c42b0bc3bd2a6f1e3e1c88c735f09c246 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 06:15:05 -0500
+Subject: [PATCH 3/3] drm/apple: Fix a GPU fence that never signals wedging the
+ display
+
+drm_atomic_helper_commit() waits for every plane's in-fence with
+dma_fence_wait() and no timeout: in the commit worker before the
+driver's commit tail, and, for blocking commits, before the swap. The
+in-fence is the scanout buffer's implicit write fence (zink imports its
+GPU job's fence into each exported dma-buf) or the compositor's
+IN_FENCE_FD. When a GPU fence never signals, after a GPU recovery for
+example, the worker sleeps for good: commit_planes() never runs, no swap
+reaches DCP, the commit's flip event never comes, and every later
+nonblocking commit fails with -EBUSY (stall_checks(), only a debug
+message). The 10 s flip_done timeout is never reached, so nothing is
+logged. The panel stays black across compositor restarts, which see
+"Cannot commit when a page-flip is awaiting", until a reboot.
+
+Commit through a copy of drm_atomic_helper_commit() whose fence wait is
+bounded: all of a commit's planes share one second, and a fence that
+does not signal in time is dropped with a rate-limited warning naming
+its driver and timeline. The buffer is scanned out as it is, so a GPU
+bug costs a stale or torn frame instead of the panel. The copy keeps the
+helper's sequence (setup, prepare, the interruptible pre-swap wait for
+blocking commits, swap, the worker's wait for dependencies, the tail,
+cleanup) and its fence deadline hint, and leaves out only the
+self-refresh accounting, which this driver does not use.
+
+Once the commit goes on, its flip completes as usual. If DCP then does
+not complete the swap within drm_atomic_helper_wait_for_flip_done()'s
+10 s, the commit's event stayed pending and a compositor would still
+wait for it before committing again. Send that event as failed
+(-ETIMEDOUT on its out-fence) after the wait; only the event that
+belongs to this commit is sent. The commit then leaves its CRTC's list
+at cleanup_done as before, so later nonblocking commits are not held by
+it either.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/gpu/drm/apple/apple_drv.c | 201 +++++++++++++++++++++++++++++-
+ drivers/gpu/drm/apple/dcp.c       |  18 +++
+ drivers/gpu/drm/apple/dcp.h       |   2 +
+ 3 files changed, 220 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/apple/apple_drv.c b/drivers/gpu/drm/apple/apple_drv.c
+index 8d4399c3ef51..4a5a23235c1a 100644
+--- a/drivers/gpu/drm/apple/apple_drv.c
++++ b/drivers/gpu/drm/apple/apple_drv.c
+@@ -9,7 +9,9 @@
+ 
+ #include <linux/aperture.h>
+ #include <linux/component.h>
++#include <linux/completion.h>
+ #include <linux/delay.h>
++#include <linux/dma-fence.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/jiffies.h>
+ #include <linux/module.h>
+@@ -18,6 +20,7 @@
+ #include <linux/of_device.h>
+ #include <linux/of_graph.h>
+ #include <linux/of_platform.h>
++#include <linux/ratelimit.h>
+ #include <linux/workqueue.h>
+ #include <linux/soc/apple/dp-tunnel.h>
+ #include <linux/soc/apple/display.h>
+@@ -552,12 +555,206 @@ static void apple_atomic_state_free(struct drm_atomic_commit *state)
+ 	kfree(to_apple_atomic_state(state));
+ }
+ 
++/*
++ * A plane's in-fence (its buffer's implicit write fence, or the compositor's
++ * IN_FENCE_FD) is waited for at most this long per commit. The helpers wait
++ * for it without a timeout: a GPU fence that never signals, after a GPU
++ * recovery for example, leaves the commit worker asleep for good. No later
++ * frame reaches the display, the commit's flip event never comes, and every
++ * later nonblocking commit fails with -EBUSY. One second is many frames even
++ * at the panel's slowest refresh; past it the buffer is scanned out as it is,
++ * so a GPU bug costs a stale or torn frame instead of the panel.
++ */
++#define APPLE_PLANE_FENCE_TIMEOUT_MS	1000
++
++static void apple_warn_fence_timeout(struct drm_device *dev,
++				     struct drm_plane *plane,
++				     struct dma_fence *fence)
++{
++	static DEFINE_RATELIMIT_STATE(rs, 60 * HZ, 1);
++	const char __rcu *driver;
++	const char __rcu *timeline;
++
++	if (!__ratelimit(&rs))
++		return;
++	rcu_read_lock();
++	driver = dma_fence_driver_name(fence);
++	timeline = dma_fence_timeline_name(fence);
++	drm_warn(dev,
++		 "[PLANE:%d:%s] in-fence %s:%s seqno %llu not signalled after %u ms, scanning out without it\n",
++		 plane->base.id, plane->name, rcu_dereference(driver),
++		 rcu_dereference(timeline), fence->seqno,
++		 APPLE_PLANE_FENCE_TIMEOUT_MS);
++	rcu_read_unlock();
++}
++
++/* As the helpers do: the GPU may finish the frame sooner knowing the vblank. */
++static void apple_set_fence_deadline(struct drm_atomic_commit *state)
++{
++	struct drm_crtc_state *new_crtc_state;
++	struct drm_plane_state *new_plane_state;
++	struct drm_plane *plane;
++	struct drm_crtc *crtc;
++	ktime_t vbltime = 0;
++	int i;
++
++	for_each_new_crtc_in_state(state, crtc, new_crtc_state, i) {
++		ktime_t v;
++
++		if (drm_atomic_crtc_needs_modeset(new_crtc_state) ||
++		    !new_crtc_state->active ||
++		    drm_crtc_next_vblank_start(crtc, &v))
++			continue;
++		if (!vbltime || ktime_before(v, vbltime))
++			vbltime = v;
++	}
++	if (!vbltime)
++		return;
++	for_each_new_plane_in_state(state, plane, new_plane_state, i)
++		if (new_plane_state->fence)
++			dma_fence_set_deadline(new_plane_state->fence, vbltime);
++}
++
++/*
++ * drm_atomic_helper_wait_for_fences() with one bound for all of the commit's
++ * planes (APPLE_PLANE_FENCE_TIMEOUT_MS). A fence that does not signal in time
++ * is dropped. Before the swap (blocking commits) the wait is interruptible,
++ * as the helper's is.
++ */
++static int apple_wait_for_fences(struct drm_device *dev,
++				 struct drm_atomic_commit *state,
++				 bool pre_swap)
++{
++	unsigned long deadline =
++		jiffies + msecs_to_jiffies(APPLE_PLANE_FENCE_TIMEOUT_MS);
++	struct drm_plane_state *new_plane_state;
++	struct drm_plane *plane;
++	int i;
++
++	apple_set_fence_deadline(state);
++
++	for_each_new_plane_in_state(state, plane, new_plane_state, i) {
++		struct dma_fence *fence = new_plane_state->fence;
++		long left, ret;
++
++		if (!fence)
++			continue;
++
++		WARN_ON(!new_plane_state->fb);
++
++		left = time_before(jiffies, deadline) ? deadline - jiffies : 0;
++		ret = dma_fence_wait_timeout(fence, pre_swap, left);
++		if (ret < 0)
++			return ret;
++		if (!ret)
++			apple_warn_fence_timeout(dev, plane, fence);
++
++		dma_fence_put(fence);
++		new_plane_state->fence = NULL;
++	}
++
++	return 0;
++}
++
++/*
++ * A flip DCP did not complete within the helper's 10 s
++ * (drm_atomic_helper_wait_for_flip_done() gave up) leaves its event pending.
++ * A compositor waits for that event before it commits again, so send it now,
++ * with -ETIMEDOUT on its out-fence, and the next commit can go ahead. A swap
++ * completion that still comes later finds no event.
++ */
++static void apple_fail_lost_flips(struct drm_atomic_commit *state)
++{
++	for (int i = 0; i < state->dev->mode_config.num_crtc; i++) {
++		struct drm_crtc_commit *commit = state->crtcs[i].commit;
++		struct drm_crtc *crtc = state->crtcs[i].ptr;
++
++		if (!crtc || !commit || t8132_ext_crtc(crtc) ||
++		    completion_done(&commit->flip_done))
++			continue;
++		dcp_drm_crtc_flip_lost(to_apple_crtc(crtc), &commit->flip_done,
++				       -ETIMEDOUT);
++	}
++}
++
++static void apple_atomic_commit_tail(struct drm_atomic_commit *state);
++
++/* The helper's commit_tail() with the bounded fence wait. */
++static void apple_commit_tail(struct drm_atomic_commit *state)
++{
++	apple_wait_for_fences(state->dev, state, false);
++	drm_atomic_helper_wait_for_dependencies(state);
++	apple_atomic_commit_tail(state);
++	drm_atomic_helper_commit_cleanup_done(state);
++	drm_atomic_commit_put(state);
++}
++
++static void apple_commit_work(struct work_struct *work)
++{
++	apple_commit_tail(container_of(work, struct drm_atomic_commit,
++				       commit_work));
++}
++
++/*
++ * drm_atomic_helper_commit() with apple_wait_for_fences() in place of the
++ * helper's unbounded wait. The driver keeps no self-refresh state, so the
++ * helper's self-refresh accounting is left out.
++ */
++static int apple_atomic_commit(struct drm_device *dev,
++			       struct drm_atomic_commit *state, bool nonblock)
++{
++	int ret;
++
++	if (state->async_update) {
++		ret = drm_atomic_helper_prepare_planes(dev, state);
++		if (ret)
++			return ret;
++
++		drm_atomic_helper_async_commit(dev, state);
++		drm_atomic_helper_unprepare_planes(dev, state);
++
++		return 0;
++	}
++
++	ret = drm_atomic_helper_setup_commit(state, nonblock);
++	if (ret)
++		return ret;
++
++	INIT_WORK(&state->commit_work, apple_commit_work);
++
++	ret = drm_atomic_helper_prepare_planes(dev, state);
++	if (ret)
++		return ret;
++
++	if (!nonblock) {
++		ret = apple_wait_for_fences(dev, state, true);
++		if (ret)
++			goto err;
++	}
++
++	ret = drm_atomic_helper_swap_state(state, true);
++	if (ret)
++		goto err;
++
++	drm_atomic_commit_get(state);
++	if (nonblock)
++		queue_work(system_dfl_wq, &state->commit_work);
++	else
++		apple_commit_tail(state);
++
++	return 0;
++
++err:
++	drm_atomic_helper_unprepare_planes(dev, state);
++	return ret;
++}
++
+ static const struct drm_mode_config_funcs apple_mode_config_funcs = {
+ 	.atomic_state_alloc	= apple_atomic_state_alloc,
+ 	.atomic_state_clear	= apple_atomic_state_clear,
+ 	.atomic_state_free	= apple_atomic_state_free,
+ 	.atomic_check		= drm_atomic_helper_check,
+-	.atomic_commit		= drm_atomic_helper_commit,
++	.atomic_commit		= apple_atomic_commit,
+ 	.fb_create		= drm_gem_fb_create,
+ };
+ 
+@@ -590,9 +787,11 @@ static void apple_atomic_commit_tail(struct drm_atomic_commit *state)
+ 	drm_atomic_helper_fake_vblank(state);
+ 	drm_atomic_helper_commit_hw_done(state);
+ 	drm_atomic_helper_wait_for_flip_done(state->dev, state);
++	apple_fail_lost_flips(state);
+ 	drm_atomic_helper_cleanup_planes(state->dev, state);
+ }
+ 
++/* apple_atomic_commit() calls the tail itself; this serves other helper users. */
+ static const struct drm_mode_config_helper_funcs apple_mode_config_helpers = {
+ 	.atomic_commit_tail	= apple_atomic_commit_tail,
+ };
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 1d1f74025994..08de1b999e42 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -539,6 +539,24 @@ void dcp_drm_crtc_error(struct apple_crtc *crtc,
+ 	spin_unlock_irqrestore(&drm->event_lock, flags);
+ }
+ 
++/*
++ * The flip of the commit whose flip_done is @flip_done never completed: send
++ * its still pending event as failed. Only that commit's event is sent; a newer
++ * commit's stays for its own swap.
++ */
++void dcp_drm_crtc_flip_lost(struct apple_crtc *crtc,
++			    struct completion *flip_done, int error)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&crtc->base.dev->event_lock, flags);
++	if (crtc->event && crtc->event->base.completion == flip_done) {
++		dcp_failed_page_flip(crtc, crtc->event, error);
++		crtc->event = NULL;
++	}
++	spin_unlock_irqrestore(&crtc->base.dev->event_lock, flags);
++}
++
+ void dcp_drm_crtc_page_flip(struct apple_dcp *dcp, ktime_t now)
+ {
+ 	unsigned long flags;
+diff --git a/drivers/gpu/drm/apple/dcp.h b/drivers/gpu/drm/apple/dcp.h
+index 38a8184c2a25..61b0c8a515b1 100644
+--- a/drivers/gpu/drm/apple/dcp.h
++++ b/drivers/gpu/drm/apple/dcp.h
+@@ -101,6 +101,8 @@ void apple_crtc_vblank(struct apple_crtc *apple);
+ void dcp_drm_crtc_vblank(struct apple_crtc *crtc);
+ void dcp_drm_crtc_error(struct apple_crtc *crtc,
+ 			struct drm_crtc_state *state, int error);
++void dcp_drm_crtc_flip_lost(struct apple_crtc *crtc,
++			    struct completion *flip_done, int error);
+ int dcp_get_modes(struct drm_connector *connector);
+ enum drm_mode_status dcp_mode_valid(struct drm_connector *connector,
+ 				    const struct drm_display_mode *mode);
+-- 
+2.56.0
+

@@ -1,0 +1,165 @@
+From aa6c7b0e4e3ea7681483a641e47367ec4a235c36 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 06:11:35 -0500
+Subject: [PATCH 2/3] drm/asahi: g17: Fix fences of work a GPU recovery dropped
+ failing as a lost device or never signalling
+
+A fence on a scanout buffer that never signals wedges KMS: the atomic
+commit worker waits for it with no timeout, so no frame reaches the
+display again, even across compositor restarts. Work a recovery dropped
+must signal within a bound, and since it never ran, it must not cost
+its client the device either. Three paths did not do that:
+
+- A compute queue whose commands a recovery dropped waits, spared, for
+  its retirement witness before it replays or fails them. When the
+  queue's job watchdog expires first, timeout() failed them with
+  ETIMEDOUT, and fail_while_owned() reports every error but ENODATA and
+  ECANCELED to the client's VM status: the client lost its device for
+  work it never got to run. They now fail with ENODATA.
+
+- That witness needs every entry to hold a ticket. A spared queue with
+  an entry without one would never get it, and the entry's own watchdog
+  does nothing for an unpublished packet. quarantine() now fails such
+  spared work at once with ENODATA, and timeout_head() reports a queue
+  whose spared work still waits, ticketed or not, so that other VMs'
+  watchdogs see it as a failed blocker and defer to it within their
+  bounded renewals rather than fail their own work immediately.
+
+- Render groups parked for replay after a recovery that do not publish
+  within 10 s made replay_render_front() return ETIMEDOUT. That failed
+  the GPU event service, which loses every client's device and stops
+  the runtime. The parked groups are innocent work that never ran
+  (replay::decide() parks only those), so they now fail with ENODATA
+  like fail_dropped()'s, spared, and the replay pass goes on.
+
+Bounds: no new timeout. A spared compute fence is settled by its job's
+scheduler watchdog, TIMEOUT_MS (2 s) per expiry; on M5 a job is renewed
+only while it waits behind an older node of its own context and the
+firmware's progress word moves (at most 14 renewals), plus 4 for ray
+traversal and AS builds, so 2 s typically and 38 s at most after the
+quarantine. A parked render replay keeps its 10 s bound
+(background_stalled(), the same as the recovery handshake's wait).
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/gpu/drm/asahi/g17/queue/compute.rs    | 28 +++++++++++++++++--
+ drivers/gpu/drm/asahi/g17/queue/render.rs     | 22 +++++++++++++++
+ .../drm/asahi/g17/runtime/render/replay.rs    |  7 ++++-
+ 3 files changed, 53 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/gpu/drm/asahi/g17/queue/compute.rs b/drivers/gpu/drm/asahi/g17/queue/compute.rs
+index d9833bbd8185..a0ad063d4471 100644
+--- a/drivers/gpu/drm/asahi/g17/queue/compute.rs
++++ b/drivers/gpu/drm/asahi/g17/queue/compute.rs
+@@ -857,9 +857,13 @@ pub(crate) fn long_job_running(&self) -> bool {
+                     && active.packet.command.long_job()
+             })
+     }
+-    /// Quarantines without a pending witness no longer describe live pipe order.
++    /// Quarantines without a pending witness no longer describe live pipe order. Spared work
++    /// whose fences still wait (`spared_deferred`) does, whether or not every entry holds a
++    /// ticket: it holds the GPU until the firmware drains it or this queue's watchdog settles it
++    /// ([`Self::timeout`]), so other VMs' watchdogs see it as a failed blocker and defer to it
++    /// within their bounded renewals instead of failing their own work at once.
+     pub(crate) fn timeout_head(&self) -> Option<crate::g17::timeout::Head> {
+-        if self.quarantined && !self.awaiting_witness {
++        if self.quarantined && !self.awaiting_witness && !self.spared_deferred {
+             return None;
+         }
+         self.active.front().map(|active| crate::g17::timeout::Head {
+@@ -1077,6 +1081,19 @@ pub(crate) fn quarantine(
+         self.failure_status_pending = false;
+         self.awaiting_witness =
+             self.active.len != 0 && self.active.iter().all(|a| a.ticket.is_some());
++        // Spared work waits for its retirement witness to replay or fail. An entry without a
++        // ticket never gives one (release_witnessed() validates every ticket), and an
++        // unpublished entry's own watchdog does nothing, so nothing would bound that wait. Fail
++        // it now instead: ENODATA, which stays out of the VM status.
++        if self.spared_deferred && !self.awaiting_witness {
++            for active in self.active.iter_mut() {
++                if !active.failure_deferred {
++                    defer(Deferred::FailedOwned(active.packet.completion.clone(), ENODATA))?;
++                    active.failure_deferred = true;
++                }
++            }
++            self.spared_deferred = false;
++        }
+         Ok(terminal)
+     }
+ 
+@@ -2196,6 +2213,11 @@ pub(crate) fn owns_packet(&self, packet: &Arc<Packet>) -> bool {
+ 
+     /// A watchdog settles spared, deferred waiters without changing their VM status.
+     /// Fully ticketed spared work can still return this queue after its drain witness.
++    ///
++    /// Spared, deferred work is work a recovery dropped before it ran (the quarantine's
++    /// ENODATA) whose witness did not come before this queue's job watchdog expired: it fails
++    /// with ENODATA too. ETIMEDOUT would reach the client as a lost device (`fail_while_owned`
++    /// reports every error but ENODATA and ECANCELED), for work it never got to run.
+     pub(crate) fn timeout(
+         &mut self,
+         defer: &mut impl FnMut(Deferred) -> Result,
+@@ -2211,7 +2233,7 @@ pub(crate) fn timeout(
+                 if !active.failure_deferred {
+                     defer(Deferred::FailedOwned(
+                         active.packet.completion.clone(),
+-                        ETIMEDOUT,
++                        ENODATA,
+                     ))?;
+                     active.failure_deferred = true;
+                 }
+diff --git a/drivers/gpu/drm/asahi/g17/queue/render.rs b/drivers/gpu/drm/asahi/g17/queue/render.rs
+index 6c14fca21a81..65b118797f1a 100644
+--- a/drivers/gpu/drm/asahi/g17/queue/render.rs
++++ b/drivers/gpu/drm/asahi/g17/queue/render.rs
+@@ -2195,6 +2195,28 @@ pub(crate) fn fail_replay(
+         Ok(())
+     }
+ 
++    /// The parked groups did not publish within the replay bound
++    /// ([`crate::g17::timeout::background_stalled`], 10 s after they were parked). They are
++    /// groups a restart dropped before they ran, which `replay::decide` parks only for innocent
++    /// VMs: like `fail_dropped`'s, they fail with ENODATA without poisoning their VM, instead of
++    /// the replay pass failing the whole device.
++    pub(crate) fn fail_stalled_replay(
++        &mut self,
++        defer: &mut impl FnMut(Deferred) -> Result,
++    ) -> Result {
++        pr_warn!(
++            "G17: render slot {}: replay of {} parked groups stalled; failing them\n",
++            self.slot,
++            self.replay.len()
++        );
++        for packet in self.replay.iter() {
++            if !packet.completion.guilty() {
++                packet.completion.classify(recovery::Class::Spared);
++            }
++        }
++        self.fail_replay(ENODATA, defer)
++    }
++
+     /// A closed preparation epoch invalidates only this unpublished descriptor.
+     /// Its completion remains available for a retry under the next epoch.
+     pub(crate) fn discard_prepared(&mut self, packet: &Arc<Packet>) -> Result {
+diff --git a/drivers/gpu/drm/asahi/g17/runtime/render/replay.rs b/drivers/gpu/drm/asahi/g17/runtime/render/replay.rs
+index aa78a7ae63c6..d742a9b24597 100644
+--- a/drivers/gpu/drm/asahi/g17/runtime/render/replay.rs
++++ b/drivers/gpu/drm/asahi/g17/runtime/render/replay.rs
+@@ -78,7 +78,12 @@ fn replay_render_front(&mut self, slot: usize, deferred: &mut DeferredBatch) ->
+             return Ok(false);
+         };
+         if stalled {
+-            return Err(ETIMEDOUT);
++            // The parked groups' fences must signal; a stalled replay is no reason to lose
++            // every client's device.
++            self.with_render(slot, |pair, _| {
++                pair.fail_stalled_replay(&mut |event| deferred.push(event))
++            })?;
++            return Ok(false);
+         }
+         if busy {
+             return Ok(false);
+-- 
+2.56.0
+

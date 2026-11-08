@@ -1,0 +1,207 @@
+From 89701e82fc0133b2a8fbaeb36efd80ba51b39b87 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 06:09:55 -0500
+Subject: [PATCH 1/3] drm/asahi: g17: Fix a GPU recovery failing the compositor
+ for compute work it dropped
+
+When a GPU recovery cannot name the culprit (on M5 every firmware
+restart is attributed to the firmware, and classify() gives up when a
+guilty queue has no in-flight owner), it classifies nobody. Compute
+commands it dropped before they ran then come back from their queue's
+records as unexecuted (ENODATA), unclassified, and poisons() is true for
+unclassified ENODATA: the queue's terminal records the error and fails
+every queue of the VM, and the client's driver reads the VM status as a
+lost device. A Chromium GPU fault took Hyprland down this way: right
+after the faulting client's EIO, the log reported "GPU work of a client
+failed (ENODATA, ...)" for Hyprland too, and zink lost its device.
+
+The render side already handles this: groups a restart dropped are
+classified Spared before they fail with ENODATA. Do the same for
+compute:
+
+- When a compute queue's front comes back unexecuted after crossing a
+  recovery, and the firmware reported no fault on the queue, classify
+  every unclassified command of the queue Spared before quarantining it.
+  All of them are ordered behind the front, so none of them ran. The
+  queue then takes the existing spared path: its commands replay when
+  their records prove they never ran, and otherwise fail with ENODATA
+  without touching the VM status.
+- Without a recovery in between, a zero-duration record is the
+  firmware's report of the queue's own failed command (see note_fault()).
+  Those commands are classified Guilty and fail the VM as before. A
+  fault report that arrives after the commands were spared as dropped
+  reclassifies them Guilty, stops the queue from being replayed or
+  returned to service, and queues the VM failure the report would have
+  caused.
+- A compute replay that cannot be published was spared work: classify
+  it Spared (unless guilty) before it fails with ENODATA, as dropped
+  render groups are.
+- poisons(): ENODATA no longer poisons unless the command is guilty. A
+  command that never ran cannot have faulted the GPU; a blamed render
+  still fails with EIO, and a faulting compute command is classified
+  Guilty first.
+
+The faulting client still fails: a blamed render fails with EIO, a
+watchdog timeout with ETIMEDOUT, and a reported compute fault now
+classifies its queue's work Guilty. What changes is only work that never
+ran on a queue nobody blamed. When the recovery attributes nothing, the
+command that was running when the firmware stopped and comes back with
+no record is spared too: its fence still fails with ENODATA, but its VM
+is not poisoned. A spared command is replayed only when its record shows
+it never ran, and a second fault on a replayed command is blamed on its
+VM (oldest_spared() counts replays), so this costs at most one more
+recovery.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+Assisted-by: LLM Claude
+---
+ drivers/gpu/drm/asahi/g17/completion.rs       | 11 +++-
+ drivers/gpu/drm/asahi/g17/queue/compute.rs    | 50 +++++++++++++++++++
+ .../drm/asahi/g17/runtime/compute_replay.rs   |  5 ++
+ 3 files changed, 64 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/asahi/g17/completion.rs b/drivers/gpu/drm/asahi/g17/completion.rs
+index 15678f5c7c92..32cc8f2fbc0a 100644
+--- a/drivers/gpu/drm/asahi/g17/completion.rs
++++ b/drivers/gpu/drm/asahi/g17/completion.rs
+@@ -616,9 +616,16 @@ pub(crate) fn interrupted(&self) -> bool {
+         self.interrupted.load(Ordering::Acquire)
+     }
+ 
+-    /// Whether this failure makes the VM unusable. Spared work, and interrupted
+-    /// work no recovery found guilty, fail without poisoning it.
++    /// Whether this failure makes the VM unusable. Spared work, interrupted
++    /// work no recovery found guilty, and work that never ran (ENODATA) fail
++    /// without poisoning it.
+     pub(crate) fn poisons(&self, error: Error) -> bool {
++        // A command that never ran cannot have faulted the GPU. The queue's own failed
++        // command also comes back as ENODATA (a zero-duration record); it is classified
++        // guilty before it fails, by the firmware's fault report or by a recovery.
++        if error == ENODATA && !self.guilty() {
++            return false;
++        }
+         let interrupted = self.interrupted();
+         (error != ECANCELED || interrupted) && !self.spared() && !(interrupted && !self.guilty())
+     }
+diff --git a/drivers/gpu/drm/asahi/g17/queue/compute.rs b/drivers/gpu/drm/asahi/g17/queue/compute.rs
+index 07a65fe72908..d9833bbd8185 100644
+--- a/drivers/gpu/drm/asahi/g17/queue/compute.rs
++++ b/drivers/gpu/drm/asahi/g17/queue/compute.rs
+@@ -507,6 +507,9 @@ struct Active {
+     observed_at: Option<u64>,
+     failure_deferred: bool,
+     qos_pending: bool,
++    /// Spared because it came back unexecuted after a recovery ([`Queue::classify_unexecuted`]),
++    /// not by the recovery's own attribution. A later fault report on the queue makes it guilty.
++    spared_as_dropped: bool,
+ }
+ struct Previous<B = Binding, C = Arc<Context>> {
+     binding: Option<B>,
+@@ -758,6 +761,23 @@ pub(crate) fn note_fault(&mut self, stamp: u32) {
+         {
+             self.fault_stamp = Some(stamp);
+         }
++        // The report can arrive after the queue's unexecuted commands were spared as dropped by
++        // a recovery: the failed command is among them. They are guilty, as without the
++        // recovery: the VM fails, and the queue is neither replayed nor returned to service.
++        let mut guilty = None;
++        for active in self.active.iter_mut().filter(|active| active.spared_as_dropped) {
++            active.spared_as_dropped = false;
++            if !active.packet.completion.signalled() {
++                active.packet.completion.classify(recovery::Class::Guilty);
++                guilty.get_or_insert_with(|| active.packet.completion.status().clone());
++            }
++        }
++        if let Some(status) = guilty {
++            self.spared_quarantine = false;
++            if self.terminal.is_none() {
++                self.terminal = Some((status, ENODATA));
++            }
++        }
+     }
+ 
+     /// The firmware failed a command of this quarantined queue, and the queue still waits for
+@@ -1079,6 +1099,7 @@ pub(crate) fn retire(
+         let mut oldest = true;
+         while let Some(front) = self.active.front() {
+             let mut restart = None;
++            let mut crossed = false;
+             let result = (|| {
+                 let ticket = front.ticket.ok_or(EIO)?;
+                 self.valid_ticket(front, &ticket)?;
+@@ -1086,6 +1107,7 @@ pub(crate) fn retire(
+                     return Err(EAGAIN);
+                 }
+                 let recordless = if epoch != ticket.epoch {
++                    crossed = true;
+                     Recordless::CrossedRecovery
+                 } else if masks.is_none() || (finished_before && oldest) {
+                     Recordless::Allowed
+@@ -1184,6 +1206,9 @@ pub(crate) fn retire(
+                     break;
+                 }
+                 Err(error) => {
++                    if error == ENODATA {
++                        self.classify_unexecuted(crossed);
++                    }
+                     self.terminal = self.quarantine(error, defer)?.map(|status| (status, error));
+                     return Ok(());
+                 }
+@@ -1192,6 +1217,30 @@ pub(crate) fn retire(
+         Ok(())
+     }
+ 
++    /// The front command came back unexecuted (ENODATA from [`retirement::poll`]), and every
++    /// later command of the queue is ordered behind it, so none of them ran either. After a
++    /// recovery (`crossed`) the recovery dropped them: they cannot have faulted the GPU and are
++    /// spared, as the render groups a restart drops are, so they fail or replay without
++    /// poisoning their VM. Without a recovery in between, or once the firmware reported a fault
++    /// on this queue ([`Self::note_fault`]), the zero-duration record is the firmware's report
++    /// of the queue's own failed command: the work is guilty and fails its VM as before. Work a
++    /// recovery already classified keeps its class.
++    fn classify_unexecuted(&mut self, crossed: bool) {
++        let dropped = crossed && self.fault_stamp.is_none();
++        for active in self.active.iter_mut() {
++            let completion = &active.packet.completion;
++            if completion.spared() || completion.guilty() {
++                continue;
++            }
++            if dropped {
++                completion.classify(recovery::Class::Spared);
++                active.spared_as_dropped = true;
++            } else {
++                completion.classify(recovery::Class::Guilty);
++            }
++        }
++    }
++
+     /// Exact terminal witness releases command pins, not installed graph ownership. Spared
+     /// zero-duration work can return its queue to service after settling its accounting.
+     pub(crate) fn release_witnessed(
+@@ -2609,6 +2658,7 @@ pub(in crate::g17) fn publish_with_native_waits(
+                 observed_at: None,
+                 failure_deferred: false,
+                 qos_pending: false,
++                spared_as_dropped: false,
+             })
+             .map_err(|_| EBUSY)?;
+         self.retirement_ready = false;
+diff --git a/drivers/gpu/drm/asahi/g17/runtime/compute_replay.rs b/drivers/gpu/drm/asahi/g17/runtime/compute_replay.rs
+index 0aca0ec0c8ff..2b4f43b5685a 100644
+--- a/drivers/gpu/drm/asahi/g17/runtime/compute_replay.rs
++++ b/drivers/gpu/drm/asahi/g17/runtime/compute_replay.rs
+@@ -146,6 +146,11 @@ pub(in crate::g17) fn replay_compute(&mut self, deferred: &mut DeferredBatch) ->
+                     }
+                     queue.fail_replays(error);
+                     if !queue.owns_packet(&packet) {
++                        // Replays are spared work a recovery dropped before it ran: it fails
++                        // without poisoning its VM, as a dropped render group does.
++                        if !packet.completion.guilty() {
++                            packet.completion.classify(recovery::Class::Spared);
++                        }
+                         deferred
+                             .push(Deferred::Retired(packet.completion.clone(), Err(ENODATA)))?;
+                     }
+-- 
+2.56.0
+
