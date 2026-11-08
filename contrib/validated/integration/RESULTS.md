@@ -2004,3 +2004,23 @@ the reboot notifiers and would have left error stage 0x30, and a panic in the GP
 macsmc-reboot registers on the good dual boot) would have ended in the stage-1 watchdog at about 208 s. The
 `firstboot-probe.sh` bands predate the 20 s shutdown settle hook, which moved clean boots from about 27 s to about
 50 s, so the probe mislabelled it. The loader-fix twin now booting is the re-run of that configuration.
+
+## 2026-11-08 04:55 UTC: DCP session measurements from the VRR twin boot (verifier output re-read)
+
+The six verifier failures on the `daily-dcp-phfix-test-vrr` boot were verifier bugs (a shell function handed to
+`timeout`, a NUL byte in Hyprland's log making grep treat it as binary, a jq key with a dot). The captured traces and
+logs are valid and say:
+
+- Hyprland drives `/dev/dri/card1` (apple-drm) and renders on `renderD128` with the native GL tree; scanout buffers
+  3456x2234 XR24 LINEAR, rendered into directly (no copy); explicit sync with timeline syncobjs on both cards; all six
+  panel modes listed, 120 Hz preferred.
+- VRR was on from the profile (`misc:vrr=1`): kernel log at 10.3 s "VRR_ENABLED 1", firmware minimum refresh 24 Hz,
+  "3456x2234@120 Hz DSC=NO VRR=YES"; no DCP or GPU errors.
+- 120 Hz pacing, vkcube composited: 2397 swaps in 20 s (119-120/s), interval typical 8.334 ms, p99 8.51 ms, max
+  12.45 ms; 2396 of 2397 intervals one refresh; submit-to-complete 2.9 ms (p99 3.0). Idle desktop: 0 swaps in 3 s.
+- glmark2 fullscreen: the panel showed 89 frames/s while glmark2 rendered 911 FPS unthrottled; the late compositor
+  frames came out at 12.45 ms (three 4.17 ms DCP steps), never 16.7 ms, which is VRR presenting a late frame at the
+  next half-refresh step. Caution: Mesa skipped draws because the AGX backend refused a fragment shader
+  (`persp_mul_agx3`), so 911 FPS overstates the GPU; to report on the native-GL work.
+- Not measured yet: direct scanout (mpv never started) and the 50 fps VRR pacing test. The fixed verifier
+  (`contrib/pending/gpu/userspace/mesa-aurora/session-dcp/hypr-dcp-verify`) runs next on the promoted daily.
