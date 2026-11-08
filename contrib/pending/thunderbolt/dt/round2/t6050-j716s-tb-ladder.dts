@@ -1,0 +1,96 @@
+/*
+ * Thunderbolt round 2 bisect ladder, built on the in-tree t6050-j716s.dts of branch j716s-tb-r2 (the daily
+ * j716s-video-observe + the Thunderbolt stack + the round 2 DT fix: every router node disabled in t6050-max.dtsi,
+ * the board enabling the right port's). The in-tree DTB is the round 2 T0: the ATC2 router (acio@381ac0000 with
+ * its DART and NHI), its mailbox, its five power states, its PCIe tunnel container, the AUSS parent domain, the
+ * AOP pin controller (pin 81 only), the usb4-2 and atcphy2 aliases and the connector graph (hpm2 port@3 <-> acio2
+ * port@1). ATC1's router, mailbox, domains and tunnel stay disabled at every level; ATC0 is not described.
+ *
+ * Each level only adds "disabled" overrides and deletions, so the DCP, GPU, audio and media nodes are untouched.
+ * Cumulative, each level adding one thing the first T0 boot (2026-11-08) had all at once:
+ *
+ *   TB_LEVEL 0  K0  every Thunderbolt node present and disabled, no graph, no usb4 aliases: the kernel and config
+ *                   delta alone (USB4, USB4_APPLE_SOC, RESET_APPLE_CIO ... =y; the T6050 router, PHY CIO, DART and
+ *                   PCIe-C drivers built in). A hang here is the kernel's, not the device tree's.
+ *   TB_LEVEL 1  D1  + the router CPU's mailbox (acio2_mbox): apple-mailbox binds an ASC mailbox whose coprocessor
+ *                   is cold.
+ *   TB_LEVEL 2  D2  + the five ATC2 power states (atc2_cio, _cio_pcie, _cio_usb, _cio_auss, atc2_pcie) and their
+ *                   AUSS parent: the pmgr-pwrstate probes, which power ATC2_CIO on through their own power-domains
+ *                   link with the PHY still in USB mode. The first T0's top candidate.
+ *   TB_LEVEL 3  D3  + the AOP pin controller (LSTX pin 81), the router and its PCIe tunnel container, without the
+ *                   connector graph or the usb4 aliases: the router probes and, with a loader that leaves no
+ *                   apple,tunable-rc, fails cleanly with -EINVAL ("Missing bootloader RC tuning"). Nothing waits
+ *                   for it.
+ *   TB_LEVEL 4  T0  the in-tree DTB: + the connector graph and the aliases. hpm2 now looks for the router's
+ *                   Thunderbolt switch (and waits for it, bounded, if the router did not probe); the loader sees
+ *                   the usb4-2-* aliases. The right port must be EMPTY for this rung.
+ *
+ * Build: tools/mk-tb-ladder.sh <tree> <outdir>
+ */
+#include "t6050-j716s.dts"
+
+#ifndef TB_LEVEL
+#error "TB_LEVEL (0..4) not set"
+#endif
+
+#if TB_LEVEL < 4
+/* No connector graph (the board labels the two nodes for this) and no usb4/atcphy aliases below T0 */
+/delete-node/ &typec2_usb4_port;
+/delete-node/ &acio2_ports;
+
+/ {
+	aliases {
+		/delete-property/ atcphy2;
+		/delete-property/ usb4-2-acio;
+		/delete-property/ usb4-2-pcie-adapter;
+		/delete-property/ usb4-2-nhi;
+		/delete-property/ usb4-2-pcie;
+	};
+};
+#endif
+
+#if TB_LEVEL < 3
+&acio2 {
+	status = "disabled";
+};
+
+&acio2_pcie_tunnel {
+	status = "disabled";
+};
+
+&pinctrl_aop {
+	status = "disabled";
+};
+#endif
+
+#if TB_LEVEL < 2
+&ps_atc2_cio {
+	status = "disabled";
+};
+
+&ps_atc2_cio_pcie {
+	status = "disabled";
+};
+
+&ps_atc2_cio_usb {
+	status = "disabled";
+};
+
+&ps_atc2_cio_auss {
+	status = "disabled";
+};
+
+&ps_atc2_pcie {
+	status = "disabled";
+};
+
+&ps_auss {
+	status = "disabled";
+};
+#endif
+
+#if TB_LEVEL < 1
+&acio2_mbox {
+	status = "disabled";
+};
+#endif
