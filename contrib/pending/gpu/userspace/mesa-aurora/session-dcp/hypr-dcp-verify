@@ -12,7 +12,7 @@
 # Ctrl-C or the watchdog). Opens test windows on the current workspace: do not
 # touch the keyboard or trackpad while it runs (a visible cursor recomposites
 # and blocks direct scanout). Results: /root/hypr-dcp-verify-<time>/.
-# shellcheck disable=SC2015,SC2001,SC2329
+# shellcheck disable=SC2015,SC2001,SC2329,SC2045,SC2010
 set -u
 MODE=full
 for a in "$@"; do case $a in --static) MODE=static;; --quick) MODE=quick;; -h|--help) sed -n '2,15p' "$0"; exit 0;; esac; done
@@ -47,31 +47,58 @@ trap 'echo "interrupted"; exit 130' INT TERM
 ( sleep "$MAX_TOTAL"; echo "watchdog: ${MAX_TOTAL}s reached, stopping"; kill -TERM $$ ) & WD=$!
 
 # --- the running session ---------------------------------------------------
+# Found from /proc and /run/user alone: works from root over ssh with no
+# session environment. hyprland.lock in the instance dir holds Hyprland's pid
+# (line 1) and its Wayland socket (line 2).
 HPID=$(pgrep -x Hyprland | head -1)
 if [ -z "$HPID" ]; then echo "FAIL  no Hyprland running (tty2 session down?)"; exit 2; fi
 HUID=$(stat -c %u /proc/"$HPID"); HUSER=$(id -nu "$HUID"); HHOME=$(getent passwd "$HUSER" | cut -d: -f6)
-# The environment of one of Hyprland's children: WAYLAND_DISPLAY, the instance
-# signature and the session's Mesa variables, exactly as apps get them.
+XRD=/run/user/$HUID HIS='' WLD=''
+for d in "$XRD"/hypr/*/; do
+  d=${d%/}; [ -S "$d/.socket.sock" ] || continue
+  if [ "$(sed -n 1p "$d/hyprland.lock" 2>/dev/null)" = "$HPID" ]; then HIS=${d##*/}; WLD=$(sed -n 2p "$d/hyprland.lock"); break; fi
+done
+if [ -z "$HIS" ]; then  # no matching lock: newest instance with a live socket
+  for d in $(ls -td "$XRD"/hypr/*/ 2>/dev/null); do d=${d%/}; [ -S "$d/.socket.sock" ] && { HIS=${d##*/}; WLD=$(sed -n 2p "$d/hyprland.lock" 2>/dev/null); break; }; done
+fi
+[ -n "$HIS" ] || { echo "FAIL  no Hyprland instance socket under $XRD/hypr"; exit 2; }
+[ -n "$WLD" ] || WLD=$(cd "$XRD" && ls wayland-[0-9]* 2>/dev/null | grep -v '\.lock$' | head -1)
+# Client environment: a child of this Hyprland instance (same Mesa variables
+# apps get); otherwise built from the instance and /etc/mesa-aurora/session.env.
 CENV=()
 for p in $(pgrep -u "$HUID"); do
   [ "$p" = "$HPID" ] && continue
-  if tr '\0' '\n' < /proc/"$p"/environ 2>/dev/null | grep -q '^HYPRLAND_INSTANCE_SIGNATURE='; then
+  if tr '\0' '\n' < /proc/"$p"/environ 2>/dev/null | grep -qx "HYPRLAND_INSTANCE_SIGNATURE=$HIS"; then
     tr '\0' '\n' < /proc/"$p"/environ | grep -q '^WAYLAND_DISPLAY=' || continue
-    mapfile -d '' CENV < /proc/"$p"/environ; break
+    mapfile -d '' CENV < /proc/"$p"/environ; CENV_FROM="pid $p"; break
   fi
 done
-if [ ${#CENV[@]} = 0 ]; then echo "FAIL  no session client environment found (nothing launched from Hyprland yet?)"; exit 2; fi
-envval() { local v; for v in "${CENV[@]}"; do [[ $v == "$1="* ]] && { echo "${v#*=}"; return; }; done; }
-HIS=$(envval HYPRLAND_INSTANCE_SIGNATURE); XRD=$(envval XDG_RUNTIME_DIR); XRD=${XRD:-/run/user/$HUID}
+if [ ${#CENV[@]} = 0 ]; then
+  CENV=(HOME="$HHOME" USER="$HUSER" LOGNAME="$HUSER" PATH=/usr/local/bin:/usr/bin:/bin XDG_RUNTIME_DIR="$XRD"
+        WAYLAND_DISPLAY="$WLD" HYPRLAND_INSTANCE_SIGNATURE="$HIS" XDG_SESSION_TYPE=wayland LANG=C.UTF-8)
+  [ -r /etc/mesa-aurora/session.env ] && mapfile -t -O ${#CENV[@]} CENV < <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' /etc/mesa-aurora/session.env)
+  CENV_FROM="built (instance + session.env)"
+fi
 HLOG=$XRD/hypr/$HIS/hyprland.log; SLOG=$HHOME/.cache/hyprland-gpu.log
-as_user() { if [ "$(id -u)" = "$HUID" ]; then env -i "${CENV[@]}" "$@"; else runuser -u "$HUSER" -- env -i "${CENV[@]}" "$@"; fi; }
-hc() { timeout 5 as_user hyprctl "$@"; }
+# as_user SECONDS cmd...: run a client in the session as its user, with a
+# timeout. (timeout cannot run shell functions; it runs inside runuser here.)
+as_user() {
+  local t=$1; shift
+  if [ "$(id -u)" = "$HUID" ]; then timeout --kill-after=3 "$t" env -i "${CENV[@]}" "$@"
+  else runuser -u "$HUSER" -- timeout --kill-after=3 "$t" env -i "${CENV[@]}" "$@"; fi
+}
+hc() { as_user 5 hyprctl "$@"; }
 getopt_int() { hc getoption "$1" 2>/dev/null | awk '/^(int|bool):/{print $2; exit}'; }
 
 echo "hypr-dcp-verify $(date -Is) kernel $(uname -r) mode $MODE"
-echo "session: Hyprland pid $HPID user $HUSER instance $HIS"
+echo "session: Hyprland pid $HPID user $HUSER instance $HIS wayland $WLD (client env: $CENV_FROM)"
 echo "logs: $HLOG , $SLOG ; results $OUT"
-cp -f "$HLOG" "$OUT/hyprland.log" 2>/dev/null; cp -f "$SLOG" "$OUT/hyprland-gpu.log" 2>/dev/null
+# NUL bytes stripped: Hyprland's systeminfo block carries one, and GNU grep then
+# treats the whole log as binary and prints no matching lines.
+tr -d '\000' < "$HLOG" > "$OUT/hyprland.log" 2>/dev/null; tr -d '\000' < "$SLOG" > "$OUT/hyprland-gpu.log" 2>/dev/null
+HL=$OUT/hyprland.log SL=$OUT/hyprland-gpu.log
+v=$(hc version 2>&1 | head -1)
+case $v in *Hyprland*) ok "hyprctl reaches instance $HIS";; *) bad "hyprctl cannot reach the instance: $v";; esac
 dmesg > "$OUT/dmesg.txt" 2>/dev/null
 
 # --- 1. cards --------------------------------------------------------------
@@ -94,29 +121,31 @@ done
 
 # --- 2. launcher and backend log --------------------------------------------
 hdr "2. launcher and backend (Hyprland log)"
-l=$(grep -m1 'DCP path:' "$SLOG" 2>/dev/null)
-[ -n "$l" ] && ok "launcher took the DCP path" && info "${l#*: }" || bad "launcher did not take the DCP path: $(grep -m1 'path' "$SLOG" 2>/dev/null)"
-g() { grep -m1 -E "$1" "$HLOG" 2>/dev/null | sed 's/^[A-Z]* *\(from aquamarine \)\?\]: //'; }
+l=$(grep -a -m1 'DCP path:' "$SL" 2>/dev/null)
+[ -n "$l" ] && ok "launcher took the DCP path" && info "${l#*: }" || bad "launcher did not take the DCP path: $(grep -a -m1 'path' "$SL" 2>/dev/null)"
+g() { grep -a -m1 -E "$1" "$HL" 2>/dev/null | sed -E 's/^[A-Z]+ +(from aquamarine +)?\]: (\[[^]]*\] )?//'; }
+[ -s "$HL" ] || bad "Hyprland log $HLOG empty or unreadable"
 l=$(g 'drm: Starting backend for'); info "$l"
 if [[ $l == *"with driver apple"* ]] && [[ -z "$APPLE_CARD" || $l == *"$APPLE_CARD"* ]]; then ok "aquamarine drives the apple card"; else bad "aquamarine backend is not the apple card"; fi
 l=$(g 'falling back to sole renderD|refusing to guess'); [ -n "$l" ] && info "$l"
 l=$(g 'Creating CDRMRenderer on gpu'); info "$l"
 [[ $l == *"${AURORA_RENDER:-renderD}"* ]] && ok "aquamarine renderer on the GPU render node" || bad "aquamarine renderer not on ${AURORA_RENDER:-the render node}"
-l=$(grep -A3 'Creating the Hypr OpenGL Renderer' "$HLOG" 2>/dev/null | grep -m1 'Renderer:' | sed 's/.*Renderer: //')
+l=$(grep -a -A4 'Creating the Hypr OpenGL Renderer' "$HL" 2>/dev/null | grep -a -m1 'Renderer: ' | sed 's/.*Renderer: //')
 info "Hyprland GL renderer: $l"
 case $l in *llvmpipe*|*softpipe*|'') bad "Hyprland renders in software (or no renderer line)";; *Apple*|*AGX*|*M5*) ok "Hyprland renders on the GPU ($l)";; *) meh "unexpected renderer: $l";; esac
 l=$(g 'eglDeviceFromDRMFD: Using device'); [ -n "$l" ] && info "$l"
-info "panel modes: $(grep -oE 'drm: Mode [0-9]+: [0-9x@.]+Hz( +\(preferred\))?' "$HLOG" 2>/dev/null | sed 's/drm: Mode [0-9]*: //' | sort -u | tr '\n' ' ')"
-l=$(grep -m1 -E 'GBM: Allocated a new buffer with size .*3456.*2234' "$HLOG" 2>/dev/null | sed 's/.*GBM: //')
+info "panel modes: $(grep -a -oE 'drm: Mode [0-9]+: [0-9x@.]+Hz( +\(preferred\))?' "$HL" 2>/dev/null | sed 's/drm: Mode [0-9]*: //' | sort -u | tr '\n' ' ')"
+l=$(grep -a -m1 -E 'GBM: Allocated a new buffer with size .*3456.*2234' "$HL" 2>/dev/null | sed 's/.*GBM: //')
 if [ -n "$l" ]; then
   info "scanout buffer: $l"
   case $l in *LINEAR*|*INVALID*|*0xffffffffffffff*) ok "scanout buffers 3456x2234, linear (GPU renders straight into them; no copy)";; *) meh "scanout buffer modifier is not LINEAR: $l";; esac
 else meh "no 3456x2234 GBM allocation line found (log buffered or trace level?)"; fi
-grep -q 'Using modifier-less allocation\|falling back to modifier-less' "$HLOG" 2>/dev/null && info "aquamarine used modifier-less GBM allocation (AQ_NO_MODIFIERS / kms_swrast GBM)"
+grep -a -q 'Using modifier-less allocation\|falling back to modifier-less' "$HL" 2>/dev/null && info "aquamarine used modifier-less GBM allocation (AQ_NO_MODIFIERS / kms_swrast GBM)"
 l=$(g 'drm: Explicit sync (supported|unsupported)'); info "${l:-no explicit-sync line}"
 [[ $l == *supported* && $l != *unsupported* ]] && ok "KMS explicit sync (IN_FENCE_FD/OUT_FENCE_PTR) available" || meh "KMS explicit sync unsupported (implicit sync only)"
 for k in 'DisplayNode syncobj timeline support' 'RenderNode syncobj timeline support'; do info "$(g "$k")"; done
 l=$(g 'crtc is (capable|incapable) of vrr'); info "$l"
+VRR_LOG=0; [[ $l == *"is capable of vrr"* ]] && VRR_LOG=1
 
 # --- 3. hyprctl state -------------------------------------------------------
 hdr "3. hyprctl"
@@ -127,19 +156,24 @@ name=$(mon .name); w=$(mon .width); h=$(mon .height); hz=$(mon .refreshRate)
 info "monitor ${name:-?}: ${w}x${h}@${hz} scale $(mon .scale) format $(mon .currentFormat) vrr $(mon .vrr) vrrCapable $(mon .hardwareDetails.vrrCapable) hwcursor $(mon .hardwareCursorsInUse)"
 [ "$w" = 3456 ] && [ "$h" = 2234 ] && ok "mode 3456x2234" || bad "mode is ${w}x${h}"
 awk -v r="${hz:-0}" 'BEGIN{exit !(r>119.5 && r<120.5)}' && ok "refresh $hz Hz" || bad "refresh $hz Hz (want 120.00000)"
-[ "$(mon .currentFormat)" = XRGB8888 ] && ok "scanout format XRGB8888" || meh "scanout format $(mon .currentFormat)"
-VRRCAP=$(mon .hardwareDetails.vrrCapable)
-info "vrr now $(mon .vrr), panel offers VRR: $VRRCAP (needs appledrm.fw27_panel_vrr=1)"
+case $(mon .currentFormat) in XRGB8888|XR24) ok "scanout format $(mon .currentFormat) (8-bit)";; *) meh "scanout format $(mon .currentFormat)";; esac
+# VRR offered? Same sources as hypr-dcp-precheck/the launcher (vrr_capable via
+# modetest, else appledrm.fw27_panel_vrr), cross-checked with Hyprland's view
+# and aquamarine's log; any of them saying yes runs the VRR test.
+VRR_HC=$(mon .hardwareDetails.vrrCapable); VRR_LIB=$(declare -F hypr_panel_vrr >/dev/null && hypr_panel_vrr || echo '?')
+VRRCAP=false; { [ "$VRR_HC" = true ] || [ "$VRR_LIB" = 1 ] || [ "$VRR_LOG" = 1 ]; } && VRRCAP=true
+info "VRR offered: hyprctl vrrCapable=$VRR_HC, vrr_capable/module param=$VRR_LIB, aquamarine log=$VRR_LOG -> $VRRCAP; vrr active now: $(mon .vrr)"
+[ "$VRRCAP" = true ] && { [ "$VRR_HC" = true ] && [ "$VRR_LIB" = 1 ] || meh "VRR sources disagree (hyprctl $VRR_HC, kernel $VRR_LIB, log $VRR_LOG)"; }
 info "direct scanout blocked by: $(jq -c '[.[] | select(.name|test("^eDP-"))][0].directScanoutBlockedBy' "$OUT/monitors.json" 2>/dev/null)"
-grep -E '^(Explicit sync|GL ver|FP16|Backend):|Panel |explicit|vrr capable' "$OUT/systeminfo.txt" | sed 's/^\s*/      /'
-grep -q '^Explicit sync: supported' "$OUT/systeminfo.txt" && ok "EGL native fence sync (explicit sync to KMS and clients)" || meh "EGL_ANDROID_native_fence_sync missing: implicit sync"
+grep -a -E '^(Explicit sync|GL ver|FP16|Backend):|Panel |explicit|vrr capable' "$OUT/systeminfo.txt" | sed 's/^\s*/      /'
+grep -a -q '^Explicit sync: supported' "$OUT/systeminfo.txt" && ok "EGL native fence sync (explicit sync to KMS and clients)" || meh "EGL_ANDROID_native_fence_sync missing: implicit sync"
 ds=$(getopt_int render:direct_scanout); vr=$(getopt_int misc:vrr); hw=$(getopt_int cursor:no_hardware_cursors)
 info "options: render:direct_scanout=$ds misc:vrr=$vr cursor:no_hardware_cursors=$hw debug:vfr=$(getopt_int debug:vfr) animations:enabled=$(getopt_int animations:enabled) blur=$(getopt_int decoration:blur:enabled)"
 [ "$ds" = 1 ] && ok "m5pro-dcp profile active (direct_scanout=1)" || bad "m5pro-dcp profile not active (direct_scanout=$ds): check hyprland.lua profile switch and M5PRO_HYPR_PROFILE"
 
 # --- 4. kernel health -------------------------------------------------------
 hdr "4. kernel log"
-k=$(grep -iE 'DCP has crashed|swap failed|swap timed out|set_digital_out_mode (timed out|returned)|adaptive swap timed out|apple-drm.*(error|fail)|aurora.*(fault|timeout|hang)' "$OUT/dmesg.txt" | tail -8)
+k=$(grep -a -iE 'DCP has crashed|swap failed|swap timed out|set_digital_out_mode (timed out|returned)|adaptive swap timed out|apple-drm.*(error|fail)|aurora.*(fault|timeout|hang)' "$OUT/dmesg.txt" | tail -8)
 [ -z "$k" ] && ok "no DCP/GPU errors in dmesg" || { bad "DCP/GPU errors in dmesg:"; sed 's/^/      /' <<<"$k"; }
 
 if [ "$MODE" = static ]; then
@@ -160,13 +194,17 @@ mkdir "$TRI" || { bad "cannot create trace instance"; exit 1; }
 echo mono > "$TRI/trace_clock" 2>/dev/null
 echo 8192 > "$TRI/buffer_size_kb"
 for e in dcp/iomfb_swap_submit dcp/iomfb_swap_complete drm/drm_vblank_event_delivered; do
-  [ -e "$TRI/events/$e/enable" ] && echo 1 > "$TRI/events/$e/enable"
+  [ -e "$TRI/events/$e/enable" ] && echo 1 > "$TRI/events/$e/enable" 2>/dev/null
 done
+if [ "$(cat "$TRI/events/dcp/iomfb_swap_complete/enable" 2>/dev/null)" = 1 ]; then ok "trace instance ${TRI##*/}: dcp:iomfb_swap_complete enabled"
+else bad "could not enable dcp:iomfb_swap_complete in ${TRI##*/}"; fi
 echo 0 > "$TRI/tracing_on"
 
 cat > "$OUT/analyze.py" <<'PY'
 # analyze.py TRACE LABEL NOMINAL_MS: page-flip interval statistics from
 # dcp:iomfb_swap_complete timestamps (internal DCP = the one with most events).
+# Prints {"swaps": 0, ...} only when nothing was captured; callers must treat
+# swaps == 0 as a failed run.
 import re, sys, json, statistics as st
 path, label, nominal = sys.argv[1], sys.argv[2], float(sys.argv[3])
 ev = re.compile(r'\s(\d+\.\d+):\s+(iomfb_swap_complete|iomfb_swap_submit):\s+dcp=([0-9a-f]+), swap_id=(\d+)')
@@ -176,60 +214,68 @@ for line in open(path, errors='replace'):
     if not m: continue
     t, name, dcp, sid = float(m.group(1)), m.group(2), m.group(3), int(m.group(4))
     (comp if name == 'iomfb_swap_complete' else subm).setdefault(dcp, []).append((t, sid))
-if not comp:
+if not comp or max(len(v) for v in comp.values()) < 3:
     print(json.dumps({'label': label, 'swaps': 0})); sys.exit(0)
 dcp = max(comp, key=lambda k: len(comp[k]))
 ts = [t for t, _ in comp[dcp]]
 iv = [(b - a) * 1000 for a, b in zip(ts, ts[1:])]
-span = ts[-1] - ts[0] if len(ts) > 1 else 0
+span = ts[-1] - ts[0]
 persec = [0] * (int(span) + 1)
 for t in ts: persec[min(int(t - ts[0]), len(persec) - 1)] += 1
 persec = persec[:-1] or persec          # drop the partial last second
 def pct(v, p):
     v = sorted(v); return v[min(len(v) - 1, int(round(p / 100 * (len(v) - 1))))] if v else 0
-periods = {}
-for x in iv:
-    k = max(1, round(x / (1000 / 120))); periods[k] = periods.get(k, 0) + 1
+def hist(step):
+    h = {}
+    for x in iv:
+        k = max(1, round(x / step)); h[k] = h.get(k, 0) + 1
+    return dict(sorted(h.items()))
 lat = []
 sub = {sid: t for t, sid in subm.get(dcp, [])}
 for t, sid in comp[dcp]:
     if sid in sub and t >= sub[sid]: lat.append((t - sub[sid]) * 1000)
-r = {
+print(json.dumps({
     'label': label, 'swaps': len(ts), 'seconds': round(span, 2),
     'rate_per_s': {'min': min(persec), 'median': st.median(persec), 'max': max(persec)},
     'per_second': persec,
     'interval_ms': {k: round(pct(iv, p), 3) for k, p in (('p1', 1), ('p5', 5), ('p50', 50), ('p95', 95), ('p99', 99), ('max', 100))},
-    'mean_ms': round(st.mean(iv), 3) if iv else 0, 'stdev_ms': round(st.pstdev(iv), 3) if iv else 0,
-    'within_0.5ms_of_nominal': round(sum(abs(x - nominal) <= 0.5 for x in iv) / max(1, len(iv)), 3),
-    'within_1.5ms_of_nominal': round(sum(abs(x - nominal) <= 1.5 for x in iv) / max(1, len(iv)), 3),
-    'late_ge_1.5x_nominal': sum(x >= 1.5 * nominal for x in iv),
-    'refresh_periods_histogram_120hz': dict(sorted(periods.items())),
+    'mean_ms': round(st.mean(iv), 3), 'stdev_ms': round(st.pstdev(iv), 3),
+    'within_05': round(sum(abs(x - nominal) <= 0.5 for x in iv) / len(iv), 3),
+    'within_15': round(sum(abs(x - nominal) <= 1.5 for x in iv) / len(iv), 3),
+    'late': sum(x >= 1.5 * nominal for x in iv),
+    'periods_120hz': hist(1000 / 120),        # whole 8.33 ms refreshes per interval
+    'subframes_240hz': hist(1000 / 240),      # DCP 4.17 ms subframes per interval (VRR steps)
     'submit_to_complete_ms': {'p50': round(pct(lat, 50), 3), 'p99': round(pct(lat, 99), 3)} if lat else None,
-}
-print(json.dumps(r))
+}))
 PY
 
 # record LABEL SECONDS NOMINAL_MS cmd...: start the client, let it settle 3 s,
 # trace SECONDS, sample hyprctl monitors at the midpoint, stop the client.
+# Returns 0 only when swap events were captured (callers then judge the numbers).
 record() {
-  local label=$1 secs=$2 nominal=$3; shift 3
-  as_user timeout --kill-after=3 $((secs + 10)) bash -c "exec -a $CLIENT_TAG \"\$0\" \"\$@\"" "$@" > "$OUT/$label.client.txt" 2>&1 &
-  local cpid=$!
+  local label=$1 secs=$2 nominal=$3 cpid sw; shift 3
+  as_user $((secs + 10)) bash -c "exec -a $CLIENT_TAG \"\$0\" \"\$@\"" "$@" > "$OUT/$label.client.txt" 2>&1 &
+  cpid=$!
   sleep 3
   if ! pgrep -u "$HUID" -f "^$CLIENT_TAG" >/dev/null; then
-    meh "$label: client did not start: $(tail -2 "$OUT/$label.client.txt" | tr '\n' ' ')"; return 1
+    bad "$label: client did not start: $(tail -2 "$OUT/$label.client.txt" | tr '\n' ' ')"; wait "$cpid" 2>/dev/null; return 1
   fi
   echo > "$TRI/trace"; echo 1 > "$TRI/tracing_on"
   sleep $((secs / 2)); hc monitors -j > "$OUT/$label.monitors.json" 2>&1; sleep $((secs - secs / 2))
   echo 0 > "$TRI/tracing_on"
   cp "$TRI/trace" "$OUT/$label.trace"
   pkill -TERM -u "$HUID" -f "^$CLIENT_TAG"; sleep 1; pkill -KILL -u "$HUID" -f "^$CLIENT_TAG" 2>/dev/null; wait "$cpid" 2>/dev/null
-  timeout 30 python3 -I "$OUT/analyze.py" "$OUT/$label.trace" "$label" "$nominal" > "$OUT/$label.json"
-  jq -r '"      swaps \(.swaps) in \(.seconds)s; per second min/median/max \(.rate_per_s.min)/\(.rate_per_s.median)/\(.rate_per_s.max); interval ms p1 \(.interval_ms.p1) p50 \(.interval_ms.p50) p95 \(.interval_ms.p95) p99 \(.interval_ms.p99) max \(.interval_ms.max); stdev \(.stdev_ms); late(>=1.5x) \(.late_ge_1.5x_nominal); periods \(.refresh_periods_histogram_120hz|tostring); submit->complete \(.submit_to_complete_ms|tostring)"' "$OUT/$label.json" 2>/dev/null || info "$label: no swaps traced"
-  jq -r '[.[] | select(.name|test("^eDP-"))][0] | "      midpoint: vrr \(.vrr) directScanoutTo \(.directScanoutTo) blockedBy \(.directScanoutBlockedBy|tostring) tearing \(.activelyTearing)"' "$OUT/$label.monitors.json" 2>/dev/null
+  timeout 30 python3 -I "$OUT/analyze.py" "$OUT/$label.trace" "$label" "$nominal" > "$OUT/$label.json" 2> "$OUT/$label.analyze.err"
+  sw=$(jv "$label" .swaps)
+  jq -r --arg l "$label" '[.[] | select(.name|test("^eDP-"))][0] | "      \($l) midpoint: vrr \(.vrr) directScanoutTo \(.directScanoutTo) blockedBy \(.directScanoutBlockedBy|tostring)"' "$OUT/$label.monitors.json" 2>/dev/null
+  if [ -z "$sw" ] || [ "$sw" = 0 ] || [ "$sw" = null ]; then
+    bad "$label: no swap events captured ($(grep -c iomfb_swap "$OUT/$label.trace" 2>/dev/null) trace lines; $(head -c 200 "$OUT/$label.analyze.err" 2>/dev/null))"; return 1
+  fi
+  jq -r '"      \(.label): \(.swaps) swaps in \(.seconds) s; per second min/median/max \(.rate_per_s.min)/\(.rate_per_s.median)/\(.rate_per_s.max); interval ms p1 \(.interval_ms.p1) p50 \(.interval_ms.p50) p95 \(.interval_ms.p95) p99 \(.interval_ms.p99) max \(.interval_ms.max); stdev \(.stdev_ms); late(>=1.5x nominal) \(.late)\n      refreshes(8.33 ms) \(.periods_120hz|tostring); subframes(4.17 ms) \(.subframes_240hz|tostring); submit->complete ms \(.submit_to_complete_ms|tostring)"' "$OUT/$label.json"
   return 0
 }
 jv() { jq -r "$2" "$OUT/$1.json" 2>/dev/null; }
+VRR_NOW=$(getopt_int misc:vrr)
 
 # a) idle desktop: VFR means (almost) no swaps
 echo > "$TRI/trace"; echo 1 > "$TRI/tracing_on"; sleep 3; echo 0 > "$TRI/tracing_on"
@@ -238,37 +284,42 @@ n=$(grep -c 'iomfb_swap_complete' "$TRI/trace"); info "idle desktop: $n swaps in
 
 # b) vkcube, composited (FIFO at the refresh rate): 120 swaps/s expected
 VK=(vkcube); vkcube --help 2>&1 | grep -q -- '--wsi' && VK+=(--wsi wayland)
+info "timed runs b-d with misc:vrr=$VRR_NOW (the profile's setting)"
 if command -v vkcube >/dev/null && record vkcube "$RUN" 8.333 "${VK[@]}"; then
-  med=$(jv vkcube .rate_per_s.median); p50=$(jv vkcube .interval_ms.p50); late=$(jv vkcube '.late_ge_1.5x_nominal'); sw=$(jv vkcube .swaps)
-  if awk -v m="$med" -v p="$p50" -v l="$late" -v s="$sw" 'BEGIN{exit !(m>=115 && p>8.0 && p<8.7 && l/(s>1?s:1)<0.02)}'; then ok "vkcube composited at 120 Hz (median $med swaps/s, p50 $p50 ms, $late late)"
-  elif awk -v m="$med" 'BEGIN{exit !(m>=100)}'; then meh "vkcube near 120 Hz with stutter (median $med/s, p50 $p50 ms, $late late frames)"
-  else bad "vkcube not at 120 Hz (median $med swaps/s, p50 $p50 ms): GPU too slow, or DCP pacing at 60"; fi
+  med=$(jv vkcube .rate_per_s.median); p50=$(jv vkcube .interval_ms.p50); late=$(jv vkcube .late); sw=$(jv vkcube .swaps)
+  if awk -v m="$med" -v p="$p50" -v l="$late" -v s="$sw" 'BEGIN{exit !(s>0 && m>=115 && p>8.0 && p<8.7 && l/s<0.02)}'; then ok "vkcube composited at 120 Hz (median $med swaps/s, p50 $p50 ms, $late late of $sw)"
+  elif awk -v m="$med" 'BEGIN{exit !(m>=100)}'; then meh "vkcube near 120 Hz with stutter (median $med/s, p50 $p50 ms, $late late of $sw)"
+  else bad "vkcube not at 120 Hz (median $med swaps/s, p50 $p50 ms)"; fi
 fi
 
-# c) glmark2 fullscreen: GPU throughput (its FPS) vs scanout (120 max)
+# c) glmark2 fullscreen: the GPU saturated by an unthrottled client. glmark2's
+# FPS is its own render rate (most frames are replaced before display); the
+# swap rate is what the DCP showed. Informational: how late compositor frames
+# land (16.7 ms at fixed 120 Hz, 12.5 ms = 3 subframes with VRR).
 if [ "$MODE" = full ] && command -v glmark2-es2-wayland >/dev/null; then
   if record glmark2 "$RUN" 8.333 glmark2-es2-wayland --fullscreen -b "build:duration=$((RUN + 5))"; then
-    info "glmark2: $(grep -m1 'GL_RENDERER' "$OUT/glmark2.client.txt" | sed 's/^ *//') ; $(grep -m1 -oE 'FPS: [0-9]+ FrameTime: [0-9.]+ ms' "$OUT/glmark2.client.txt")"
-    med=$(jv glmark2 .rate_per_s.median)
-    awk -v m="$med" 'BEGIN{exit !(m>=115)}' && ok "glmark2 fullscreen: compositor presents at 120 Hz (median $med/s)" || meh "glmark2 fullscreen: compositor presents at $med/s"
+    info "glmark2 client: $(grep -m1 'GL_RENDERER' "$OUT/glmark2.client.txt" | sed 's/^ *//') ; $(grep -m1 -oE 'FPS: [0-9]+ FrameTime: [0-9.]+ ms' "$OUT/glmark2.client.txt")"
+    grep -q 'cannot encode\|dropping work' "$OUT/glmark2.client.txt" && meh "glmark2: Mesa skipped draws (shader the AGX backend refused): its FPS overstates the GPU"
+    ok "glmark2 fullscreen traced: display showed $(jv glmark2 .rate_per_s.median) frames/s while the client rendered unthrottled"
   fi
 fi
 
 # mpv test source: lavfi in-process, or a generated file if this mpv lacks lavfi
 MPV=(mpv --no-config --really-quiet --no-audio --hwdec=no --loop-file=inf --keep-open=yes)
-mpvsrc() {  # mpvsrc RATE -> a playable URL/file
+mpvsrc() {  # mpvsrc RATE -> a playable URL/file (empty when neither works)
   local f=/tmp/hypr-dcp-verify-$1.mkv
-  if timeout 6 as_user mpv --no-config --really-quiet --no-audio --vo=null --frames=5 "av://lavfi:testsrc2=size=1280x720:rate=$1" >/dev/null 2>&1; then
-    echo "av://lavfi:testsrc2=size=1280x720:rate=$1"
-  else
-    [ -s "$f" ] || timeout 60 as_user ffmpeg -loglevel error -y -f lavfi -i "testsrc2=size=1280x720:rate=$1" -t 40 -c:v libx264 -preset ultrafast -pix_fmt yuv420p "$f"
-    echo "$f"
+  if as_user 8 mpv --no-config --really-quiet --no-audio --vo=null --frames=5 "av://lavfi:testsrc2=size=1280x720:rate=$1" >/dev/null 2>&1; then
+    echo "av://lavfi:testsrc2=size=1280x720:rate=$1"; return
   fi
+  [ -s "$f" ] || as_user 60 ffmpeg -loglevel error -y -f lavfi -i "testsrc2=size=1280x720:rate=$1" -t 40 -c:v libx264 -preset ultrafast -pix_fmt yuv420p "$f" >/dev/null 2>&1
+  [ -s "$f" ] && echo "$f"
 }
 
 # d) direct scanout: HiDPI-aware fullscreen client (buffer = 3456x2234)
 if [ "$MODE" = full ] && command -v mpv >/dev/null; then
-  if record mpv-fs 10 8.333 "${MPV[@]}" --fs "$(mpvsrc 120)"; then
+  src=$(mpvsrc 120)
+  if [ -z "$src" ]; then bad "mpv-fs: no test source (mpv lavfi and ffmpeg both failed)"
+  elif record mpv-fs 10 8.333 "${MPV[@]}" --fs "$src"; then
     dst=$(jq -r '[.[] | select(.name|test("^eDP-"))][0].directScanoutTo' "$OUT/mpv-fs.monitors.json" 2>/dev/null)
     if [ -n "$dst" ] && [ "$dst" != 0 ] && [ "$dst" != null ]; then ok "direct scanout active for the fullscreen client ($dst)"
     else meh "no direct scanout for fullscreen mpv (blockedBy $(jq -c '[.[] | select(.name|test("^eDP-"))][0].directScanoutBlockedBy' "$OUT/mpv-fs.monitors.json" 2>/dev/null)); composited instead"; fi
@@ -277,30 +328,32 @@ fi
 
 # --- 6. VRR -----------------------------------------------------------------
 hdr "6. VRR with a 50 fps client (20 ms frames)"
-if command -v mpv >/dev/null; then
-  src50=$(mpvsrc 50)
-  VRR_ORIG=$(getopt_int misc:vrr); VRR_ORIG=${VRR_ORIG:-0}
-  if [ "$VRR_ORIG" != 0 ]; then hc eval 'hl.config({ misc = { vrr = 0 } })' >/dev/null; sleep 2; fi
+if command -v mpv >/dev/null && src50=$(mpvsrc 50) && [ -n "$src50" ]; then
+  VRR_ORIG=${VRR_NOW:-0}
+  if [ "$VRR_ORIG" != 0 ]; then hc eval 'hl.config({ misc = { vrr = 0 } })' >/dev/null; sleep 2; fi   # VRR_ENABLED change: ~200 ms dark
   if record mpv50-fixed 15 20.0 "${MPV[@]}" "$src50"; then
-    info "fixed 120 Hz: 20 ms frames land on 2 or 3 refresh periods (16.7/25 ms, judder): $(jv mpv50-fixed '.refresh_periods_histogram_120hz|tostring')"
+    info "VRR off: 20 ms frames land on whole 120 Hz refreshes (2 or 3 = 16.7/25 ms, judder): $(jv mpv50-fixed '.periods_120hz|tostring')"
   fi
   if [ "$VRRCAP" = true ]; then
-    hc eval 'hl.config({ misc = { vrr = 1 } })' >/dev/null; sleep 2     # VRR_ENABLED change: ~200 ms dark
+    hc eval 'hl.config({ misc = { vrr = 1 } })' >/dev/null; sleep 2
     v=$(hc monitors -j | jq -r '[.[] | select(.name|test("^eDP-"))][0].vrr')
     [ "$v" = true ] && ok "misc:vrr=1 -> monitor vrr true" || bad "misc:vrr=1 but monitor vrr $v"
     if record mpv50-vrr 15 20.0 "${MPV[@]}" "$src50"; then
-      p50=$(jv mpv50-vrr .interval_ms.p50); w=$(jv mpv50-vrr '."within_1.5ms_of_nominal"')
-      awk -v p="$p50" -v w="$w" 'BEGIN{exit !(p>19 && p<21 && w>=0.8)}' && ok "VRR follows the client: p50 $p50 ms, $(awk -v w="$w" 'BEGIN{printf "%d", w*100}')% of frames within 1.5 ms of 20 ms" \
-        || bad "VRR not pacing at 20 ms (p50 $p50 ms, within 1.5 ms: $w)"
+      p50=$(jv mpv50-vrr .interval_ms.p50); w=$(jv mpv50-vrr .within_15); wf=$(jv mpv50-fixed .within_15)
+      if awk -v p="$p50" -v w="$w" 'BEGIN{exit !(p>19 && p<21.5 && w>=0.7)}'; then
+        ok "VRR follows the client: p50 $p50 ms, $(awk -v w="$w" 'BEGIN{printf "%d", w*100}')% within 1.5 ms of 20 ms (VRR off: $(awk -v w="${wf:-0}" 'BEGIN{printf "%d", w*100}')%)"
+      else bad "VRR not pacing at 20 ms (p50 $p50 ms, within 1.5 ms: $w; VRR off: ${wf:-?})"; fi
     fi
-    k=$(dmesg | tail -200 | grep -iE 'VRR|adaptive|watchdog|swap timed out' | tail -5); [ -n "$k" ] && { info "kernel (VRR):"; sed 's/^/      /' <<<"$k"; }
+    k=$(dmesg | tail -300 | grep -a -iE 'VRR_ENABLED|adaptive_sync|VRR=|watchdog|swap timed out' | tail -6); [ -n "$k" ] && { info "kernel (VRR):"; sed 's/^/      /' <<<"$k"; }
   else
-    info "panel does not offer VRR on this boot (boot the daily-dcp-test-vrr payload, appledrm.fw27_panel_vrr=1): VRR run skipped"
+    info "panel does not offer VRR on this boot (all sources say no; boot with appledrm.fw27_panel_vrr=1): VRR run skipped"
   fi
   hc eval "hl.config({ misc = { vrr = $VRR_ORIG } })" >/dev/null; VRR_ORIG=''
+else
+  meh "VRR run skipped: no mpv test source"
 fi
 
 hdr "Hyprland rolling log (last lines)"
-timeout 3 as_user hyprctl rollinglog 2>/dev/null | tail -15 | cut -c1-200 | sed 's/^/      /'
+as_user 3 hyprctl rollinglog 2>/dev/null | tail -15 | cut -c1-200 | sed 's/^/      /'
 hdr "summary: $pass passed, $fail failed, $warn warnings; details in $OUT"
 exit $((fail > 0))
