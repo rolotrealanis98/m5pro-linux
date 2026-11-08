@@ -1865,3 +1865,22 @@ Native Gallium GL as the desktop GL (`/etc/mesa-aurora/session.env` -> `/opt/mes
 GL_RENDERER `Apple M5 Pro (G17S B1)` every round, aquamarine `IMG_context_priority supported, requesting high`.
 Scores are lower than the 1278 A/B figure because the compositor was running; no faults, no hangs, no fallback.
 The native session stays. Log: `~/Work/agents/gpu-gl-native/loop/run-gl-soak-v3.log`.
+
+## 2026-11-08 03:03 UTC: DAILY-DCP first boots, FAIL (early panic, fallback worked)
+
+First daily with the DCP driving the panel: kernel `7.3.0-gbd53915f2ef1` (daily 36845aa5f650 + promotion v2 +
+dcp9d display DT + VRR pair opt-in), loader `m1n1-plain-n1-dt-gpu-dcp`, variables `chosen.m5pro,gpu=1` +
+`chosen.m5,t6050-display=1`, no `n1` line. Both twins (`daily-dcp-test` dfe0c6cc, `daily-dcp-test-vrr` 3606884e)
+fell back: error stage 0x30 (kernel entered, root never mounted), round trip 214 s against 103 s for a clean boot,
+so an early kernel panic (PANIC_TIMEOUT=10) rather than a hang. Stage 1 booted `boot.bin.prev` (the daily's test
+twin 5c74c66c) both times; the daily was restored by the runner (slot primary, 59 s to ssh). Nothing from the
+failed boots is on disk (no pstore region in the DT).
+
+What is new in this combination: the DCP has only ever booted without the GPU hand-off (stage C and dcp120 carried
+`chosen.m5pro,n1=4` + display, no `gpu=1`, kernel 22ec57f56b27). This was the first boot with the m1n1 GPU hand-off
+plus the display hand-off plus `DRM_ASAHI=y` and `DRM_APPLE=y` together on the daily DT (reserved-memory,
+power-controller, NVRAM nodes). Bisect payloads B1 (loader without the display hand-off), B2 (without `gpu=1`),
+B3 (DCP kernel on the daily DT) are being built; analysis to `contrib/pending/dcp/daily-dcp/FIRST-BOOT-ANALYSIS.md`.
+Runner log: `~/Work/agents/daily-dcp/loop/run-daily-dcp-test.log`. The two-card Hyprland session files stayed
+installed on the root; on the daily (simpledrm + aurora) the new launcher takes the old path, to be confirmed at
+the next desktop start.
