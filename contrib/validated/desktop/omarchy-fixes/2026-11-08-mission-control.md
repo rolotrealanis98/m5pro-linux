@@ -125,3 +125,24 @@ rm -r ~/.config/omarchy/plugins/rolo.mission-control      # optional
 ```
 To turn live thumbnails on later, with the machine's owner at the keyboard and work saved, set `liveThumbnails: true` at the
 top of `MissionControl.qml`; if the GPU faults, `dmesg` shows `GPU work of a client failed` naming the shell.
+
+## Update: three-finger swipe down closes Mission Control (2026-11-08)
+Requested after the first version. Added to `~/.config/hypr/bindings.lua`, not to the `m5pro` profiles: the approval for those
+protected files covered only the three-finger-up line, and three-finger down was unused, so nothing is overridden. The gesture
+runs `omarchy-shell shell hide rolo.mission-control`, which only closes the overlay (a no-op when it is closed); it never opens it.
+Backup: `bindings.lua.pre-mission-control-swipe-down`.
+```diff
+--- ~/.config/hypr/bindings.lua.pre-mission-control-swipe-down	2026-11-08 11:21:17.224057026 +0000
++++ ~/.config/hypr/bindings.lua	2026-11-08 11:36:32.410770123 +0000
+@@ -34,3 +34,7 @@
+ -- dispatch as Super + Tab / Super + Shift + Tab (workspaces of this monitor).
+ o.bind("CTRL + RIGHT", "Next workspace", hl.dsp.focus({ workspace = "m+1" }))
+ o.bind("CTRL + LEFT", "Previous workspace", hl.dsp.focus({ workspace = "m-1" }))
++
++-- Three-finger swipe down closes Mission Control. It only hides the overlay (a
++-- no-op when it is closed); three-finger up, in the m5pro profiles, opens it.
++hl.gesture({ fingers = 3, direction = "down", action = function() hl.exec_cmd("omarchy-shell shell hide rolo.mission-control") end })
+```
+Verified: `hyprctl reload` then `hyprctl configerrors` is empty; `omarchy-shell shell hide rolo.mission-control` on a closed overlay
+exits 0 and leaves no layer; the open case is the `hide` call that the earlier `shell toggle` close already ran (layer removed).
+Not verified: the physical swipe. Rollback: `cp -a bindings.lua.pre-mission-control-swipe-down bindings.lua && hyprctl reload`.
