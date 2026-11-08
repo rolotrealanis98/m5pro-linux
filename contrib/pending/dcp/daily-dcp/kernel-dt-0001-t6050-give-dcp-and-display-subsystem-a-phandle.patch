@@ -1,0 +1,36 @@
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Subject: [PATCH] arm64: dts: apple: t6050: give the dcp and the display subsystem a phandle
+
+dtc writes a phandle only for a node some property references. Nothing
+references &dcp or &display_subsystem (the J716s DT only extends them), so
+the DTB has no phandle on either, while a loader that edits them (m1n1's
+T6050 display hand-off re-finds each node it edits by phandle, because
+every property it adds moves the offsets after it) needs one. Write the
+phandles by hand: dtc keeps an explicit phandle and numbers the generated
+ones around it.
+
+Not applied. The loader fix (m1n1 gives a node without a phandle one) is
+the proper one; this is only for a loader that has not got it.
+
+---
+--- a/arch/arm64/boot/dts/apple/t6050-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-die0.dtsi
+@@ -829,6 +829,9 @@
+ 
+ 	dcp: dcp@48ae00000 {
+ 		compatible = "apple,t6050-dcp", "apple,dcp";
++		/* nothing references this node, so dtc would give it no phandle; a loader that edits it
++		 * (m1n1's T6050 display hand-off) finds it again by phandle */
++		phandle = <0x74>;
+ 		reg = <0x4 0x8ae00000 0x0 0x4000>,
+ 		      <0x4 0x88000000 0x0 0x4000000>,
+ 		      <0x4 0x8a240000 0x0 0x10000>,
+@@ -1105,6 +1108,8 @@
+ / {
+ 	display_subsystem: display-subsystem {
+ 		compatible = "apple,display-subsystem";
++		/* as for the dcp: nothing references this node */
++		phandle = <0x75>;
+ 		iommus = <&dart_disp0 0>;
+ 		status = "disabled";
+ 	};
