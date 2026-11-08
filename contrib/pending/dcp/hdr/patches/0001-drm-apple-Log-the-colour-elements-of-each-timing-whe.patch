@@ -1,0 +1,111 @@
+From f8c824b82a5500af3a52aa4f12bbdc1a2c6588e8 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:01:42 -0500
+Subject: [PATCH 1/3] drm/apple: Log the colour elements of each timing when
+ asked
+
+The colour elements the firmware lists for a timing (depth, EOTF,
+colorimetry, encoding, score) are only visible through the
+dcp:iomfb_color_mode tracepoint, which has to be armed before the
+mode list arrives. A panel's list arrives once, at boot, so finding out
+whether a firmware 27 panel offers a 10-bit or a PQ element meant a
+trace enabled from the command line.
+
+Log every element of every timing with appledrm.log_color_modes=1, and
+after each timing the elements the parser kept (sdr_rgb and its depth,
+sdr_444, sdr, best, pq and its depth). Off by default; nothing else
+changes.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/gpu/drm/apple/dcp-internal.h |  1 +
+ drivers/gpu/drm/apple/iomfb.c        | 15 +++++++++++++++
+ drivers/gpu/drm/apple/parser.c       | 27 +++++++++++++++++++++++++++
+ 3 files changed, 43 insertions(+)
+
+diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
+index 2e199390c61f..2c9999cb90c2 100644
+--- a/drivers/gpu/drm/apple/dcp-internal.h
++++ b/drivers/gpu/drm/apple/dcp-internal.h
+@@ -1033,6 +1033,7 @@ static inline bool dcp_fw27_panel(struct apple_dcp *dcp)
+ }
+ 
+ bool dcp_vrr_allowed(struct apple_dcp *dcp);
++bool dcp_log_color_modes(void);
+ 
+ /*
+  * Does @dcp's firmware speak the 14.7 AFK, DPTX and DPAV endpoint protocol,
+diff --git a/drivers/gpu/drm/apple/iomfb.c b/drivers/gpu/drm/apple/iomfb.c
+index 9ab0e263d0ab..5e9bb34bff3a 100644
+--- a/drivers/gpu/drm/apple/iomfb.c
++++ b/drivers/gpu/drm/apple/iomfb.c
+@@ -52,6 +52,21 @@ module_param(fw27_panel_vrr, bool, 0644);
+ MODULE_PARM_DESC(fw27_panel_vrr,
+ 		 "Firmware 27 panels: offer variable refresh through vrr_capable (default: off)");
+ 
++/*
++ * The colour elements of each timing are only traced (dcp:iomfb_color_mode);
++ * this logs them at enumeration, to see what a panel's firmware offers
++ * (depth, EOTF, colorimetry) before any of it is selected.
++ */
++static bool log_color_modes;
++module_param(log_color_modes, bool, 0644);
++MODULE_PARM_DESC(log_color_modes,
++		 "Log every colour element of every timing when modes are enumerated (default: off)");
++
++bool dcp_log_color_modes(void)
++{
++	return READ_ONCE(log_color_modes);
++}
++
+ /* Whether VRR_ENABLED may turn adaptive sync on for @dcp's display. */
+ bool dcp_vrr_allowed(struct apple_dcp *dcp)
+ {
+diff --git a/drivers/gpu/drm/apple/parser.c b/drivers/gpu/drm/apple/parser.c
+index ca95e4f71eea..ccf62e1da848 100644
+--- a/drivers/gpu/drm/apple/parser.c
++++ b/drivers/gpu/drm/apple/parser.c
+@@ -692,6 +692,18 @@ static int parse_color_modes(struct dcp_parse_ctx *handle,
+ 				       cmode.depth, cmode.colorimetry,
+ 				       cmode.eotf, cmode.dynamic_range,
+ 				       cmode.pixel_encoding);
++		if (handle->dcp && dcp_log_color_modes())
++			dev_info(handle->dcp->dev,
++				 "  colour element %lld: score %lld depth %lld colorimetry %lld eotf %lld range %lld encoding %lld%s\n",
++				 cmode.id, cmode.score, cmode.depth,
++				 cmode.colorimetry, cmode.eotf,
++				 cmode.dynamic_range, cmode.pixel_encoding,
++				 limits_known &&
++				 timing_color_contains(&limits->unsafe, cmode.id) ?
++				 " (unsafe)" :
++				 limits_known &&
++				 timing_color_contains(&limits->dsc_required, cmode.id) ?
++				 " (needs DSC)" : "");
+ 
+ 		if (limits_known)
+ 			collect_pq_mode(&out->pq, &best_pq_rank, &cmode, limits);
+@@ -993,6 +1005,21 @@ static int parse_mode(struct dcp_parse_ctx *handle,
+ 
+ 	out->timing_mode_id = id;
+ 	out->color_mode_id = best_color_mode;
++	if (handle->dcp && dcp_log_color_modes())
++		dev_info(handle->dcp->dev,
++			 "timing %lld: %llux%llu %llu.%03llu Hz score %lld%s: colour sdr_rgb %d (depth %u) sdr_444 %d sdr %d best %d pq %d (depth %u)\n",
++			 id, (unsigned long long)horiz.active,
++			 (unsigned long long)vert.active,
++			 (unsigned long long)vert.precise_sync_rate >> 16,
++			 (((unsigned long long)vert.precise_sync_rate & 0xffff) * 1000) >> 16,
++			 *score, is_preferred ? " preferred" : "",
++			 out->sdr_rgb.score >= 0 ? (int)out->sdr_rgb.id : -1,
++			 out->sdr_rgb.score >= 0 ? out->sdr_rgb.depth : 0,
++			 out->sdr_444.score >= 0 ? (int)out->sdr_444.id : -1,
++			 out->sdr.score >= 0 ? (int)out->sdr.id : -1,
++			 out->best.score >= 0 ? (int)out->best.id : -1,
++			 out->pq.score >= 0 ? (int)out->pq.id : -1,
++			 out->pq.score >= 0 ? out->pq.depth : 0);
+ 	out->preferred = is_preferred;
+ 	out->firmware_preferred = external_sdr ? preferred : is_preferred;
+ 
+-- 
+2.56.0
+

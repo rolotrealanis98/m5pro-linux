@@ -1,0 +1,265 @@
+From 6c9e3fd1702cb4f9a085976a7c0a0b9c2c6d8643 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:03:58 -0500
+Subject: [PATCH 2/3] drm/apple: Offer a 10-bit SDR link on the firmware 27
+ panel through max bpc
+
+The panel's colour element is chosen by the firmware's score alone: the
+parser keeps the highest-scored SDR RGB element of 8 or 10 bits, and on
+the J716s (firmware 27.3) that is the 8-bit "Default RGB" one, so the
+XDR panel runs an 8-bit link however the framebuffer is formatted. The
+connector offers no way to ask for more: there is no "max bpc".
+
+With appledrm.fw27_panel_depth10=1 the firmware 27 panel's connector
+gets "max bpc" 8-10 (created directly: the connector state the DRM
+helper writes does not exist yet when the connector is made; a state
+starts at 0, read as 8) and the parser keeps, beside sdr_rgb, the best
+10-bit SDR RGB element of each timing. A mode set whose connector asks
+for 10 selects that element when the timing has one; a PQ request still
+wins. Compositors set the property from their monitor configuration
+(Hyprland: bitdepth 10 sets max bpc 10 and an XRGB2101010 swapchain),
+and the DRM core makes a change of it a mode set.
+
+Off by default: without the parameter neither the property nor the
+selection exists.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/gpu/drm/apple/apple_drv.c      | 26 ++++++++++++++++++++
+ drivers/gpu/drm/apple/dcp-internal.h   |  3 +++
+ drivers/gpu/drm/apple/dcp.h            |  2 ++
+ drivers/gpu/drm/apple/iomfb.c          | 33 ++++++++++++++++++++++++++
+ drivers/gpu/drm/apple/iomfb_template.c |  5 ++++
+ drivers/gpu/drm/apple/parser.c         | 15 ++++++++++--
+ drivers/gpu/drm/apple/parser.h         |  2 ++
+ 7 files changed, 84 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/apple/apple_drv.c b/drivers/gpu/drm/apple/apple_drv.c
+index 4a5a23235c1a..71870f92a8f9 100644
+--- a/drivers/gpu/drm/apple/apple_drv.c
++++ b/drivers/gpu/drm/apple/apple_drv.c
+@@ -980,6 +980,27 @@ static int apple_connector_attach_hdr(struct drm_connector *connector,
+ 	return 0;
+ }
+ 
++/*
++ * "max bpc" 8-10 for a panel whose firmware lists both an 8- and a 10-bit
++ * SDR RGB element.  drm_connector_attach_max_bpc_property() writes the
++ * connector state, which drm_mode_config_reset() has not created yet at
++ * this point, so the property is created here; a state starts with
++ * max_requested_bpc 0, read as 8.  A change of the value is a mode set
++ * (drm_atomic_helper_check_modeset()), where dcp_crtc_atomic_modeset()
++ * reads it.
++ */
++static int apple_connector_attach_max_bpc(struct drm_connector *connector)
++{
++	struct drm_property *prop;
++
++	prop = drm_property_create_range(connector->dev, 0, "max bpc", 8, 10);
++	if (!prop)
++		return -ENOMEM;
++	connector->max_bpc_property = prop;
++	drm_object_attach_property(&connector->base, prop, 8);
++	return 0;
++}
++
+ static const struct drm_crtc_helper_funcs apple_crtc_helper_funcs = {
+ 	.atomic_begin		= apple_crtc_atomic_begin,
+ 	.atomic_check		= dcp_crtc_atomic_check,
+@@ -1019,6 +1040,11 @@ static int apple_connector_create(struct drm_device *drm,
+ 	ret = drm_connector_attach_vrr_capable_property(&connector->base);
+ 	if (ret)
+ 		goto err_cleanup;
++	if (connector_type == DRM_MODE_CONNECTOR_eDP && dcp_fw27_panel_max_bpc(dcp)) {
++		ret = apple_connector_attach_max_bpc(&connector->base);
++		if (ret)
++			goto err_cleanup;
++	}
+ 	ret = apple_connector_attach_hdr(&connector->base,
+ 					 dcp_fw_compat_is_desktop(dcp));
+ 	if (ret)
+diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
+index 2c9999cb90c2..3aa63e0ceb37 100644
+--- a/drivers/gpu/drm/apple/dcp-internal.h
++++ b/drivers/gpu/drm/apple/dcp-internal.h
+@@ -634,6 +634,8 @@ struct apple_dcp {
+ 	bool pq_requested;
+ 	bool output_pq;
+ 	bool output_edr;
++	/* The mode set asks for the 10-bit SDR colour element (max bpc 10). */
++	bool depth10_requested;
+ 	bool edr_sent;
+ 	/*
+ 	 * EDR headroom the panel was last given, x1000 (0: not in use), the
+@@ -1034,6 +1036,7 @@ static inline bool dcp_fw27_panel(struct apple_dcp *dcp)
+ 
+ bool dcp_vrr_allowed(struct apple_dcp *dcp);
+ bool dcp_log_color_modes(void);
++bool dcp_fw27_panel_depth10(struct apple_dcp *dcp);
+ 
+ /*
+  * Does @dcp's firmware speak the 14.7 AFK, DPTX and DPAV endpoint protocol,
+diff --git a/drivers/gpu/drm/apple/dcp.h b/drivers/gpu/drm/apple/dcp.h
+index 61b0c8a515b1..ebdb77cec11e 100644
+--- a/drivers/gpu/drm/apple/dcp.h
++++ b/drivers/gpu/drm/apple/dcp.h
+@@ -77,6 +77,8 @@ int dcp_get_connector_type(struct platform_device *pdev);
+ bool dcp_fw_compat_is_12_x(struct platform_device *pdev);
+ bool dcp_fw_compat_is_14_7(struct platform_device *pdev);
+ bool dcp_fw_compat_is_desktop(struct platform_device *pdev);
++/* A firmware 27 panel asked to offer "max bpc" 8-10 (appledrm.fw27_panel_depth10). */
++bool dcp_fw27_panel_max_bpc(struct platform_device *pdev);
+ unsigned int dcp_gamma_lut_size(struct platform_device *pdev);
+ /* T6041 external display processors may join the DRM device. */
+ bool dcp_t6041_ext_enabled(void);
+diff --git a/drivers/gpu/drm/apple/iomfb.c b/drivers/gpu/drm/apple/iomfb.c
+index 5e9bb34bff3a..472b36a042f6 100644
+--- a/drivers/gpu/drm/apple/iomfb.c
++++ b/drivers/gpu/drm/apple/iomfb.c
+@@ -67,6 +67,27 @@ bool dcp_log_color_modes(void)
+ 	return READ_ONCE(log_color_modes);
+ }
+ 
++/*
++ * Firmware 27 panels scan out through the SDR RGB colour element the
++ * firmware scores highest (8 bits per component on the J716s).  With this
++ * the connector offers "max bpc" 8-10, and a mode set asked for 10 selects
++ * the timing's 10-bit SDR RGB element when the firmware lists one.
++ */
++static bool fw27_panel_depth10;
++module_param(fw27_panel_depth10, bool, 0644);
++MODULE_PARM_DESC(fw27_panel_depth10,
++		 "Firmware 27 panels: offer max bpc 8-10 and select the 10-bit SDR colour element when asked (default: off)");
++
++bool dcp_fw27_panel_depth10(struct apple_dcp *dcp)
++{
++	return dcp_fw27_panel(dcp) && READ_ONCE(fw27_panel_depth10);
++}
++
++bool dcp_fw27_panel_max_bpc(struct platform_device *pdev)
++{
++	return dcp_fw27_panel_depth10(platform_get_drvdata(pdev));
++}
++
+ /* Whether VRR_ENABLED may turn adaptive sync on for @dcp's display. */
+ bool dcp_vrr_allowed(struct apple_dcp *dcp)
+ {
+@@ -2601,6 +2622,16 @@ dcp_crtc_connector_state(struct apple_dcp *dcp, struct drm_crtc *crtc,
+ 	return conn_state;
+ }
+ 
++/* The "max bpc" the compositor asks for on @crtc; 0 when it never set one. */
++static unsigned int dcp_crtc_max_bpc(struct apple_dcp *dcp, struct drm_crtc *crtc,
++				     struct drm_atomic_commit *commit)
++{
++	const struct drm_connector_state *conn_state =
++		dcp_crtc_connector_state(dcp, crtc, commit);
++
++	return conn_state ? conn_state->max_requested_bpc : 0;
++}
++
+ /* The EOTF the compositor asks of the display on @crtc, an HDMI_EOTF_* value. */
+ u8 dcp_crtc_eotf(struct apple_dcp *dcp, struct drm_crtc *crtc,
+ 		 struct drm_atomic_commit *commit)
+@@ -2931,6 +2962,8 @@ int dcp_crtc_atomic_modeset(struct drm_crtc *crtc,
+ 	dcp->pq_requested = dcp_crtc_eotf(dcp, crtc, commit) == HDMI_EOTF_SMPTE_ST2084;
+ 	dcp->output_edr = dcp->pq_requested && dcp_panel_edr_supported(dcp) &&
+ 			  dcp_crtc_bt2020(dcp, crtc, commit);
++	dcp->depth10_requested = dcp_crtc_max_bpc(dcp, crtc, commit) >= 10 &&
++				 dcp_fw27_panel_depth10(dcp);
+ 	dcp->pq_requested &= dcp_hdr_output_supported(dcp);
+ 	if (!dcp->pq_requested)
+ 		dcp_hdr_infoframe_stop(dcp);
+diff --git a/drivers/gpu/drm/apple/iomfb_template.c b/drivers/gpu/drm/apple/iomfb_template.c
+index 9813777dff61..17729cefb29a 100644
+--- a/drivers/gpu/drm/apple/iomfb_template.c
++++ b/drivers/gpu/drm/apple/iomfb_template.c
+@@ -3787,6 +3787,9 @@ int DCP_FW_NAME(iomfb_modeset)(struct apple_dcp *dcp,
+ 	/* An HDR commit scans out through the timing's PQ element. */
+ 	if (dcp->pq_requested && mode->pq.score >= 0)
+ 		mode->color_mode_id = mode->pq.id;
++	/* An SDR commit with max bpc 10 through its 10-bit RGB element. */
++	else if (dcp->depth10_requested && mode->sdr_rgb10.score >= 0)
++		mode->color_mode_id = mode->sdr_rgb10.id;
+ 
+ 	dev_info(dcp->dev,
+ 		 "set_digital_out_mode(color:%d timing:%d) " DRM_MODE_FMT "\n",
+@@ -3794,6 +3797,8 @@ int DCP_FW_NAME(iomfb_modeset)(struct apple_dcp *dcp,
+ 		 DRM_MODE_ARG(&crtc_state->mode));
+ 	if (mode->color_mode_id == mode->pq.id && mode->pq.score >= 0)
+ 		cmode = &mode->pq;
++	else if (mode->color_mode_id == mode->sdr_rgb10.id && mode->sdr_rgb10.score >= 0)
++		cmode = &mode->sdr_rgb10;
+ 	else if (mode->color_mode_id == mode->sdr_rgb.id)
+ 		cmode = &mode->sdr_rgb;
+ 	else if (mode->color_mode_id == mode->sdr_444.id)
+diff --git a/drivers/gpu/drm/apple/parser.c b/drivers/gpu/drm/apple/parser.c
+index ccf62e1da848..4900ba23dd6c 100644
+--- a/drivers/gpu/drm/apple/parser.c
++++ b/drivers/gpu/drm/apple/parser.c
+@@ -606,6 +606,7 @@ static int parse_color_modes(struct dcp_parse_ctx *handle,
+ 	int ret = 0;
+ 	out->sdr_444.score = -1;
+ 	out->sdr_rgb.score = -1;
++	out->sdr_rgb10.score = -1;
+ 	out->sdr.score = -1;
+ 	out->best.score = -1;
+ 	out->pq.score = -1;
+@@ -749,7 +750,15 @@ static int parse_color_modes(struct dcp_parse_ctx *handle,
+ 			if (cmode.pixel_encoding == DCP_COLOR_FORMAT_RGB &&
+ 				cmode.depth <= 10)
+ 				fill_color_mode(&out->sdr_rgb, &cmode);
+-			else if (cmode.pixel_encoding == DCP_COLOR_FORMAT_YCBCR444 &&
++			/*
++			 * The firmware's score decides sdr_rgb; keep the best
++			 * 10-bit RGB element too, for a connector asked for
++			 * max bpc 10 (see dcp_crtc_atomic_modeset()).
++			 */
++			if (cmode.pixel_encoding == DCP_COLOR_FORMAT_RGB &&
++			    cmode.depth == 10)
++				fill_color_mode(&out->sdr_rgb10, &cmode);
++			if (cmode.pixel_encoding == DCP_COLOR_FORMAT_YCBCR444 &&
+ 				cmode.depth <= 10)
+ 				fill_color_mode(&out->sdr_444, &cmode);
+ 			fill_color_mode(&out->sdr, &cmode);
+@@ -804,6 +813,7 @@ static int parse_mode(struct dcp_parse_ctx *handle,
+ 
+ 	*out = (struct dcp_display_mode) {
+ 		.sdr_rgb.score = -1,
++		.sdr_rgb10.score = -1,
+ 		.sdr_444.score = -1,
+ 		.sdr.score = -1,
+ 		.best.score = -1,
+@@ -1007,7 +1017,7 @@ static int parse_mode(struct dcp_parse_ctx *handle,
+ 	out->color_mode_id = best_color_mode;
+ 	if (handle->dcp && dcp_log_color_modes())
+ 		dev_info(handle->dcp->dev,
+-			 "timing %lld: %llux%llu %llu.%03llu Hz score %lld%s: colour sdr_rgb %d (depth %u) sdr_444 %d sdr %d best %d pq %d (depth %u)\n",
++			 "timing %lld: %llux%llu %llu.%03llu Hz score %lld%s: colour sdr_rgb %d (depth %u) sdr_rgb10 %d sdr_444 %d sdr %d best %d pq %d (depth %u)\n",
+ 			 id, (unsigned long long)horiz.active,
+ 			 (unsigned long long)vert.active,
+ 			 (unsigned long long)vert.precise_sync_rate >> 16,
+@@ -1015,6 +1025,7 @@ static int parse_mode(struct dcp_parse_ctx *handle,
+ 			 *score, is_preferred ? " preferred" : "",
+ 			 out->sdr_rgb.score >= 0 ? (int)out->sdr_rgb.id : -1,
+ 			 out->sdr_rgb.score >= 0 ? out->sdr_rgb.depth : 0,
++			 out->sdr_rgb10.score >= 0 ? (int)out->sdr_rgb10.id : -1,
+ 			 out->sdr_444.score >= 0 ? (int)out->sdr_444.id : -1,
+ 			 out->sdr.score >= 0 ? (int)out->sdr.id : -1,
+ 			 out->best.score >= 0 ? (int)out->best.id : -1,
+diff --git a/drivers/gpu/drm/apple/parser.h b/drivers/gpu/drm/apple/parser.h
+index 45aaa1739ea9..ed6b8d9cc452 100644
+--- a/drivers/gpu/drm/apple/parser.h
++++ b/drivers/gpu/drm/apple/parser.h
+@@ -129,6 +129,8 @@ struct dcp_display_mode {
+ 	u32 min_vrr;
+ 	u32 max_vrr;
+ 	struct dcp_color_mode sdr_rgb;
++	/* The best SDR RGB element at 10 bits per component (score -1 if none) */
++	struct dcp_color_mode sdr_rgb10;
+ 	struct dcp_color_mode sdr_444;
+ 	struct dcp_color_mode sdr;
+ 	struct dcp_color_mode best;
+-- 
+2.56.0
+

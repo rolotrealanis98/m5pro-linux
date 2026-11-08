@@ -1,0 +1,654 @@
+From 7cf4279b444b2a0afca94c5da9d1da293f20f719 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:07:45 -0500
+Subject: [PATCH 3/3] drm/apple: Open the HDR and EDR paths on the firmware 27
+ panel, opt-in
+
+Every HDR path in the driver is keyed to the desktop 26.x firmware: the
+connector's Colorspace, HDR_OUTPUT_METADATA and PQ_REFERENCE_LUMINANCE
+(apple_connector_attach_hdr() through dcp_fw_compat_is_desktop()), the
+PQ colour element at a mode set (dcp_hdr_output_supported()), PQ content
+shown as EDR (dcp_panel_edr_supported()), the panel's peak luminance
+(A128, res_max_panel_brightness()), the ADT EDR ceiling and the EDR swap
+fields. A firmware 27 panel (the J716s XDR panel, DCP 27.3) runs the
+same IOMFB template and gets none of it: its connector has no colour
+properties at all.
+
+Two opt-ins. appledrm.fw27_panel_hdr=1 gives the panel the connector
+properties, lets a PQ commit select the timing's PQ element when the
+firmware lists one and tag RGB surfaces BT.2020 PQ, reads the peak
+luminance (A128) and the ADT headroom ceiling, and when the peak comes
+back adds the HDR static metadata block to the synthesised EDID.
+appledrm.fw27_panel_edr=1 (runtime) adds what the desktop 26.x panel
+does with PQ content: brightness x headroom, display EDR scale and the
+headroom used, carried in the present's swap record at the desktop
+offsets (+0x358 flags, +0x376 limit, +0x37e scale, +0x3e6 headroom,
+all within bytes the firmware 27 record left reserved; the 27.3 wire
+layout moves them with its gaps). Firmware 27 has not been seen to take
+those fields: this is the experiment.
+
+The EDR step logic leaves dcp_edr_prepare() for dcp_edr_plan(), shared
+by the desktop swap and the firmware 27 present; the binary64 helpers
+move to dcp-edr.h. Without the parameters nothing changes: the desktop
+path keeps its values, firmware 27 sends what it sent.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/gpu/drm/apple/apple_drv.c      |   8 +-
+ drivers/gpu/drm/apple/dcp-edr.h        |  72 +++++++
+ drivers/gpu/drm/apple/dcp-internal.h   |   3 +
+ drivers/gpu/drm/apple/dcp.c            |   2 +-
+ drivers/gpu/drm/apple/dcp.h            |   2 +
+ drivers/gpu/drm/apple/dcp_backlight.c  |  17 ++
+ drivers/gpu/drm/apple/iomfb.c          |  40 +++-
+ drivers/gpu/drm/apple/iomfb_template.c | 255 +++++++++++++++----------
+ drivers/gpu/drm/apple/iomfb_v27.h      |  21 +-
+ 9 files changed, 307 insertions(+), 113 deletions(-)
+
+diff --git a/drivers/gpu/drm/apple/apple_drv.c b/drivers/gpu/drm/apple/apple_drv.c
+index 71870f92a8f9..d94360e086d9 100644
+--- a/drivers/gpu/drm/apple/apple_drv.c
++++ b/drivers/gpu/drm/apple/apple_drv.c
+@@ -944,8 +944,9 @@ static int apple_connector_attach_pq_reference(struct drm_connector *connector)
+ 
+ /*
+  * External displays can take a PQ BT.2020 signal where the firmware
+- * offers one, and a desktop 26.x panel PQ content it shows as EDR;
+- * dcp_crtc_atomic_check() refuses it elsewhere.
++ * offers one, and a desktop 26.x panel (or a firmware 27 panel asked for
++ * it) PQ content it shows as EDR; dcp_crtc_atomic_check() refuses it
++ * elsewhere.
+  */
+ static int apple_connector_attach_hdr(struct drm_connector *connector,
+ 				      bool panel_edr)
+@@ -1046,7 +1047,8 @@ static int apple_connector_create(struct drm_device *drm,
+ 			goto err_cleanup;
+ 	}
+ 	ret = apple_connector_attach_hdr(&connector->base,
+-					 dcp_fw_compat_is_desktop(dcp));
++					 dcp_fw_compat_is_desktop(dcp) ||
++					 dcp_fw27_panel_hdr_enabled(dcp));
+ 	if (ret)
+ 		goto err_cleanup;
+ 
+diff --git a/drivers/gpu/drm/apple/dcp-edr.h b/drivers/gpu/drm/apple/dcp-edr.h
+index 462f3076bee2..fe679962c5fa 100644
+--- a/drivers/gpu/drm/apple/dcp-edr.h
++++ b/drivers/gpu/drm/apple/dcp-edr.h
+@@ -4,6 +4,8 @@
+ #ifndef __APPLE_DCP_EDR_H__
+ #define __APPLE_DCP_EDR_H__
+ 
++#include <linux/bitops.h>
++#include <linux/bits.h>
+ #include <linux/limits.h>
+ #include <linux/math64.h>
+ #include <linux/minmax.h>
+@@ -63,4 +65,74 @@ static inline u32 dcp_edr_next(u32 cur, u32 target, u32 prev_sdr, u32 sdr)
+ 		     target);
+ }
+ 
++/* The binary64 nearest @num / @den, for small positive integers. */
++static inline u64 dcp_binary64_ratio(u64 num, u64 den)
++{
++	u64 mantissa = 0;
++	int exponent = 0;
++
++	while (num >= 2 * den) {
++		den <<= 1;
++		exponent++;
++	}
++	while (num < den) {
++		num <<= 1;
++		exponent--;
++	}
++	/* den <= num < 2 den: 53 quotient bits, then round to nearest */
++	for (unsigned int i = 0; i < 53; i++) {
++		mantissa <<= 1;
++		if (num >= den) {
++			mantissa |= 1;
++			num -= den;
++		}
++		num <<= 1;
++	}
++	if (num >= den && ++mantissa == 1ULL << 53) {
++		mantissa >>= 1;
++		exponent++;
++	}
++	return (u64)(exponent + 1023) << 52 | (mantissa & GENMASK_ULL(51, 0));
++}
++
++/* The binary64 of @nits (exact: every u32 is representable); 0 for 0. */
++static inline u64 dcp_binary64_nits(u32 nits)
++{
++	unsigned int exponent;
++
++	if (!nits)
++		return 0;
++	exponent = fls(nits) - 1;
++	return (u64)(exponent + 1023) << 52 |
++	       (((u64)nits << (52 - exponent)) & GENMASK_ULL(51, 0));
++}
++
++/* The u32 a binary64 holds, when it is a whole number in range; else 0. */
++static inline u32 dcp_binary64_to_u32(u64 bits)
++{
++	int exponent = (int)((bits >> 52) & 0x7ff) - 1023;
++	u64 mantissa = (bits & GENMASK_ULL(51, 0)) | 1ULL << 52;
++
++	if (bits >> 63 || exponent < 0 || exponent > 31)
++		return 0;
++	if (mantissa & GENMASK_ULL(51 - exponent, 0))
++		return 0;
++	return mantissa >> (52 - exponent);
++}
++
++/*
++ * What one swap carries for EDR (see dcp_edr_plan() in iomfb_template.c):
++ * the brightness, flagged by bl_update; the display scale 1000 / @hm,
++ * flagged by bl_flags[2]; the headroom @hm / 1000 (or 1 when EDR ends),
++ * flagged by bl_flags[4]; and the limit 1.3 x the brightness in the middle
++ * of a ramp, flagged by bl_flags[1].
++ */
++struct dcp_edr_plan {
++	u32 nits;		/* the brightness to ask for */
++	u32 hm;			/* applied headroom x1000 */
++	bool headroom;		/* carry the headroom used */
++	bool headroom_unity;	/* ... as 1 (EDR ending) */
++	bool limit;		/* carry the brightness limit */
++};
++
+ #endif /* __APPLE_DCP_EDR_H__ */
+diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
+index 3aa63e0ceb37..832b5e743186 100644
+--- a/drivers/gpu/drm/apple/dcp-internal.h
++++ b/drivers/gpu/drm/apple/dcp-internal.h
+@@ -1037,6 +1037,9 @@ static inline bool dcp_fw27_panel(struct apple_dcp *dcp)
+ bool dcp_vrr_allowed(struct apple_dcp *dcp);
+ bool dcp_log_color_modes(void);
+ bool dcp_fw27_panel_depth10(struct apple_dcp *dcp);
++bool dcp_fw27_panel_hdr(struct apple_dcp *dcp);
++bool dcp_fw27_panel_edr(struct apple_dcp *dcp);
++u32 dcp_backlight_present_nits(struct apple_dcp *dcp);
+ 
+ /*
+  * Does @dcp's firmware speak the 14.7 AFK, DPTX and DPAV endpoint protocol,
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 08de1b999e42..6c8b29ca060d 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -917,7 +917,7 @@ static void dcp_panel_adt_identity(struct apple_dcp *dcp)
+ 		dcp->panel.height_mm = panel.height_mm;
+ 	if (dcp->panel_identity)
+ 		dcp->panel_identity->adt = panel.identity;
+-	if (desktop)
++	if (desktop || dcp_fw27_panel_hdr(dcp))
+ 		dcp->panel.edr_ceiling = dcp_edr_ceiling(panel.edr_potential_headroom);
+ 	dev_info(dcp->dev, "panel identity fallback: ADT %s, panel node %s, dimensions %ux%u mm\n",
+ 		 ret ? "unavailable" : "parsed", panel.found ? "present" : "absent",
+diff --git a/drivers/gpu/drm/apple/dcp.h b/drivers/gpu/drm/apple/dcp.h
+index ebdb77cec11e..ce255eb462ee 100644
+--- a/drivers/gpu/drm/apple/dcp.h
++++ b/drivers/gpu/drm/apple/dcp.h
+@@ -79,6 +79,8 @@ bool dcp_fw_compat_is_14_7(struct platform_device *pdev);
+ bool dcp_fw_compat_is_desktop(struct platform_device *pdev);
+ /* A firmware 27 panel asked to offer "max bpc" 8-10 (appledrm.fw27_panel_depth10). */
+ bool dcp_fw27_panel_max_bpc(struct platform_device *pdev);
++/* A firmware 27 panel asked to offer HDR (appledrm.fw27_panel_hdr). */
++bool dcp_fw27_panel_hdr_enabled(struct platform_device *pdev);
+ unsigned int dcp_gamma_lut_size(struct platform_device *pdev);
+ /* T6041 external display processors may join the DRM device. */
+ bool dcp_t6041_ext_enabled(void);
+diff --git a/drivers/gpu/drm/apple/dcp_backlight.c b/drivers/gpu/drm/apple/dcp_backlight.c
+index 46c162f20121..31a67d19c258 100644
+--- a/drivers/gpu/drm/apple/dcp_backlight.c
++++ b/drivers/gpu/drm/apple/dcp_backlight.c
+@@ -269,6 +269,23 @@ static int dcp_get_brightness(struct backlight_device *bd)
+ 	return dcp->brightness.nits;
+ }
+ 
++/*
++ * The panel level in nits a present that carries no level stands on, for
++ * the EDR headroom of a firmware 27 panel; 0 while it is unknown.
++ */
++u32 dcp_backlight_present_nits(struct apple_dcp *dcp)
++{
++	unsigned long flags;
++	int actual;
++
++	if (!dcp_backlight_active(dcp))
++		return dcp->brightness.nits;
++	spin_lock_irqsave(&dcp->backlight.lock, flags);
++	actual = dcp_bl_reported_actual(&dcp->backlight.state, false);
++	spin_unlock_irqrestore(&dcp->backlight.lock, flags);
++	return actual > 0 ? actual : 0;
++}
++
+ int dcp_backlight_configure(struct apple_dcp *dcp, u32 maximum,
+ 			    bool inherited_valid, u32 inherited,
+ 			    bool default_valid, u32 default_nits,
+diff --git a/drivers/gpu/drm/apple/iomfb.c b/drivers/gpu/drm/apple/iomfb.c
+index 472b36a042f6..f80a8fa43ac4 100644
+--- a/drivers/gpu/drm/apple/iomfb.c
++++ b/drivers/gpu/drm/apple/iomfb.c
+@@ -88,6 +88,40 @@ bool dcp_fw27_panel_max_bpc(struct platform_device *pdev)
+ 	return dcp_fw27_panel_depth10(platform_get_drvdata(pdev));
+ }
+ 
++/*
++ * HDR on a firmware 27 panel, as the desktop 26.x panel has it: the
++ * connector offers Colorspace, HDR_OUTPUT_METADATA and
++ * PQ_REFERENCE_LUMINANCE; a PQ commit selects the timing's PQ element when
++ * the firmware lists one and tags RGB surfaces BT.2020 PQ; the panel's peak
++ * luminance (A128) and the ADT EDR ceiling are read.  fw27_panel_edr adds
++ * the EDR swap fields (brightness x headroom, display scale, headroom) at
++ * the desktop 26.x offsets, which firmware 27 has not been seen to take yet.
++ */
++static bool fw27_panel_hdr;
++module_param(fw27_panel_hdr, bool, 0444);
++MODULE_PARM_DESC(fw27_panel_hdr,
++		 "Firmware 27 panels: offer the HDR connector properties, PQ surfaces and the panel peak (default: off)");
++
++static bool fw27_panel_edr;
++module_param(fw27_panel_edr, bool, 0644);
++MODULE_PARM_DESC(fw27_panel_edr,
++		 "Firmware 27 panels: show PQ content as EDR through the desktop 26.x swap fields (default: off; needs fw27_panel_hdr)");
++
++bool dcp_fw27_panel_hdr(struct apple_dcp *dcp)
++{
++	return dcp_fw27_panel(dcp) && READ_ONCE(fw27_panel_hdr);
++}
++
++bool dcp_fw27_panel_edr(struct apple_dcp *dcp)
++{
++	return dcp_fw27_panel_hdr(dcp) && READ_ONCE(fw27_panel_edr);
++}
++
++bool dcp_fw27_panel_hdr_enabled(struct platform_device *pdev)
++{
++	return dcp_fw27_panel_hdr(platform_get_drvdata(pdev));
++}
++
+ /* Whether VRR_ENABLED may turn adaptive sync on for @dcp's display. */
+ bool dcp_vrr_allowed(struct apple_dcp *dcp)
+ {
+@@ -2589,7 +2623,8 @@ static bool dcp_hdr_output_supported(struct apple_dcp *dcp)
+ 	if (iomfb_is_m4(dcp))
+ 		return false;
+ 	return dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP ||
+-	       dcp->hw.iomfb_method_profile == DCP_IOMFB_METHODS_H17P_EXTERNAL;
++	       dcp->hw.iomfb_method_profile == DCP_IOMFB_METHODS_H17P_EXTERNAL ||
++	       dcp_fw27_panel_hdr(dcp);
+ }
+ 
+ /*
+@@ -2598,7 +2633,8 @@ static bool dcp_hdr_output_supported(struct apple_dcp *dcp)
+  */
+ static bool dcp_panel_edr_supported(struct apple_dcp *dcp)
+ {
+-	return dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP &&
++	return (dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP ||
++		dcp_fw27_panel_edr(dcp)) &&
+ 	       dcp_has_panel(dcp) && READ_ONCE(dcp->panel.peak_nits);
+ }
+ 
+diff --git a/drivers/gpu/drm/apple/iomfb_template.c b/drivers/gpu/drm/apple/iomfb_template.c
+index 17729cefb29a..5e8082b32766 100644
+--- a/drivers/gpu/drm/apple/iomfb_template.c
++++ b/drivers/gpu/drm/apple/iomfb_template.c
+@@ -111,47 +111,8 @@ static dcp_bool_arg_t dcp_bool_arg(bool value)
+  */
+ static void dcp_swap_set_brightness(struct DCP_FW_NAME(dcp_swap) *swap, u32 nits)
+ {
+-	u64 bits = 0;
+-
+-	if (nits) {
+-		unsigned int exponent = fls(nits) - 1;
+-
+-		bits = (u64)(exponent + 1023) << 52;
+-		bits |= ((u64)nits << (52 - exponent)) & GENMASK_ULL(51, 0);
+-	}
+-
+ 	swap->bl_update = 1;
+-	put_unaligned_le64(bits, &swap->bl_nits);
+-}
+-
+-/* The binary64 nearest @num / @den, for small positive integers. */
+-static u64 dcp_binary64_ratio(u64 num, u64 den)
+-{
+-	u64 mantissa = 0;
+-	int exponent = 0;
+-
+-	while (num >= 2 * den) {
+-		den <<= 1;
+-		exponent++;
+-	}
+-	while (num < den) {
+-		num <<= 1;
+-		exponent--;
+-	}
+-	/* den <= num < 2 den: 53 quotient bits, then round to nearest */
+-	for (unsigned int i = 0; i < 53; i++) {
+-		mantissa <<= 1;
+-		if (num >= den) {
+-			mantissa |= 1;
+-			num -= den;
+-		}
+-		num <<= 1;
+-	}
+-	if (num >= den && ++mantissa == 1ULL << 53) {
+-		mantissa >>= 1;
+-		exponent++;
+-	}
+-	return (u64)(exponent + 1023) << 52 | (mantissa & GENMASK_ULL(51, 0));
++	put_unaligned_le64(dcp_binary64_nits(nits), &swap->bl_nits);
+ }
+ 
+ /*
+@@ -176,63 +137,6 @@ static u64 dcp_binary64_ratio(u64 num, u64 den)
+ 				   &(swap)->field);			\
+ 	} while (0)
+ 
+-/*
+- * @nits is the level a swap carries itself (@carries: a brightness change
+- * or power on), else the current one stands.  A swap that turns the panel
+- * off keeps its zero.  After a power off the ramp starts again from 1.0:
+- * asking for the peak at once does not take after a power on, on macOS
+- * either.
+- */
+-static void dcp_edr_prepare(struct apple_dcp *dcp, struct DCP_FW_NAME(dcp_swap) *swap,
+-			    bool carries, u32 nits)
+-{
+-	u32 peak = READ_ONCE(dcp->panel.peak_nits);
+-	u32 sdr = carries ? nits : dcp_backlight_desktop_nits(dcp);
+-	u32 cur = dcp->edr_hm ?: DCP_EDR_UNITY, target = DCP_EDR_UNITY, next, bri;
+-	u32 prev_sdr = dcp->edr_sdr;
+-	bool restart = dcp->edr_restart;
+-
+-	dcp->edr_restart = false;
+-	if (!dcp->output_edr && !dcp->edr_hm)
+-		return;		/* no EDR, and none to wind down */
+-	if (!sdr)
+-		return;
+-	if (dcp->output_edr)
+-		target = dcp_edr_target(peak, sdr, dcp->panel.edr_ceiling);
+-	if (restart && dcp->output_edr) {
+-		cur = DCP_EDR_UNITY;
+-		prev_sdr = sdr;
+-	}
+-	dcp->edr_sdr = sdr;
+-	if (cur == target && !carries && !restart && dcp->edr_sent == dcp->output_edr)
+-		return;
+-
+-	/*
+-	 * Up in steps; down at once.  macOS ramps down too, but its compositor
+-	 * keeps presenting until the ramp ends.  Here a still desktop may send
+-	 * no further swap, and a ramp stuck partway leaves SDR content dimmed
+-	 * by the scale (headroom used is already 1.0).
+-	 */
+-	next = dcp_edr_next(cur, target, prev_sdr, sdr);
+-
+-	bri = (u64)sdr * next / DCP_EDR_UNITY;
+-	dcp_swap_set_brightness(swap, bri);
+-	dcp_swap_set_ratio(swap, edr_scale, 2, 1000, next);
+-	if (dcp->output_edr) {
+-		dcp_swap_set_ratio(swap, edr_headroom, 4, next, 1000);
+-		dcp->edr_sent = true;
+-	} else if (dcp->edr_sent) {
+-		dcp_swap_set_ratio(swap, edr_headroom, 4, 1, 1);
+-		dcp->edr_sent = false;
+-	}
+-	if (next != target && next != cur) {
+-		swap->bl_flags[1] = 1;
+-		put_unaligned_le64(dcp_binary64_ratio(bri * 13, 10), &swap->bl_limit);
+-	}
+-	/* Back at 1.0 without EDR: leave the firmware's values alone again. */
+-	dcp->edr_hm = (!dcp->output_edr && next == 1000) ? 0 : next;
+-}
+-
+ /*
+  * The firmware's own client passes its IOUserClient pointer as an opaque
+  * client identity; this one passes a cookie chosen at probe.
+@@ -279,12 +183,6 @@ static const struct dcp_method_entry dcp_set_gamma_table_method = {
+ 	.tag = { 'A', '4', '2', '1' },
+ };
+ 
+-/* The peak luminance of the panel, in 16.16 nits. */
+-static const struct dcp_method_entry dcp_max_panel_brightness_method = {
+-	.name = "iomfbep_max_panel_brightness",
+-	.tag = { 'A', '1', '2', '8' },
+-};
+-
+ static_assert(sizeof(struct DCP_FW_NAME(dcp_swap)) == 0x588);
+ static_assert(offsetof(struct DCP_FW_NAME(dcp_swap), swap_id) == 0x98);
+ static_assert(offsetof(struct DCP_FW_NAME(dcp_swap), bl_update) == 0x354);
+@@ -322,6 +220,145 @@ static_assert(sizeof(struct dcp_set_frame_sync_props_resp_v26_6_desktop) == 0x50
+ #define dcp_swap_intent_t		struct dcp_swap_complete_intent_gated
+ #endif
+ 
++#if DCP_FW_DESKTOP_26(DCP_FW_VER) || \
++	(DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++/* The peak luminance of the panel, in 16.16 nits. */
++static const struct dcp_method_entry dcp_max_panel_brightness_method = {
++	.name = "iomfbep_max_panel_brightness",
++	.tag = { 'A', '1', '2', '8' },
++};
++
++/*
++ * EDR on a panel, as macOS drives it (see dcp-edr.h).  With applied
++ * headroom H (x1000 below), a swap asks for brightness SDR white x H,
++ * display EDR scale 1 / H and, while the frame uses EDR, headroom used H;
++ * the firmware shows a PQ surface at (PQ nits / 100) x the scale x the
++ * panel level, so PQ 100 lands at SDR white and highlights reach the panel
++ * peak.  H rises in steps linear in stops, one per swap, about 1 s when
++ * EDR starts, with a brightness limit of 1.3 x the brightness in the middle
++ * of the ramp.  H never exceeds the panel's potential headroom from the
++ * ADT, as on macOS.  When EDR ends, headroom used drops to 1.0 and H
++ * returns to 1.0.  Unchanged values are left out: the firmware keeps them.
++ *
++ * @nits is the level a swap carries itself (@carries: a brightness change
++ * or power on), else @standing, the current one, stands.  A swap that turns
++ * the panel off keeps its zero.  After a power off the ramp starts again
++ * from 1.0: asking for the peak at once does not take after a power on, on
++ * macOS either.  Returns false when the swap carries no EDR values.
++ */
++static bool dcp_edr_plan(struct apple_dcp *dcp, bool carries, u32 nits,
++			 u32 standing, struct dcp_edr_plan *plan)
++{
++	u32 peak = READ_ONCE(dcp->panel.peak_nits);
++	u32 sdr = carries ? nits : standing;
++	u32 cur = dcp->edr_hm ?: DCP_EDR_UNITY, target = DCP_EDR_UNITY, next;
++	u32 prev_sdr = dcp->edr_sdr;
++	bool restart = dcp->edr_restart;
++
++	dcp->edr_restart = false;
++	if (!dcp->output_edr && !dcp->edr_hm)
++		return false;	/* no EDR, and none to wind down */
++	if (!sdr)
++		return false;
++	if (dcp->output_edr)
++		target = dcp_edr_target(peak, sdr, dcp->panel.edr_ceiling);
++	if (restart && dcp->output_edr) {
++		cur = DCP_EDR_UNITY;
++		prev_sdr = sdr;
++	}
++	dcp->edr_sdr = sdr;
++	if (cur == target && !carries && !restart && dcp->edr_sent == dcp->output_edr)
++		return false;
++
++	/*
++	 * Up in steps; down at once.  macOS ramps down too, but its compositor
++	 * keeps presenting until the ramp ends.  Here a still desktop may send
++	 * no further swap, and a ramp stuck partway leaves SDR content dimmed
++	 * by the scale (headroom used is already 1.0).
++	 */
++	next = dcp_edr_next(cur, target, prev_sdr, sdr);
++
++	*plan = (struct dcp_edr_plan) {
++		.nits = (u64)sdr * next / DCP_EDR_UNITY,
++		.hm = next,
++		.limit = next != target && next != cur,
++	};
++	if (dcp->output_edr) {
++		plan->headroom = true;
++		dcp->edr_sent = true;
++	} else if (dcp->edr_sent) {
++		plan->headroom = true;
++		plan->headroom_unity = true;
++		dcp->edr_sent = false;
++	}
++	/* Back at 1.0 without EDR: leave the firmware's values alone again. */
++	dcp->edr_hm = (!dcp->output_edr && next == 1000) ? 0 : next;
++	return true;
++}
++#endif
++
++#if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++/*
++ * EDR on a firmware 27 panel: the plan goes into the present's swap record
++ * at the desktop 26.x offsets (see iomfb_v27.h), after the H17P backlight
++ * encoding set the level this present carries.
++ */
++static void dcp_edr_present_v27(struct apple_dcp *dcp, struct dcp_swap_v27 *swap)
++{
++	struct dcp_edr_plan plan;
++	bool carries = swap->brightness_update & 1;
++	u32 nits = carries ? dcp_binary64_to_u32(swap->brightness_nits) : 0;
++
++	if (!dcp_fw27_panel_edr(dcp) && !dcp->edr_hm)
++		return;
++	if (!dcp_edr_plan(dcp, carries, nits, dcp_backlight_present_nits(dcp), &plan))
++		return;
++	swap->brightness_update = 1;
++	swap->brightness_nits = dcp_binary64_nits(plan.nits);
++	swap->bl_flags[2] = 1;
++	put_unaligned_le64(dcp_binary64_ratio(1000, plan.hm), &swap->edr_scale);
++	if (plan.headroom) {
++		swap->bl_flags[4] = 1;
++		put_unaligned_le64(plan.headroom_unity ? dcp_binary64_ratio(1, 1) :
++				   dcp_binary64_ratio(plan.hm, 1000),
++				   &swap->edr_headroom);
++	}
++	if (plan.limit) {
++		swap->bl_flags[1] = 1;
++		put_unaligned_le64(dcp_binary64_ratio(plan.nits * 13, 10),
++				   &swap->bl_limit);
++	}
++}
++#endif
++
++#if DCP_FW_DESKTOP_26(DCP_FW_VER)
++/*
++ * @nits is the level a swap carries itself (@carries: a brightness change
++ * or power on), else the current one stands.  A swap that turns the panel
++ * off keeps its zero.  After a power off the ramp starts again from 1.0:
++ * asking for the peak at once does not take after a power on, on macOS
++ * either.
++ */
++static void dcp_edr_prepare(struct apple_dcp *dcp, struct DCP_FW_NAME(dcp_swap) *swap,
++			    bool carries, u32 nits)
++{
++	struct dcp_edr_plan plan;
++
++	if (!dcp_edr_plan(dcp, carries, nits, dcp_backlight_desktop_nits(dcp), &plan))
++		return;
++	dcp_swap_set_brightness(swap, plan.nits);
++	dcp_swap_set_ratio(swap, edr_scale, 2, 1000, plan.hm);
++	if (plan.headroom)
++		dcp_swap_set_ratio(swap, edr_headroom, 4,
++				   plan.headroom_unity ? 1 : plan.hm,
++				   plan.headroom_unity ? 1 : 1000);
++	if (plan.limit) {
++		swap->bl_flags[1] = 1;
++		put_unaligned_le64(dcp_binary64_ratio(plan.nits * 13, 10), &swap->bl_limit);
++	}
++}
++#endif
++
+ struct dcp_wait_cookie {
+ 	struct kref refcount;
+ 	struct completion done;
+@@ -381,6 +418,8 @@ static void dcp_swap_submit(struct apple_dcp *dcp, bool oob,
+ 			dcp->present_h17p.swap[0x354] & 1;
+ 		dcp->present_v27.swap.brightness_nits =
+ 			get_unaligned_le64(dcp->present_h17p.swap + 0x35e);
++		if (dcp_has_panel(dcp))
++			dcp_edr_present_v27(dcp, &dcp->present_v27.swap);
+ 		data = iomfb_v27_swap_wire(dcp, &dcp->present_v27,
+ 					   &dcp->present_v27_3, &len);
+ #else
+@@ -823,7 +862,6 @@ static bool iomfbep_cb_create_dfb_surface(struct apple_dcp *dcp, int tag,
+ 	if (!req)
+ 		return true;
+ 
+-
+ #if (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
+ 	{
+ 		struct dcp_dfb_dimensions_h17p dim;
+@@ -4226,7 +4264,8 @@ static void res_is_main_display(struct apple_dcp *dcp, void *out, void *cookie)
+ 	complete(&dcp->start_done);
+ }
+ 
+-#if DCP_FW_DESKTOP_26(DCP_FW_VER)
++#if DCP_FW_DESKTOP_26(DCP_FW_VER) || \
++	(DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
+ static void res_max_panel_brightness(struct apple_dcp *dcp, void *out, void *cookie)
+ {
+ 	u32 peak = out ? get_unaligned_le32(out) >> 16 : 0;
+@@ -4251,6 +4290,12 @@ static void init_3(struct apple_dcp *dcp, void *out, void *cookie)
+ 			 sizeof(u32), NULL, res_max_panel_brightness, NULL);
+ 		return;
+ 	}
++#elif (DCP_FW_H17(DCP_FW_VER) && DCP_FW_VER >= DCP_FW_VERSION(27, 0, 0))
++	if (dcp_fw27_panel_hdr(dcp)) {
++		dcp_push(dcp, false, &dcp_max_panel_brightness_method, 0,
++			 sizeof(u32), NULL, res_max_panel_brightness, NULL);
++		return;
++	}
+ #endif
+ 	dcp_is_main_display(dcp, false, res_is_main_display, NULL);
+ }
+diff --git a/drivers/gpu/drm/apple/iomfb_v27.h b/drivers/gpu/drm/apple/iomfb_v27.h
+index 6a33e13bf6de..24af235f473b 100644
+--- a/drivers/gpu/drm/apple/iomfb_v27.h
++++ b/drivers/gpu/drm/apple/iomfb_v27.h
+@@ -32,9 +32,22 @@ struct dcp_swap_v27 {
+ 	u8 reserved_158[0x1fc];
+ 
+ 	u8 brightness_update;
+-	u8 reserved_355[9];
++	u8 reserved_355[3];
++	/*
++	 * The desktop 26.x EDR fields, at the same offsets (see
++	 * iomfb_template.h): the brightness limit at +0x376 (bl_flags[1]),
++	 * the display EDR scale at +0x37e (bl_flags[2]) and the headroom the
++	 * frame uses at +0x3e6 (bl_flags[4]), binary64 values.  Firmware 27
++	 * has not been seen to take them: sent only with fw27_panel_edr.
++	 */
++	u8 bl_flags[6];
+ 	u64 brightness_nits;
+-	u8 reserved_366[0x37a];
++	u8 reserved_366[0x10];
++	__le64 bl_limit;
++	__le64 edr_scale;
++	u8 reserved_386[0x60];
++	__le64 edr_headroom;
++	u8 reserved_3ee[0x2f2];
+ } __packed;
+ 
+ struct dcp_surface_v27 {
+@@ -76,7 +89,11 @@ static_assert(offsetof(struct dcp_swap_submit_req_v27, surf) == 0x6e0);
+ static_assert(offsetof(struct dcp_swap_submit_req_v27, surf_iova) == 0xf90);
+ static_assert(offsetof(struct dcp_swap_submit_req_v27, swap_null) == 0xfea);
+ static_assert(offsetof(struct dcp_swap_v27, brightness_update) == 0x354);
++static_assert(offsetof(struct dcp_swap_v27, bl_flags) == 0x358);
+ static_assert(offsetof(struct dcp_swap_v27, brightness_nits) == 0x35e);
++static_assert(offsetof(struct dcp_swap_v27, bl_limit) == 0x376);
++static_assert(offsetof(struct dcp_swap_v27, edr_scale) == 0x37e);
++static_assert(offsetof(struct dcp_swap_v27, edr_headroom) == 0x3e6);
+ 
+ /*
+  * Firmware 27.3 grew IOMFBSwap from 0x6e0 to 0x830 bytes, so its swap_submit
+-- 
+2.56.0
+
