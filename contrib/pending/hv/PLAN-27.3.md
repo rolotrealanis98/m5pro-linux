@@ -7,8 +7,10 @@ placeholders; the private plan, scripts and binaries are in the Studio's `~/Work
 
 - Rung i PASS (14:40 UTC), rung ii PASS (19:37 UTC: proxy on the Studio 70 s after reboot, identity and watchdog
   control OK; details and the GIC probes taken in that session in `contrib/validated/integration/RESULTS.md`).
-- Rung iii-a waits for the guest files from the Preboot volume (apfs-fuse route, `tools/README.md` of the
-  attended kit); rung iii-b waits for Rolando's decision below.
+- Rung iii-a PASS (21:32 UTC): macOS 27.3 boots into IOKit matching under the hypervisor with all 18 cores
+  (guest files via an apfs-fuse read-only mount of Preboot). Boot args must omit `serial=3` (XNU hangs switching
+  its console to the emulated uart0); the panel is the console. Rung iv (tracers) started the same evening.
+  Rung iii-b waits for Rolando's decision below.
 
 ## 0. Decision needed before rung iii-b (read first)
 
