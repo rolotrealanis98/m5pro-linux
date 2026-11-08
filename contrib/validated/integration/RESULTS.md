@@ -2153,3 +2153,20 @@ Interim: the boot slot is back on `daily-n1k-20261107-512a1c00.bin` (simpledrm s
 a client fault can still crash Hyprland there but cannot wedge the panel, and the session restarts within seconds.
 GPU acceleration stays off for Chrome, Chromium and Electron apps (flags files). The VRR DCP daily returns once the
 recovery fixes pass the reproducer. `run-restore-daily.sh` points at daily-n1k again. Tracker: issue #36.
+
+## 2026-11-08 11:56 UTC — Hyprland crash #3 of the day (daily-n1k, simpledrm + GPU)
+
+- Sequence (dmesg + crash reports): chrome faulted the GPU at uptime 2299 s (recovery gen 7)
+  → Hyprland 868 lost device → zink SIGSEGV. Rolando ran `sudo m5pro-rescue` from tty3 at
+  11:54 (evidence `/root/wedge-1154`): the session restart brought Hyprland 51873 up, quickshell
+  51934 faulted the GPU at 2370 s (gen 8) → Hyprland crashed again → `start-hyprland` relaunched
+  it with `--safe-mode`. The rescue script then judged "the desktop draws" and said nothing to do.
+- Fix 1: `m5pro-rescue status` now reports SAFE MODE (rc 3) and `auto` restarts the session
+  again (retries once). Installed on the MacBook; repo copy updated.
+- Fix 2: `QT_QUICK_BACKEND=software` moved into `~/.local/bin/hypr-session` (exported before
+  either session starts) so every launch path of the bar inherits it; `environment.d` and the
+  user manager environment only covered uwsm launches. New session 11:56: Hyprland 58327 normal
+  mode, quickshell 58394 with the software backend (it still holds the render node open; the
+  blame-logging kernel will tell whether it submits work).
+- Chrome stays GPU-enabled per Rolando; each Chrome fault still takes the compositor down until
+  the recovery kernel (`j716s-daily-dcp-recovery2`) is tested. Evidence: `/root/wedge-1156`.

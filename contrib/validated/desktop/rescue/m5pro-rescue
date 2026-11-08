@@ -21,9 +21,14 @@ status() {
   echo "Hyprland: $(pgrep -xc Hyprland) running; crash reports this boot: $(find /home/$U/.cache/hyprland -name 'hyprlandCrashReport*.txt' -newermt "@$(( $(date +%s) - $(cut -d. -f1 /proc/uptime) ))" 2>/dev/null | wc -l)"
   echo "GPU recoveries this boot: $(dmesg | grep -c 'recovery fault'); clients hit: $(dmesg | grep -E 'GPU work of a client failed' | sed -E 's/.*client ([A-Za-z0-9_.-]+)\[.*/\1/' | sort | uniq -c | tr '\n' ' ')"
   local L; L=$(ls -t "$X"/hypr/*/hyprland.log 2>/dev/null | head -1); [ -n "$L" ] && echo "page flips stuck (log): $(tr -d '\000' < "$L" | grep -ac 'page-flip is awaiting')"
-  if [ "$(pgrep -xc Hyprland)" -gt 0 ]; then if draws; then echo "RESULT: the desktop draws."; return 0; else echo "RESULT: Hyprland runs but nothing reaches the panel (display pipeline wedged)."; return 2; fi; else echo "RESULT: Hyprland is not running."; return 1; fi; }
+  if [ "$(pgrep -xc Hyprland)" -gt 0 ]; then
+    # start-hyprland relaunches a crashed Hyprland with --safe-mode (no config, no bar,
+    # default keybinds). That session draws, but it is not the desktop: restart it.
+    if pgrep -xa Hyprland | grep -q -- '--safe-mode'; then echo "RESULT: Hyprland is in SAFE MODE (relaunched after a crash, your config is not loaded)."; return 3; fi
+    if draws; then echo "RESULT: the desktop draws."; return 0; else echo "RESULT: Hyprland runs but nothing reaches the panel (display pipeline wedged)."; return 2; fi
+  else echo "RESULT: Hyprland is not running."; return 1; fi; }
 evidence() { local D=/root/wedge-$(date +%H%M); mkdir -p "$D"; dmesg > "$D/dmesg.txt"; cp "$X"/hypr/*/hyprland.log "$D"/ 2>/dev/null; cp /home/$U/.cache/hyprland/hyprlandCrashReport*.txt "$D"/ 2>/dev/null; mount -t debugfs none /sys/kernel/debug 2>/dev/null; cp /sys/kernel/debug/dma_buf/bufinfo "$D/bufinfo.txt" 2>/dev/null; echo w > /proc/sysrq-trigger; sleep 1; dmesg | awk '/sysrq: Show Blocked State/{f=1} f' > "$D/blocked.txt"; cat /sys/kernel/debug/dri/*/state > "$D/drm-state.txt" 2>/dev/null; echo "evidence saved in $D"; }
-session() { echo "restarting the desktop session..."; systemctl restart getty@tty2; sleep 15; status; }
+session() { echo "restarting the desktop session..."; systemctl restart getty@tty2; sleep 20; status; }
 do_reboot() { evidence; echo "syncing and settling 30 s, then rebooting (the boot slot is unchanged)"; sync; sleep 30; systemctl reboot; }
 case "${1:-auto}" in
   status) status ;;
@@ -34,6 +39,7 @@ case "${1:-auto}" in
     if [ $rc = 0 ]; then echo "nothing to do (if your screen is black anyway, press Ctrl+Alt+F2 to return to the desktop)"; exit 0; fi
     evidence; session; rc=$?
     if [ $rc = 0 ]; then echo "recovered: press Ctrl+Alt+F2 to return to the desktop"; exit 0; fi
+    if [ $rc = 3 ]; then echo; echo "The restarted session crashed again at once and is in safe mode; retrying once."; session; rc=$?; [ $rc = 0 ] && { echo "recovered: press Ctrl+Alt+F2 to return to the desktop"; exit 0; }; fi
     echo; echo "The session came back but the panel is wedged; only a reboot clears it."
     read -r -p "reboot now? [y/N] " a; [ "$a" = y ] && do_reboot || echo "not rebooting; run: sudo m5pro-rescue reboot" ;;
   *) echo "usage: m5pro-rescue [status|session|reboot]"; exit 2 ;;

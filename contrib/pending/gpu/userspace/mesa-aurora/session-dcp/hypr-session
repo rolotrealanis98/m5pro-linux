@@ -14,6 +14,12 @@ LIB=${HYPR_CARDS_LIB:-/usr/local/lib/hypr-cards.sh}
 # shellcheck source=hypr-cards.sh
 [ -r "$LIB" ] && . "$LIB"
 
+# Qt Quick apps (the Omarchy bar, quickshell) render in software: their GPU
+# work faulted the Apple GPU and took the compositor down (tracker #36).
+# Exported here so every launch path (exec-once, uwsm, omarchy-restart-shell)
+# inherits it. Remove once the GPU recovery fixes land.
+export QT_QUICK_BACKEND=software
+
 aurora_present() {
   declare -F hypr_cards_scan >/dev/null || return 1
   hypr_cards_scan
