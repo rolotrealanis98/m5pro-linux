@@ -168,3 +168,7 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
 - rolotrealanis98/linux-aurora fork: broken on GitHub's side (API never indexed pushes); Rolando approved deleting and
   re-forking; the token lacks the delete_repo scope, so the delete happens in the web UI, after which the fork, push and
   PR creation run automatically.
+
+## 2026-11-08 02:20 UTC: omacom/linux-aurora J716s PR opened
+
+- https://github.com/omacom/linux-aurora/pull/413 "Add the 16-inch MacBook Pro with the M5 Pro (J716s)" (12 commits on edimoldovan's #404, from the re-created fork rolotrealanis98/linux-aurora, branch j716s). The first fork never indexed pushes; the new one needed pushes by explicit URL because the old remote-tracking refs made git skip the push.
