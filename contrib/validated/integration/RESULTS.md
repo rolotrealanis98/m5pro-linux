@@ -2095,3 +2095,17 @@ Payload `omacom-wdt-keep-r2-20261108-e52ca584.bin` (m1n1 v1.6.1-430-g64c8ce2 = o
 edimoldovan's late-heap commit, daily kernel a0f2f30c967b, `t6050-n1=4`, self-test on): booted on the primary slot,
 54 s to ssh, 18 CPUs, N1 trained by the loader and adopted, Wi-Fi and Bluetooth up, stage-2 log shows
 `FDT: retained heap [...]` and `FDT: late heap [...] retained` before the jump. The VRR daily was restored afterwards.
+
+## 2026-11-08 09:55 UTC: desktop fixes with Rolando at the machine (VRR DCP daily)
+
+- Speakers silent: the chain was linked (bring-up filter sink -> hidden RawSpeakers, 6 channels) but the raw speaker
+  route was stored at 2.7 % in wireplumber's state, the sink at 48 %, under the kernel -30 dB ceiling. Set the route to
+  100 % (`~/.local/state/wireplumber/default-routes`, backup kept), the sink to 60 %, the speaker sink as the default;
+  Rolando heard the test tone. The ceiling stays until the listening test.
+- Wallpaper missing: Omarchy 4.5's shell reads the image size with `magick identify`; `imagemagick` was not installed.
+  Installed it and restarted the shell (`omarchy-restart-shell`).
+- Terminals black and repeated "app failure" notifications: the native Gallium GL driver cannot build Alacritty's
+  fragment program (`G17G Gallium could not build the native fragment program`, draws "outside the native profile"
+  dropped). The desktop GL is back on zink (`session.env.zink` copied over `session.env`, `session.env.native-20261108`
+  kept), desktop restarted: Hyprland on the DCP session with zink, Alacritty clean. Native GL stays the A/B variant;
+  analysis of the app regressions in `contrib/pending/gpu/gl-native/APP-REGRESSIONS.md` (in progress).
