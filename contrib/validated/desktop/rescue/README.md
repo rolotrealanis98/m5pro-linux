@@ -17,3 +17,13 @@ Why this happens today: a GPU fault from any client (Chrome, Claude Desktop, qui
 declare the compositor's context lost; zink then crashes. On the DCP daily the display pipeline can stay stuck on
 the dead fence. The kernel and Mesa fixes are tracked in m4-m5-linux issue #36; until they land, the boot slot runs
 the simpledrm daily (no wedge possible) and Chromium/Electron apps run without GPU acceleration.
+
+## Safe mode (2026-11-08)
+
+When Hyprland crashes, `start-hyprland` relaunches it with `--safe-mode`: a bare
+session with a "Safe Mode" dialog, no config, no bar, default keybinds (SUPER+Q
+expects kitty, which Omarchy does not ship). That session draws, so the first
+rescue version said "nothing to do". `status` now reports SAFE MODE and returns
+3, and `auto` restarts the session (twice if the relaunch crashes again at once).
+
+From safe mode: Ctrl+Alt+F3, log in, `sudo m5pro-rescue`, then Ctrl+Alt+F2.
