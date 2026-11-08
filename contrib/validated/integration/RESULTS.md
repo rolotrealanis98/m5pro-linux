@@ -1871,16 +1871,51 @@ The native session stays. Log: `~/Work/agents/gpu-gl-native/loop/run-gl-soak-v3.
 First daily with the DCP driving the panel: kernel `7.3.0-gbd53915f2ef1` (daily 36845aa5f650 + promotion v2 +
 dcp9d display DT + VRR pair opt-in), loader `m1n1-plain-n1-dt-gpu-dcp`, variables `chosen.m5pro,gpu=1` +
 `chosen.m5,t6050-display=1`, no `n1` line. Both twins (`daily-dcp-test` dfe0c6cc, `daily-dcp-test-vrr` 3606884e)
-fell back: error stage 0x30 (kernel entered, root never mounted), round trip 214 s against 103 s for a clean boot,
-so an early kernel panic (PANIC_TIMEOUT=10) rather than a hang. Stage 1 booted `boot.bin.prev` (the daily's test
+fell back: error stage 0x30, round trip 214 s against 103 s for a clean boot. Correction (03:40 UTC): the fallback
+kernel started about 203 s after the reboot command, which is the stage-1 watchdog band of `firstboot-probe.sh`
+(>= 170 s), not the Linux-panic band (55-74 s). The boot died before any Linux restart handler was registered:
+m1n1 stage 2 never reached Linux, or Linux hung or panicked before macsmc-reboot and apple_wdt probed (a panic with
+no restart handler halts and the 150 s stage-1 dog resets). Error stage 0x30 only says iBoot, m1n1 or Linux was
+running. Stage 1 booted `boot.bin.prev` (the daily's test
 twin 5c74c66c) both times; the daily was restored by the runner (slot primary, 59 s to ssh). Nothing from the
 failed boots is on disk (no pstore region in the DT).
 
 What is new in this combination: the DCP has only ever booted without the GPU hand-off (stage C and dcp120 carried
 `chosen.m5pro,n1=4` + display, no `gpu=1`, kernel 22ec57f56b27). This was the first boot with the m1n1 GPU hand-off
 plus the display hand-off plus `DRM_ASAHI=y` and `DRM_APPLE=y` together on the daily DT (reserved-memory,
-power-controller, NVRAM nodes). Bisect payloads B1 (loader without the display hand-off), B2 (without `gpu=1`),
-B3 (DCP kernel on the daily DT) are being built; analysis to `contrib/pending/dcp/daily-dcp/FIRST-BOOT-ANALYSIS.md`.
+power-controller, NVRAM nodes). Ranked causes (`contrib/pending/dcp/daily-dcp/FIRST-BOOT-ANALYSIS.md`): H1 the GPU driver and the DCP
+take-over probing together in the initcall window before macsmc-reboot/apple_wdt (simpledrm 1488, aurora 1489,
+appledrm 1490, macsmc 1500, macsmc_reboot 1710, apple_wdt 1751; stage C never had `gpu=1`, the daily has
+`DRM_APPLE=n`); H2 the DCP on the daily-n1k base without the GPU; H3 m1n1 with both hand-offs plus 0028 (low);
+H4 the kernel build (low). Memory carve-outs, shared DT state and reg/IRQ overlaps were ruled out by reading.
+No pstore: iBoot zeroes DRAM and clears `/pram` on every boot (CRASHLOG results), so evidence has to come from the
+panel or netconsole. Bisect payloads (one change each, verified against the twin byte for byte otherwise):
+B2 no `gpu=1`; B2b `gpu=1` + `initcall_blacklist=__aurora_init`; B3 the daily-n1k DTB, no display variable;
+B1 the `n1-dt-gpu` loader (no display hand-off; the DCP cannot drive the panel then, it is the DCP kernel as a GPU
+daily). Boot order: B2; if it boots, B2b; if it falls back, B3 then B1. Running unattended
+(`~/Work/agents/daily-dcp/loop/run-dcp-bisect.sh`).
 Runner log: `~/Work/agents/daily-dcp/loop/run-daily-dcp-test.log`. The two-card Hyprland session files stayed
 installed on the root; on the daily (simpledrm + aurora) the new launcher takes the old path, to be confirmed at
 the next desktop start.
+
+## 2026-11-08 03:22 UTC: LOOP-SAFETY watchdog twins, positive PASS with a caveat, negative NOT RUN
+
+Kernel `7.3.0-ga0f2f30c967b` twins of next-daily-wifi (loader-trained N1, `chosen.m5pro,n1=4`), see
+`contrib/pending/boot-ab/loop-safety/REPORT.md`.
+
+- Positive `wdt-opener` (2daadc5b, `watchdog.open_timeout=300`, initramfs opener): booted, m5-selftest "network OK",
+  up past 400 s with no reset, clean `systemctl reboot` back on the primary slot, booted again. Caveat: the hand-over
+  to systemd did not happen. No `m5pro-watchdog.conf` drop-in was installed, `RuntimeWatchdogUSec=0`, `wdctl` said
+  "Device or resource busy" and at shutdown systemd logged "Failed to open watchdog device /dev/watchdog0: Device or
+  resource busy" then the kernel "watchdog did not stop!". The initramfs petter held the device for the whole boot;
+  that is what prevented the 330 s reset. No `m5-wdt` lines reached the kernel log. Fix in progress (the
+  pre-switch_root block, kmsg logging, an "initramfs reached" stage mark 0x31).
+- Negative `wdt-noopener` (242a6abb, `open_timeout=120`, plain initramfs, drop-in removed first): the machine fell
+  back to prev (count 1) but the journal holds no boot of the twin kernel; the fallback kernel started about 77 s
+  after the reboot command, which is the "Linux froze after apple_wdt probed" band (75-169 s) bordering the
+  Linux-panic band, not the 150 s expected from `open_timeout=120` + 30 s. The PMU error stage reads 0x30 but was
+  0x30 before the test (stale). Inconclusive; rerun with the 0x31 mark so "never ran" and "ran and died" can be told
+  apart. The opener twin with the same kernel, DTB, loader and variables booted twice, so the two twins differ only
+  in the initramfs and the open_timeout value.
+- The daily was restored after the series (primary slot, 58 s to ssh). The desktop came up on the daily with the new
+  two-card launcher installed (simpledrm path): Hyprland running on tty2.
