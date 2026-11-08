@@ -1,5 +1,5 @@
---- contrib/validated/aurora/tools/mk-daily.py	2026-11-07 09:26:48
-+++ mk-daily.py	2026-11-07 21:39:47
+--- /Users/rolo/Documents/GitHub/m5pro-linux/contrib/validated/aurora/tools/mk-daily.py	2026-11-07 09:26:48
++++ mk-daily.py	2026-11-07 22:31:07
 @@ -57,9 +57,11 @@
                        "args": ["snd_soc_macaudio.speaker_max_db=-40"]},
      },
@@ -9,8 +9,8 @@
 +        "default": "selftest-wdt",
 +        "selftest": {"path": H / "Work/omarchy-m5/build/initramfs-selftest.cpio.gz",   # no watchdog opener: not for --selftest
                       "sha256": "1f61a850fb49764126d7a79e9f8adce5508cd6109b302e1441989bb89cd7903b"},
-+        "selftest-wdt": {"path": H / "Work/agents/loop-safety/private/initramfs-selftest-wdt.cpio.gz",   # + /dev/watchdog0 opener (add-wdt-opener.py)
-+                         "sha256": "d6d83a9dd96a08e6dbd77309daa9eda485ac44dc9f0530d4efcdef3b75741f23"},
++        "selftest-wdt": {"path": H / "Work/agents/loop-safety/private/initramfs-selftest-wdt2.cpio.gz",   # + /dev/watchdog0 opener (add-wdt-opener.py)
++                         "sha256": "a75b9bbb163e1e56c196c8407d114a0d4c67f60818023e1ccc1a482dd5167ee1"},
      },
  }
  
@@ -23,7 +23,7 @@
 +# stage 1 falls back. The initramfs must carry the opener (add-wdt-opener.py, marker below) or systemd must open the
 +# device (RuntimeWatchdogSec), else a healthy test boot is reset at N+30 s. Never set for the daily.
 +WDT_OPEN_TIMEOUT = 300
-+WDT_MARK = b"m5-wdt-opener v1"
++WDT_MARK = b"m5-wdt-opener v2"
  NOTCH = b"chosen.asahi,show-notch=1\n"
  M1N1_SIZE = 0x400000
  KINDS = ("m1n1", "kernel", "dtb", "initramfs")
