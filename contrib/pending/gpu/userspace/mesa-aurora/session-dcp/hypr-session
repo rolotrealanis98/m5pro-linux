@@ -1,0 +1,91 @@
+#!/bin/bash
+# Desktop session launcher for tty2 (started by ~/.bash_profile).
+# GPU session (hypr-gpu-session: the Apple GPU through Aurora Mesa, scanout on
+# the DCP when the apple display card is up, else simpledrm) when the aurora
+# GPU driver is present, otherwise the software session below.
+#   /etc/hypr-gpu-disable  opt out: always the software session
+#   /run/hypr-gpu          force the GPU session for this boot (wins over the opt-out)
+# If the GPU session fails within 30 s of starting, the software session starts
+# instead (reason in ~/.cache/hyprland-gpu.log). The 30 s are counted from
+# Hyprland's start, after hypr-gpu-session's wait for the DCP.
+GPU_SESSION=${HYPR_GPU_SESSION:-/usr/local/bin/hypr-gpu-session}
+MESA_ENV=${HYPR_MESA_ENV:-/etc/mesa-aurora/session.env}
+LIB=${HYPR_CARDS_LIB:-/usr/local/lib/hypr-cards.sh}
+# shellcheck source=hypr-cards.sh
+[ -r "$LIB" ] && . "$LIB"
+
+aurora_present() {
+  declare -F hypr_cards_scan >/dev/null || return 1
+  hypr_cards_scan
+  [ -n "$AURORA_CARD" ]
+}
+mesa_prefix() { sed -n 's|^LIBGL_DRIVERS_PATH=\(.*\)/lib/dri$|\1|p' "$MESA_ENV" 2>/dev/null; }
+
+want_gpu=0
+if [ -x "$GPU_SESSION" ] && [ -r "$MESA_ENV" ] && [ -d "$(mesa_prefix)" ]; then
+  if [ -e /run/hypr-gpu ]; then
+    want_gpu=1
+  elif [ ! -e /etc/hypr-gpu-disable ] && aurora_present; then
+    want_gpu=1
+  fi
+fi
+
+if [ $want_gpu = 1 ]; then
+  # hypr-gpu-session may spend up to HYPR_DCP_WAIT seconds waiting for the
+  # DCP before Hyprland starts; it stamps the start into this file.
+  stamp=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/hypr-gpu-start.XXXXXX")
+  HYPR_GPU_START_STAMP=$stamp "$GPU_SESSION"
+  rc=$?
+  ran=$(( $(date +%s) - $(stat -c %Y "$stamp" 2>/dev/null || date +%s) ))
+  rm -f "$stamp"
+  if [ $rc -eq 0 ] || [ $ran -ge 30 ]; then
+    exit $rc
+  fi
+  echo "hypr-session $(date -Is): GPU session exited with $rc after $ran s; starting the software session" \
+    >> "$HOME/.cache/hyprland-gpu.log"
+fi
+
+# Software session: take the GPU session's Mesa variables back out of the
+# user services' environment so portals do not keep them.
+if [ -r "$MESA_ENV" ]; then
+  mesa_vars=$(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$MESA_ENV" | tr '\n' ' ')
+  # shellcheck disable=SC2086
+  unset $mesa_vars MESA_LOADER_DRIVER_OVERRIDE
+  # shellcheck disable=SC2086
+  systemctl --user unset-environment $mesa_vars MESA_LOADER_DRIVER_OVERRIDE 2>/dev/null
+  systemctl --user stop xdg-desktop-portal-hyprland.service 2>/dev/null
+fi
+unset AQ_TRACE HYPRLAND_TRACE M5PRO_PANEL_VRR
+
+# Software-rendered Hyprland (llvmpipe) on the apple card when the DCP drives
+# the panel (at 60 Hz: llvmpipe cannot fill 120), else on simpledrm.
+display=/dev/dri/card0
+if declare -F hypr_cards_scan >/dev/null; then
+  if [ ! -e /etc/hypr-dcp-disable ] && hypr_wait_for_dcp 5; then
+    display=$APPLE_CARD
+    export M5PRO_PANEL_MODE=3456x2234@60
+  elif [ -n "$SIMPLE_CARD" ]; then
+    display=$SIMPLE_CARD
+  fi
+fi
+export LIBGL_ALWAYS_SOFTWARE=1
+export GALLIUM_DRIVER=llvmpipe
+export LP_NUM_THREADS=${LP_NUM_THREADS:-16}
+export WLR_RENDERER_ALLOW_SOFTWARE=1
+export AQ_DRM_DEVICES=$display
+export AQ_NO_MODIFIERS=1
+export HYPRLAND_NO_RT=1
+export M5PRO_HYPR_PROFILE=m5pro
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=Hyprland
+export XDG_SESSION_DESKTOP=Hyprland
+export LANG=C.UTF-8
+# Omarchy-style toolkit environment
+export PATH=$HOME/.local/bin:$PATH
+export XCURSOR_THEME=Adwaita XCURSOR_SIZE=24
+export QT_QPA_PLATFORM="wayland;xcb" ELECTRON_OZONE_PLATFORM_HINT=wayland MOZ_ENABLE_WAYLAND=1
+export TERMINAL=alacritty EDITOR=nvim BROWSER=chromium
+log=$HOME/.cache/hyprland-tty2.log
+[ -f "$log" ] && mv -f "$log" "$log.old"
+echo "hypr-session $(date -Is): software session on $display" > "$log"
+exec start-hyprland >> "$log" 2>&1
