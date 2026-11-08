@@ -2355,3 +2355,30 @@ container kernel builds ran at once (host `kern.maxfiles` pressure: each VM hold
 raised to 1572864; the agents finished their builds from `git archive` inside the containers. The images need a
 detach and re-attach (journal replay) once the running builds end; payloads live under `~/Work/agents/`, not on
 those images. Rule from now: at most two concurrent container kernel builds.
+
+## 2026-11-08 19:37-19:50 UTC — hv27 rung (ii): stage-2 USB proxy over the Studio cable (PASS); GICv3 virtual CPU interface confirmed
+
+Rolando home, Studio-to-MacBook cable in place. `m1n1-hv27-proxy.bin` (3ea65595, bare loader, no payload) written to
+`boot.bin` with `boot.bin.prev` = the daily (26ca25f0); `run-hv27.sh smoke` listening on the Studio; `systemctl reboot`.
+- The proxy device (1209:316d) appeared on the Studio 70 s after the reboot command; smoke identified
+  `m1n1 v2.0.0-132-g63e6053c base 0x10004270000 chip 0x6050 board 0xc` and disarmed the stage-1 watchdog (ctrl 0x0).
+  Console: `Primary WDT left armed (m1n1.wdt=keep)`, `No valid payload found`, PIPE parked on all three
+  `usb-drd` controllers (MUX_CTRL 0x42), `Running proxy...`. The gadget is active on every port, so the cable's
+  port does not matter for the proxy. Rung (ii) PASS; nothing left m1n1.
+- Read-only probes from EL2 while in the proxy (`contrib/pending/hv/tools/gic-probe.py`, `ich-probe.py`):
+  `ID_AA64PFR0_EL1` = 0x1101000010110111 (GIC field 0, EL2 present, no EL3), `ID_AA64MMFR1_EL1` VH=1,
+  **`ICH_VTR_EL2` = 0x90580007** (8 list registers, 5 priority bits, 5 preemption bits, SEIS=1, no GICv4, TDS=1),
+  `ICH_VMCR_EL2` = 0xf84c0008, `ICH_ELRSR_EL2` = 0xff, `ICC_SRE_EL2` = 0xf, `ICC_SRE_EL1` = 0x7; the physical
+  `ICC_*_EL1` registers are undefined at EL2 (trap). The T6050 therefore has the GICv3 **virtual** CPU interface
+  without a GIC, the M1 pattern Linux KVM relies on.
+- EL1 test (`icv-probe.py`, proxy `el1_call`): with `ICH_HCR_EL2.En` = 0 the EL1 reads of `ICC_CTLR_EL1` (0x4400)
+  and `ICC_SRE_EL1` (0x7) already succeed; with En = 1 every `ICC_*_EL1` read from EL1 reaches the virtual
+  interface: PMR 0xf8, IGRPEN1 0, IAR1 0x3ff (spurious), BPR1 3, RPR 0xff, IAR0 0x3ff. After writing a pending
+  group-1 virtual SPI 40 into `ICH_LR0_EL2` and enabling group 1 from EL1, the proxy stopped answering: the
+  virtual IRQ was taken at EL1 inside the proxy's EL1 call, where m1n1 has no IRQ handler. That is the expected
+  behaviour of a working virtual interface, and a tooling mistake (the ack sequence must run with PSTATE.I set or
+  inside a real guest). Watchdog disarmed -> power-hold needed; the next boot is the daily from the fallback slot.
+- Guest files for rung (iii-a) (SPTM, TXM, Exclave bundle, trust caches) are not on the Studio (only the kernelcache
+  is); they sit in the Preboot `restore/` folder on the MacBook. Plan: `apfs-fuse` as an Arch ARM package
+  (`~/Work/agents/hv27/apfs/build.sh`; the agent's classifier blocks external-source builds, Rolando runs it),
+  read-only FUSE mount of the Preboot volume on the daily, `fetch-27.3-guest-files.sh`, then back into the proxy.
