@@ -1938,3 +1938,29 @@ hand-off with the DCP kernel works on the stage C device tree (B5). The trigger 
 additions over dcp9d under the display hand-off: the kernel-trained N1 port, the apcie power-controller settings, the
 reserved-memory, NVRAM/SPI or GPU nodes. B6 splits the N1 path; round 3 payloads are being prepared for both outcomes.
 Logs: `~/Work/agents/daily-dcp/loop/run-dcp-bisect.log`, `run-dcp-bisect2.log`; B5's journal `journal-B5.txt` there.
+
+## 2026-11-08 04:10 UTC: DAILY-DCP bisect round 3 and the root cause
+
+| boot | change from B2 | result |
+|---|---|---|
+| B6 | stage C loader + `chosen.m5pro,n1=4` (loader-trained N1) | fell back, 208 s, stage-1 watchdog |
+| B10 | in-tree DTB without the six apcie power-controllers | fell back, 207 s |
+| B12 | in-tree DTB with the kernel-training PCIe statics reverted to dcp9d | fell back, 208 s |
+| B8 | in-tree DTB without port00 `pwren-gpios` (no N1) | fell back, 209 s |
+| B11 | in-tree DTB without the GPU and NVRAM nodes | running, predicted to fall back |
+
+Root cause (found by reading `src/kboot.c` of the n1-dt-gpu-dcp loader, section 9 of
+`contrib/pending/dcp/daily-dcp/FIRST-BOOT-ANALYSIS.md`): `dt_set_display_t6050()` re-finds the display nodes by
+phandle and bails with "DCP: T6050: a display node has no phandle" when `dcp` or `display-subsystem` has none. dtc
+emits a phandle only for nodes some property references; the in-tree J716s DT labels both nodes but only extends them
+(`&dcp { ... }`), so the in-tree DTB has no phandle on either (dcp9d, built differently, has 0xd3 and 0xd4). The bail
+makes `kboot_prepare_dt()` fail, stage 2 prints "Failed to prepare FDT!" and drops into the proxy; with no host
+attached nothing feeds the watchdog, and the stage-1 150 s dog resets the machine. That fits every boot: with the
+display hand-off and the in-tree DTB everything fell back (twin, VRR twin, B2, B6, B8, B10, B12); without the hand-off
+(B1, B3) or on dcp9d (B5, stage C) everything booted. The semantic DT diff missed it because the normaliser drops
+`phandle` lines.
+
+Fixes: (a) DTB with `phandle` added to the two nodes (`mk-dt-fix.py`, payloads `dcpfix-b4-nogpu`,
+`daily-dcp-phfix-test`, `daily-dcp-phfix-test-vrr`), round 4 running; (b) loader patch
+`m1n1-0029-dcp-give-display-nodes-a-phandle.diff` (give any display node without a phandle a new one, highest offset
+first), being built and ported to omacom/m1n1 #35, which carries the same check.
