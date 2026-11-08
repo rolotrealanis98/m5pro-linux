@@ -18,7 +18,7 @@ his running work.
 
 ## Step 0: load the brief (always, before any change)
 
-Read `~/.claude/skills/m5pro/BRIEF.md` in full (it sits next to this file). Its **HARD RULES** and "One owner at a time"
+Read `BRIEF.md` in full from the same directory as this skill (resolve the skill symlink to find it). Its **HARD RULES** and "One owner at a time"
 sections bind this whole session. If a task needs one broken, stop and ask Rolando in chat.
 
 ## Fix workflow
