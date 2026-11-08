@@ -83,15 +83,25 @@ if [ $dcp = 1 ]; then
   # IN_FORMATS, allocates its scanout buffers LINEAR and adds them with plain
   # AddFB2 (apple-drm treats "no modifier" as LINEAR): the path proven on
   # simpledrm, and never an interchange surface. Client buffers keep their
-  # modifiers; a tiled one is refused for direct scanout and composited.
+  # modifiers, and aquamarine cannot add a tiled one ("drmModeAddFB2WithModifiers
+  # unsupported and buffer has explicit modifiers").
   if [ ! -e /etc/hypr-dcp-modifiers ]; then export AQ_NO_MODIFIERS=1; fi
+  # Direct scanout only with modifiers. Without them Hyprland 0.57.1 still takes
+  # a fullscreen client's tiled buffer for a candidate and retries it on every
+  # frame: the swapchain is reconfigured to the client's format (AR24) and back
+  # (XR24) with a modeset, 6 new 31 MB dumb buffers of the apple card per client
+  # frame, and the replaced ones are never freed. A fullscreen glmark2 on zink
+  # drained 46 GB in seconds and OOM-killed the session (2026-11-08 12:47 UTC).
+  M5PRO_DCP_DIRECT_SCANOUT=1
+  [ -n "${AQ_NO_MODIFIERS:-}" ] && M5PRO_DCP_DIRECT_SCANOUT=0
+  export M5PRO_DCP_DIRECT_SCANOUT
   export M5PRO_HYPR_PROFILE=m5pro-dcp
   M5PRO_PANEL_VRR=$(hypr_panel_vrr); export M5PRO_PANEL_VRR
   # Hyprland may raise its main thread to SCHED_RR (needs RLIMIT_RTPRIO or
   # rtkit; harmless when refused): steadier 8.3 ms pacing.
   unset HYPRLAND_NO_RT
   if [ -e /run/hypr-dcp-trace ]; then export AQ_TRACE=1 HYPRLAND_TRACE=1; fi
-  say "DCP path: display $APPLE_CARD ($APPLE_CONNECTOR, apple), GPU ${AURORA_CARD:-none} render ${AURORA_RENDER:-none}, renderD nodes $RENDER_COUNT, GL $gl, Mesa $mesa_prefix $(cat "$mesa_prefix/MESA_COMMIT" 2>/dev/null), panel VRR $M5PRO_PANEL_VRR, AQ_NO_MODIFIERS=${AQ_NO_MODIFIERS:-unset}, trace ${AQ_TRACE:-0}"
+  say "DCP path: display $APPLE_CARD ($APPLE_CONNECTOR, apple), GPU ${AURORA_CARD:-none} render ${AURORA_RENDER:-none}, renderD nodes $RENDER_COUNT, GL $gl, Mesa $mesa_prefix $(cat "$mesa_prefix/MESA_COMMIT" 2>/dev/null), panel VRR $M5PRO_PANEL_VRR, AQ_NO_MODIFIERS=${AQ_NO_MODIFIERS:-unset}, direct scanout $M5PRO_DCP_DIRECT_SCANOUT, trace ${AQ_TRACE:-0}"
   if [ "$RENDER_COUNT" != 1 ] || [ -z "$AURORA_RENDER" ]; then
     say "WARNING: aquamarine pairs the apple card with the sole renderD only; found $RENDER_COUNT (aurora: ${AURORA_RENDER:-none}). Expect software rendering; check 'Creating CDRMRenderer on gpu' in the Hyprland log"
   fi

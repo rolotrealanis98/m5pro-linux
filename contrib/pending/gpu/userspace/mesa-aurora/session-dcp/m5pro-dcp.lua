@@ -37,10 +37,15 @@ hl.config({
   render = {
     -- 1 = "enable": a fullscreen client whose buffer is exactly 3456x2234 and
     -- LINEAR (Hyprland's dmabuf feedback asks for the plane's formats) goes to
-    -- the DCP without compositing. Anything else (scaled, tiled, visible
-    -- software cursor, screencast) composites as usual; aquamarine refuses a
-    -- buffer the plane cannot take, so a failed attempt costs one test commit.
-    direct_scanout = 1,
+    -- the DCP without compositing. Anything else (scaled, visible software
+    -- cursor, screencast) composites as usual.
+    -- Off when the launcher runs aquamarine without modifiers
+    -- (M5PRO_DCP_DIRECT_SCANOUT=0, AQ_NO_MODIFIERS=1): a failed attempt is not
+    -- one test commit. Hyprland 0.57.1 retries a tiled client buffer on every
+    -- frame, reconfiguring the swapchain to the client's format and back with
+    -- a modeset; each reconfigure allocates 3 new 31 MB dumb buffers on the
+    -- apple card and the replaced ones are not freed (46 GB in seconds, OOM).
+    direct_scanout = (os.getenv("M5PRO_DCP_DIRECT_SCANOUT") == "0") and 0 or 1,
     -- Off: plain double-buffered pacing to the page flip. Turn on only if the
     -- verification shows frames regularly over 8.3 ms (it renders ahead with a
     -- third buffer instead of dropping to 60).
