@@ -1,0 +1,250 @@
+From b9af1331f42eab6455a54980cd81ca670b026fd9 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sat, 7 Nov 2026 15:43:43 -0500
+Subject: [PATCH 2/2] drm/apple: Offer VRR on the firmware 27 panel and apply
+ VRR_ENABLED
+
+The T6050 ProMotion panel reports its 120 Hz timing with both
+adaptive-sync range fields present and zero. The parser turns that into
+24-120 Hz only for desktop 26.6 firmware, so on firmware 27 the timing
+parses as fixed and the connector never says vrr_capable. And even with
+a VRR timing, firmware 27 got adaptive sync (parameter 15) only in a
+mode set, while compositors flip VRR_ENABLED in a plain page flip: the
+panel would stay at a fixed 120 Hz while userspace believed VRR was on.
+
+Firmware 27 writes the adaptive sync range into its timing generator
+when a mode is selected (UPPipeDCP_H17GSCD::program_M3_gen_config and
+init_timing_mode_params read it), so a new minimum rate needs the mode
+selected again. Do that from the flip that changes VRR_ENABLED: select
+the current mode again, with adaptive sync at the mode's minimum rate
+or off. A plain flip keeps working without ALLOW_MODESET; the panel is
+dark for the length of the mode set (about 385 ms on the J716s).
+
+All of this is opt-in with appledrm.fw27_panel_vrr=1: the 24-120 Hz
+range for the zero range fields, vrr_capable, and VRR_ENABLED. Arm the
+swap watchdog while it is on: a swap that does not complete within a
+second turns it off for good and the retraining mode set installs the
+panel fixed.
+
+On the J716s (DCP firmware 27.3 beta 1) VRR_ENABLED 1 in a plain flip
+makes the firmware log "IOMFBParameter_adaptive_sync Req minRR =
+0x180000" and the mode set report vrr:1; flips paced at 50 fps then
+complete 20.83 ms apart (five 240 Hz subframes) where VRR off alternates
+16.7 and 25 ms, and VRR_ENABLED 0 goes back to fixed 120 Hz.
+
+Assisted-by: LLM Claude
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/gpu/drm/apple/dcp-internal.h   | 10 ++++
+ drivers/gpu/drm/apple/dcp.c            | 10 +++-
+ drivers/gpu/drm/apple/iomfb.c          | 69 +++++++++++++++++++++++++-
+ drivers/gpu/drm/apple/iomfb_template.c |  8 +--
+ 4 files changed, 90 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
+index 48a469790055..2e199390c61f 100644
+--- a/drivers/gpu/drm/apple/dcp-internal.h
++++ b/drivers/gpu/drm/apple/dcp-internal.h
+@@ -624,6 +624,8 @@ struct apple_dcp {
+ 	bool typec_hpd_held;
+ 	bool use_timestamps;
+ 	bool vrr_enabled;
++	/* A firmware 27 panel's adaptive swap stalled: keep it fixed. */
++	bool panel_vrr_failed;
+ 	/*
+ 	 * The mode set asks for a PQ signal; output_pq: the one set carries it;
+ 	 * output_edr: a panel shows the PQ content as EDR, edr_sent: swaps
+@@ -1024,6 +1026,14 @@ static inline bool dcp_vrr_live(struct apple_dcp *dcp)
+ 	       dcp_has_panel(dcp);
+ }
+ 
++/* A built-in panel driven by firmware 27 (T6050). */
++static inline bool dcp_fw27_panel(struct apple_dcp *dcp)
++{
++	return dcp->fw_compat == DCP_FIRMWARE_V_27_0 && dcp_has_panel(dcp);
++}
++
++bool dcp_vrr_allowed(struct apple_dcp *dcp);
++
+ /*
+  * Does @dcp's firmware speak the 14.7 AFK, DPTX and DPAV endpoint protocol,
+  * whichever IOMFB path drives it? DCP_FIRMWARE_V_14_7 is the native DCPLink
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 38be214e45e1..1d1f74025994 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -1263,6 +1263,12 @@ VISIBLE_IF_KUNIT void dcp_swap_watchdog(struct work_struct *work)
+ 		WRITE_ONCE(dcp->vrr_enabled, false);
+ 		dev_warn(dcp->dev, "adaptive swap timed out, restoring fixed refresh\n");
+ 	}
++	/* The retraining mode set below then installs the panel fixed. */
++	if (dcp_fw27_panel(dcp) && READ_ONCE(dcp->vrr_enabled)) {
++		WRITE_ONCE(dcp->panel_vrr_failed, true);
++		WRITE_ONCE(dcp->vrr_enabled, false);
++		dev_warn(dcp->dev, "adaptive swap timed out, restoring fixed refresh\n");
++	}
+ 	dev_warn(dcp->dev, "swap not completed, retraining the display\n");
+ 	dcp_mode_invalidate(&dcp->mode_state);
+ 	dcp_drm_crtc_vblank(dcp->crtc);
+@@ -1274,8 +1280,8 @@ VISIBLE_IF_KUNIT void dcp_swap_watchdog(struct work_struct *work)
+ void dcp_swap_watchdog_arm(struct apple_dcp *dcp)
+ {
+ 	if (dcp_is_typec_output(dcp) ||
+-	    (dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP &&
+-	     READ_ONCE(dcp->vrr_enabled))) {
++	    ((dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP ||
++	      dcp_fw27_panel(dcp)) && READ_ONCE(dcp->vrr_enabled))) {
+ 		dcp->swap_watchdog_deadline = jiffies +
+ 			msecs_to_jiffies(DCP_SWAP_WATCHDOG_MS);
+ 		mod_delayed_work(system_dfl_wq, &dcp->swap_watchdog_wq,
+diff --git a/drivers/gpu/drm/apple/iomfb.c b/drivers/gpu/drm/apple/iomfb.c
+index 5a660cb495dc..9ab0e263d0ab 100644
+--- a/drivers/gpu/drm/apple/iomfb.c
++++ b/drivers/gpu/drm/apple/iomfb.c
+@@ -43,6 +43,23 @@
+ #include "parser.h"
+ #include "trace.h"
+ 
++/*
++ * Firmware 27 panels (the T6050 ProMotion panel, 24-120 Hz) have not run
++ * adaptive sync under this driver yet; offer it only when asked.
++ */
++static bool fw27_panel_vrr;
++module_param(fw27_panel_vrr, bool, 0644);
++MODULE_PARM_DESC(fw27_panel_vrr,
++		 "Firmware 27 panels: offer variable refresh through vrr_capable (default: off)");
++
++/* Whether VRR_ENABLED may turn adaptive sync on for @dcp's display. */
++bool dcp_vrr_allowed(struct apple_dcp *dcp)
++{
++	if (!dcp_fw27_panel(dcp))
++		return true;
++	return READ_ONCE(fw27_panel_vrr) && !READ_ONCE(dcp->panel_vrr_failed);
++}
++
+ struct dcp_identity_trace {
+ 	struct apple_dcp *dcp;
+ 	atomic_t *count;
+@@ -1976,7 +1993,12 @@ int dcp_modes_replace(struct apple_dcp *dcp, struct dcp_parse_ctx *ctx,
+ 			return ret;
+ 		ctx->metadata_timing = dcp_firmware_metadata_enabled(dcp);
+ 	}
+-	ctx->zero_vrr_range_fallback = dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP;
++	/*
++	 * The firmware 27 panel reports its 120 Hz timing with both range
++	 * fields zero, as the desktop 26.6 panel does: 24-120 Hz when asked.
++	 */
++	ctx->zero_vrr_range_fallback = dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP ||
++		(dcp_fw27_panel(dcp) && READ_ONCE(fw27_panel_vrr));
+ 	modes = enumerate_modes(ctx, &nr_modes, dcp->width_mm, dcp->height_mm,
+ 				dcp->notch_height,
+ 				dcp->fixed_connector_type == DRM_MODE_CONNECTOR_eDP,
+@@ -2335,6 +2357,8 @@ int dcp_get_modes(struct drm_connector *connector)
+ 		}
+ 		vrr_capable |= modes[i].vrr;
+ 	}
++	if (!dcp_vrr_allowed(dcp))
++		vrr_capable = false;
+ 	drm_connector_set_vrr_capable_property(connector, vrr_capable);
+ modes_done:
+ 	mutex_unlock(&dcp->dcpavserv.lock);
+@@ -3397,6 +3421,44 @@ static void iomfb_queue_atomic(struct apple_dcp *dcp, struct drm_crtc *crtc,
+ 	schedule_work(&dcp->vblank_wq);
+ }
+ 
++/*
++ * Firmware 27 writes the adaptive sync range into the timing generator when
++ * a mode is selected (UPPipeDCP_H17GSCD::program_M3_gen_config), so a new
++ * minimum rate takes the mode selected again.  VRR_ENABLED comes with a
++ * plain page flip, which may not set a mode: select the current mode again
++ * from that flip, with adaptive sync as VRR_ENABLED asks.  The panel goes
++ * dark for the length of that mode set.  Returns false when that mode set
++ * failed and the flip has no mode to go to.
++ */
++static bool dcp_fw27_vrr_switch(struct apple_dcp *dcp, struct drm_crtc *crtc,
++				struct drm_atomic_commit *commit)
++{
++	struct drm_crtc_state *crtc_state =
++		drm_atomic_get_new_crtc_state(commit, crtc);
++	struct dcp_display_mode mode;
++	bool vrr;
++
++	if (!crtc_state || !crtc_state->active ||
++	    drm_atomic_crtc_needs_modeset(crtc_state) ||
++	    !READ_ONCE(dcp->mode_state.valid) ||
++	    !lookup_mode(dcp, &crtc_state->mode, &mode))
++		return true;
++
++	vrr = mode.vrr && crtc_state->vrr_enabled && dcp_vrr_allowed(dcp);
++	if (vrr == READ_ONCE(dcp->vrr_enabled))
++		return true;
++
++	dev_info(dcp->dev, "VRR_ENABLED %u: selecting " DRM_MODE_FMT " again\n",
++		 crtc_state->vrr_enabled, DRM_MODE_ARG(&crtc_state->mode));
++	dcp_mode_invalidate(&dcp->mode_state);
++	if (!dcp_crtc_atomic_modeset(crtc, commit))
++		return true;
++	/* The recovery mode set that follows installs the panel fixed. */
++	if (vrr)
++		WRITE_ONCE(dcp->panel_vrr_failed, true);
++	return false;
++}
++
+ void dcp_flush(struct drm_crtc *crtc, struct drm_atomic_commit *commit)
+ {
+ 	struct platform_device *pdev = to_apple_crtc(crtc)->dcp;
+@@ -3458,6 +3520,11 @@ void dcp_flush(struct drm_crtc *crtc, struct drm_atomic_commit *commit)
+ 	    READ_ONCE(dcp->connector->connected))
+ 		dcp_hdr_metadata_sync(dcp, crtc, commit);
+ 
++	if (dcp_fw27_panel(dcp) && !dcp_fw27_vrr_switch(dcp, crtc, commit)) {
++		schedule_work(&dcp->vblank_wq);
++		return;
++	}
++
+ 	if (iomfb_uses_queue(dcp)) {
+ 		iomfb_queue_atomic(dcp, crtc, commit);
+ 		return;
+diff --git a/drivers/gpu/drm/apple/iomfb_template.c b/drivers/gpu/drm/apple/iomfb_template.c
+index c87ba034a112..9813777dff61 100644
+--- a/drivers/gpu/drm/apple/iomfb_template.c
++++ b/drivers/gpu/drm/apple/iomfb_template.c
+@@ -3775,6 +3775,7 @@ int DCP_FW_NAME(iomfb_modeset)(struct apple_dcp *dcp,
+ 	struct dcp_display_mode selected, *mode = &selected;
+ 	struct dcp_wait_cookie *cookie;
+ 	struct dcp_color_mode *cmode = NULL;
++	bool vrr_on;
+ 	int ret;
+ 
+ 	if (!lookup_mode(dcp, &crtc_state->mode, mode)) {
+@@ -3820,6 +3821,7 @@ int DCP_FW_NAME(iomfb_modeset)(struct apple_dcp *dcp,
+ 	 * still needs them, or the firmware completes one swap per 16.7 ms.
+ 	 */
+ 	dcp->use_timestamps = mode->needs_timestamps && dcp->main_display;
++	vrr_on = crtc_state->vrr_enabled && dcp_vrr_allowed(dcp);
+ 
+ 	cookie = kzalloc(sizeof(*cookie), GFP_KERNEL);
+ 	if (!cookie) {
+@@ -3852,9 +3854,7 @@ int DCP_FW_NAME(iomfb_modeset)(struct apple_dcp *dcp,
+ 	if (mode->vrr &&
+ 		   dcp->hw.iomfb_method_profile !=
+ 		   DCP_IOMFB_METHODS_H17P_EXTERNAL)
+-		dcp_set_adaptive_sync(dcp,
+-				      crtc_state->vrr_enabled ? mode->min_vrr : 0,
+-				      cookie);
++		dcp_set_adaptive_sync(dcp, vrr_on ? mode->min_vrr : 0, cookie);
+ 	else
+ 		dcp_set_digital_out_mode(dcp, false, &dcp->mode,
+ 					 complete_set_digital_out_mode, cookie);
+@@ -3901,7 +3901,7 @@ int DCP_FW_NAME(iomfb_modeset)(struct apple_dcp *dcp,
+ 				 READ_ONCE(cookie->status));
+ 	}
+ 	kref_put(&cookie->refcount, release_wait_cookie);
+-	dcp->vrr_enabled = mode->vrr && crtc_state->vrr_enabled;
++	dcp->vrr_enabled = mode->vrr && vrr_on;
+ 	if (dcp->hw.iomfb_method_profile == DCP_IOMFB_METHODS_H17P_EXTERNAL)
+ 		dcp_external_hdr_hints(dcp, dcp->output_pq);
+ 
+-- 
+2.56.0
+
