@@ -1964,3 +1964,19 @@ Fixes: (a) DTB with `phandle` added to the two nodes (`mk-dt-fix.py`, payloads `
 `daily-dcp-phfix-test`, `daily-dcp-phfix-test-vrr`), round 4 running; (b) loader patch
 `m1n1-0029-dcp-give-display-nodes-a-phandle.diff` (give any display node without a phandle a new one, highest offset
 first), being built and ported to omacom/m1n1 #35, which carries the same check.
+
+## 2026-11-08 04:23 UTC: DAILY-DCP round 4: the phandle fix confirmed; GPU + DCP together is a second problem
+
+| boot | payload | result |
+|---|---|---|
+| B4 | B2 + the two phandles in the DTB (display hand-off, no GPU) | booted, clean, delta 50 s: `card1` apple-drm, eDP-2, six timings, no timeouts, Hyprland up |
+| daily-dcp-phfix-test | the twin + the two phandles (`gpu=1` + display) | fell back, delta 55 s, `attempt-linux-panic`, PMU 300100 (orderly restart after the panic) |
+
+B4 against the five identical payloads that fell back at 208 s settles the first failure: the missing phandles on
+`dcp` and `display-subsystem`. The second result is new: with the GPU hand-off and the display hand-off in the same
+boot the kernel panics in its first seconds, after macsmc-reboot has registered (the restart was orderly). The same
+kernel boots as a GPU daily (B1, B3) and as a DCP-only payload (B4, B5), so this is an interaction between the two
+drivers or the two hand-offs. No console capture exists for it yet. Next: a capture kernel with the GPU driver as a
+module so the panic lands in the journal, and code reading of the two probe paths
+(`contrib/pending/dcp/daily-dcp/GPU-DCP-PANIC-ANALYSIS.md`, in progress). The loader-fix twin (phfix m1n1, in-tree
+DTB) boots next to validate the loader side of the fix; its expected outcome is the same 55 s panic.
