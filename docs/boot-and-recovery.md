@@ -2,7 +2,7 @@
 
 The M5 (`ssh mbp` when in macOS) and the Studio (`ssh omarchy`) are joined by a USB-C cable on a
 CalDigit TS5 Plus USB-C data port. Under m1n1 the Mac is USB device `1209:316d` (`/dev/m1n1`,
-`/dev/m1n1-sec`); under Linux it is a CDC EEM gadget (`1d6b:0104`, M5 = `10.55.0.2`).
+`/dev/m1n1-sec`); under Linux it is a CDC EEM gadget (`1d6b:0104`, M5 = `<m5-gadget-ip>`).
 
 ## Disk layout on the M5 (GPT entry numbers; macOS names differ)
 
@@ -54,10 +54,10 @@ cd ~/Work/m1n1/proxyclient && M1N1DEVICE=/dev/m1n1 PYTHONPATH=. ../.venv/bin/pyt
 cd ~/Work/m1n1/proxyclient && L=~/Work/omarchy-m5/vendor/linux && M1N1DEVICE=/dev/m1n1 PYTHONPATH=. ../.venv/bin/python tools/linux.py $L/arch/arm64/boot/Image.gz $L/arch/arm64/boot/dts/apple/t6050-j716s.dtb ~/Work/omarchy-m5/build/initramfs.cpio.gz -b "earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5"
 ```
 
-4. About 20 s later the gadget appears and the Studio gets `10.55.0.1` from udev:
+4. About 20 s later the gadget appears and the Studio gets `<studio-gadget-ip>` from udev:
 
 ```bash
-ssh -i ~/.ssh/mbp root@10.55.0.2
+ssh -i ~/.ssh/mbp root@<m5-gadget-ip>
 ```
 
 Root and `alarm` passwords are locked: SSH with the key is the only login.
@@ -87,7 +87,7 @@ October builds and the M5 SSH key were copied out that way into `~/Work/studio-a
 `~/Work/omarchy-m5/vendor/linux`, a symlink to the case-sensitive image `/Volumes/linux-cs`).
 
 Limits of the macOS host: the M5's gadget is CDC-EEM, which macOS has no driver for, so there is no
-`10.55.0.x` network and no SSH from macOS; the panel is the console. Boot without `m5.root=` to stay
+gadget network and no SSH from macOS; the panel is the console. Boot without `m5.root=` to stay
 in the initramfs shell (banner shows `cpus:`), or boot from the Omarchy side for SSH.
 
 ## Untethered boot (2026-11-04: stage-2 from the ESP works; stage-1 ceremony pending)
@@ -194,7 +194,7 @@ the previous 1-CPU payload; `cp` it back to roll back. New cpufreq fact from tha
 `apple_soc_cpufreq_init: failed to add OPP table: -19` for cpu12-17 (MIDR 0x611f0651 cluster).
 
 Access without a tether: `~/Work/eem-vm/eem-vm.py` (README there) boots a Debian guest under QEMU
-with the M5's EEM gadgets passed through and proxies SSH to root@10.55.0.2; `--shell`, `--keep`.
+with the M5's EEM gadgets passed through and proxies SSH to root@<m5-gadget-ip>; `--shell`, `--keep`.
 Console logins for root and alarm were enabled on 2026-11-04 with a temporary password Rolando
 knows; change it. Whether the fix was the size (0x4F0000 -> 0x430000), the 64 KiB
 alignment of the appended-variable image, or both, is not separated; both are kept.
@@ -247,10 +247,36 @@ overwrite). Boot `build/initramfs-provision.cpio` (from `mkinitramfs.py --rootfs
 provision-rootfs 200224487 42724609
 ```
 
+## Writing payloads to the ESP: the 60 s rule (2026-11-07)
+
+A payload written to the ESP used to fail its first boot about one time in three and boot on the retry. The cause is
+not the FAT ESP or the file: it is a restart issued while the SSD controller is still busy after a write burst (an
+ext4 `dd` with `conv=fsync` on the root reproduces it with no ESP write at all). It shows up in one of two ways: the
+restart itself goes wrong and iBoot counts it (error stage `00`, the new file is not read on that boot), or the next
+boot starts a controller that is still recovering and panics in its first seconds, the panic timeout resets the machine
+and stage 1 boots the previous payload (error stage `30`). Either way the previous payload comes up instead of the new
+one.
+
+- **Idle at least 60 s after any large write** (an ESP copy, a `dd`, a package install) before `reboot`. With the
+  settle, 9 of 9 restarts were clean; with a gap of about a second, 5 of 14 failed.
+- `esp-put.sh` (`contrib/pending/boot-ab/firstboot/`) does this: fsync, remount the ESP read-only, then wait
+  `ESP_SETTLE` seconds (default 60) before it returns.
+- A systemd shutdown hook on the root (`/usr/lib/systemd/system-shutdown/m5pro-settle.sh`: `sync`, then 20 s) is a
+  safety net, not a replacement for the rule.
+- Stage-1 patch 0017 (`chainload.stage-mark=1`) makes a counted restart boot the primary slot; it is recommended and
+  goes on the stage-1 slots in an attended sitting.
+- Write-up and the experiment table: [`contrib/pending/boot-ab/firstboot/REPORT.md`](../contrib/pending/boot-ab/firstboot/REPORT.md);
+  results: `contrib/validated/integration/RESULTS.md` ("First-boot fallback root cause", "RESTART-EXP4").
+
 ## Recovery
 
 - **Back to macOS:** hold power → boot picker → Macintosh HD. The stub stays the default.
-- **Hung Linux or m1n1:** hold power until off, press once → m1n1 again.
+- **Hung init (the panel stops on a kernel trace, no network, nothing ever answers):** hold the power button until the
+  machine is off, then press it once. The forced reset is counted by iBoot, and the loader falls back to the previous
+  payload (`boot.bin.prev`) on that start. Waiting does not help when Linux has taken over the watchdog: the Thunderbolt
+  T0 kernel hung in `deferred_probe_initcall` for 1300 s and nothing reset it, so no fallback and no self-test ran.
+  If the machine does not come back on a good payload, boot macOS from the picker and put the daily back by hand.
+- **Hung m1n1 (no Linux yet):** hold power until off, press once → m1n1 again.
 - **Watchdog:** `wdt-arm.py N` (omarchy-m5, max 170 s) resets into m1n1 unless something disarms
   it; a chainload with `m1n1.wdt=keep` keeps it armed and m1n1 pets it (patch 0012).
 - **Remove everything:** in macOS set Startup Disk to Macintosh HD first, then

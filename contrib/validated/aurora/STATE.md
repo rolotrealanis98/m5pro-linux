@@ -1,24 +1,35 @@
 # Aurora kernel on the J716s: current state and exact ingredients
 
 **This file is the single source of truth for the Aurora payload ingredients** (it replaces
-`pipe-park/STATE.md`, moved here with `git mv`). The newest boot is **R3-SERIES** (next section), built from the clean 58-patch series;
-the canonical recipe for it is `series/SERIES.md`. R3-V, R3-R and R3-Q follow below, each as a delta on the one before
-(they use the hand-assembled `aurora-j716s` branch).
-Results and the boot tables: `../integration/RESULTS.md` ("Round R3"). Per-unit values (PHY tunables) are no longer
-in the DT at all: m1n1 0021 fills them at boot.
+`pipe-park/STATE.md`, moved here with `git mv`). The current daily is `daily-n1k-20261107-512a1c00.bin` (next section);
+the dated entries at the end of this file record each daily promotion since. The sections below it are history: R3-SERIES
+is the first boot of the clean 58-patch series (canonical recipe `series/SERIES.md`); R3-V, R3-R and R3-Q follow, each as a
+delta on the one before (they use the hand-assembled `aurora-j716s` branch).
+Results and the boot tables: `../integration/RESULTS.md` ("Round R3" and the 2026-11-07 sections up to DAILY-N1K).
+Per-unit values (PHY tunables) are no longer in the DT at all: m1n1 0021 fills them at boot.
 
-# Current (daily with WFI idle, battery, SMC sensors and the right Type-C port, 2026-11-07 12:00 UTC)
+# Current: daily-n1k (the kernel trains the N1; promoted 2026-11-07 23:16 UTC, see RESULTS.md "DAILY-N1K")
 
-`boot.bin` = `daily-20261107-dcec81ed.bin`: kernel `7.3.0-gf080637018df` (series + 0061 WFI override + 0062 PM_DEBUG,
-soak and S1-S4 sleep tested) with the DTB of series 0059+0060, battery on, `kvm-arm.wfi_trap_policy=trap`, self-test
-flag off. Idle on the charger 9.3 W (was 16.4 W). `boot.bin.prev` = the previous daily `275d84ec`.
-Previous: `daily-20261107-275d84ec.bin` (series kernel `4f630b11270d`, same DTB).
-Previous daily `ce3f10af` (battery only) was R3-S's promotion.
-`boot.bin.prev` = R2-B `5091e1fe` (our 7.2 kernel). ESP: `boot.bin`, `boot.bin.prev`, `boot.bin.known-good` (audio
-test payloads live on the Studio and are copied in for a run). Audio: mic works (A2), speakers boot safely but the first
-tone faults the amps (B2); see `contrib/validated/integration/RESULTS.md`. Stage-1 is the A/B image (`chainload.fallback`, 150 s watchdog), slot reported as `primary`.
+`boot.bin` = `daily-n1k-20261107-512a1c00.bin` (no self-test): kernel `7.3.0-g36845aa5f650` = the GPU tree (Aurora
+`integration/aurora` + the 87-patch series + Aurora #1012 + the 27.2+ GPU port) + the kernel-side N1 training (wireless
+0004-0010) + the F6 key fix (peripherals 0007) + the read-only NVRAM nodes (nvram 0001); m1n1 `n1-dt-gpu` (n1-warm-gpu +
+0028: the N1 port stays enabled and the host tunables are copied, no training in the loader); no `chosen.m5pro,n1`
+variable; `chosen.m5pro,gpu=1`; battery on. The GPU (aurora, 27.3 firmware, G17S) is up on every boot and the desktop
+starts the zink GPU session by itself. Every ESP write is followed by a 60 s settle before the reboot (`esp-put.sh`).
+`boot.bin.prev` = the test twin `daily-n1k-test-20261107-5c74c66c.bin` (same ingredients with the self-test); it is the
+rollback. The previous daily `e2b-daily-20261107-fd4b3b9e.bin` (GPU, loader-trained N1) and the one before it,
+`daily-wifi-20261107-4feff24c.bin`, are kept on the Studio.
+Stage-1 is the A/B image (`chainload.fallback`, 150 s watchdog), slot reported as `primary`.
 
-# R3-SERIES (2026-11-07), superseded as the daily by the battery build above
+# Previous daily: WFI idle, battery, SMC sensors and the right Type-C port (2026-11-07 12:00 UTC), superseded
+
+`daily-20261107-dcec81ed.bin`: kernel `7.3.0-gf080637018df` (series + 0061 WFI override + 0062 PM_DEBUG, soak and S1-S4
+sleep tested) with the DTB of series 0059+0060, battery on, `kvm-arm.wfi_trap_policy=trap`, self-test flag off. Idle on the
+charger 9.3 W (was 16.4 W). Before it: `275d84ec` (series kernel `4f630b11270d`, same DTB) and `ce3f10af` (battery only,
+R3-S's promotion). Audio at that time: mic works (A2), speakers boot safely but the first tone faulted the amps (B2); the
+speakers have played clean since R3-AUDIO-B6 (`contrib/validated/integration/RESULTS.md`).
+
+# R3-SERIES (2026-11-07), superseded as the daily by the builds above
 
 Payload sha256 prefix `8c8dd836`, booted by the self-revert loop (nobody at the machine) at about 10:10: network,
 `card0-eDP-1`, trackpad (`Touch MT ready` at 1.34 s), `apple_idle`, `macsmc` bound through the native `apple,t6050-smc`
@@ -29,7 +40,7 @@ PMGR noise and the expected `pcie-apple` `-22`. **The exact recipe (patch list, 
 | Part | R3-SERIES | Change from R3-X (= R3-V + simpledrm eDP) |
 |---|---|---|
 | m1n1 | `m1n1-plain-r2-pipepark-atc.bin`, sha256 prefix `28b26ebc` (`pipepark-atc`: 0020 + 0021) | none |
-| Kernel | `7.3.0-g4f630b11270d`: the 58 patches of `series/patches/series/` on `aurora-silicon` `integration/aurora` `33bec4016c46` (worktree `wt-series`, branch `j716s-series`, tip `a83b052e9ffb`, re-authored 2026-11-07 to `Rolando Trevino <rolotrealanis@gmail.com>` with `Signed-off-by` and without assistant trailers; the content is byte-identical to `4f630b11270d`, which is the hash in the booted kernel version string). 0001-0044 are Aurora's commits carried as-is, 0045-0058 are ours | hand-assembled `aurora-j716s` branch replaced by the series |
+| Kernel | `7.3.0-g4f630b11270d`: the 58 patches of `series/patches/series/` on `aurora-silicon` `integration/aurora` `33bec4016c46` (worktree `wt-series`, branch `j716s-series`, tip `a83b052e9ffb`, re-authored 2026-11-07 to `Rolando Trevino <rolotrealanis@gmail.com>` with `Signed-off-by`; the content is byte-identical to `4f630b11270d`, which is the hash in the booted kernel version string). 0001-0044 are Aurora's commits carried as-is, 0045-0058 are ours | hand-assembled `aurora-j716s` branch replaced by the series |
 | Config | `make defconfig asahi.config j716s.config` (16K pages), `RUST` off. `j716s.config` is `series/j716s.config` (patch 0058) | the config additions of R3-V/R3-X are now in the fragment |
 | DT | the series' own source-form `arch/arm64/boot/dts/apple/t6050-j716s.dts` (patch 0057), compiled by the kernel build; `series/dt/t6050-j716s.dtb`, sha256 `8c4df67ac743a08b633f7e5233004180e5b18d9f82c56b9261ec76eb77458e6e`. Publishable, no per-unit values, no hand edits | source-form DT instead of the post-processed decompiled DTS. Differences from the old booted DTB: `series/dt/dt-diff.txt` |
 | Driver fixes in the series | `apple,t6050-smc` match (0052), `apple,t6050-cio-reset` entry (0051: register `0x60`, the old `t8142` fallback used `0x30`), CPU order in `t6050-max.dtsi` (0054) | native matches instead of DT fallbacks |
@@ -185,7 +196,7 @@ NVMe/SART commits are PR #936, the combo-PHY and dwc3 commits are PR #939 plus A
   27.2+ GPU InitData port) + m1n1 `n1-warm-gpu` + the stitched-FTAB initramfs; chosen `n1=4`, `gpu=1`, battery on, no
   `pcie_aspm=off`; rollback = the E2b test twin `3f2fec04`. The aurora GPU initialises at boot (27.3 firmware, G17S,
   renderD128) and the desktop launcher picks the zink GPU session when the driver is present.
-- Previous daily `4feff24c` kept in `~/Work/agents/next-daily/payloads/private/` for a manual rollback.
+- Previous daily `4feff24c` kept on the Studio for a manual rollback.
 - Open on the daily: a full desktop login on the GPU kernel (attended), DCP stage C, lid sleep on this kernel.
 
 ## 2026-11-07 23:25 UTC
