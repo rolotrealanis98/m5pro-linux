@@ -2319,3 +2319,9 @@ series: AVE node probe-only, ProRes engine node + observer, `t6050-media.dtsi`, 
   power domain is kept on for its DARTs; if idle rises, the AVE node goes back to disabled in the next daily).
 - Restore target for test runners is now this payload; `fault-watch.sh` runs for the boot under
   `/root/fault-watch-daily/`.
+- 14:30-14:35 UTC power follow-up on daily-dcp-rec-video: all `venc0_*` power domains read **off** in
+  `pm_genpd_summary` (the encoder's domain is not kept on after the probe-only bind), so the AVE node costs no idle
+  power; the SMC "Total System Power" swung 19.3 W -> 15.0 W within two minutes at load 0.1-0.2 with the panel at
+  brightness 570, the same band the previous daily showed (15.0 W at 14:14). The 9.8 W README figure is a dimmed
+  idle from an earlier day; a like-for-like idle series (panel level fixed, 10 min) is still to be taken. The
+  AVE driver has no unbind attribute (sysfs write refused), so the A/B was by domain state, not by unbinding.
