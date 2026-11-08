@@ -2170,3 +2170,30 @@ recovery fixes pass the reproducer. `run-restore-daily.sh` points at daily-n1k a
   blame-logging kernel will tell whether it submits work).
 - Chrome stays GPU-enabled per Rolando; each Chrome fault still takes the compositor down until
   the recovery kernel (`j716s-daily-dcp-recovery2`) is tested. Evidence: `/root/wedge-1156`.
+
+## 2026-11-08 12:08-12:19 UTC — GPU recovery kernel, first hardware run (daily-dcp-recovery2, PASS on the main question)
+
+Kernel `7.3.0-g12c445fa5371` = daily-dcp + recovery patches 0001-0003 (`contrib/pending/gpu/recovery/`) + fault
+patches 0001-0002 (`contrib/pending/gpu/faults/`), payload `daily-dcp-recovery2-test-20261108-55baf5ad.bin` (test
+flags: `m5.selftest=1 watchdog.open_timeout=300`, VRR on). Booted first try at 12:02 UTC: DCP display, GPU render,
+Hyprland pid 940. Stress 12:08:45-12:18:35 via `recovery-test.sh /usr/local/bin/stress-load.sh 590`: 3x vkcube,
+glmark2-es2-wayland, two Qt Quick windows (GPU backend), a Chromium WebGL tab, with `fault-watch.sh` logging.
+
+- **Hyprland survived the whole run (same pid 940), no crash report, swaps 1024 per 10 s after the load, no
+  stuck page flip, no RCU stall.** Before these patches every recovery took the compositor down with ENODATA
+  and, on the DCP daily, wedged the display.
+- 3 GPU recoveries, all within 3 s at uptime 518-521 s, all with glmark2's 10-command queues in flight. Only
+  glmark2 lost its device (EIO from the bounded path). vkcube x3, the QML windows, Chromium and Hyprland kept
+  running. The remaining 9.5 min of load produced no recovery.
+- **Cause, from the firmware's own record (new blame log): all three are reason 5, "DSF pause timeout: the GPU
+  did not pause scheduling in time" (macOS restart reason 7).** The firmware blamed no queue; the fault
+  registers are all zero, as before. This confirms the fault class H1 named in `faults/HYPOTHESES.md`.
+  macOS writes the same 150 us bound (checked in the 27.x AGXG17X kext), so the next run tests whether a
+  looser bound (`aurora.m5_pause_timeout_us=2000`) removes the faults or only moves them.
+- Harness notes: the load script must live outside `/root` (the session user runs it; now `/usr/local/bin`),
+  the baseline vkcube needs `--wsi wayland`, a `pkill -f` pattern inside an ssh command must not match its own
+  shell (`[f]ault-watch.sh`), and check 4/5 of `recovery-test.sh` read FAIL by construction when the trigger is
+  a load set (glmark2 is part of it). The swap baseline read 0 with vkcube alone and 1024 after (tracing
+  enable order; not a display problem).
+- Artefacts (Studio, private): `~/Work/agents/gpu-recovery/recovery2-recovery2/` (events, journal, test dir).
+  Restore: the slot already held `daily-n1k-20261107-512a1c00.bin`; reboot into it at 12:20 UTC.
