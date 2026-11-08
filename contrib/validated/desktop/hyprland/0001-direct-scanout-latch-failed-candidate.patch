@@ -1,0 +1,175 @@
+From 575a1d57c2ef7a8c7d949963fea83aa7a2913d5c Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:19:30 -0500
+Subject: [PATCH] monitor: latch a failed direct-scanout candidate and test it
+ without touching the swapchain
+
+A fullscreen client whose dmabuf the KMS backend cannot import (a tiled
+modifier on an output driven with AQ_NO_MODIFIERS=1, so only linear
+framebuffers can be added) stays a direct-scanout candidate and is
+re-tested on every client frame. Each attempt reconfigures the output
+swapchain to the client's format (three new full-size scanout buffers),
+the test fails, the composed frame that follows reconfigures the
+swapchain back (three more buffers) and modesets, because the format was
+marked changed although the plane never left it. On a 3456x2234 panel
+that is 185 MB of dumb buffers and one modeset per client frame; the
+replaced buffers were not released and the session was OOM-killed after
+48 GB in seven seconds. Direct scanout never engaged once.
+
+DS_BLOCK_FAILED exists in eDSBlockReason but nothing set it.
+
+Monitor.hpp: remember the candidate whose scanout test failed together
+with the format and modifier of the buffer it offered.
+
+recheckSolitary(): drop that latch as soon as the solitary candidate is
+a different window, or none, so a new fullscreen client (or the same
+one after it left fullscreen) gets a fresh test. The early returns are
+folded into one condition so the latch check runs on every path.
+
+isDSBlocked(): after the dmabuf check, report DS_BLOCK_FAILED when the
+candidate, format and modifier match the latch. The client keeps being
+composited; a later buffer with another format or modifier (one the
+backend might import) is still tested. hyprctl shows the reason as
+"activation failed".
+
+attemptDirectScanout(), cursor-update path: test with m_output->test()
+instead of m_state.test(). The state already carries the client buffer
+that is on the plane; the swapchain plays no part in a scanout commit,
+so the swapchain update and ensureBufferPresent() were no-ops there.
+
+attemptDirectScanout(), rollback guard: only call setFormat() when the
+state's format differs from the one being restored. setFormat() marks
+the format committed even when the value is unchanged, and aquamarine
+turns a committed format into a modeset on the next commit.
+
+attemptDirectScanout(), test: leave m_drmFormat and the output format
+alone until the test passes, and test with m_output->test(). Before,
+the format was switched first, so m_state.test() reconfigured the
+swapchain to the client's format (and the composed frame after a failure
+reconfigured it back and modeset); the swapchain is irrelevant to a
+scanout test, which commits the client's buffer. The DRM backend tests a
+buffer whose format differs from the output's as a modeset, the same way
+it did with the format set up front. On failure, record the candidate,
+format and modifier in the latch and log it at DEBUG level, since
+aquamarine only reports a KMS-unimportable buffer at TRACE level after
+the first import attempt. On success, adopt the client's format exactly
+as before, right before the commit; the commit itself is unchanged.
+
+Behaviour when the test passes is otherwise the same. The swapchain is no
+longer switched to the client's format at scanout entry; it is switched
+lazily by the next CMonitorState::commit() (if any) during the scanout,
+as today, and is already in the output's format when the scanout ends.
+---
+ src/output/Monitor.cpp | 46 +++++++++++++++++++++++++++++-------------
+ src/output/Monitor.hpp |  4 ++++
+ 2 files changed, 36 insertions(+), 14 deletions(-)
+
+diff --git a/src/output/Monitor.cpp b/src/output/Monitor.cpp
+index 7775fca..0f562ae 100644
+--- a/src/output/Monitor.cpp
++++ b/src/output/Monitor.cpp
+@@ -1819,13 +1819,12 @@ void CMonitor::recheckSolitary() {
+     m_solitaryClient.reset(); // reset it, if we find one it will be set.
+ 
+     const auto PWORKSPACE = m_activeWorkspace;
+-    if (!PWORKSPACE)
+-        return;
+-
+-    if (isSolitaryBlocked())
+-        return;
++    if (PWORKSPACE && !isSolitaryBlocked())
++        m_solitaryClient = Fullscreen::controller()->getFullscreenWindow(m_self.lock());
+ 
+-    m_solitaryClient = Fullscreen::controller()->getFullscreenWindow(m_self.lock());
++    // the failed-scanout latch belongs to one candidate: another one (or none) gets a fresh test
++    if (m_dsFailedClient && !(m_solitaryClient == m_dsFailedClient))
++        m_dsFailedClient.reset();
+ }
+ 
+ uint8_t CMonitor::isTearingBlocked(bool full) {
+@@ -1982,6 +1981,13 @@ uint16_t CMonitor::isDSBlocked(bool full) {
+             return reasons;
+     }
+ 
++    // the backend already refused a buffer like this one from this candidate: do not retest it every frame
++    if (params.success && m_dsFailedClient == PCANDIDATE && m_dsFailedFormat == params.format && m_dsFailedModifier == params.modifier) {
++        reasons |= DS_BLOCK_FAILED;
++        if (!full)
++            return reasons;
++    }
++
+     const bool surfaceIsHDR   = PSURFACE->m_colorManagement.valid() && PSURFACE->m_colorManagement->isHDR();
+     const bool surfaceIsScRGB = surfaceIsHDR && PSURFACE->m_colorManagement->isWindowsScRGB();
+ 
+@@ -2015,7 +2021,8 @@ bool CMonitor::attemptDirectScanout() {
+         PROTO::presentation->tagQueued(m_self.lock(), 0, m_tearingState.activelyTearing, m_vrrActive);
+ 
+         if (m_scanoutNeedsCursorUpdate) {
+-            if (!m_state.test()) {
++            // the state already carries this buffer: test it as is, the swapchain plays no part in a scanout commit
++            if (!m_output->test()) {
+                 LOG(Log::TRACE, "attemptDirectScanout: failed basic test on cursor update");
+                 return false;
+             }
+@@ -2057,28 +2064,39 @@ bool CMonitor::attemptDirectScanout() {
+             return;
+ 
+         m_drmFormat = previousFormat;
+-        m_output->state->setFormat(previousFormat);
++        // setting a format the state already has still marks it changed, and the next commit would modeset for nothing
++        if (m_output->state->state().drmFormat != previousFormat)
++            m_output->state->setFormat(previousFormat);
+         m_output->state->setBuffer(previousBuffer);
+         m_output->state->setPresentationMode(previousPresentationMode);
+         m_output->state->resetExplicitFences();
+     }};
+ 
+     const bool  NEEDS_TEST = !m_lastScanout || m_drmFormat != params.format; // do not retest while it's active
+-    if (m_drmFormat != params.format) {
+-        m_output->state->setFormat(params.format);
+-        m_drmFormat = params.format;
+-    }
+ 
+     m_output->state->setBuffer(PBUFFER);
+     LOG(Log::TRACE, "attemptDirectScanout: setting presentation mode");
+     m_output->state->setPresentationMode(m_tearingState.activelyTearing ? Aquamarine::eOutputPresentationMode::AQ_OUTPUT_PRESENTATION_IMMEDIATE :
+                                                                           Aquamarine::eOutputPresentationMode::AQ_OUTPUT_PRESENTATION_VSYNC);
+ 
+-    if (NEEDS_TEST && !m_state.test()) {
+-        LOG(Log::TRACE, "attemptDirectScanout: failed basic test");
++    // Test the client's buffer against the output as it is. m_drmFormat and the output format stay untouched until the
++    // test passes: m_state.test() would reconfigure the swapchain to the client's format first (three new scanout
++    // buffers) and the composed frame after a failure would reconfigure it back and modeset, every frame the candidate
++    // is retried. The backend tests a buffer whose format differs from the output's as a modeset anyway.
++    if (NEEDS_TEST && !m_output->test()) {
++        LOG(Log::DEBUG, "attemptDirectScanout: scanout test failed for {:x}, format {} modifier {:#x}: blocking it until the candidate or its buffer format/modifier changes",
++            rc<uintptr_t>(PCANDIDATE.get()), params.format, params.modifier);
++        m_dsFailedClient   = PCANDIDATE;
++        m_dsFailedFormat   = params.format;
++        m_dsFailedModifier = params.modifier;
+         return false;
+     }
+ 
++    if (m_drmFormat != params.format) {
++        m_output->state->setFormat(params.format);
++        m_drmFormat = params.format;
++    }
++
+     PSURFACE->presentFeedback(Time::steadyNow(), m_self.lock());
+ 
+     auto    damageTransaction = m_damage.beginTransaction();
+diff --git a/src/output/Monitor.hpp b/src/output/Monitor.hpp
+index c37e48c..b243bbb 100644
+--- a/src/output/Monitor.hpp
++++ b/src/output/Monitor.hpp
+@@ -154,6 +154,10 @@ namespace Monitor {
+         PHLWINDOWREF m_lastScanout;
+         bool m_directScanoutIsActive    = false; // for cleanup logic. m_lastScanout.expired() can become true before the DS cleanup if client crashes/exits while DS is active.
+         bool m_scanoutNeedsCursorUpdate = false;
++        // candidate whose scanout test failed: blocked (DS_BLOCK_FAILED) until the candidate changes or it offers a buffer with another format/modifier
++        PHLWINDOWREF m_dsFailedClient;
++        uint32_t     m_dsFailedFormat   = DRM_FORMAT_INVALID;
++        uint64_t     m_dsFailedModifier = DRM_FORMAT_MOD_INVALID;
+ 
+         // for special fade/blur
+         PHLANIMVAR<float> m_specialFade;

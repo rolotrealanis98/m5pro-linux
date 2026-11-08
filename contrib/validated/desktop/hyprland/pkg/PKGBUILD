@@ -1,0 +1,139 @@
+# hyprland-m5pro: Hyprland 0.57.1 for the Apple M5 Pro MacBook (Omarchy on Arch Linux ARM)
+# with the direct-scanout failed-candidate latch (../0001-direct-scanout-latch-failed-candidate.patch).
+#
+# Recipe: Arch's extra/hyprland 0.57.1-1 (maintainer Caleb Maclennan), which Arch Linux ARM
+# ships unchanged (the package installed on the MacBook) and Omarchy's pkgbuilds/hyprland
+# 0.57.1-2 extends with three unrelated patches (nvidia-egl-teardown, wl-output-global-grace,
+# monitor-rule-vrr; they apply cleanly on top of ours if ever wanted). Only our patch is added.
+# hyprpm is not built here: ALARM's hyprpm 0.57.1-1 stays installed and is satisfied by provides.
+#
+# Build (never as root): cd into this directory, with the patch next to the PKGBUILD, and run
+#   PKGDEST=$PWD/out LOGDEST=$PWD/out makepkg -sL
+# The release tarball ships src/version.h.in pre-filled (hash acc1aa0, branch "v0.57.1"); only the
+# branch and commit-message labels shown by 'hyprctl version' are changed here. GIT_COMMIT_HASH
+# stays acc1aa0 like the tarball builds in extra/ and [omarchy], so plugins built against them
+# (the plugin API hash includes it) keep loading.
+
+pkgname=hyprland-m5pro
+pkgver=0.57.1
+pkgrel=1
+pkgdesc='Hyprland 0.57.1 with the direct-scanout failed-candidate latch (M5 Pro MacBook, apple-drm DCP)'
+arch=(aarch64 x86_64)
+url="https://github.com/hyprwm/Hyprland"
+license=(BSD-3-Clause)
+depends=(cairo # libcairo.so
+         aquamarine
+         libgcc # libgcc_s.so
+         'libstdc++' # libstdc++.so
+         glibc # libc.so libm.so
+         glib2
+         glslang # libglslang-default-resource-limits.so libglslang.so
+         hyprcursor
+         hyprgraphics
+         hyprland-guiutils
+         hyprlang
+         hyprutils
+         hyprwire
+         lcms2
+         libcanberra
+         libdrm # libdrm.so
+         libei
+         libglvnd
+         libinput # libinput.so
+         libx11
+         libxcb # libxcb-dri3.so libxcb-present.so libxcb-render.so libxcb-res.so libxcb-shm.so libxcb.so libxcb-xfixes.so libxcb-xinput.so
+         libxcomposite # libxcb-composite.so
+         libxcursor # libXcursor.so
+         libxfixes
+         libxkbcommon
+         libxrender
+         lua # liblua.so
+         mesa # libgbm.so
+         muparser # libmuparser.so
+         opengl-driver
+         pango
+         pixman
+         re2
+         sdbus-cpp
+         tomlplusplus
+         util-linux-libs
+         wayland
+         wayland-protocols
+         xcb-proto
+         xcb-util
+         xcb-util-errors # libxcb-errors.so
+         xcb-util-image
+         xcb-util-keysyms
+         xcb-util-renderutil # libxcb-render-util.so
+         xcb-util-wm # libxcb-ewmh.so  libxcb-icccm.so
+         xorg-xwayland)
+makedepends=(cmake
+             glaze
+             hyprland-protocols
+             hyprwayland-scanner
+             meson
+             ninja
+             xorgproto)
+optdepends=('hyprpm: build and install plugins'
+            'hyprshutdown: clean logout and shutdown helper'
+            'xdg-desktop-portal-hyprland: xdg-desktop-portal backend for hyprland')
+provides=("hyprland=$pkgver" wayland-compositor)
+conflicts=(hyprland)
+_archive="Hyprland-$pkgver"
+source=("$_archive.tar.gz::$url/releases/download/v$pkgver/source-v$pkgver.tar.gz"
+        0001-direct-scanout-latch-failed-candidate.patch)
+# The patch checksum is of ../0001-direct-scanout-latch-failed-candidate.patch; rerun 'updpkgsums' after editing it.
+sha256sums=('24e7428f83115e58e5fc81f100f6b73691dcaaf7a503087391e44327a71c43ab'
+            '3049a6d8bcef2ad5b3e34a2daf9ab59fb4d3f9b05b455d553d8435e53aca516b')
+
+prepare() {
+	ln -sf hyprland-source "$_archive"
+	cd "$_archive"
+	# A fullscreen client whose dmabuf KMS cannot import (tiled modifier, AQ_NO_MODIFIERS=1) was
+	# re-tested every frame, reconfiguring the output swapchain there and back with a modeset:
+	# 6 new 31 MB dumb buffers per client frame, never released, OOM in seconds (2026-11-08).
+	patch -Np1 --fuzz=0 -i "$srcdir/0001-direct-scanout-latch-failed-candidate.patch"
+	# label the build for 'hyprctl version' (branch and commit message; the hash is left alone)
+	sed -i -e "s|^#define GIT_BRANCH .*|#define GIT_BRANCH         \"m5pro-ds-latch\"|" \
+	       -e "s|^#define GIT_COMMIT_MESSAGE .*|#define GIT_COMMIT_MESSAGE \"$pkgname $pkgver-$pkgrel: direct-scanout failed-candidate latch\"|" \
+	       src/version.h.in
+	grep -q 'm5pro-ds-latch' src/version.h.in
+	sed -i -e '/^release:/{n;s/-D/-DCMAKE_SKIP_RPATH=ON -D/}' Makefile
+	sed -i -e '/find_package.glaze/s/7...<8 //' {.,hyprpm,start}/CMakeLists.txt
+}
+
+build() {
+	cd "$_archive"
+	make release PREFIX=/usr
+}
+
+package() {
+	depends+=(libEGL.so
+	          libGLESv2.so
+	          libaquamarine.so
+	          libcanberra.so
+	          libeis.so
+	          libgio-2.0.so
+	          libgobject-2.0.so
+	          libhyprcursor.so
+	          libhyprgraphics.so
+	          libhyprlang.so
+	          libhyprutils.so
+	          libhyprwire.so
+	          liblcms2.so
+	          libpango-1.0.so
+	          libpangocairo-1.0.so
+	          libpixman-1.so
+	          libre2.so
+	          libreadline.so
+	          libsdbus-c++.so
+	          libtomlplusplus.so
+	          libuuid.so
+	          libwayland-server.so
+	          libxkbcommon.so)
+	cd "$_archive"
+	make DESTDIR="$pkgdir" install
+	rm -fv "$pkgdir/usr/include/hyprland/src/version.h.in"
+	find "$pkgdir" -name '*hyprpm*' -delete
+	install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+}
