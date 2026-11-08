@@ -1,0 +1,39 @@
+From 34180d5cf5b7a90bd6ef21644c4febda834ff294 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 08 Nov 2026 08:21:15 -0500
+Subject: [PATCH 4/5] arm64: dts: apple: t6050-j716s: Enable the ProRes engine for observation
+
+Turn the ProRes engine and its DART on for observation: with
+VIDEO_APPLE_PRORES_T6050_OBSERVE the driver powers the SCODEC state up
+once, reads the engine's registers and powers it down. The payload
+should blacklist apple_prores so that this runs only by hand.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index f058b55f4e4b..0e85ef68ce6d 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -1150,3 +1150,16 @@ panel {
+ 		apple,color-gamut = "display-p3";
+ 	};
+ };
++
++/*
++ * The ProRes engine and its DART, for observation only: the driver binds,
++ * powers the SCODEC state up once, reads the engine's identification and
++ * state registers and powers it down. No job can be submitted.
++ */
++&apr0_dart {
++	status = "okay";
++};
++
++&apr0 {
++	status = "okay";
++};
+-- 
+2.51.0
+

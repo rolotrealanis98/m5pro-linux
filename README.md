@@ -61,8 +61,8 @@ link text).
 | **Prepared, not booted** | External displays | Needs the DCP in a daily payload first (stage C passes on the internal panel); DisplayPort over Type-C is untested on both ports. |
 | **Prepared, not booted** | Thermal zones | Design report only. [`contrib/pending/platform/`](contrib/pending/platform/) |
 | **Not realistic** | Touch ID | Sits behind the Secure Enclave; not planned. |
-| **Not realistic** | ProRes | Only a device-tree binding exists, no driver. |
-| **Not realistic** | Hardware video encode, for now | The encoder has a probe-only driver; nothing beyond that is expected soon. |
+| **Prepared, not booted** | ProRes (encode engine `apr0`) | The daily tree already carries Aurora's V4L2 ProRes encoder for the T8140; the J716s engine is a new generation (`apr,n0`, pure MMIO, no firmware, no per-unit data). Binding, DT nodes and an observe-only probe variant are drafted and compile-tested; encode needs the n0 tunables and descriptor (none known), decode has no Linux path at all. [`contrib/pending/video/prores/`](contrib/pending/video/prores/) |
+| **Prepared, not booted** | Hardware video encode (AVE) | Aurora's complete V4L2 H.264/HEVC encoder driver is in the daily kernel (it encodes on the MacBook Neo and the M4 Pro); the J716s only lacks its DT node and the loader hand-off of the iBoot-preloaded firmware (no blob needed). Probe-only patches drafted; real encoding needs the T6050 boot identity and a command layout for firmware 9013.55.1, best obtained with Aurora from a macOS trace. [`contrib/pending/video/encode/`](contrib/pending/video/encode/) |
 
 Merged into `aurora-silicon/linux` (2026-11-08, fleet-tested by the maintainers): **#1082** (rtkit handshake wait
 1 s to 10 s), **#1083** (dockchannel-hid 50 ms settle after the AFE reset), **#1084** (macsmc hwmon keeps a fan whose

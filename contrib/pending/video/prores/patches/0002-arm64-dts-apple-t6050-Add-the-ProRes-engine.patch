@@ -1,0 +1,116 @@
+From 915b28083b456db2dd4bc9ce3d7dc66b1a95a64e Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 08 Nov 2026 08:21:15 -0500
+Subject: [PATCH 2/5] arm64: dts: apple: t6050: Add the ProRes engine
+
+Describe the M5 Pro/Max ProRes engine and its DART from the J716s ADT
+(/arm-io/apr0, /arm-io/dart-apr0 through arm-io's ranges) and their
+power from /arm-io/pmgr's device table: the engine's gate SCODEC_V and
+the DART's gate SCODEC_DART are virtual children of SCODEC, group 1
+(pmgr reg[1], 0x280900000) at +0x190, whose parent FAB7_SOC (+0x178) is
+critical. SCODEC is also the engine's reset. The DART is a real-time
+dart,t8110 with stream 1 (mapper-apr0) and the DVA window
+0x10000000000 + 0x30000000000.
+
+Not described: the two 16 KiB windows at engine + 0x70000 and + 0x71000
+the ADT lists after the auxiliary window (their role is not known), and
+the PRORES power state of group 4 (+0x1e0, parent FAB1_SOC), which gates
+only dart-apr1; that DART's engine, apr1, is not in the M5 Pro ADT. The
+node carries no firmware.
+
+Both nodes stay disabled.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-max.dtsi    |  2 +
+ arch/arm64/boot/dts/apple/t6050-prores.dtsi | 69 +++++++++++++++++++++
+ 2 files changed, 71 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-max.dtsi b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+index d3b0a1f7b80a..5de460b87cfc 100644
+--- a/arch/arm64/boot/dts/apple/t6050-max.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+@@ -115,3 +115,5 @@ mtp_dockchannel: fifo@294b14000 {
+ 		#interrupt-cells = <2>;
+ 	};
+ };
++
++#include "t6050-prores.dtsi"
+diff --git a/arch/arm64/boot/dts/apple/t6050-prores.dtsi b/arch/arm64/boot/dts/apple/t6050-prores.dtsi
+new file mode 100644
+index 000000000000..2d4a9e44d9cf
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6050-prores.dtsi
+@@ -0,0 +1,69 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * T6050 (M5 Pro/Max) ProRes engine (APR), single die.
++ *
++ * From the J716s ADT: /arm-io/apr0 (compatible apr,n0, device_type apr) and
++ * /arm-io/dart-apr0 (dart,t8110, stream 1 = mapper-apr0, real-time, DVA
++ * window 0x10000000000 + 0x30000000000), through arm-io's ranges. The ADT
++ * lists five register windows for apr0: the engine (16 KiB), the wrapper
++ * (0x48c000000, 16 MiB), the auxiliary window at engine + 0xc0000 (16 KiB,
++ * where T6041's third window is) and two 16 KiB windows at engine + 0x70000
++ * and + 0x71000 whose role is not known; those two are not described.
++ *
++ * Power, from /arm-io/pmgr's device table (group 1 is pmgr reg[1] at
++ * 0x280900000): the engine's clock gate is SCODEC_V and the DART's is
++ * SCODEC_DART, both virtual children of SCODEC (+0x190; parent FAB7_SOC at
++ * +0x178, critical). SCODEC is also the engine's reset (the ADT's
++ * function-device_reset) and the target of its bandwidth request. The
++ * separate PRORES state (group 4, +0x1e0, parent FAB1_SOC) gates only
++ * dart-apr1, whose engine (apr1) is absent from the M5 Pro ADT; it is not
++ * described. The node carries no firmware (no pre-loaded segments).
++ *
++ * Both nodes stay disabled; a board enables them.
++ */
++
++&pmgr1 {
++	ps_fab7_soc: power-controller@178 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x178 4>;
++		label = "fab7_soc";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		apple,always-on;
++	};
++
++	ps_scodec: power-controller@190 {
++		compatible = "apple,t6050-pmgr-pwrstate", "apple,t8103-pmgr-pwrstate";
++		reg = <0x190 4>;
++		label = "scodec";
++		#power-domain-cells = <0>;
++		#reset-cells = <0>;
++		power-domains = <&ps_fab7_soc>;
++	};
++};
++
++&die0 {
++	apr0_dart: iommu@48d020000 {
++		compatible = "apple,t6050-dart", "apple,t8110-dart";
++		reg = <0x4 0x8d020000 0x0 0xc000>;
++		#iommu-cells = <1>;
++		interrupts = <AIC_IRQ 0 1712 IRQ_TYPE_LEVEL_HIGH>;
++		apple,dma-range = /bits/ 64 <0x10000000000 0x30000000000>;
++		power-domains = <&ps_scodec>;
++		status = "disabled";
++	};
++
++	apr0: video-codec@48d000000 {
++		compatible = "apple,t6050-prores", "apple,prores";
++		reg = <0x4 0x8d000000 0x0 0x4000>,
++		      <0x4 0x8c000000 0x0 0x1000000>,
++		      <0x4 0x8d0c0000 0x0 0x4000>;
++		reg-names = "core", "wrapper", "aux";
++		interrupts = <AIC_IRQ 0 1713 IRQ_TYPE_LEVEL_HIGH>,
++			     <AIC_IRQ 0 1750 IRQ_TYPE_LEVEL_HIGH>;
++		power-domains = <&ps_scodec>;
++		resets = <&ps_scodec>;
++		iommus = <&apr0_dart 1>;
++		status = "disabled";
++	};
++};
+-- 
+2.51.0
+

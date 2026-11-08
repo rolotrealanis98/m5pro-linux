@@ -1,0 +1,231 @@
+From 5ae285e2ab8669882781753fe6169ea4733bb064 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 08 Nov 2026 08:21:15 -0500
+Subject: [PATCH 3/5] media: apple: prores: Observe the T6050 engine, probe only
+
+The T6050 (M5 Pro/Max) engine is a new generation (ADT apr,n0; the
+driver knows the T8140's). Its tunables, descriptor format and the
+meaning of its statistics registers are not known, and macOS's driver
+selects all three by device ID, so the T8140 job path must not run on
+it.
+
+Behind VIDEO_APPLE_PRORES_T6050_OBSERVE, match "apple,t6050-prores"
+with a variant that only observes: probe maps the engine and wrapper
+windows, attaches the power domain (which powers and binds the DART),
+powers the engine up once through runtime PM, logs the identification,
+mode, interrupt and ring registers every known generation shares at the
+same offsets, and lets the domain go off again. No descriptor ring is
+installed, no interrupt is requested and no V4L2 device is registered,
+so nothing can start a job. Nothing is written to the engine. The
+module parameter observe_stats=1 adds the statistics capacity registers
+at the T8140 and T6000 offsets, which may not exist on this generation.
+
+The system sleep callbacks skip the m2m device the observer never
+created, and remove skips the video device.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ drivers/media/platform/apple/prores/Kconfig   |  13 ++
+ .../platform/apple/prores/apple-prores-drv.c  | 112 +++++++++++++++++-
+ 2 files changed, 122 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/media/platform/apple/prores/Kconfig b/drivers/media/platform/apple/prores/Kconfig
+index a0fddcaab7fe..b0fa56346ed3 100644
+--- a/drivers/media/platform/apple/prores/Kconfig
++++ b/drivers/media/platform/apple/prores/Kconfig
+@@ -15,6 +15,19 @@ config VIDEO_APPLE_PRORES
+ 	  To compile this driver as a module, choose M here: the module
+ 	  will be called apple-prores.
+ 
++config VIDEO_APPLE_PRORES_T6050_OBSERVE
++	bool "Bind the T6050 (M5 Pro/Max) ProRes engine for observation"
++	depends on VIDEO_APPLE_PRORES
++	help
++	  Match "apple,t6050-prores". The engine's register layout, tunables
++	  and descriptor format are not known for this generation, so the
++	  driver only powers the engine up once, logs its identification and
++	  state registers and powers it down again. No descriptor ring is
++	  installed, no interrupt is requested and no V4L2 device is
++	  registered, so nothing can start a job.
++
++	  Say N unless you are bringing the T6050 engine up.
++
+ config VIDEO_APPLE_PRORES_KUNIT_TEST
+ 	tristate "KUnit tests for the Apple ProRes encoder" if !KUNIT_ALL_TESTS
+ 	depends on KUNIT && VIDEO_APPLE_PRORES
+diff --git a/drivers/media/platform/apple/prores/apple-prores-drv.c b/drivers/media/platform/apple/prores/apple-prores-drv.c
+index 1fa95ce3bdbe..acde355dd507 100644
+--- a/drivers/media/platform/apple/prores/apple-prores-drv.c
++++ b/drivers/media/platform/apple/prores/apple-prores-drv.c
+@@ -22,6 +22,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/pm_domain.h>
+ #include <linux/pm_runtime.h>
++#include <linux/property.h>
+ #include <linux/reset.h>
+ #include <linux/sizes.h>
+ #include <linux/slab.h>
+@@ -191,7 +192,32 @@ static const struct apr_tunable apr_t8140_wrapper_tunables[] = {
+ 	{ 0x401c, 0x00000001, 0x00000001 },
+ };
+ 
++/* Selected by the DT compatible. */
++struct apr_variant {
++	/*
++	 * The engine's tunables, descriptor format and completion protocol
++	 * are not known: bind, power it up once, log its identification and
++	 * state registers and power it down. No ring, no interrupts, no V4L2
++	 * device, so nothing can start a job.
++	 */
++	bool observe_only;
++};
++
++static const struct apr_variant apr_t8140 = {};
++
++#if IS_ENABLED(CONFIG_VIDEO_APPLE_PRORES_T6050_OBSERVE)
++static const struct apr_variant apr_t6050_observe = {
++	.observe_only = true,
++};
++
++static bool apr_observe_stats;
++module_param_named(observe_stats, apr_observe_stats, bool, 0444);
++MODULE_PARM_DESC(observe_stats,
++		 "Observation only: also read the statistics capacity registers at the T8140 (0x394, 0x714) and T6000 (0x280, 0x360) offsets");
++#endif
++
+ struct apr_dev {
++	const struct apr_variant *variant;
+ 	struct device *dev;
+ 	void __iomem *regs;
+ 	void __iomem *wrapper;
+@@ -1018,7 +1044,8 @@ static int apr_suspend(struct device *dev)
+ {
+ 	struct apr_dev *apr = dev_get_drvdata(dev);
+ 
+-	v4l2_m2m_suspend(apr->m2m_dev);
++	if (apr->m2m_dev)
++		v4l2_m2m_suspend(apr->m2m_dev);
+ 	return pm_runtime_force_suspend(dev);
+ }
+ 
+@@ -1030,10 +1057,79 @@ static int apr_resume(struct device *dev)
+ 	ret = pm_runtime_force_resume(dev);
+ 	if (ret)
+ 		return ret;
+-	v4l2_m2m_resume(apr->m2m_dev);
++	if (apr->m2m_dev)
++		v4l2_m2m_resume(apr->m2m_dev);
+ 	return 0;
+ }
+ 
++#if IS_ENABLED(CONFIG_VIDEO_APPLE_PRORES_T6050_OBSERVE)
++/*
++ * Observation probe: power the engine up through its domain (which also
++ * powers and binds its DART), read the registers every known generation
++ * shares, log them and let the domain go off again. Nothing is written.
++ */
++static int apr_observe(struct apr_dev *apr, struct platform_device *pdev)
++{
++	static const struct {
++		const char *name;
++		u32 reg;
++	} regs[] = {
++		{ "id", APR_REG_ID },
++		{ "mode", APR_REG_MODE },
++		{ "irq_enable", APR_REG_IRQ_ENABLE },
++		{ "irq_status", APR_REG_IRQ_STATUS },
++		{ "st0", APR_REG_ST0 },
++		{ "st1", APR_REG_ST1 },
++		{ "ring_size", APR_REG_RING_SIZE },
++		{ "ring_lo", APR_REG_RING_LO },
++		{ "ring_hi", APR_REG_RING_HI },
++		{ "ring_head", APR_REG_RING_HEAD },
++		{ "ring_tail", APR_REG_RING_TAIL },
++	}, stats[] = {
++		{ "stats0_size (t8140 layout)", APR_REG_STATS0_SIZE },
++		{ "stats1_size (t8140 layout)", APR_REG_STATS1_SIZE },
++		{ "stats0_size (t6000 layout)", 0x0280 },
++		{ "stats1_size (t6000 layout)", 0x0360 },
++	};
++	struct device *dev = &pdev->dev;
++	struct resource *res;
++	unsigned int i;
++	int ret;
++
++	for (i = 0; i < ARRAY_SIZE(apr->irq); i++)
++		apr->irq[i] = platform_get_irq_optional(pdev, i);
++	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "aux");
++
++	pm_runtime_set_autosuspend_delay(dev, APR_AUTOSUSPEND_MS);
++	pm_runtime_use_autosuspend(dev);
++	ret = devm_pm_runtime_enable(dev);
++	if (ret)
++		return ret;
++	ret = pm_runtime_resume_and_get(dev);
++	if (ret < 0)
++		return dev_err_probe(dev, ret, "cannot power the engine up\n");
++
++	dev_info(dev, "observing the ProRes engine: irqs %d %d, aux window %s\n",
++		 apr->irq[0], apr->irq[1], res ? "present" : "absent");
++	for (i = 0; i < ARRAY_SIZE(regs); i++)
++		dev_info(dev, "  %-12s %#010x\n", regs[i].name,
++			 apr_read(apr, regs[i].reg));
++	if (apr_observe_stats)
++		for (i = 0; i < ARRAY_SIZE(stats); i++)
++			dev_info(dev, "  %-28s %#010x\n", stats[i].name,
++				 apr_read(apr, stats[i].reg));
++
++	pm_runtime_put_autosuspend(dev);
++	dev_info(dev, "observation only: no V4L2 device registered\n");
++	return 0;
++}
++#else
++static int apr_observe(struct apr_dev *apr, struct platform_device *pdev)
++{
++	return -ENODEV;
++}
++#endif
++
+ static const struct dev_pm_ops apr_pm_ops = {
+ 	RUNTIME_PM_OPS(apr_runtime_suspend, apr_runtime_resume, NULL)
+ 	SYSTEM_SLEEP_PM_OPS(apr_suspend, apr_resume)
+@@ -1061,6 +1157,9 @@ static int apr_probe(struct platform_device *pdev)
+ 	if (!apr)
+ 		return -ENOMEM;
+ 	apr->dev = dev;
++	apr->variant = device_get_match_data(dev);
++	if (!apr->variant)
++		return -ENODEV;
+ 	mutex_init(&apr->vdev_lock);
+ 	spin_lock_init(&apr->hw_lock);
+ 	INIT_DELAYED_WORK(&apr->watchdog, apr_watchdog);
+@@ -1098,6 +1197,8 @@ static int apr_probe(struct platform_device *pdev)
+ 	ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
+ 	if (ret)
+ 		return ret;
++	if (apr->variant->observe_only)
++		return apr_observe(apr, pdev);
+ 	apr->ring = dmam_alloc_coherent(dev, APR_RING_BYTES, &apr->ring_dma,
+ 					GFP_KERNEL);
+ 	if (!apr->ring)
+@@ -1168,11 +1269,16 @@ static void apr_remove(struct platform_device *pdev)
+ {
+ 	struct apr_dev *apr = platform_get_drvdata(pdev);
+ 
++	if (apr->variant->observe_only)
++		return;
+ 	video_unregister_device(&apr->vdev);
+ }
+ 
+ static const struct of_device_id apr_of_match[] = {
+-	{ .compatible = "apple,t8140-prores" },
++	{ .compatible = "apple,t8140-prores", .data = &apr_t8140 },
++#if IS_ENABLED(CONFIG_VIDEO_APPLE_PRORES_T6050_OBSERVE)
++	{ .compatible = "apple,t6050-prores", .data = &apr_t6050_observe },
++#endif
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, apr_of_match);
+-- 
+2.51.0
+

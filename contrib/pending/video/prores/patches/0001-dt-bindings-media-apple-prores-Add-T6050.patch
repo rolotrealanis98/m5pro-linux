@@ -1,0 +1,87 @@
+From 28a43739e0945c385e7550d421f6840640030f37 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 08 Nov 2026 08:21:15 -0500
+Subject: [PATCH 1/5] dt-bindings: media: apple,prores: Add T6050
+
+The M5 Pro/Max ProRes engine (J716s ADT /arm-io/apr0, compatible apr,n0)
+has the register windows the T6041 has: the engine, the 16 MiB wrapper
+and a third, auxiliary window at engine + 0xc0000. It has one DART
+stream and two interrupts, and its SCODEC power state is also its reset
+(the ADT's function-device_reset), so resets is required for it. The
+T8140 node keeps its two windows.
+
+The compatible takes the "apple,t6050-prores", "apple,prores" form the
+integration tree uses for every SoC it added after the T8140.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ .../bindings/media/apple,prores.yaml          | 34 ++++++++++++++++++-
+ 1 file changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/media/apple,prores.yaml b/Documentation/devicetree/bindings/media/apple,prores.yaml
+index 07afac17ef2e..b34fd15bba4e 100644
+--- a/Documentation/devicetree/bindings/media/apple,prores.yaml
++++ b/Documentation/devicetree/bindings/media/apple,prores.yaml
+@@ -14,19 +14,30 @@ description: |
+   descriptors in a DMA ring; the engine signals completion with an
+   interrupt. It has no firmware. Its power domain also resets it.
+ 
++  The T6050 (M5 Pro/Max) engine has a third, auxiliary register window
++  beside the engine and wrapper windows, as the T6041 does.
++
+ properties:
+   compatible:
+-    const: apple,t8140-prores
++    oneOf:
++      - const: apple,t8140-prores
++      - items:
++          - const: apple,t6050-prores
++          - const: apple,prores
+ 
+   reg:
++    minItems: 2
+     items:
+       - description: Engine registers
+       - description: Wrapper registers
++      - description: Auxiliary registers
+ 
+   reg-names:
++    minItems: 2
+     items:
+       - const: core
+       - const: wrapper
++      - const: aux
+ 
+   interrupts:
+     minItems: 1
+@@ -58,6 +69,27 @@ required:
+   - iommus
+   - power-domains
+ 
++allOf:
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: apple,t6050-prores
++    then:
++      properties:
++        reg:
++          minItems: 3
++        reg-names:
++          minItems: 3
++      required:
++        - resets
++    else:
++      properties:
++        reg:
++          maxItems: 2
++        reg-names:
++          maxItems: 2
++
+ additionalProperties: false
+ 
+ examples:
+-- 
+2.51.0
+

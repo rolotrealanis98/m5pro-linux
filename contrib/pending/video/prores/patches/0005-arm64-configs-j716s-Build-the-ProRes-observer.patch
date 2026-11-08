@@ -1,0 +1,30 @@
+From a3caa8313fc1f0ed16658d0fef4fcdba9cf54fff Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 08 Nov 2026 08:21:15 -0500
+Subject: [PATCH 5/5] arm64: configs: j716s: Build the ProRes observer
+
+Build the ProRes driver as a module (as asahi.config does) with the
+T6050 observation probe, so the J716s fragment lists what its device
+tree enables.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/configs/j716s.config | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/arch/arm64/configs/j716s.config b/arch/arm64/configs/j716s.config
+index d011225f5d69..6ed120ab496f 100644
+--- a/arch/arm64/configs/j716s.config
++++ b/arch/arm64/configs/j716s.config
+@@ -224,3 +224,8 @@ CONFIG_BRIDGE_NETFILTER=y
+ CONFIG_FUSE_FS=y
+ CONFIG_OVERLAY_FS=y
+ CONFIG_VETH=y
++
++# ProRes engine: the encoder driver as a module (asahi.config), with the
++# T6050 observation probe. Load it by hand; the payload blacklists it.
++CONFIG_VIDEO_APPLE_PRORES=m
++CONFIG_VIDEO_APPLE_PRORES_T6050_OBSERVE=y
+-- 
+2.51.0
+
