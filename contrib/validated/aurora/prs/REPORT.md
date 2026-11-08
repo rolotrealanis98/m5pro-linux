@@ -240,3 +240,14 @@ The J716s board device tree is upstream in `integration/aurora` with the maintai
 fragment, no `maxcpus=1` default). Follow-ups: rebase #1183 (DT half of the N1 training, carried #1167 underneath)
 onto the new tip, and resolve #1182's conflict with its base (#937's branch); panel node for the boot framebuffer
 and the trackpad reset route as later PRs.
+
+## 2026-11-08 07:25 UTC: #1183 and #1182 rebased after the #1167 merge
+
+- #1183 (DT half): now 2 commits on integration/aurora e636747 (head c69970a): the apple,manual-availability binding
+  and the J716s N1 training DT; the 23 carried #1167/#945 commits dropped; the SMC GPIO node renamed `gpio` to match
+  apple,smc.yaml (the W=1 `unit_address_vs_reg` warning is gone); dtbs_check clean with #1182's binding on top.
+- #1182 (driver half): rebased onto the force-pushed base 911da8c (#937 rebased at the #945 merge); conflicts in
+  apple,pcie.yaml, pcie-apple.c and gpio-macsmc.c resolved, edimoldovan's commits unchanged in content, the second
+  t6050 block of the binding extended with our six reg-names; 9 commits, per-commit W=1 compile clean; mergeable again.
+- Both pushed with --force-with-lease to the fork PR branches; notes posted on both PRs. Report:
+  `contrib/validated/aurora/prs/REBASE-1183-1182.md`. Still open: edimoldovan's Signed-off-by on six of his commits.
