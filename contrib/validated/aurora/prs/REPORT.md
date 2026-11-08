@@ -157,3 +157,14 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
   Ed's six commits carry no Signed-off-by of his own (asked in the PR text).
 - DT half: https://github.com/aurora-silicon/linux/pull/1183 — base integration/aurora, stacked on #1167: ed's DART binding + the J716s DT.
 - Hardware section from K1/K2 (2026-11-07 21:27 UTC). Copies in `contrib/pending/wireless/pr-kernel-train/`.
+
+## 2026-11-08 05:10 UTC: #293 replies posted (Rolando's go)
+
+- Reply 2 to edimoldovan: J616s format stays J716s-only; W4 ab24d156868e confirmed on the J716s (3 warm restarts, ASPM
+  strip replaces pcie_aspm=off); the adopted-link s2idle fix; the GPU result (27.2+ InitData port boots the G17S, #1173).
+- Reply 3 to TripleU613 (J714s effort, github.com/TripleU613/Omarchy-M5-Pro): pointer to m5pro-linux as the status repo
+  and the six solved pieces that carry over (SMP/relay, N1 kernel training #1182/#1183, GPU #1173, DCP 27.3, AFE reset
+  #1083 + pcIO table, SMC/hwmon/lid/WFI), plus the 60 s reboot rule.
+- rolotrealanis98/linux-aurora fork: broken on GitHub's side (API never indexed pushes); Rolando approved deleting and
+  re-forking; the token lacks the delete_repo scope, so the delete happens in the web UI, after which the fork, push and
+  PR creation run automatically.
