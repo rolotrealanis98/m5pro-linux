@@ -1,0 +1,220 @@
+From 12f57806b3881a557e6dbba7dec80c75dde1d119 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:04:39 -0500
+Subject: [PATCH 1/2] arm64: dts: apple: t6050-max: Leave the USB4 routers to
+ the boards
+
+The ATC2 router, its mailbox, its five CIO and PCIe power states and
+its PCIe tunnel container are enabled in the shared SoC file, so every
+T6050 board that includes it carries a live router it never wired up.
+On the J716s this is what the first Thunderbolt kernel boot ran: the
+power-state nodes probed, and by their own power-domains link powered
+ATC2_CIO on with the Type-C PHY still in USB mode, which the router
+driver forbids; ATC2_CIO_AUSS waited forever for its AUSS parent, which
+no board had enabled; the router waited for the AOP pin controller its
+LSTX pin lives on, also disabled; and the boot hung in the deferred
+probe flush before init.
+
+Disable every node of both routers here, as ATC1's router already is
+(and as the t600x die files leave their routers to the boards), and
+have the board that wires the port enable them with the two suppliers
+only a router uses: the AUSS parent domain and the AOP pin controller.
+The J716c enables ATC2's set next to its tunables and connector
+endpoint, so its device tree is unchanged in effect.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716c.dts | 35 +++++++++++++++++++++++
+ arch/arm64/boot/dts/apple/t6050-max.dtsi  | 21 ++++++++++++++
+ 2 files changed, 56 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716c.dts b/arch/arm64/boot/dts/apple/t6050-j716c.dts
+index a726cc6efc60..d83b6d779bfc 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716c.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716c.dts
+@@ -370,6 +370,39 @@ &pinctrl_aop {
+ 	status = "okay";
+ };
+ 
++/*
++ * The router's nodes are disabled in t6050-max.dtsi; this board wires the port, so it enables
++ * them: the five ATC2 CIO and PCIe power states, the router CPU's mailbox, the router (below,
++ * with its tunables and the connector endpoint) and its PCIe tunnel.
++ */
++&ps_atc2_cio {
++	status = "okay";
++};
++
++&ps_atc2_cio_pcie {
++	status = "okay";
++};
++
++&ps_atc2_cio_usb {
++	status = "okay";
++};
++
++&ps_atc2_cio_auss {
++	status = "okay";
++};
++
++&ps_atc2_pcie {
++	status = "okay";
++};
++
++&acio2_mbox {
++	status = "okay";
++};
++
++&acio2_pcie_tunnel {
++	status = "okay";
++};
++
+ &hpm2 {
+ 	connector {
+ 		ports {
+@@ -384,6 +417,8 @@ hpm2_usb4: endpoint {
+ };
+ 
+ &acio2 {
++	status = "okay";
++
+ 	apple,tunable-rc = <0x0 0xfff0 0x4020>,
+ 			<0x2c 0x4 0x0>,
+ 			<0x4004 0x1ff01ff 0x1000100>,
+diff --git a/arch/arm64/boot/dts/apple/t6050-max.dtsi b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+index c742e01e1cb1..008762200e10 100644
+--- a/arch/arm64/boot/dts/apple/t6050-max.dtsi
++++ b/arch/arm64/boot/dts/apple/t6050-max.dtsi
+@@ -138,6 +138,12 @@ nub_spmi_a1: spmi@28a1a8000 {
+  * unless its first register is the third register of the matching /arm-io/acioN, which on T6050
+  * is not the router's rc block. The board gives the tunables and the host DROM until the boot
+  * loader fills them.
++ *
++ * Everything here is disabled, as ATC1's below: the board that wires the port's Type-C chain to
++ * the router enables the router, its mailbox, its domains and its tunnel, with the AUSS parent
++ * domain and the AOP pin controller the router needs. A router that is never wired up then costs
++ * nothing at boot: its domains are not powered on by their own probe, and nothing waits for a
++ * supplier that is not there.
+  */
+ &pmgr0 {
+ 	ps_atc2_cio: power-controller@2e8 {
+@@ -147,6 +153,7 @@ ps_atc2_cio: power-controller@2e8 {
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		power-domains = <&ps_atc2_common>;
++		status = "disabled";
+ 	};
+ 
+ 	ps_atc2_cio_pcie: power-controller@3f8 {
+@@ -156,6 +163,7 @@ ps_atc2_cio_pcie: power-controller@3f8 {
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		power-domains = <&ps_atc2_cio>;
++		status = "disabled";
+ 	};
+ 
+ 	ps_atc2_cio_usb: power-controller@400 {
+@@ -165,6 +173,7 @@ ps_atc2_cio_usb: power-controller@400 {
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		power-domains = <&ps_atc2_cio>;
++		status = "disabled";
+ 	};
+ 
+ 	ps_atc2_cio_auss: power-controller@408 {
+@@ -174,6 +183,7 @@ ps_atc2_cio_auss: power-controller@408 {
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		power-domains = <&ps_atc2_cio>, <&ps_auss>;
++		status = "disabled";
+ 	};
+ };
+ 
+@@ -196,6 +206,7 @@ acio2_mbox: mailbox@381108000 {
+ 		interrupt-names = "send-empty", "send-not-empty",
+ 				  "recv-empty", "recv-not-empty";
+ 		#mbox-cells = <0>;
++		status = "disabled";
+ 	};
+ 
+ 	/*
+@@ -225,6 +236,7 @@ acio2: acio@381ac0000 {
+ 		#size-cells = <1>;
+ 		ranges = <0x0 0x3 0x81000000 0x1000000>;
+ 		nonposted-mmio;
++		status = "disabled";
+ 
+ 		/*
+ 		 * /arm-io/dart-acio2, populated with the NHI once the router runs, so that it is
+@@ -331,6 +343,7 @@ ps_atc2_pcie: power-controller@2f0 {
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		power-domains = <&ps_atc2_common>, <&ps_atc2_usb_aon>;
++		status = "disabled";
+ 	};
+ };
+ 
+@@ -340,6 +353,7 @@ acio2_pcie_tunnel: pcie-tunnel-2 {
+ 		#size-cells = <2>;
+ 		ranges;
+ 		nonposted-mmio;
++		status = "disabled";
+ 
+ 		apciec2_dart: iommu@384000000 {
+ 			compatible = "apple,t6050-dart", "apple,t8110-dart";
+@@ -422,6 +436,7 @@ ps_atc1_cio: power-controller@290 {
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		power-domains = <&ps_atc1_common>;
++		status = "disabled";
+ 	};
+ 
+ 	ps_atc1_cio_pcie: power-controller@350 {
+@@ -431,6 +446,7 @@ ps_atc1_cio_pcie: power-controller@350 {
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		power-domains = <&ps_atc1_cio>;
++		status = "disabled";
+ 	};
+ 
+ 	ps_atc1_cio_usb: power-controller@358 {
+@@ -440,6 +456,7 @@ ps_atc1_cio_usb: power-controller@358 {
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		power-domains = <&ps_atc1_cio>;
++		status = "disabled";
+ 	};
+ 
+ 	ps_atc1_cio_auss: power-controller@360 {
+@@ -449,6 +466,7 @@ ps_atc1_cio_auss: power-controller@360 {
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		power-domains = <&ps_atc1_cio>, <&ps_auss>;
++		status = "disabled";
+ 	};
+ };
+ 
+@@ -471,6 +489,7 @@ acio1_mbox: mailbox@2a9108000 {
+ 		interrupt-names = "send-empty", "send-not-empty",
+ 				  "recv-empty", "recv-not-empty";
+ 		#mbox-cells = <0>;
++		status = "disabled";
+ 	};
+ 
+ 	/*
+@@ -597,6 +616,7 @@ ps_atc1_pcie: power-controller@298 {
+ 		#power-domain-cells = <0>;
+ 		#reset-cells = <0>;
+ 		power-domains = <&ps_atc1_common>, <&ps_atc1_usb_aon>;
++		status = "disabled";
+ 	};
+ };
+ 
+@@ -606,6 +626,7 @@ acio1_pcie_tunnel: pcie-tunnel-1 {
+ 		#size-cells = <2>;
+ 		ranges;
+ 		nonposted-mmio;
++		status = "disabled";
+ 
+ 		apciec1_dart: iommu@2ac000000 {
+ 			compatible = "apple,t6050-dart", "apple,t8110-dart";

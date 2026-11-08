@@ -1,0 +1,44 @@
+# dtbs_check (tools/check.sh, schema of the j716s-tb-r2 tree) on the round 2 T0 J716s DTB vs the daily (video-observe) DTB: lines only one of them has
+# daily:      772 lines; round 2 T0:      892 lines. '>' = only in the round 2 T0 log, '<' = only in the daily's.
+> 	from schema $id: http://devicetree.org/schemas/thunderbolt/apple,t8103-usb4-nhi.yaml
+> /pcie-tunnel-1/pcie@1c60000000: failed to match any schema with compatible: ['apple,t6050-pciec']
+> /pcie-tunnel-2/pcie@1c70000000: failed to match any schema with compatible: ['apple,t6050-pciec']
+> /soc@200000000/power-management@280600000/power-controller@290: failed to match any schema with compatible: ['apple,t6050-pmgr-pwrstate', 'apple,t8103-pmgr-pwrstate']
+> /soc@200000000/power-management@280600000/power-controller@298: failed to match any schema with compatible: ['apple,t6050-pmgr-pwrstate', 'apple,t8103-pmgr-pwrstate']
+> /soc@200000000/power-management@280600000/power-controller@2e8: failed to match any schema with compatible: ['apple,t6050-pmgr-pwrstate', 'apple,t8103-pmgr-pwrstate']
+> /soc@200000000/power-management@280600000/power-controller@2f0: failed to match any schema with compatible: ['apple,t6050-pmgr-pwrstate', 'apple,t8103-pmgr-pwrstate']
+> /soc@200000000/power-management@280600000/power-controller@350: failed to match any schema with compatible: ['apple,t6050-pmgr-pwrstate', 'apple,t8103-pmgr-pwrstate']
+> /soc@200000000/power-management@280600000/power-controller@358: failed to match any schema with compatible: ['apple,t6050-pmgr-pwrstate', 'apple,t8103-pmgr-pwrstate']
+> /soc@200000000/power-management@280600000/power-controller@360: failed to match any schema with compatible: ['apple,t6050-pmgr-pwrstate', 'apple,t8103-pmgr-pwrstate']
+> /soc@200000000/power-management@280600000/power-controller@3f8: failed to match any schema with compatible: ['apple,t6050-pmgr-pwrstate', 'apple,t8103-pmgr-pwrstate']
+> /soc@200000000/power-management@280600000/power-controller@400: failed to match any schema with compatible: ['apple,t6050-pmgr-pwrstate', 'apple,t8103-pmgr-pwrstate']
+> /soc@200000000/power-management@280600000/power-controller@408: failed to match any schema with compatible: ['apple,t6050-pmgr-pwrstate', 'apple,t8103-pmgr-pwrstate']
+> acio@381ac0000 (apple,t6050-usb4-acio): nhi@f00000: 'apple,thunderbolt-drom' is a required property
+> nhi@f00000 (apple,t6050-usb4-nhi): 'apple,thunderbolt-drom' is a required property
+> pcie@1c60000000 (apple,t6050-pciec): apple,msi-vector-base: b'\x00\x00\x00\xa0' is not of type 'object', 'integer', 'array', 'boolean', 'null'
+> pcie@1c70000000 (apple,t6050-pciec): apple,msi-vector-base: b'\x00\x00\x00\xc0' is not of type 'object', 'integer', 'array', 'boolean', 'null'
+> power-controller@290 (apple,t6050-pmgr-pwrstate): compatible: 'oneOf' conditional failed, one must be fixed:
+> power-controller@298 (apple,t6050-pmgr-pwrstate): compatible: 'oneOf' conditional failed, one must be fixed:
+> power-controller@2e8 (apple,t6050-pmgr-pwrstate): compatible: 'oneOf' conditional failed, one must be fixed:
+> power-controller@2f0 (apple,t6050-pmgr-pwrstate): compatible: 'oneOf' conditional failed, one must be fixed:
+> power-controller@358 (apple,t6050-pmgr-pwrstate): compatible: 'oneOf' conditional failed, one must be fixed:
+> power-controller@360 (apple,t6050-pmgr-pwrstate): compatible: 'oneOf' conditional failed, one must be fixed:
+> power-controller@3f8 (apple,t6050-pmgr-pwrstate): compatible: 'oneOf' conditional failed, one must be fixed:
+> power-controller@400 (apple,t6050-pmgr-pwrstate): compatible: 'oneOf' conditional failed, one must be fixed:
+> power-controller@408 (apple,t6050-pmgr-pwrstate): compatible: 'oneOf' conditional failed, one must be fixed:
+> power-management@280600000 (apple,t6050-pmgr): power-controller@290:compatible: 'oneOf' conditional failed, one must be fixed:
+> power-management@280600000 (apple,t6050-pmgr): power-controller@298:compatible: 'oneOf' conditional failed, one must be fixed:
+> power-management@280600000 (apple,t6050-pmgr): power-controller@2e8:compatible: 'oneOf' conditional failed, one must be fixed:
+> power-management@280600000 (apple,t6050-pmgr): power-controller@2f0:compatible: 'oneOf' conditional failed, one must be fixed:
+> power-management@280600000 (apple,t6050-pmgr): power-controller@350:compatible: 'oneOf' conditional failed, one must be fixed:
+> power-management@280600000 (apple,t6050-pmgr): power-controller@358:compatible: 'oneOf' conditional failed, one must be fixed:
+> power-management@280600000 (apple,t6050-pmgr): power-controller@360:compatible: 'oneOf' conditional failed, one must be fixed:
+> power-management@280600000 (apple,t6050-pmgr): power-controller@3f8:compatible: 'oneOf' conditional failed, one must be fixed:
+> power-management@280600000 (apple,t6050-pmgr): power-controller@400:compatible: 'oneOf' conditional failed, one must be fixed:
+> power-management@280600000 (apple,t6050-pmgr): power-controller@408:compatible: 'oneOf' conditional failed, one must be fixed:
+< reboot (apple,smc-reboot): nvmem-cells: [[39], [40], [41], [42], [43]] is too long
+> reboot (apple,smc-reboot): nvmem-cells: [[41], [42], [43], [44], [45]] is too long
+< smc@28c600000 (apple,t6050-smc): reboot:nvmem-cells: [[39], [40], [41], [42], [43]] is too long
+> smc@28c600000 (apple,t6050-smc): reboot:nvmem-cells: [[41], [42], [43], [44], [45]] is too long
+< usb@2a2280000 (snps,dwc3): iommus: [[90, 0], [91, 1]] is too long
+> usb@2a2280000 (snps,dwc3): iommus: [[112, 0], [113, 1]] is too long

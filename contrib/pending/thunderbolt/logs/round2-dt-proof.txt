@@ -1,0 +1,147 @@
+== sha256 ==
+4a8cfe25f33d24df351c42d3c4e1d883aed7585da895d63de1ff22ce36613a77  /Users/rolo/Work/agents/video-observe/kbuild-video/t6050-j716s-video-observe.dtb
+fc922eb36d8adf788292d1cedb5d8d59a238e95bc771a0f4d391204a3b1333c1  dt/t6050-j716s-tb-k0.dtb
+c8b869c4fe67d365295e0b7bf0f68430207e1cf73a2c79130973f9456163a28d  dt/t6050-j716s-tb-d1.dtb
+82ba799bb74a645429ebd913a9ac0f2be41758402cc822aa7096a1395e644bb6  dt/t6050-j716s-tb-d2.dtb
+e804db9db2f3498742cf72f3a82645de73ebb8b39b4d0bd1bf06c28cd4e021d0  dt/t6050-j716s-tb-d3.dtb
+c438d2efb80aa3485879248fcfa403b0b3dbaba028caeef541469860fd345164  dt/t6050-j716s-tb-t0.dtb
+c438d2efb80aa3485879248fcfa403b0b3dbaba028caeef541469860fd345164  kbuild/t6050-j716s-tb-r2.dtb
+
+== daily -> K0: removed nodes: 0; added nodes: 28; changed properties: 1 ==
+~ /soc@200000000/pinctrl@290824000 :: gpio-reserved-ranges
+added nodes:
++ node /pcie-tunnel-1
++ node /pcie-tunnel-1/iommu@2ac000000
++ node /pcie-tunnel-1/pcie@1c60000000
++ node /pcie-tunnel-1/pcie@1c60000000/pci@0,0
++ node /pcie-tunnel-2
++ node /pcie-tunnel-2/iommu@384000000
++ node /pcie-tunnel-2/pcie@1c70000000
++ node /pcie-tunnel-2/pcie@1c70000000/pci@0,0
++ node /soc@200000000/acio@2a9ac0000
++ node /soc@200000000/acio@2a9ac0000/iommu@a80000
++ node /soc@200000000/acio@2a9ac0000/nhi@f00000
++ node /soc@200000000/acio@381ac0000
++ node /soc@200000000/acio@381ac0000/iommu@a80000
++ node /soc@200000000/acio@381ac0000/nhi@f00000
++ node /soc@200000000/mailbox@2a9108000
++ node /soc@200000000/mailbox@381108000
++ node /soc@200000000/pinctrl@290824000/acio1-lstx-pins
++ node /soc@200000000/pinctrl@290824000/acio2-lstx-pins
++ node /soc@200000000/power-management@280600000/power-controller@290
++ node /soc@200000000/power-management@280600000/power-controller@298
++ node /soc@200000000/power-management@280600000/power-controller@2e8
++ node /soc@200000000/power-management@280600000/power-controller@2f0
++ node /soc@200000000/power-management@280600000/power-controller@350
++ node /soc@200000000/power-management@280600000/power-controller@358
++ node /soc@200000000/power-management@280600000/power-controller@360
++ node /soc@200000000/power-management@280600000/power-controller@3f8
++ node /soc@200000000/power-management@280600000/power-controller@400
++ node /soc@200000000/power-management@280600000/power-controller@408
+
+== status of every node K0 adds (dts) ==
+  /pcie-tunnel-1: status "disabled"
+  /pcie-tunnel-1/iommu@2ac000000: status <none>  (under pcie-tunnel-1)
+  /pcie-tunnel-1/pcie@1c60000000: status <none>  (under pcie-tunnel-1)
+  /pcie-tunnel-1/pcie@1c60000000/pci@0,0: status <none>  (under pcie-tunnel-1)
+  /pcie-tunnel-2: status "disabled"
+  /pcie-tunnel-2/iommu@384000000: status <none>  (under pcie-tunnel-2)
+  /pcie-tunnel-2/pcie@1c70000000: status <none>  (under pcie-tunnel-2)
+  /pcie-tunnel-2/pcie@1c70000000/pci@0,0: status <none>  (under pcie-tunnel-2)
+  /soc@200000000/acio@2a9ac0000: status "disabled"
+  /soc@200000000/acio@2a9ac0000/iommu@a80000: status <none>  (under acio@2a9ac0000)
+  /soc@200000000/acio@2a9ac0000/nhi@f00000: status <none>  (under acio@2a9ac0000)
+  /soc@200000000/acio@381ac0000: status "disabled"
+  /soc@200000000/acio@381ac0000/iommu@a80000: status <none>  (under acio@381ac0000)
+  /soc@200000000/acio@381ac0000/nhi@f00000: status <none>  (under acio@381ac0000)
+  /soc@200000000/mailbox@2a9108000: status "disabled"
+  /soc@200000000/mailbox@381108000: status "disabled"
+  /soc@200000000/pinctrl@290824000/acio1-lstx-pins: status <none>
+  /soc@200000000/pinctrl@290824000/acio2-lstx-pins: status <none>
+  /soc@200000000/power-management@280600000/power-controller@290: status "disabled"
+  /soc@200000000/power-management@280600000/power-controller@298: status "disabled"
+  /soc@200000000/power-management@280600000/power-controller@2e8: status "disabled"
+  /soc@200000000/power-management@280600000/power-controller@2f0: status "disabled"
+  /soc@200000000/power-management@280600000/power-controller@350: status "disabled"
+  /soc@200000000/power-management@280600000/power-controller@358: status "disabled"
+  /soc@200000000/power-management@280600000/power-controller@360: status "disabled"
+  /soc@200000000/power-management@280600000/power-controller@3f8: status "disabled"
+  /soc@200000000/power-management@280600000/power-controller@400: status "disabled"
+  /soc@200000000/power-management@280600000/power-controller@408: status "disabled"
+
+== k0 -> d1 ==
+~ /soc@200000000/mailbox@381108000 :: status
+
+== d1 -> d2 ==
+~ /soc@200000000/power-management@280600000/power-controller@248 :: status
+~ /soc@200000000/power-management@280600000/power-controller@2e8 :: status
+~ /soc@200000000/power-management@280600000/power-controller@2f0 :: status
+~ /soc@200000000/power-management@280600000/power-controller@3f8 :: status
+~ /soc@200000000/power-management@280600000/power-controller@400 :: status
+~ /soc@200000000/power-management@280600000/power-controller@408 :: status
+
+== d2 -> d3 ==
+~ /pcie-tunnel-2 :: status
+~ /soc@200000000/acio@381ac0000 :: status
+~ /soc@200000000/pinctrl@290824000 :: status
+
+== d3 -> t0 ==
+~ /aliases :: atcphy2
+~ /aliases :: usb4-2-acio
+~ /aliases :: usb4-2-nhi
+~ /aliases :: usb4-2-pcie
+~ /aliases :: usb4-2-pcie-adapter
++ node /soc@200000000/acio@381ac0000/ports
++ node /soc@200000000/acio@381ac0000/ports/port@1
++ node /soc@200000000/acio@381ac0000/ports/port@1/endpoint
++ node /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@3
++ node /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@3/endpoint
+
+== t0 -> intree ==
+(identical)
+
+== daily -> T0 (everything the round 2 T0 adds) ==
+~ /aliases :: atcphy2
+~ /aliases :: usb4-2-acio
+~ /aliases :: usb4-2-nhi
+~ /aliases :: usb4-2-pcie
+~ /aliases :: usb4-2-pcie-adapter
++ node /pcie-tunnel-1
++ node /pcie-tunnel-1/iommu@2ac000000
++ node /pcie-tunnel-1/pcie@1c60000000
++ node /pcie-tunnel-1/pcie@1c60000000/pci@0,0
++ node /pcie-tunnel-2
++ node /pcie-tunnel-2/iommu@384000000
++ node /pcie-tunnel-2/pcie@1c70000000
++ node /pcie-tunnel-2/pcie@1c70000000/pci@0,0
++ node /soc@200000000/acio@2a9ac0000
++ node /soc@200000000/acio@2a9ac0000/iommu@a80000
++ node /soc@200000000/acio@2a9ac0000/nhi@f00000
++ node /soc@200000000/acio@381ac0000
++ node /soc@200000000/acio@381ac0000/iommu@a80000
++ node /soc@200000000/acio@381ac0000/nhi@f00000
++ node /soc@200000000/acio@381ac0000/ports
++ node /soc@200000000/acio@381ac0000/ports/port@1
++ node /soc@200000000/acio@381ac0000/ports/port@1/endpoint
++ node /soc@200000000/mailbox@2a9108000
++ node /soc@200000000/mailbox@381108000
+~ /soc@200000000/pinctrl@290824000 :: gpio-reserved-ranges
+~ /soc@200000000/pinctrl@290824000 :: status
++ node /soc@200000000/pinctrl@290824000/acio1-lstx-pins
++ node /soc@200000000/pinctrl@290824000/acio2-lstx-pins
+~ /soc@200000000/power-management@280600000/power-controller@248 :: status
++ node /soc@200000000/power-management@280600000/power-controller@290
++ node /soc@200000000/power-management@280600000/power-controller@298
++ node /soc@200000000/power-management@280600000/power-controller@2e8
++ node /soc@200000000/power-management@280600000/power-controller@2f0
++ node /soc@200000000/power-management@280600000/power-controller@350
++ node /soc@200000000/power-management@280600000/power-controller@358
++ node /soc@200000000/power-management@280600000/power-controller@360
++ node /soc@200000000/power-management@280600000/power-controller@3f8
++ node /soc@200000000/power-management@280600000/power-controller@400
++ node /soc@200000000/power-management@280600000/power-controller@408
++ node /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@3
++ node /soc@200000000/spmi@28a1a8000/usb-pd@c/connector/ports/port@3/endpoint
+
+== display/DCP/GPU/media lines in any diff vs the daily (must be none) ==
+  none

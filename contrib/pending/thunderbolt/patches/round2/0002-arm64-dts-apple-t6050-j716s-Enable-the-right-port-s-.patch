@@ -1,0 +1,147 @@
+From e9876a4d2646588fcb4236e9c4680a5ebe794af4 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Date: Sun, 8 Nov 2026 10:04:39 -0500
+Subject: [PATCH 2/2] arm64: dts: apple: t6050-j716s: Enable the right port's
+ USB4/Thunderbolt router
+
+The J716s ADT has the same right-hand router as the J716c: acio2 (port
+number 3, "right"), acio-cpu2, dart-acio2, the PCIe tunnel apciec2 and
+dart-apciec2, the power states ATC2_CIO, _CIO_PCIE, _CIO_USB, _CIO_AUSS
+and ATC2_PCIE, the reconfig request CIO2_RECONFIG_V and the LSTX line on
+AOP GPIO 81. Registers, interrupts, power states and the MSI slice match
+the nodes t6050-max.dtsi carries, and hpm2's acio-parent is acio2.
+
+Enable them here, with the AUSS parent domain, the AOP pin controller
+with only pin 81 exposed, and the USB4 endpoint between hpm2's connector
+and the router, as the J716c wires it. The left-front port's router
+(ATC1) stays off, and the left-back port (ATC0, this board's tether) is
+not described.
+
+The router, NHI, DART, tunnel and PHY CIO tunables and the host DROM are
+left to the boot loader, which copies them from the ADT through the
+usb4-2-* aliases (the DROM with the router UUID it generates). The
+router refuses to probe without them, and the PD controller then carries
+on without the router once the driver core stops waiting for it, so the
+port keeps its USB and power delivery as before.
+
+Signed-off-by: Rolando Trevino <rolotrealanis@gmail.com>
+---
+ arch/arm64/boot/dts/apple/t6050-j716s.dts | 101 +++++++++++++++++++++-
+ 1 file changed, 100 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6050-j716s.dts b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+index 1cbe955b9072..6e6d3717df5d 100644
+--- a/arch/arm64/boot/dts/apple/t6050-j716s.dts
++++ b/arch/arm64/boot/dts/apple/t6050-j716s.dts
+@@ -849,7 +849,7 @@ &cpufreq_pc {
+ 	compatible = "apple,t6050-cluster-cpufreq", "apple,t8112-cluster-cpufreq";
+ };
+ 
+-/* The die's CIO reconfiguration register; no consumer is enabled yet */
++/* The die's CIO reconfiguration register: the right port's router (below) requests CIO2_RECONFIG_V */
+ &cio_reconfig0 {
+ 	status = "okay";
+ };
+@@ -1184,3 +1184,102 @@ &apr0_dart {
+ &apr0 {
+ 	status = "okay";
+ };
++
++/*
++ * The right port's USB4/Thunderbolt router (ATC2). [ADT] acio2 (port-number 3,
++ * "right", hpm2's acio-parent), acio-cpu2, dart-acio2, the PCIe tunnel apciec2
++ * and dart-apciec2, the power states ATC2_CIO, _CIO_PCIE, _CIO_USB, _CIO_AUSS
++ * and ATC2_PCIE, the reconfig request CIO2_RECONFIG_V and the LSTX line on AOP
++ * GPIO 81: every register, interrupt, power state and the MSI slice match the
++ * nodes t6050-max.dtsi carries (the J716c's). The nodes are disabled there and
++ * enabled here, with the two suppliers only the router uses: the AUSS parent
++ * of ATC2_CIO_AUSS and the AOP pin controller for the LSTX pin. The left-front
++ * port's router (ATC1) and the left-back port's (ATC0, the debug port and this
++ * board's tether) stay off.
++ *
++ * The boot loader fills, from the ADT and through the aliases below: the
++ * router's apple,tunable-rc, -pcie-adapter and -router-ap-fw, the NHI's
++ * apple,tunable-nhi and apple,thunderbolt-drom (with the router UUID it
++ * generates), both DARTs' apple,tunable, the tunnel's apple,tunable-debug,
++ * -rc, -fabric and its port's apple,tunable, and the PHY's CIO tunables. A
++ * loader without the T6050 tables leaves the router refusing to probe
++ * ("Missing bootloader RC tuning"), and the PD controller carries on without
++ * it once the driver core stops waiting, so the port keeps its USB and power
++ * delivery as before.
++ */
++/ {
++	aliases {
++		atcphy2 = &atc2_phy;
++		usb4-2-acio = &acio2;
++		usb4-2-pcie-adapter = &acio2;
++		usb4-2-nhi = &acio2_nhi;
++		usb4-2-pcie = &apciec2;
++	};
++};
++
++/* ATC2_CIO_AUSS's other parent; always on, kept as the boot loader leaves it */
++&ps_auss {
++	status = "okay";
++};
++
++/* Only the router's LSTX pin (81) of the AOP GPIO controller is exposed. */
++&pinctrl_aop {
++	gpio-reserved-ranges = <0 81>, <82 3>;
++	status = "okay";
++};
++
++&ps_atc2_cio {
++	status = "okay";
++};
++
++&ps_atc2_cio_pcie {
++	status = "okay";
++};
++
++&ps_atc2_cio_usb {
++	status = "okay";
++};
++
++&ps_atc2_cio_auss {
++	status = "okay";
++};
++
++&ps_atc2_pcie {
++	status = "okay";
++};
++
++&acio2_mbox {
++	status = "okay";
++};
++
++&acio2_pcie_tunnel {
++	status = "okay";
++};
++
++/* The connector's USB4 port (3) to the router's (1), as the J716c wires them */
++&typec2 {
++	ports {
++		typec2_usb4_port: port@3 {
++			reg = <3>;
++			typec2_usb4: endpoint {
++				remote-endpoint = <&acio2_tbt>;
++			};
++		};
++	};
++};
++
++&acio2 {
++	status = "okay";
++
++	acio2_ports: ports {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		port@1 {
++			reg = <1>;
++			acio2_tbt: endpoint {
++				remote-endpoint = <&typec2_usb4>;
++			};
++		};
++	};
++};
