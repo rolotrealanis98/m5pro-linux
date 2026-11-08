@@ -236,7 +236,7 @@ NVMe/SART commits are PR #936, the combo-PHY and dwc3 commits are PR #939 plus A
 - The root also carries `/etc/systemd/system.conf.d/m5pro-watchdog.conf` (`RuntimeWatchdogSec=60`) since the loop-safety v2
   positive test; the daily runs with the systemd runtime watchdog.
 
-## daily-dcp-rec-p2000 (2026-11-08 12:45 UTC, current)
+## daily-dcp-rec-p2000 (2026-11-08 12:45 UTC; superseded 14:25 UTC by daily-dcp-rec-video)
 
 `daily-dcp-rec-p2000-20261108-f185b487.bin`, kernel `7.3.0-g12c445fa5371` = daily-dcp (`bd53915f2ef1`) +
 `contrib/pending/gpu/recovery/0001-0003` (GPU recovery isolation, bounded fences, apple-drm bounded wait) +
@@ -257,3 +257,14 @@ it since the morning. Quickshell stays on the Qt software backend (exported by `
 
 Open: one day of normal use; the recovery patches go to aurora-silicon after that; the fault stress matrix
 (`faults/STRESS.md`) for the pause bound; direct scanout needs modifiers (`AQ_NO_MODIFIERS`) before it can be on.
+
+## daily-dcp-rec-video (2026-11-08 14:25 UTC, current)
+
+`daily-dcp-rec-video-20261108-26ca25f0.bin`, kernel `7.3.0-g0933f881d736` = daily-dcp-rec-p2000's kernel +
+`contrib/pending/video/observe-test/SERIES.txt` (video 0006/0008, encode 0001/0002, prores 0001/0003/0004/0005):
+AVE encoder node enabled probe-only (`/dev/video0`, refuses streams until the firmware build is qualified), ProRes
+engine node + observe-only probe (`CONFIG_VIDEO_APPLE_PRORES_T6050_OBSERVE=y`, logs the registers at boot, no
+V4L2 device), `t6050-media.dtsi`. Loader `m1n1-plain-n1-dt-gpu-dcp-phfix-ave` (fb29185c) = the phfix loader +
+`contrib/pending/video/encode/patches/m1n1/0001` (hands over the iBoot-preloaded AVE firmware, CRCs in
+`/chosen/aurora,ave-*`). Bootargs, variables, initramfs and the 2000 us pause bound as before; no test flags.
+Verifier 23/0. Modules `modules-7.3.0-g0933f881d736.tar.zst` on the root. Open: settled idle power vs 9.8 W.
