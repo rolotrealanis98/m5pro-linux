@@ -1,6 +1,6 @@
 # A shared tracker for Linux on M4+ Macs: plan
 
-Status: proposal for review, 2026-11-08 (UTC). Nothing has been created yet: no organisation, no repository, no
+Status: proposal posted on #293 (https://github.com/omacom/linux-aurora/issues/293#issuecomment-6716271037), 2026-11-08 (UTC). Nothing has been created yet: no organisation, no repository, no
 invitations. Written in answer to TripleU613's two requests on
 [omacom/linux-aurora #293](https://github.com/omacom/linux-aurora/issues/293) (a status repo per machine, and "a shared
 repo or integration branch for Linux Aurora / Apple Omarchy M4+ where everyone can contribute: a common place for
