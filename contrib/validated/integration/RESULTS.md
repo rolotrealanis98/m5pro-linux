@@ -2485,3 +2485,16 @@ starts, `AppleTCControllerAssignableTransport::probe failed` (expected: the prox
   (`~/Work/agents/hv27/TRACE-UNDER-SPTM.md` when done); no more blind reboots for this.
 - Method notes (m1n1 shell `exec` is the assembler helper, use `builtins.exec`; `live-trace.sh`, `cycle.sh`,
   `run-hv27-fifo.sh` in the agent dir) are in `contrib/pending/hv/tools/README.md` once published.
+
+## 2026-11-08 22:21-22:29 UTC — hv27 daily promoted; PMP dump retry pending
+
+- `daily-dcp-rec-video-hv27-20261108-c7f84366.bin` (kernel 7.3.0-g0933f881d736 as before, loader `m1n1-hv27-plain`
+  v2.0.0-132-g63e6053c, 0x430000) written to `boot.bin`; `boot.bin.prev` = the previous daily 26ca25f0. First boot:
+  slot primary, 18 CPUs, card0 aurora + card1 apple-drm, Hyprland (hyprland-m5pro) up, rescue "the desktop draws".
+  **Current daily = daily-dcp-rec-video-hv27 (c7f84366).** The hypervisor-era loader is now the everyday loader, so
+  hv sessions and the daily share one m1n1 tree.
+- The guest ended at 22:21 had reached `ApplePMPv2(PMP0) started`, `RTBuddy(DCP)`/`(SIO)` starts, AppleSmartIO, the
+  admac channels, AppleEpochManager, dlil init (panel photos): macOS starts the PMP itself inside the guest.
+- PMP window dump (Joshua, #293): attempted in a plain proxy boot between the two steps; the client connected 8 s
+  after the device appeared and the proxy went away before the first chunk; to be retried with the runner's device
+  wait (next proxy boot). Nothing was read.
