@@ -69,7 +69,7 @@ Evidence:
   - reads HW data +0x271c as a bound in us, where u32::MAX means no bound;
   - polls MMIO +0x211d0 for the acknowledge at 24 ticks per us;
   - on expiry, the caller (0xb578) writes reason 5 and halts.
-- **The driver writes 150 there.** That is the inherited `COMMON26_HW_FIXED_WORD` (0x2714 = 0x96, from the J813/G17P template), moved to 0x271c by the M5 HW data insert. Patch 0002 asserts this at compile time. Nobody has checked the value against a macOS M5 HW data dump.
+- **The driver writes 150 there.** That is the inherited `COMMON26_HW_FIXED_WORD` (0x2714 = 0x96, from the J813/G17P template), moved to 0x271c by the M5 HW data insert. Patch 0002 asserts this at compile time. Checked 2026-11-08 against the macOS AGXG17X kext (27.0, 27.2, 27.3): macOS also writes 0x96 = 150 us at +0x271c, as a constant in the HW-data setup function (straight-line code, no variant branch, no other store to 0x271c). So the Linux value is not a mismatch with macOS; the `m5_pause_timeout_us=2000` experiment tests a bound 13x looser than what macOS ships. Offsets live in the private 27.x derived notes, not here.
 - **Who pauses scheduling.** Callers of 0xb578, by mask bit:
   - 0x4: `AGFASchedulerProcessPowerKick`, power-state changes;
   - 0x8: the sleep / forced-idle path;
