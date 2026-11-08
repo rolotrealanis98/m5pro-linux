@@ -1,0 +1,1770 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""j716-listen: curses TUI for the J716s speaker listening test (LISTENING-TEST.md).
+
+Run as the desktop user (PipeWire session) in a terminal on the MacBook:
+
+    j716-listen             the TUI
+    j716-listen --check     print the environment and exit
+    j716-listen --selftest  generate every signal, validate the WAV files, exit (plays nothing)
+
+It generates the test signals itself (stdlib only, into ~/j716-listen/), plays them with
+pw-play, steps the wpctl sink volume, watches speakersafetyd (journal) and dmesg for the
+stop rules, and appends one Markdown row per play to ~/j716-listen/results.md.
+
+Root is needed only for: reading dmesg and the speakersafetyd journal if the user is not
+allowed to (the tool runs `sudo -v` once at start and then uses `sudo -n`), the
+bring-up/profile switch (`sudo j716-audio-ab`), and, if plain amixer is refused, the
+Speaker Switch toggle (`sudo amixer`).
+
+J716_LISTEN_FAKE=1 swaps every system call for a simulator that plays nothing (also
+J716_LISTEN_FAKE_TRIP=power|fault|restart|gain|stale, J716_LISTEN_FAKE_TRIP_AFTER=<s>).
+J716_LISTEN_DIR overrides ~/j716-listen.
+"""
+import argparse
+import array
+import collections
+import curses
+import datetime
+import locale
+import math
+import os
+import random
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import wave
+
+RATE = 48000
+AMP_DEFAULT = -20.0
+AMP_MIN = -40.0
+AMP_MAX = -12.0  # hard ceiling for generated files; never exceeded
+AMP_LEVELS = [-40.0, -38.0, -35.0, -32.0, -29.0, -26.0, -23.0, -20.0, -17.0, -14.0, -12.0]
+FREQS = [60, 100, 150, 200, 300, 500, 1000, 2000, 5000, 10000]
+DUR_CHOICES = [3, 6, 10, 20]
+TONE_DUR = 3
+PINK_DUR = 10
+SWEEP_DUR = 20
+SWEEP_F0, SWEEP_F1 = 40.0, 20000.0
+VOL_STEPS = [0.10, 0.20, 0.30, 0.40, 0.55, 0.70, 0.85, 1.00]
+GRAPH_DB_TABLE = {0.55: -35.0, 0.70: -26.5, 0.85: -18.0, 1.00: -10.0}  # LISTENING-TEST.md section 2
+GRAPH_DB_MIN, GRAPH_DB_MAX = -65.0, -10.0  # capture.volumes in graph.json
+POWER_LIMIT_W = 0.10
+GAIN_LIMIT_DB = -0.05
+STALE_S = 4.0
+CARD = "AppleJ716"
+SINK = "@DEFAULT_AUDIO_SINK@"
+RATINGS = {1: "clean", 2: "quiet/faint", 3: "dull/thin", 4: "harsh", 5: "buzz/rattle/distortion"}
+MUSIC_EXT = (".wav", ".flac", ".ogg", ".opus", ".mp3", ".m4a", ".aiff")
+
+SPK_RE = re.compile(
+    r"(?P<name>[A-Za-z][A-Za-z ]*?\s*\d*):\s+Coil\s+(?P<coil>-?\d+(?:\.\d+)?)\s*\S?C\b"
+    r"(?:.*?Magnet\s+(?P<magnet>-?\d+(?:\.\d+)?))?"
+    r".*?Power\s+(?P<power>-?\d+(?:\.\d+)?)\s*W"
+    r"(?:\s+Gain\s+(?P<gain>-?\d+(?:\.\d+)?)\s*dB)?")
+FAULT_RE = re.compile(r"tas2764.*fault", re.I)
+DMESG_INFO_RE = re.compile(r"tas2764|spkr|macaudio|Speaker volume", re.I)
+RESTART_RE = re.compile(r"^(Started|Starting|Stopping|Stopped)\b|Main process exited|Failed with result|"
+                        r"Scheduled restart job|Max temperature|Config file")
+CEILING_RE = re.compile(r"Speaker volume ceiling[^\d-]*(-?\d+(?:\.\d+)?)\s*dB")
+
+
+# --------------------------------------------------------------------------- signals
+
+def check_amp(amp_db):
+    if not (AMP_MIN - 1e-9 <= amp_db <= AMP_MAX + 1e-9):
+        raise ValueError("amplitude %.1f dBFS outside %.0f..%.0f" % (amp_db, AMP_MIN, AMP_MAX))
+
+
+def peak_for(amp_db):
+    return int(math.floor(10 ** (amp_db / 20.0) * 32767 + 1e-9))
+
+
+def fmt_num(x):
+    return ("%g" % x).replace(".", "p")
+
+
+def _fade(mono, secs):
+    n = len(mono)
+    nf = min(int(secs * RATE), n // 2)
+    for i in range(nf):
+        g = math.sin(math.pi / 2 * i / nf)
+        mono[i] = int(round(mono[i] * g))
+        mono[n - 1 - i] = int(round(mono[n - 1 - i] * g))
+    mono[n - 1] = 0
+    return mono
+
+
+def mono_sine(freq, amp_db, dur):
+    if not 20 <= freq <= 20000:
+        raise ValueError("frequency %s Hz outside 20..20000" % freq)
+    a = peak_for(amp_db)
+    w = 2 * math.pi * freq / RATE
+    m = array.array("h", (int(round(a * math.sin(w * i))) for i in range(int(dur * RATE))))
+    return _fade(m, 0.02)
+
+
+def mono_sweep(amp_db, dur=SWEEP_DUR):
+    a = peak_for(amp_db)
+    k = SWEEP_F1 / SWEEP_F0
+    lk = math.log(k)
+    c = 2 * math.pi * SWEEP_F0 * dur / lk
+    m = array.array("h", (int(round(a * math.sin(c * (math.exp(lk * (i / RATE) / dur) - 1))))
+                          for i in range(int(dur * RATE))))
+    return _fade(m, 0.05)
+
+
+def pink_unit(cache_dir):
+    """10 s of pink noise, peak = 32767, as int16. Paul Kellet's filter on seeded white noise,
+    20 Hz one-pole high-pass, hard-clipped at 3 sigma (crest 9.5 dB), cached on disk."""
+    n = PINK_DUR * RATE
+    path = os.path.join(cache_dir, "pink-unit.s16")
+    u = array.array("h")
+    try:
+        with open(path, "rb") as f:
+            u.fromfile(f, n)
+        if len(u) == n:
+            if sys.byteorder == "big":
+                u.byteswap()
+            return u
+    except (OSError, EOFError):
+        pass
+    rnd = random.Random(716)
+    b0 = b1 = b2 = b3 = b4 = b5 = b6 = 0.0
+    hp_a = math.exp(-2 * math.pi * 20 / RATE)
+    px = py = 0.0
+    x = []
+    for i in range(n + 4000):
+        w = rnd.uniform(-1.0, 1.0)
+        b0 = 0.99886 * b0 + w * 0.0555179
+        b1 = 0.99332 * b1 + w * 0.0750759
+        b2 = 0.96900 * b2 + w * 0.1538520
+        b3 = 0.86650 * b3 + w * 0.3104856
+        b4 = 0.55000 * b4 + w * 0.5329522
+        b5 = -0.7616 * b5 - w * 0.0168980
+        p = b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362
+        b6 = w * 0.115926
+        y = hp_a * (py + p - px)
+        px, py = p, y
+        if i >= 4000:
+            x.append(y)
+    sigma = math.sqrt(sum(v * v for v in x) / len(x))
+    lim = 3 * sigma
+    x = [max(-lim, min(lim, v)) for v in x]
+    peak = max(abs(v) for v in x)
+    u = array.array("h", (int(round(v / peak * 32767)) for v in x))
+    os.makedirs(cache_dir, exist_ok=True)
+    out = array.array("h", u)
+    if sys.byteorder == "big":
+        out.byteswap()
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        out.tofile(f)
+    os.replace(tmp, path)
+    return u
+
+
+def mono_pink(amp_db, cache_dir):
+    a = peak_for(amp_db) / 32767.0
+    m = array.array("h", (int(round(v * a)) for v in pink_unit(cache_dir)))
+    return _fade(m, 0.05)
+
+
+def write_wav(path, mono, ch):
+    n = len(mono)
+    st = array.array("h", [0]) * (2 * n)
+    if ch in ("L", "C"):
+        st[0::2] = mono
+    if ch in ("R", "C"):
+        st[1::2] = mono
+    if sys.byteorder == "big":
+        st.byteswap()
+    tmp = path + ".tmp"
+    with wave.open(tmp, "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(RATE)
+        w.writeframes(st.tobytes())
+    os.replace(tmp, path)
+
+
+def signal_name(kind, freq, ch, amp_db, dur):
+    base = {"sine": "sine%s" % fmt_num(freq), "pink": "pink", "sweep": "sweep"}[kind]
+    return "%s_%s_m%d_%ds.wav" % (base, ch, int(round(-amp_db)), dur)
+
+
+def signal_label(kind, freq, dur):
+    if kind == "sine":
+        return "sine %g Hz" % freq
+    if kind == "pink":
+        return "pink noise"
+    return "sweep %g-%g Hz %d s" % (SWEEP_F0, SWEEP_F1, SWEEP_DUR)
+
+
+def ensure_signal(base_dir, kind, freq, ch, amp_db, dur):
+    """Return the path of the WAV for this signal, generating it if missing or invalid."""
+    check_amp(amp_db)
+    if ch not in ("L", "R", "C"):
+        raise ValueError("channel must be L, R or C")
+    if kind == "pink":
+        dur = PINK_DUR
+    elif kind == "sweep":
+        dur = SWEEP_DUR
+    path = os.path.join(base_dir, signal_name(kind, freq, ch, amp_db, dur))
+    try:
+        with wave.open(path, "rb") as w:
+            if (w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()) == (2, 2, RATE, dur * RATE):
+                return path
+    except (OSError, EOFError, wave.Error):
+        pass
+    os.makedirs(base_dir, exist_ok=True)
+    if kind == "sine":
+        mono = mono_sine(freq, amp_db, dur)
+    elif kind == "pink":
+        mono = mono_pink(amp_db, os.path.join(base_dir, ".cache"))
+    else:
+        mono = mono_sweep(amp_db, dur)
+    write_wav(path, mono, ch)
+    return path
+
+
+# --------------------------------------------------------------------------- volume
+
+def graph_db(v):
+    for k, d in GRAPH_DB_TABLE.items():
+        if abs(v - k) < 0.005:
+            return d
+    return max(GRAPH_DB_MIN, min(GRAPH_DB_MAX, GRAPH_DB_MIN + (GRAPH_DB_MAX - GRAPH_DB_MIN) * v))
+
+
+def step_volume(v, direction):
+    if direction > 0:
+        up = [s for s in VOL_STEPS if s > v + 0.005]
+        return up[0] if up else VOL_STEPS[-1]
+    down = [s for s in VOL_STEPS if s < v - 0.005]
+    return down[-1] if down else VOL_STEPS[0]
+
+
+def step_amp(a, direction):
+    if direction > 0:
+        up = [s for s in AMP_LEVELS if s > a + 0.01]
+        return up[0] if up else AMP_MAX
+    down = [s for s in AMP_LEVELS if s < a - 0.01]
+    return down[-1] if down else AMP_MIN
+
+
+def classify_sink(name, desc):
+    s = ("%s %s" % (name or "", desc or "")).lower()
+    if "bringup" in s or "bring-up" in s:
+        return "bringup"
+    if "j716-convolver" in s or (desc or "") == "MacBook Pro J716 Speakers":
+        return "profile"
+    return "other"
+
+
+# --------------------------------------------------------------------------- safety
+
+class Safety:
+    """Parses speakersafetyd (journal) and kernel (dmesg) lines, applies the stop rules."""
+
+    def __init__(self, on_trip=None):
+        self.lock = threading.RLock()
+        self.on_trip = on_trip
+        self.speakers = {}
+        self.tripped = False
+        self.reasons = []
+        self.play_active = False
+        self.play_max = 0.0
+        self.session_max = 0.0
+        self.last_speaker_t = None
+        self.faults_new = 0
+        self.other = collections.deque(maxlen=6)
+        self.journal_lines = 0
+        self.dmesg_lines = 0
+        self.suppressed = 0
+
+    def trip(self, reason):
+        with self.lock:
+            first = not self.tripped
+            self.tripped = True
+            if reason not in self.reasons:
+                self.reasons.append(reason)
+        if first and self.on_trip:
+            self.on_trip(reason)
+
+    def reset(self):
+        with self.lock:
+            self.tripped = False
+            self.reasons = []
+            self.last_speaker_t = None  # telemetry must come back before the next play
+            for s in self.speakers.values():
+                s["play_max"] = 0.0
+
+    def begin_play(self):
+        with self.lock:
+            self.play_active = True
+            self.play_max = 0.0
+            for s in self.speakers.values():
+                s["play_max"] = 0.0
+
+    def end_play(self):
+        with self.lock:
+            self.play_active = False
+            return self.play_max
+
+    def telemetry_age(self, now=None):
+        with self.lock:
+            if self.last_speaker_t is None:
+                return None
+            return (now or time.time()) - self.last_speaker_t
+
+    def check_stale(self, now=None):
+        if self.play_active:
+            age = self.telemetry_age(now)
+            if age is None or age > STALE_S:
+                self.trip("speakersafetyd telemetry lost (no speaker line for %.0f s)" % (STALE_S if age is None else age))
+
+    def feed_journal(self, line, now=None):
+        line = line.rstrip("\n")
+        if not line.strip():
+            return
+        now = now or time.time()
+        low = line.lower()
+        with self.lock:
+            self.journal_lines += 1
+        if "panic" in low:
+            self.trip("speakersafetyd panic: " + line.strip()[:80])
+        if "gain limited" in low:
+            self.trip("speakersafetyd: gain limited")
+        m = SPK_RE.search(line)
+        if m:
+            name = " ".join(m.group("name").split())
+            power = float(m.group("power"))
+            gain = float(m.group("gain")) if m.group("gain") is not None else None
+            with self.lock:
+                s = self.speakers.setdefault(name, {"play_max": 0.0, "all_max": 0.0})
+                s.update(coil=float(m.group("coil")), power=power, gain=gain, t=now,
+                         magnet=float(m.group("magnet")) if m.group("magnet") else None)
+                self.last_speaker_t = now
+                s["all_max"] = max(s["all_max"], power)
+                self.session_max = max(self.session_max, power)
+                if self.play_active:
+                    s["play_max"] = max(s["play_max"], power)
+                    self.play_max = max(self.play_max, power)
+            if power > POWER_LIMIT_W:
+                self.trip("%s: %.3f W is above %.2f W" % (name, power, POWER_LIMIT_W))
+            if power < 0:
+                self.trip("%s: negative power %.3f W" % (name, power))
+            if gain is not None and gain < GAIN_LIMIT_DB:
+                self.trip("%s: gain limited (%.2f dB)" % (name, gain))
+            return
+        if RESTART_RE.search(line.strip()):
+            self.trip("speakersafetyd restarted/stopped: " + line.strip()[:80])
+        elif "suppressed" in low:
+            with self.lock:
+                self.suppressed += 1
+        with self.lock:
+            self.other.append("journal: " + line.strip()[:100])
+
+    def feed_dmesg(self, line):
+        line = line.rstrip("\n")
+        with self.lock:
+            self.dmesg_lines += 1
+        if FAULT_RE.search(line):
+            with self.lock:
+                self.faults_new += 1
+                self.other.append("dmesg: " + line.strip()[:100])
+            self.trip("amp fault: " + line.strip()[:90])
+        elif DMESG_INFO_RE.search(line):
+            with self.lock:
+                self.other.append("dmesg: " + line.strip()[:100])
+
+
+# --------------------------------------------------------------------------- system backends
+
+def run(cmd, timeout=4):
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, errors="replace",
+                           stdin=subprocess.DEVNULL)
+    except FileNotFoundError:
+        return None
+    except subprocess.TimeoutExpired:
+        return (124, "", "timeout")
+    except OSError as e:
+        return (126, "", str(e))
+    return (p.returncode, p.stdout, p.stderr)
+
+
+class Stream(threading.Thread):
+    """Follows a command's output line by line into a callback."""
+
+    def __init__(self, cmd, callback, name):
+        super().__init__(daemon=True, name=name)
+        self.cmd = cmd
+        self.callback = callback
+        self.proc = None
+        self.error = None
+        self.alive = False
+        self.stopping = False
+        self.lines = 0
+        self.last = None
+
+    def run(self):
+        try:
+            self.proc = subprocess.Popen(self.cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         stdin=subprocess.DEVNULL, text=True, errors="replace", bufsize=1)
+        except OSError as e:
+            self.error = "cannot start %s: %s" % (self.cmd[0], e)
+            return
+        self.alive = True
+        for line in self.proc.stdout:
+            self.lines += 1
+            self.last = time.time()
+            try:
+                self.callback(line)
+            except Exception as e:  # never let a parse bug kill the watcher
+                self.error = "callback: %r" % (e,)
+        self.alive = False
+        rc = self.proc.wait()
+        if not self.stopping:
+            self.error = "%s exited rc=%s" % (self.name, rc)
+
+    def stop(self):
+        self.stopping = True
+        if self.proc and self.proc.poll() is None:
+            try:
+                self.proc.terminate()
+            except OSError:
+                pass
+
+
+class RealPlayer:
+    def __init__(self, path):
+        self.path = path
+        self.t0 = time.time()
+        self.killed = False
+        self.err = ""
+        self.proc = subprocess.Popen(["pw-play", path], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.PIPE, text=True, start_new_session=True)
+        with wave.open(path, "rb") as w:
+            self.length = w.getnframes() / float(w.getframerate())
+
+    def running(self):
+        return self.proc.poll() is None
+
+    def returncode(self):
+        return self.proc.returncode
+
+    def elapsed(self):
+        return time.time() - self.t0
+
+    def kill(self):
+        self.killed = True
+        if self.proc.poll() is None:
+            try:
+                self.proc.kill()
+            except OSError:
+                pass
+
+    def stop(self):
+        self.killed = True
+        if self.proc.poll() is None:
+            try:
+                self.proc.terminate()
+                self.proc.wait(0.6)
+            except (OSError, subprocess.TimeoutExpired):
+                self.kill()
+        self.collect()
+
+    def collect(self):
+        try:
+            self.err = (self.proc.stderr.read() or "").strip()
+        except (OSError, ValueError):
+            pass
+
+
+class RealSys:
+    fake = False
+
+    def __init__(self):
+        self.journal_sudo = False
+        self.dmesg_sudo = False
+        self.streams = []
+
+    # --- tools
+    def have(self, tool):
+        return shutil.which(tool) is not None
+
+    def sink_info(self):
+        r = run(["wpctl", "inspect", SINK])
+        if not r or r[0] != 0:
+            return None
+        name = re.search(r'node\.name = "([^"]*)"', r[1])
+        desc = re.search(r'node\.description = "([^"]*)"', r[1])
+        name = name.group(1) if name else None
+        desc = desc.group(1) if desc else None
+        return {"name": name, "desc": desc, "kind": classify_sink(name, desc)}
+
+    def get_volume(self):
+        r = run(["wpctl", "get-volume", SINK])
+        if not r or r[0] != 0:
+            return None
+        m = re.search(r"Volume:\s*([0-9.]+)", r[1])
+        if not m:
+            return None
+        return float(m.group(1)), "MUTED" in r[1]
+
+    def set_volume(self, v):
+        r = run(["wpctl", "set-volume", SINK, "%.2f" % v])
+        return bool(r) and r[0] == 0
+
+    def set_mute(self, on):
+        r = run(["wpctl", "set-mute", SINK, "1" if on else "0"])
+        return bool(r) and r[0] == 0
+
+    def speaker_switch(self):
+        r = run(["amixer", "-c", CARD, "cget", "name=Speaker Switch"])
+        if not r or r[0] != 0:
+            return None
+        m = re.search(r"values=(on|off)", r[1])
+        return m.group(1) if m else None
+
+    def amixer_set(self, on):
+        """Plain amixer first (desktop ACL), then sudo -n. Returns (ok, needs_interactive_sudo)."""
+        cmd = ["amixer", "-c", CARD, "cset", "name=Speaker Switch", "on" if on else "off"]
+        r = run(cmd)
+        if r and r[0] == 0:
+            return True, False
+        r = run(["sudo", "-n"] + cmd)
+        if r and r[0] == 0:
+            return True, False
+        return False, True
+
+    def amixer_cmd(self, on):
+        return ["sudo", "amixer", "-c", CARD, "cset", "name=Speaker Switch", "on" if on else "off"]
+
+    def play(self, path, meta):
+        return RealPlayer(path)
+
+    def dmesg_text(self):
+        r = run(["dmesg"], timeout=6)
+        if r and r[0] == 0:
+            return r[1], False
+        r2 = run(["sudo", "-n", "dmesg"], timeout=6)
+        if r2 and r2[0] == 0:
+            return r2[1], True
+        return None, False
+
+    def journal_probe(self):
+        """(readable, via_sudo, lines)"""
+        cmd = ["journalctl", "-u", "speakersafetyd", "-o", "cat", "-n", "20", "--no-pager"]
+        for sudo in (False, True):
+            r = run((["sudo", "-n"] if sudo else []) + cmd, timeout=6)
+            if not r:
+                return False, False, []
+            blob = r[1] + r[2]
+            if r[0] == 0 and "insufficient permissions" not in blob and "not seeing messages" not in blob:
+                return True, sudo, [l for l in r[1].splitlines() if l.strip() and not l.startswith("--")]
+        return False, False, []
+
+    def service_state(self):
+        r = run(["systemctl", "is-active", "speakersafetyd"])
+        state = r[1].strip() if r else "unknown"
+        e = run(["systemctl", "show", "-p", "ExecStart", "--value", "speakersafetyd"])
+        verbose = None
+        if e and e[0] == 0 and e[1].strip():
+            verbose = bool(re.search(r"argv\[\]=[^;]*\s-v(\s|;|$)", e[1]) or re.search(r"\s-v\b", e[1]))
+        return state, verbose
+
+    def prepare_access(self, interactive):
+        notes = []
+        ok, self.journal_sudo, _ = self.journal_probe()
+        text, self.dmesg_sudo = self.dmesg_text()
+        need = (not ok) or text is None or self.journal_sudo or self.dmesg_sudo
+        if need and interactive and self.have("sudo"):
+            print("j716-listen: reading dmesg / the speakersafetyd journal needs root here; running `sudo -v`.")
+            subprocess.call(["sudo", "-v"])
+            ok, self.journal_sudo, _ = self.journal_probe()
+            text, self.dmesg_sudo = self.dmesg_text()
+        if not ok:
+            notes.append("speakersafetyd journal NOT readable (even with sudo)")
+        if text is None:
+            notes.append("dmesg NOT readable (even with sudo)")
+        return notes
+
+    def start_streams(self, safety):
+        pre = ["sudo", "-n"] if self.journal_sudo else []
+        j = Stream(pre + ["journalctl", "-u", "speakersafetyd", "-o", "cat", "-f", "-n", "0", "--no-pager"],
+                   safety.feed_journal, "journal")
+        pre = ["sudo", "-n"] if self.dmesg_sudo else []
+        d = Stream(pre + ["dmesg", "-W"], safety.feed_dmesg, "dmesg")
+        self.journal, self.dmesg = j, d
+        for s in (j, d):
+            s.start()
+            self.streams.append(s)
+
+    def stream_status(self):
+        out = {}
+        for key in ("journal", "dmesg"):
+            s = getattr(self, key, None)
+            if s is None:
+                out[key] = (False, "not started")
+            elif s.alive:
+                out[key] = (True, "ok")
+            else:
+                out[key] = (False, s.error or "starting")
+        return out
+
+    def close(self):
+        for s in self.streams:
+            s.stop()
+
+
+class FakePlayer:
+    def __init__(self, path, meta, sysobj):
+        self.path = path
+        self.meta = meta
+        self.t0 = time.time()
+        self.killed = False
+        self.err = ""
+        with wave.open(path, "rb") as w:
+            self.length = w.getnframes() / float(w.getframerate())
+        self.sys = sysobj
+        sysobj.player = self
+
+    def running(self):
+        return not self.killed and time.time() - self.t0 < self.length
+
+    def returncode(self):
+        return 0
+
+    def elapsed(self):
+        return time.time() - self.t0
+
+    def kill(self):
+        self.killed = True
+
+    stop = kill
+
+
+class FakeSys:
+    """Simulator: plays nothing, emits plausible speakersafetyd/dmesg lines."""
+    fake = True
+    NAMES = ["Left Woofer 1", "Right Woofer 1", "Left Woofer 2", "Right Woofer 2", "Left Tweeter", "Right Tweeter"]
+
+    def __init__(self):
+        self.vol = 0.70
+        self.muted = False
+        self.kind = "profile"
+        self.switch = "on"
+        self.player = None
+        self.safety = None
+        self.stop_evt = threading.Event()
+        self.coil = {n: 25.0 for n in self.NAMES}
+        self.trip_mode = os.environ.get("J716_LISTEN_FAKE_TRIP", "")
+        self.trip_after = float(os.environ.get("J716_LISTEN_FAKE_TRIP_AFTER", "2"))
+        self.tripped_once = False
+        self.thread = None
+
+    def have(self, tool):
+        return True
+
+    def sink_info(self):
+        if self.kind == "profile":
+            return {"name": "audio_effect.j716-convolver", "desc": "MacBook Pro J716 Speakers", "kind": "profile"}
+        return {"name": "audio_effect.j716-bringup", "desc": "MacBook Pro J716 Speakers (bring-up)", "kind": "bringup"}
+
+    def get_volume(self):
+        return self.vol, self.muted
+
+    def set_volume(self, v):
+        self.vol = v
+        return True
+
+    def set_mute(self, on):
+        self.muted = on
+        return True
+
+    def speaker_switch(self):
+        return self.switch
+
+    def amixer_set(self, on):
+        self.switch = "on" if on else "off"
+        return True, False
+
+    def amixer_cmd(self, on):
+        return ["true"]
+
+    def play(self, path, meta):
+        return FakePlayer(path, meta, self)
+
+    def dmesg_text(self):
+        return ("[    1.0] macaudio: Speaker volume ceiling -30 dB\n[    1.1] macaudio: Speaker volumes unlocked\n", False)
+
+    def journal_probe(self):
+        return True, False, ["Left Woofer 1: Coil 25.00 °C Magnet 25.00 °C Power 0.00 W Gain 0.00 dB"]
+
+    def service_state(self):
+        return "active", True
+
+    def prepare_access(self, interactive):
+        return []
+
+    def ab_switch(self, target):
+        self.kind = target
+
+    def start_streams(self, safety):
+        self.safety = safety
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
+
+    def stream_status(self):
+        return {"journal": (True, "ok (fake)"), "dmesg": (True, "ok (fake)")}
+
+    def _power(self, name):
+        p = self.player
+        if not p or not p.running() or self.muted or self.switch == "off":
+            return 0.0
+        meta = p.meta
+        side = meta.get("ch", "C")
+        if (side == "L" and name.startswith("Right")) or (side == "R" and name.startswith("Left")):
+            return 0.0
+        amp = meta.get("amp", -20.0)
+        w = 1.0 if "Woofer" in name else 0.5
+        return 0.04 * (self.vol ** 3) * (10 ** ((amp + 20) / 10.0)) * w
+
+    def _loop(self):
+        t_inject = None
+        while not self.stop_evt.wait(0.085):
+            playing = self.player is not None and self.player.running()
+            if playing and t_inject is None:
+                t_inject = time.time()
+            if not playing:
+                t_inject = None
+            for n in self.NAMES:
+                p = self._power(n)
+                self.coil[n] += (0.0 + p * 40.0) * 0.002 - (self.coil[n] - 25.0) * 0.0005
+                gain = 0.0
+                if (self.trip_mode == "power" and t_inject and time.time() - t_inject > self.trip_after
+                        and not self.tripped_once and n == "Left Woofer 1"):
+                    p = 0.25
+                    self.tripped_once = True
+                if self.trip_mode == "gain" and t_inject and time.time() - t_inject > self.trip_after and n == "Left Tweeter":
+                    gain = -1.5
+                if self.trip_mode == "stale" and t_inject and time.time() - t_inject > self.trip_after:
+                    continue
+                self.safety.feed_journal("%s: Coil %.2f °C Magnet %.2f °C Power %.2f W Gain %.2f dB"
+                                         % (n, self.coil[n], 25.0 + (self.coil[n] - 25.0) * 0.3, p, gain))
+            if t_inject and time.time() - t_inject > self.trip_after and not self.tripped_once:
+                if self.trip_mode == "fault":
+                    self.tripped_once = True
+                    self.safety.feed_dmesg("[  99.0] tas2764 0-0038: fault 0x08 (over temperature)")
+                elif self.trip_mode == "restart":
+                    self.tripped_once = True
+                    self.safety.feed_journal("Started Speaker Safety Daemon.")
+
+    def close(self):
+        self.stop_evt.set()
+
+
+# --------------------------------------------------------------------------- results
+
+RESULT_HEADER = ("| time | graph | wpctl vol | graph dB | signal | amp dBFS | ch | played s | rating | note | max W |\n"
+                 "|---|---|---|---|---|---|---|---|---|---|---|\n")
+
+
+def md(s):
+    return str(s).replace("|", "/").replace("\n", " ").strip()
+
+
+def append_result(path, rec):
+    new = not os.path.exists(path) or os.path.getsize(path) == 0
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        if new:
+            f.write("# J716 listening results\n\nRating: 1 clean, 2 quiet/faint, 3 dull/thin, 4 harsh, "
+                    "5 buzz/rattle/distortion. Max W is the highest speakersafetyd power reading during the play "
+                    "(stop at 0.10 W).\n\n" + RESULT_HEADER)
+        elif not _ends_with_table(path):
+            f.write("\n" + RESULT_HEADER)
+        r = rec
+        rating = "%d %s" % (r["rating"], RATINGS[r["rating"]]) if r.get("rating") else "-"
+        f.write("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n" % (
+            md(r["time"]), md(r["graph"]), md(r["vol"]), md(r["gdb"]), md(r["signal"]), md(r["amp"]), md(r["ch"]),
+            md(r["played"]), md(rating), md(r.get("note", "")), md(r["maxw"])))
+
+
+def _ends_with_table(path):
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, os.path.getsize(path) - 400))
+            tail = f.read().decode("utf-8", "replace").strip().splitlines()
+        return bool(tail) and tail[-1].startswith("|")
+    except OSError:
+        return False
+
+
+# --------------------------------------------------------------------------- TUI
+
+BANNER = [
+    " ####  ##### ###  ####  ",
+    "#        #  #   # #   # ",
+    " ###     #  #   # ####  ",
+    "    #    #  #   # #     ",
+    "####     #   ###  #     ",
+]
+
+
+class App:
+    def __init__(self, sysobj, base_dir, allow_blind=False):
+        self.sys = sysobj
+        self.dir = base_dir
+        self.music_dir = os.path.join(base_dir, "music")
+        self.results = os.path.join(base_dir, "results.md")
+        self.allow_blind = allow_blind
+        self.safety = Safety(on_trip=self.on_trip)
+        self.kind = "sine"
+        self.fi = FREQS.index(1000)
+        self.freq = 1000.0
+        self.ch = "C"
+        self.amp = AMP_DEFAULT
+        self.dur = TONE_DUR
+        self.music = []
+        self.mi = 0
+        self.player = None
+        self.cur = None
+        self.pending = None
+        self.msg = ""
+        self.help = False
+        self.scr = None
+        self.info = {"sink": None, "vol": None, "switch": None}
+        self.info_lock = threading.Lock()
+        self.stop_poll = threading.Event()
+        self.tripped_handled = False
+        self.muted_by_trip = False
+        self.ceiling = None
+        self.ceiling_line = "(not read)"
+        self.unlocked_line = ""
+        self.faults_history = 0
+        self.access_notes = []
+        self.scan_music()
+
+    # --- state helpers
+    def scan_music(self):
+        try:
+            self.music = sorted(f for f in os.listdir(self.music_dir) if f.lower().endswith(MUSIC_EXT))
+        except OSError:
+            self.music = []
+        self.mi = min(self.mi, max(0, len(self.music) - 1))
+
+    def read_kernel(self):
+        text, _ = self.sys.dmesg_text()
+        if text is None:
+            self.ceiling_line = "dmesg not readable"
+            return
+        c = [l for l in text.splitlines() if "Speaker volume ceiling" in l]
+        u = [l for l in text.splitlines() if "Speaker volumes unlocked" in l or "Speaker volumes locked" in l]
+        self.ceiling_line = c[-1].strip() if c else "no 'Speaker volume ceiling' line in dmesg"
+        self.unlocked_line = u[-1].strip() if u else ""
+        m = CEILING_RE.search(self.ceiling_line)
+        self.ceiling = float(m.group(1)) if m else None
+        self.faults_history = sum(1 for l in text.splitlines() if FAULT_RE.search(l))
+
+    def poll_loop(self):
+        while not self.stop_poll.is_set():
+            self.refresh_info()
+            self.stop_poll.wait(1.0)
+
+    def refresh_info(self):
+        sink = self.sys.sink_info()
+        vol = self.sys.get_volume()
+        sw = self.sys.speaker_switch()
+        with self.info_lock:
+            self.info = {"sink": sink, "vol": vol, "switch": sw}
+
+    def get_info(self):
+        with self.info_lock:
+            return dict(self.info)
+
+    def graph_kind(self):
+        s = self.get_info()["sink"]
+        return s["kind"] if s else "unknown"
+
+    def volume(self):
+        v = self.get_info()["vol"]
+        return v[0] if v else None
+
+    # --- trip
+    def on_trip(self, reason):
+        p = self.player
+        if p:
+            p.kill()
+        info = self.get_info()
+        if not (info["vol"] and info["vol"][1]):
+            if self.sys.set_mute(True):
+                self.muted_by_trip = True
+
+    def handle_trip(self):
+        if self.safety.tripped and not self.tripped_handled:
+            self.tripped_handled = True
+            reason = "; ".join(self.safety.reasons)
+            note = "AUTO-STOP: " + reason
+            if self.player or self.cur:
+                self.finish_play(note=note)
+            elif self.pending:
+                self.pending["note"] = (self.pending["note"] + "; " + note).strip("; ")
+            self.commit_pending()
+            self.msg = "STOP: " + reason
+
+    # --- play
+    def cannot_play(self):
+        if self.safety.tripped:
+            return "STOP active: fix the cause, then press x (see banner)"
+        if not self.allow_blind:
+            st = self.sys.stream_status()
+            for k in ("journal", "dmesg"):
+                if not st[k][0]:
+                    return "%s monitor not running (%s); stop rules blind. Restart with sudo access" % (k, st[k][1])
+            age = self.safety.telemetry_age()
+            if age is None or age > STALE_S:
+                return ("no speakersafetyd speaker lines in the last %.0f s: run it verbose "
+                        "(-v, LISTENING-TEST.md section 0)" % STALE_S)
+        if self.ceiling is not None and self.ceiling > -30.0 + 1e-6:
+            return "kernel ceiling is %g dB, not -30 dB: not playing" % self.ceiling
+        v = self.volume()
+        if v is not None and v > 1.0 + 1e-6:
+            return "wpctl volume %.2f is above 1.00: step it down with -" % v
+        if not self.sys.have("pw-play"):
+            return "pw-play not found"
+        return None
+
+    def current_label(self):
+        if self.kind == "music":
+            return "music: " + (self.music[self.mi] if self.music else "(none)")
+        return signal_label(self.kind, self.freq, self.dur)
+
+    def prepare(self):
+        if self.kind == "music":
+            if not self.music:
+                raise ValueError("no music files in %s" % self.music_dir)
+            return os.path.join(self.music_dir, self.music[self.mi]), {"ch": "C", "amp": -20.0}
+        path = ensure_signal(self.dir, self.kind, self.freq, self.ch, self.amp, self.dur)
+        return path, {"ch": self.ch, "amp": self.amp}
+
+    def play_current(self):
+        self.stop_play()
+        self.commit_pending()
+        why = self.cannot_play()
+        if why:
+            self.msg = "cannot play: " + why
+            return
+        self.msg = "preparing %s ..." % self.current_label()
+        self.draw()
+        try:
+            path, meta = self.prepare()
+            player = self.sys.play(path, meta)
+        except (OSError, ValueError, wave.Error) as e:
+            self.msg = "cannot play: %s" % e
+            return
+        info = self.get_info()
+        v = self.volume()
+        self.player = player
+        self.cur = {
+            "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "graph": self.graph_kind(),
+            "vol": ("%.2f" % v) if v is not None else "?",
+            "gdb": ("%.1f" % graph_db(v)) if v is not None else "?",
+            "signal": self.current_label(),
+            "amp": ("%g" % self.amp) if self.kind != "music" else "file",
+            "ch": self.ch if self.kind != "music" else "file",
+            "t0": time.time(), "rating": None, "note": "",
+        }
+        if info["vol"] and info["vol"][1]:
+            self.cur["note"] = "sink muted"
+        self.safety.begin_play()
+        self.msg = "playing %s" % self.current_label()
+
+    def finish_play(self, note=""):
+        if not self.player and not self.cur:
+            return
+        p = self.player
+        if p:
+            p.stop() if not p.killed else None
+            if hasattr(p, "collect"):
+                p.collect()
+        maxw = self.safety.end_play()
+        if self.cur:
+            self.cur["played"] = "%.1f" % min(time.time() - self.cur["t0"], p.length if p else 1e9)
+            self.cur["maxw"] = "%.3f" % maxw
+            if note:
+                self.cur["note"] = (self.cur["note"] + "; " + note).strip("; ")
+            if p and p.err:
+                self.cur["note"] = (self.cur["note"] + "; pw-play: " + p.err[:80]).strip("; ")
+            self.pending = self.cur
+        self.player = None
+        self.cur = None
+
+    def stop_play(self):
+        if self.player:
+            self.finish_play()
+
+    def commit_pending(self):
+        if self.cur and not self.player:
+            self.pending = self.cur
+            self.cur = None
+        if self.pending:
+            rec = self.pending
+            rec.setdefault("played", "0.0")
+            rec.setdefault("maxw", "%.3f" % self.safety.play_max)
+            try:
+                append_result(self.results, rec)
+            except OSError as e:
+                self.msg = "cannot write results.md: %s" % e
+                return
+            self.pending = None
+
+    def tick(self):
+        self.safety.check_stale()
+        self.handle_trip()
+        if self.player and not self.player.running():
+            rc = self.player.returncode()
+            killed = self.player.killed
+            self.finish_play()
+            if rc not in (0, None) and not killed:
+                self.msg = "pw-play failed (rc %s)" % rc
+            elif not killed:
+                self.msg = "finished; rate it 1-5, n for a note"
+
+    # --- drawing
+    def attrs(self):
+        self.A = {"ok": curses.color_pair(1), "warn": curses.color_pair(2) | curses.A_BOLD,
+                  "bad": curses.color_pair(3) | curses.A_BOLD, "info": curses.color_pair(4),
+                  "banner": curses.color_pair(5) | curses.A_BOLD, "dim": curses.A_DIM, "bold": curses.A_BOLD,
+                  "": 0}
+
+    def put(self, y, text, attr=""):
+        h, w = self.scr.getmaxyx()
+        if y >= h - 1:
+            return
+        try:
+            self.scr.addnstr(y, 0, text.ljust(w - 1), w - 1, self.A[attr] if isinstance(attr, str) else attr)
+        except curses.error:
+            pass
+
+    def draw(self, prompt=None):
+        scr = self.scr
+        scr.erase()
+        h, w = scr.getmaxyx()
+        if h < 24 or w < 70:
+            scr.addnstr(0, 0, "terminal too small (%dx%d), need 70x24" % (w, h), w - 1)
+            scr.refresh()
+            return
+        y = 0
+        sf = self.safety
+        with sf.lock:
+            tripped, reasons = sf.tripped, list(sf.reasons)
+            spk = {k: dict(v) for k, v in sf.speakers.items()}
+            other = list(sf.other)
+            age = sf.telemetry_age()
+            play_max, sess_max = sf.play_max, sf.session_max
+            faults_new = sf.faults_new
+        if tripped:
+            for i, row in enumerate(BANNER):
+                self.put(y, ("   " + row) + "   STOP  STOP  STOP", "banner")
+                y += 1
+            self.put(y, " " + "; ".join(reasons)[:w - 3], "banner")
+            y += 1
+            self.put(y, " playback killed, sink muted.  o = Speaker Switch OFF (amixer/sudo)   x = acknowledge/reset   "
+                        "q = quit", "banner")
+            y += 2
+        info = self.get_info()
+        sink, vol, sw = info["sink"], info["vol"], info["switch"]
+        self.put(y, " J716 listen   %s" % time.strftime("%H:%M:%S") + ("   [FAKE BACKEND]" if self.sys.fake else ""), "bold")
+        y += 1
+        if sink:
+            kind = sink["kind"]
+            tag = {"profile": "PROFILE", "bringup": "BRING-UP", "other": "OTHER SINK (not a J716 sink!)"}[kind]
+            self.put(y, " sink:   %s   [%s]   (%s)" % (sink["desc"], tag, sink["name"]),
+                     "ok" if kind in ("profile", "bringup") else "bad")
+        else:
+            self.put(y, " sink:   unknown (wpctl missing or no default sink)", "warn")
+        y += 1
+        if vol:
+            v, muted = vol
+            col = "bad" if v > 1.0 else "ok"
+            self.put(y, " volume: wpctl %.2f   graph %s dB%s%s   steps: %s" % (
+                v, ("%.1f" % graph_db(v)) if v <= 1.0 else "?", "  MUTED" if muted else "",
+                "  ABOVE 1.00!" if v > 1.0 else "", " ".join("%.2f" % s for s in VOL_STEPS if s >= 0.55)),
+                "bad" if (muted or v > 1.0) else col)
+        else:
+            self.put(y, " volume: unknown", "warn")
+        y += 1
+        sw_attr = "ok" if sw == "on" else ("bad" if sw == "off" else "warn")
+        self.put(y, " signal: %s    amp %g dBFS    ch %s    tone dur %d s    speaker switch: %s" % (
+            self.current_label(), self.amp, self.ch, self.dur, sw or "?"), "bold")
+        y += 1
+        if self.player:
+            self.put(y, " play:   PLAYING %.1f / %.1f s" % (self.player.elapsed(), self.player.length), "warn")
+        else:
+            self.put(y, " play:   stopped", "dim")
+        y += 1
+        rec = self.cur or self.pending
+        if rec:
+            self.put(y, " result: %s | rating %s | note: %s   %s" % (
+                rec["signal"], ("%d %s" % (rec["rating"], RATINGS[rec["rating"]])) if rec["rating"] else "-",
+                rec["note"] or "-", "" if self.cur else "(saved at next play / Enter / q)"), "info")
+        else:
+            self.put(y, " result: -   (rate with 1-5 after a play; results: %s)" % self.results, "dim")
+        y += 2
+        self.put(y, " speakersafetyd   telemetry age %s   max this play %.3f W   session max %.3f W   stop above %.2f W" % (
+            "%.1fs" % age if age is not None else "none", play_max, sess_max, POWER_LIMIT_W), "bold")
+        y += 1
+        order = sorted(spk, key=lambda n: (("Tweeter" in n), n))
+        if not order:
+            self.put(y, "   no speaker lines yet (daemon verbose? -v)", "warn")
+            y += 1
+        for n in order:
+            s = spk[n]
+            stale = time.time() - s["t"] > STALE_S
+            p = s["power"]
+            attr = "bad" if (p > POWER_LIMIT_W or p < 0) else ("warn" if p > 0.05 else "ok")
+            if stale:
+                attr = "dim"
+            self.put(y, "   %-15s coil %6.1f C   power %6.3f W   gain %s   max play %.3f W%s" % (
+                n, s["coil"], p, ("%5.2f dB" % s["gain"]) if s["gain"] is not None else "   ?   ", s["play_max"],
+                "   (stale)" if stale else ""), attr)
+            y += 1
+        y += 1
+        st = self.sys.stream_status()
+        self.put(y, " kernel:  %s%s" % (self.ceiling_line, ("   | " + self.unlocked_line) if self.unlocked_line else ""),
+                 "bad" if (self.ceiling is not None and self.ceiling > -30.0) else ("warn" if self.ceiling is None else "ok"))
+        y += 1
+        self.put(y, " dmesg:   %s   new tas2764 fault lines: %d (history at start: %d)" % (
+            "watching" if st["dmesg"][0] else "NOT WATCHING: " + st["dmesg"][1], faults_new, self.faults_history),
+            "bad" if (faults_new or not st["dmesg"][0]) else ("warn" if self.faults_history else "ok"))
+        y += 1
+        self.put(y, " journal: %s" % ("watching speakersafetyd" if st["journal"][0] else "NOT WATCHING: " + st["journal"][1]),
+                 "ok" if st["journal"][0] else "bad")
+        y += 1
+        for l in other[-3:]:
+            self.put(y, "   " + l, "dim")
+            y += 1
+        for n in self.access_notes:
+            self.put(y, " ! " + n, "bad")
+            y += 1
+        y += 1
+        self.put(y, " " + self.msg, "warn" if self.msg.startswith(("cannot", "STOP")) else "info")
+        y += 2
+        if self.help:
+            lines = [
+                " space play/stop   arrows left/right: tone frequency   f: type a frequency   t: sine   d: tone length",
+                " p pink   s sweep   l / r / c: left / right / centre   m play music   M next music file",
+                " a / z amplitude +3/-3 dB (-40..-12 dBFS)   + / - sink volume step   b bring-up/profile (sudo)",
+                " 1 clean  2 quiet/faint  3 dull/thin  4 harsh  5 buzz/rattle/distortion   n note   Enter save row",
+                " o speakers off (sudo)   O speakers on   x reset STOP   ? help   q quit",
+            ]
+        else:
+            lines = [" space play/stop  <-/-> freq  p pink  s sweep  l/r/c ch  m music  +/- vol  a/z amp  b A/B  "
+                     "1-5 rate  n note  ? help  q quit"]
+        for l in lines:
+            self.put(y, l, "dim")
+            y += 1
+        if prompt is not None:
+            self.put(h - 2, prompt, "bold")
+            try:
+                scr.move(h - 2, min(len(prompt), w - 2))
+            except curses.error:
+                pass
+        scr.refresh()
+        dump = os.environ.get("J716_LISTEN_DUMP")  # test hook: screen text to a file
+        if dump:
+            try:
+                with open(dump + ".tmp", "w") as f:
+                    for row in range(h):
+                        f.write(scr.instr(row, 0, w).decode("utf-8", "replace").rstrip() + "\n")
+                os.replace(dump + ".tmp", dump)
+            except (OSError, curses.error):
+                pass
+
+    # --- modal input
+    def read_line(self, label, initial=""):
+        buf = initial
+        curses.curs_set(1)
+        last = 0
+        try:
+            while True:
+                self.tick()
+                if time.time() - last > 0.3:
+                    self.draw(prompt=label + buf)
+                    last = time.time()
+                ch = self.scr.getch()
+                if ch == -1:
+                    continue
+                last = 0
+                if ch in (10, 13, curses.KEY_ENTER):
+                    return buf
+                if ch == 27:
+                    return None
+                if ch in (127, 8, curses.KEY_BACKSPACE):
+                    buf = buf[:-1]
+                elif 32 <= ch < 127:
+                    buf += chr(ch)
+        finally:
+            curses.curs_set(0)
+
+    def confirm(self, text):
+        r = self.read_line(text + " [y/N] ")
+        return bool(r) and r.strip().lower().startswith("y")
+
+    def suspend_run(self, cmd):
+        curses.def_prog_mode()
+        curses.endwin()
+        print("\n$ " + " ".join(cmd))
+        rc = subprocess.call(cmd)
+        input("\n[rc %d] press Enter to return to j716-listen " % rc)
+        curses.reset_prog_mode()
+        self.scr.refresh()
+        return rc
+
+    # --- actions
+    def select_freq(self, delta):
+        self.kind = "sine"
+        self.fi = max(0, min(len(FREQS) - 1, self.fi + delta)) if self.freq in FREQS else \
+            (min(range(len(FREQS)), key=lambda i: abs(FREQS[i] - self.freq)))
+        self.freq = float(FREQS[self.fi])
+        if self.player:
+            self.play_current()
+
+    def do_volume(self, direction):
+        v = self.volume()
+        if v is None:
+            self.msg = "cannot read the sink volume (wpctl missing?)"
+            return
+        nv = step_volume(v, direction)
+        if abs(nv - v) < 0.005:
+            self.msg = "volume already at the %s step (%.2f)" % ("top" if direction > 0 else "bottom", v)
+            return
+        if self.sys.set_volume(nv):
+            self.msg = "wpctl set-volume %s %.2f  (graph %.1f dB)" % (SINK, nv, graph_db(nv))
+        else:
+            self.msg = "wpctl set-volume failed"
+        self.refresh_info()
+
+    def do_ab(self):
+        kind = self.graph_kind()
+        target = "bringup" if kind == "profile" else "profile"
+        if not self.confirm("Switch to %s with `sudo j716-audio-ab %s` (stops playback, restarts PipeWire)?" % (target, target)):
+            self.msg = "switch cancelled"
+            return
+        self.stop_play()
+        self.commit_pending()
+        if self.sys.fake:
+            self.sys.ab_switch(target)
+        else:
+            tool = shutil.which("j716-audio-ab") or "/usr/local/bin/j716-audio-ab"
+            if self.suspend_run(["sudo", tool, target]) != 0:
+                self.msg = "j716-audio-ab %s failed" % target
+                return
+            self.msg = "switched; waiting for the sink to come back ..."
+            self.draw()
+            time.sleep(2.5)
+        self.refresh_info()
+        self.msg = "graph now: %s" % self.graph_kind()
+
+    def do_speakers(self, on):
+        if not self.safety.tripped and not self.sys.fake:
+            if not self.confirm("Speaker Switch %s (amixer -c %s cset name='Speaker Switch' %s)?" % (
+                    "ON" if on else "OFF", CARD, "on" if on else "off")):
+                self.msg = "cancelled"
+                return
+        ok, interactive = self.sys.amixer_set(on)
+        if not ok and interactive:
+            ok = self.suspend_run(self.sys.amixer_cmd(on)) == 0
+        self.refresh_info()
+        self.msg = "Speaker Switch %s" % (("on" if on else "off") if ok else "change FAILED")
+
+    def reset_trip(self):
+        if not self.safety.tripped:
+            self.msg = "no STOP active"
+            return
+        self.safety.reset()
+        self.tripped_handled = False
+        if self.muted_by_trip:
+            self.sys.set_mute(False)
+            self.muted_by_trip = False
+        self.refresh_info()
+        self.msg = "STOP cleared (sink unmuted). Speaker Switch unchanged; telemetry must resume before playing."
+
+    def rate(self, n):
+        rec = self.cur or self.pending
+        if not rec:
+            self.msg = "nothing to rate yet: play something first"
+            return
+        rec["rating"] = n
+        self.msg = "rated %d %s" % (n, RATINGS[n])
+
+    def add_note(self):
+        rec = self.cur or self.pending
+        if not rec:
+            self.msg = "nothing to annotate yet: play something first"
+            return
+        t = self.read_line("note: ", rec["note"])
+        if t is not None:
+            rec["note"] = t.strip()
+            self.msg = "note set"
+
+    def enter_freq(self):
+        t = self.read_line("frequency Hz (20-20000): ")
+        if t is None or not t.strip():
+            return
+        try:
+            f = float(t.replace("hz", "").replace("Hz", "").strip())
+            if not 20 <= f <= 20000:
+                raise ValueError
+        except ValueError:
+            self.msg = "cannot play: '%s' is not a frequency between 20 and 20000 Hz" % t
+            return
+        self.kind, self.freq = "sine", f
+        if f in FREQS:
+            self.fi = FREQS.index(f)
+        self.msg = "sine %g Hz selected; space plays" % f
+
+    def handle_key(self, ch):
+        if ch == ord(" "):
+            if self.player:
+                self.stop_play()
+                self.msg = "stopped; rate it 1-5, n for a note"
+            else:
+                self.play_current()
+        elif ch in (curses.KEY_RIGHT, curses.KEY_UP):
+            self.select_freq(+1)
+        elif ch in (curses.KEY_LEFT, curses.KEY_DOWN):
+            self.select_freq(-1)
+        elif ch == ord("f"):
+            self.enter_freq()
+        elif ch == ord("t"):
+            self.kind = "sine"
+            self.msg = "sine %g Hz selected" % self.freq
+        elif ch == ord("d"):
+            self.dur = DUR_CHOICES[(DUR_CHOICES.index(self.dur) + 1) % len(DUR_CHOICES)] if self.dur in DUR_CHOICES else TONE_DUR
+            self.msg = "tone length %d s (pink and sweep keep their length)" % self.dur
+        elif ch == ord("p"):
+            self.kind = "pink"
+            self.play_current()
+        elif ch == ord("s"):
+            self.kind = "sweep"
+            self.play_current()
+        elif ch in (ord("l"), ord("r"), ord("c")):
+            self.ch = chr(ch).upper()
+            self.play_current()
+        elif ch == ord("m"):
+            self.scan_music()
+            if not self.music:
+                self.msg = "no music in %s (put .wav/.flac/.ogg files there)" % self.music_dir
+            else:
+                self.kind = "music"
+                self.play_current()
+        elif ch == ord("M"):
+            self.scan_music()
+            if self.music:
+                self.mi = (self.mi + 1) % len(self.music)
+                self.kind = "music"
+                self.msg = "music: %s (m plays)" % self.music[self.mi]
+        elif ch == ord("a"):
+            self.amp = step_amp(self.amp, +1)
+            self.msg = "amplitude %g dBFS (next play)" % self.amp
+        elif ch == ord("z"):
+            self.amp = step_amp(self.amp, -1)
+            self.msg = "amplitude %g dBFS (next play)" % self.amp
+        elif ch in (ord("+"), ord("=")):
+            self.do_volume(+1)
+        elif ch in (ord("-"), ord("_")):
+            self.do_volume(-1)
+        elif ch == ord("b"):
+            self.do_ab()
+        elif ch == ord("o"):
+            self.do_speakers(False)
+        elif ch == ord("O"):
+            self.do_speakers(True)
+        elif ch == ord("x"):
+            self.reset_trip()
+        elif ch in (ord("1"), ord("2"), ord("3"), ord("4"), ord("5")):
+            self.rate(ch - ord("0"))
+        elif ch == ord("n"):
+            self.add_note()
+        elif ch in (10, 13, curses.KEY_ENTER):
+            if self.pending and not self.player:
+                self.commit_pending()
+                self.msg = "row saved to %s" % self.results
+        elif ch == ord("?"):
+            self.help = not self.help
+
+    def main(self, scr):
+        self.scr = scr
+        curses.curs_set(0)
+        curses.start_color()
+        try:
+            curses.use_default_colors()
+            bg = -1
+        except curses.error:
+            bg = curses.COLOR_BLACK
+        curses.init_pair(1, curses.COLOR_GREEN, bg)
+        curses.init_pair(2, curses.COLOR_YELLOW, bg)
+        curses.init_pair(3, curses.COLOR_RED, bg)
+        curses.init_pair(4, curses.COLOR_CYAN, bg)
+        curses.init_pair(5, curses.COLOR_WHITE, curses.COLOR_RED)
+        self.attrs()
+        scr.timeout(100)
+        scr.keypad(True)
+        last = 0
+        self.msg = "start at wpctl 0.55 and work up (LISTENING-TEST.md section 2). ? for keys."
+        while True:
+            self.tick()
+            now = time.time()
+            if now - last >= 0.5:
+                self.draw()
+                last = now
+            ch = scr.getch()
+            if ch == -1:
+                continue
+            if ch == curses.KEY_RESIZE:
+                last = 0
+                continue
+            if ch == ord("q"):
+                break
+            self.handle_key(ch)
+            self.draw()
+            last = time.time()
+        self.stop_play()
+        self.commit_pending()
+
+    def run(self):
+        locale.setlocale(locale.LC_ALL, "")
+        self.read_kernel()
+        self.refresh_info()
+        self.sys.start_streams(self.safety)
+        poller = threading.Thread(target=self.poll_loop, daemon=True)
+        poller.start()
+        try:
+            curses.wrapper(self.main)
+        finally:
+            self.stop_poll.set()
+            if self.player:
+                self.player.kill()
+            try:
+                self.commit_pending()
+            except Exception:
+                pass
+            self.sys.close()
+        print("results: %s" % self.results)
+
+
+# --------------------------------------------------------------------------- --check
+
+def do_check(sysobj, base_dir):
+    problems = []
+    print("j716-listen check%s" % ("  [FAKE BACKEND]" if sysobj.fake else ""))
+    for t in ("pw-play", "wpctl", "amixer", "journalctl", "dmesg", "sudo", "j716-audio-ab"):
+        p = shutil.which(t) if not sysobj.fake else "(fake)"
+        print("  tool %-14s %s" % (t, p or "MISSING"))
+        if not p and t in ("pw-play", "wpctl", "journalctl", "dmesg", "amixer"):
+            problems.append("%s missing" % t)
+    sink = sysobj.sink_info()
+    if sink:
+        print("default sink: %s  (%s)  -> graph: %s" % (sink["desc"], sink["name"], sink["kind"]))
+        if sink["kind"] == "other":
+            problems.append("default sink is not a J716 sink")
+    else:
+        print("default sink: unknown (wpctl missing, or no PipeWire session)")
+        problems.append("default sink unknown")
+    vol = sysobj.get_volume()
+    if vol:
+        print("volume: wpctl %.2f%s, graph %.1f dB" % (vol[0], " MUTED" if vol[1] else "", graph_db(vol[0])))
+        if vol[0] > 1.0:
+            problems.append("volume above 1.00")
+    else:
+        print("volume: unknown")
+    text, via = sysobj.dmesg_text()
+    if text is None:
+        print("kernel: dmesg not readable (needs root: run with sudo -v first or `sudo j716-listen`)")
+        problems.append("dmesg not readable")
+    else:
+        c = [l.strip() for l in text.splitlines() if "Speaker volume ceiling" in l]
+        u = [l.strip() for l in text.splitlines() if "Speaker volumes unlocked" in l or "Speaker volumes locked" in l]
+        faults = sum(1 for l in text.splitlines() if FAULT_RE.search(l))
+        print("kernel: %s%s" % (c[-1] if c else "no 'Speaker volume ceiling' line", "  (via sudo)" if via else ""))
+        print("kernel: %s" % (u[-1] if u else "no 'Speaker volumes (un)locked' line"))
+        print("dmesg tas2764 fault lines since boot: %d" % faults)
+        m = CEILING_RE.search(c[-1]) if c else None
+        if not m:
+            problems.append("kernel ceiling line not found")
+        elif float(m.group(1)) > -30.0:
+            problems.append("kernel ceiling above -30 dB")
+        if faults:
+            problems.append("%d tas2764 fault line(s) in dmesg history" % faults)
+    state, verbose = sysobj.service_state()
+    ok, via, lines = sysobj.journal_probe()
+    parsed = [SPK_RE.search(l) for l in lines]
+    parsed = [m for m in parsed if m]
+    print("speakersafetyd: %s, verbose flag: %s" % (state, {True: "yes", False: "no", None: "unknown"}[verbose]))
+    if ok:
+        print("journal: readable%s; %d speaker lines in the last 20" % (" via sudo" if via else " as this user", len(parsed)))
+        if parsed:
+            print("  latest: " + lines[-1].strip()[:110])
+            worst = max(float(m.group("power")) for m in parsed)
+            print("  max power in those lines: %.3f W" % worst)
+        else:
+            print("  no speaker lines: run the daemon verbose (-v), LISTENING-TEST.md section 0")
+            problems.append("no verbose speakersafetyd lines")
+    else:
+        print("journal: NOT readable (needs root: add the user to systemd-journal, or sudo -v)")
+        problems.append("speakersafetyd journal not readable")
+    if state != "active":
+        problems.append("speakersafetyd not active")
+    print("Speaker Switch: %s" % (sysobj.speaker_switch() or "unknown"))
+    print("signals: %s" % base_dir)
+    md_dir = os.path.join(base_dir, "music")
+    n = len([f for f in os.listdir(md_dir) if f.lower().endswith(MUSIC_EXT)]) if os.path.isdir(md_dir) else 0
+    print("music files in %s: %d" % (md_dir, n))
+    print("RESULT: %s" % ("ok" if not problems else "problems: " + "; ".join(problems)))
+    return 0 if not problems else 1
+
+
+# --------------------------------------------------------------------------- --selftest
+
+def goertzel_power(samples, freq):
+    w = 2 * math.pi * freq / RATE
+    c = 2 * math.cos(w)
+    s1 = s2 = 0.0
+    for x in samples:
+        s0 = x + c * s1 - s2
+        s2 = s1
+        s1 = s0
+    return s1 * s1 + s2 * s2 - c * s1 * s2
+
+
+def do_selftest():
+    fails = []
+    n_ok = [0]
+
+    def check(cond, what):
+        if cond:
+            n_ok[0] += 1
+        else:
+            fails.append(what)
+            print("FAIL: " + what)
+
+    tmp = tempfile.mkdtemp(prefix="j716-listen-selftest-")
+    try:
+        specs = [("sine", float(f), "C", AMP_DEFAULT, TONE_DUR) for f in FREQS]
+        specs += [("pink", 0, "C", AMP_DEFAULT, PINK_DUR), ("sweep", 0, "C", AMP_DEFAULT, SWEEP_DUR)]
+        for ch in ("L", "R"):
+            specs += [("sine", 1000.0, ch, AMP_DEFAULT, TONE_DUR), ("pink", 0, ch, AMP_DEFAULT, PINK_DUR),
+                      ("sweep", 0, ch, AMP_DEFAULT, SWEEP_DUR)]
+        specs += [("sine", 150.0, "C", AMP_MIN, 6), ("sine", 150.0, "C", AMP_MAX, 10), ("sine", 63.5, "C", -26.0, 20),
+                  ("pink", 0, "C", AMP_MAX, PINK_DUR), ("sweep", 0, "C", AMP_MIN, SWEEP_DUR)]
+        files = {}
+        t0 = time.time()
+        for kind, freq, ch, amp, dur in specs:
+            path = ensure_signal(tmp, kind, freq, ch, amp, dur)
+            label = os.path.basename(path)
+            files[(kind, freq, ch, amp, dur)] = path
+            raw = open(path, "rb").read()
+            check(raw[:4] == b"RIFF" and raw[8:12] == b"WAVE", label + ": RIFF/WAVE magic")
+            check(int.from_bytes(raw[4:8], "little") == len(raw) - 8, label + ": RIFF size field")
+            check(raw[12:16] == b"fmt ", label + ": fmt chunk first")
+            with wave.open(path, "rb") as w:
+                nch, sw, rate, nf = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
+                check((nch, sw, rate) == (2, 2, RATE), label + ": 2 ch, 16 bit, 48 kHz (got %s/%s/%s)" % (nch, sw, rate))
+                d = array.array("h")
+                d.frombytes(w.readframes(nf))
+                if sys.byteorder == "big":
+                    d.byteswap()
+            exp_dur = {"pink": PINK_DUR, "sweep": SWEEP_DUR}.get(kind, dur)
+            check(nf == exp_dur * RATE, label + ": %d frames, expected %d" % (nf, exp_dur * RATE))
+            left, right = d[0::2], d[1::2]
+            pk = max(max(left), -min(left), max(right), -min(right))
+            want = peak_for(amp)
+            check(pk <= want, label + ": peak %d exceeds %d (%.1f dBFS)" % (pk, want, amp))
+            check(pk >= want * 0.98, label + ": peak %d is below target %d" % (pk, want))
+            check(pk <= peak_for(AMP_MAX), label + ": peak above the -12 dBFS cap")
+            check(abs(left[0]) <= 1 and abs(right[0]) <= 1 and abs(left[-1]) <= 1 and abs(right[-1]) <= 1,
+                  label + ": file does not start/end at zero")
+            lmax, rmax = max(map(abs, left)), max(map(abs, right))
+            if ch == "L":
+                check(rmax == 0 and lmax > 0, label + ": L variant leaks into R")
+            elif ch == "R":
+                check(lmax == 0 and rmax > 0, label + ": R variant leaks into L")
+            else:
+                check(left == right and lmax > 0, label + ": centre variant not identical on both channels")
+        print("generated %d files in %.1f s" % (len(specs), time.time() - t0))
+
+        # sine frequency is where it should be
+        d = array.array("h")
+        with wave.open(files[("sine", 1000.0, "C", AMP_DEFAULT, TONE_DUR)], "rb") as w:
+            d.frombytes(w.readframes(w.getnframes()))
+        seg = d[0::2][RATE // 2:RATE // 2 + 4800]
+        on = goertzel_power(seg, 1000.0)
+        off = goertzel_power(seg, 1500.0)
+        check(on > off * 1e4, "1 kHz tone: energy not at 1 kHz")
+
+        # pink slope: ~ -3 dB/octave means 125 Hz is ~9 dB above 1 kHz in bin power
+        d = array.array("h")
+        with wave.open(files[("pink", 0, "C", AMP_DEFAULT, PINK_DUR)], "rb") as w:
+            d.frombytes(w.readframes(w.getnframes()))
+        mono = [float(x) for x in d[0::2][RATE:2 * RATE]]
+        p125 = sum(goertzel_power(mono, 120 + k) for k in range(0, 16)) / 16
+        p1k = sum(goertzel_power(mono, 990 + k) for k in range(0, 16)) / 16
+        slope = 10 * math.log10(p125 / p1k)
+        check(5.5 <= slope <= 12.5, "pink slope 125 Hz vs 1 kHz is %.1f dB, expected about 9" % slope)
+        rms = math.sqrt(sum(x * x for x in mono) / len(mono))
+        print("pink: peak %d, rms %.0f (%.1f dBFS), 125 Hz/1 kHz %.1f dB" % (
+            max(map(abs, d)), rms, 20 * math.log10(rms / 32767), slope))
+
+        # sweep: first quarter second is low, last is high (zero-crossing rate)
+        d = array.array("h")
+        with wave.open(files[("sweep", 0, "C", AMP_DEFAULT, SWEEP_DUR)], "rb") as w:
+            d.frombytes(w.readframes(w.getnframes()))
+        m = d[0::2]
+
+        def zc(a):
+            return sum(1 for i in range(1, len(a)) if (a[i - 1] < 0) != (a[i] < 0))
+        f_start = zc(m[int(0.1 * RATE):int(0.6 * RATE)]) / 2 / 0.5
+        f_end = zc(m[int(19.4 * RATE):int(19.9 * RATE)]) / 2 / 0.5
+        check(30 <= f_start <= 90, "sweep start frequency about %.0f Hz, expected 40-70" % f_start)
+        check(f_end >= 12000, "sweep end frequency about %.0f Hz, expected above 12 kHz" % f_end)
+
+        # amplitude guard
+        for bad in (-11.9, -5.0, 0.0, -40.5):
+            try:
+                ensure_signal(tmp, "sine", 1000.0, "C", bad, 3)
+                check(False, "amplitude %.1f dBFS was not refused" % bad)
+            except ValueError:
+                check(True, "")
+        for bad in (10.0, 30000.0):
+            try:
+                ensure_signal(tmp, "sine", bad, "C", AMP_DEFAULT, 3)
+                check(False, "frequency %g was not refused" % bad)
+            except ValueError:
+                check(True, "")
+        # amp/volume stepping
+        a = AMP_DEFAULT
+        seq = []
+        for _ in range(12):
+            a = step_amp(a, +1)
+            seq.append(a)
+        check(max(seq) == AMP_MAX and a == AMP_MAX, "amplitude step does not stop at -12")
+        for _ in range(14):
+            a = step_amp(a, -1)
+        check(a == AMP_MIN, "amplitude step does not stop at -40")
+        check(step_volume(0.55, +1) == 0.70 and step_volume(0.70, +1) == 0.85 and step_volume(0.85, +1) == 1.0
+              and step_volume(1.0, +1) == 1.0 and step_volume(1.4, -1) == 1.0 and step_volume(0.55, -1) == 0.40,
+              "volume steps")
+        check([graph_db(v) for v in (0.55, 0.70, 0.85, 1.00)] == [-35.0, -26.5, -18.0, -10.0], "graph dB table")
+        check(classify_sink("audio_effect.j716-bringup", "MacBook Pro J716 Speakers (bring-up)") == "bringup", "classify bringup")
+        check(classify_sink("audio_effect.j716-convolver", "MacBook Pro J716 Speakers") == "profile", "classify profile")
+
+        # safety parser and rules
+        tr = []
+        s = Safety(on_trip=tr.append)
+        s.begin_play()
+        s.feed_journal("Left Woofer 1: Coil 80.69 °C Magnet 55.20 °C Power 0.00 W Gain 0.00 dB")
+        s.feed_journal("[2026-11-08T10:00:00Z INFO  speakersafetyd] Right Tweeter: Coil 31.10 °C Magnet 28.00 °C Power 0.041 W Gain 0.00 dB")
+        check(not s.tripped and len(s.speakers) == 2, "parser: two speakers, no trip")
+        check(abs(s.speakers["Left Woofer 1"]["coil"] - 80.69) < 1e-9, "parser: coil")
+        check(abs(s.speakers["Right Tweeter"]["power"] - 0.041) < 1e-9 and abs(s.play_max - 0.041) < 1e-9, "parser: power / max")
+        s.feed_journal("Left Woofer 2: Coil 25.00 °C Magnet 25.00 °C Power -0.00 W Gain 0.00 dB")
+        check(not s.tripped, "-0.00 W must not trip")
+        for line, what in [
+            ("Left Woofer 2: Coil 25.00 °C Magnet 25.00 °C Power 0.10 W Gain 0.00 dB", None),
+            ("Left Woofer 2: Coil 25.00 °C Magnet 25.00 °C Power 0.101 W Gain 0.00 dB", "0.101"),
+            ("Left Woofer 2: Coil 25.00 °C Magnet 25.00 °C Power -0.012 W Gain 0.00 dB", "negative"),
+            ("Left Woofer 2: Coil 25.00 °C Magnet 25.00 °C Power 0.01 W Gain -3.20 dB", "gain limited"),
+            ("thread 'main' panicked at src/main.rs:1", "panic"),
+            ("speakersafetyd: gain limited on Left Woofer 1", "gain limited"),
+            ("Started Speaker Safety Daemon.", "restarted"),
+            ("Stopping Speaker Safety Daemon...", "restarted"),
+        ]:
+            s2 = Safety()
+            s2.feed_journal(line)
+            check((s2.tripped and what is not None and any(what in r for r in s2.reasons)) or (not s2.tripped and what is None),
+                  "journal rule: %r -> %r" % (line[:50], s2.reasons))
+        s3 = Safety()
+        s3.feed_dmesg("[  12.3] tas2764 0-0038: fault 0x04")
+        check(s3.tripped and s3.faults_new == 1, "dmesg fault trips")
+        s3 = Safety()
+        s3.feed_dmesg("[  12.3] macaudio sound: Speaker volume ceiling -30 dB")
+        check(not s3.tripped, "dmesg ceiling line does not trip")
+        s4 = Safety()
+        s4.begin_play()
+        s4.check_stale(time.time())
+        check(s4.tripped, "stale telemetry during play trips")
+        s4.reset()
+        check(not s4.tripped, "reset clears the trip")
+
+        for line, want in (("[ 1.0] macaudio sound: Speaker volume ceiling -30 dB", -30.0),
+                           ("Speaker volume ceiling: -12.5 dB (locked)", -12.5), ("Speaker volume ceiling 0 dB", 0.0)):
+            m = CEILING_RE.search(line)
+            check(bool(m) and float(m.group(1)) == want, "ceiling regex: %r" % line)
+
+        # results file
+        rpath = os.path.join(tmp, "res", "results.md")
+        rec = {"time": "2026-11-08 10:00:00", "graph": "profile", "vol": "0.55", "gdb": "-35.0", "signal": "sine 1000 Hz",
+               "amp": "-20", "ch": "C", "played": "3.0", "rating": 4, "note": "pipe | in note\nnewline", "maxw": "0.012"}
+        append_result(rpath, rec)
+        append_result(rpath, dict(rec, rating=None, note=""))
+        txt = open(rpath, encoding="utf-8").read()
+        rows = [l for l in txt.splitlines() if l.startswith("| 2026")]
+        check(len(rows) == 2 and all(r.count("|") == 12 for r in rows), "results rows have 11 columns: %r" % rows)
+        check("4 harsh" in rows[0] and "| - |" in rows[1], "results rating text")
+
+        # fail-soft system calls (pw-play / wpctl absent on the Studio)
+        if not shutil.which("wpctl"):
+            rs = RealSys()
+            check(rs.sink_info() is None and rs.get_volume() is None and rs.set_volume(0.55) is False,
+                  "wpctl absent: calls fail soft")
+        print("selftest: %d checks passed, %d failed" % (n_ok[0], len(fails)))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return 1 if fails else 0
+
+
+# --------------------------------------------------------------------------- main
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="J716s speaker listening test TUI (see LISTENING-TEST.md)")
+    ap.add_argument("--check", action="store_true", help="print the environment and exit")
+    ap.add_argument("--selftest", action="store_true", help="generate and validate every signal, play nothing")
+    ap.add_argument("--dir", default=os.environ.get("J716_LISTEN_DIR") or os.path.expanduser("~/j716-listen"),
+                    help="signal/results directory (default ~/j716-listen)")
+    ap.add_argument("--allow-blind", action="store_true",
+                    help="play even if dmesg / speakersafetyd monitoring is not live (not recommended)")
+    ap.add_argument("--no-sudo", action="store_true", help="never run `sudo -v` at start")
+    args = ap.parse_args(argv)
+    if args.selftest:
+        return do_selftest()
+    fake = os.environ.get("J716_LISTEN_FAKE") == "1"
+    sysobj = FakeSys() if fake else RealSys()
+    if args.check:
+        sysobj.prepare_access(False)
+        return do_check(sysobj, args.dir)
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        print("j716-listen needs a terminal", file=sys.stderr)
+        return 2
+    if os.geteuid() == 0 and not fake:
+        print("j716-listen: run as the desktop user (rolo), not root: pw-play/wpctl need your PipeWire session.",
+              file=sys.stderr)
+        return 2
+    os.makedirs(args.dir, exist_ok=True)
+    app = App(sysobj, args.dir, allow_blind=args.allow_blind)
+    app.access_notes = sysobj.prepare_access(not args.no_sudo)
+    app.run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
