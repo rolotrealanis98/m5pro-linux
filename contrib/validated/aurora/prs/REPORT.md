@@ -219,3 +219,17 @@ fleet30 rows: no regression; for #1082 every fleet Mac kept the 1000 ms default,
 `HID: dockchannel-hid: settle 50 ms after releasing the AFE reset`, `hwmon: (macsmc) keep a fan whose optional keys
 are missing`. Still open: #1152 (WFI idle), #1160 (lid confirm), #1167 (J716s DT), #1173 (M5 InitData), #1174
 (27.3 IOMFB), #1182/#1183 (kernel-side N1 training), mesa #194, m1n1 #65.
+
+## 2026-11-08 05:56 UTC: aurora-silicon/linux #1167 (the J716s board DT) accepted, merges once CI is green
+
+RyanTheTide: the T6050 trees are in scope; he checked the J716s file against the J716s ADT (register windows and
+interrupts of PCIe port 0, the HPM buses, FPWM0 match), the CPU order (the J775D ADT lists cores the same way), and
+`make W=1` / `CHECK_DTBS=y` on J716s, J716c, J775D after the merge: no warnings. He pushed on top of our commits: a
+merge of current integration (#935 and #945 with their review fixups; our carried copies kept the CPU order and the
+gpio-low bank, the reviewed versions of the other T6050 files were taken), dropped `arch/arm64/configs/j716s.config`
+(the tree builds every Mac from defconfig + asahi.config; options the J716s needs go to asahi.config in a PR; built-in
+boot path is a distro choice) and dropped the default `bootargs = "maxcpus=1"`. On our questions: carrying #945 was
+fine; the cpufreq override with the T8112 fallback stays until #481 lands; a panel node for the boot framebuffer and
+the trackpad reset route can be follow-ups. "Build-tested here, and you've booted it on the J716s, so this goes in
+once CI is green." PR now 26 commits, head 36aba43. Follow-ups for us: #1183 (DT half of the N1 training) sits on
+#1167 and may need a rebase after the merge; our daily's `j716s.config` fragment stays local (or goes to asahi.config).
