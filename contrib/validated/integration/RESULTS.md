@@ -2498,3 +2498,19 @@ starts, `AppleTCControllerAssignableTransport::probe failed` (expected: the prox
 - PMP window dump (Joshua, #293): attempted in a plain proxy boot between the two steps; the client connected 8 s
   after the device appeared and the proxy went away before the first chunk; to be retried with the runner's device
   wait (next proxy boot). Nothing was read.
+
+## 2026-11-08 22:30-22:37 UTC — HDR ladder on the J716s panel (payload hdr-test 41539cf4, kernel 7.3.0-g7cf4279b444b)
+
+Attended, Rolando at the panel; runner `~/Work/agents/hdr/run-hdr-test-v2.sh` (restore target = the hv27 daily c7f84366).
+- Rung 0: with `appledrm.log_color_modes` the DCP firmware lists **one colour element only**, six times: depth 8,
+  colorimetry 16, eotf 0 (SDR), range 0, encoding 0. No 10-bit or PQ element is offered by firmware 27.3 on this
+  panel path, so there is nothing for an HDR mode set to pick.
+- Rung a (10-bit SDR): Hyprland `bitdepth=10` -> swapchain XRGB2101010 accepted, scanout XRGB2101010; the DCP set no
+  new link mode (link depth unchanged, so the panel link stays 8-bit; dithering by the pipeline at best).
+- Rung b (HDR10): `cm=hdr` with the EDID overrides -> Hyprland asked, but zero HDR_OUTPUT_METADATA commit lines and no
+  refusal: the fw-27 connector carries no HDR properties, as the HDR study predicted (gate unchanged).
+- Rung c (EDR, `fw27_panel_edr=1`, experimental): peak brightness not reported (the A128 query stays unanswered, EDR
+  stays off), 0 swap failures, no present storm; flag reverted.
+- Conclusion: HDR10 on the internal panel is blocked at the firmware-offered colour elements, not in Hyprland. Next
+  step for HDR is the hypervisor trace of macOS's DCP mode set when it enables HDR/EDR on this panel (rung iv, dcp
+  group), to see which element/eotf macOS requests and through which call.
