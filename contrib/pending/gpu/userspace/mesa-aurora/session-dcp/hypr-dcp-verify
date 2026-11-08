@@ -175,7 +175,8 @@ want_ds=$(tr '\0' '\n' < "/proc/$HPID/environ" 2>/dev/null | sed -n 's/^M5PRO_DC
 
 # --- 4. kernel health -------------------------------------------------------
 hdr "4. kernel log"
-k=$(grep -a -iE 'DCP has crashed|swap failed|swap timed out|set_digital_out_mode (timed out|returned)|adaptive swap timed out|apple-drm.*(error|fail)|aurora.*(fault|timeout|hang)' "$OUT/dmesg.txt" | tail -8)
+# The parameter line "firmware scheduling pause timeout N us" and the kernel command line are not errors.
+k=$(grep -a -iE 'DCP has crashed|swap failed|swap timed out|set_digital_out_mode (timed out|returned)|adaptive swap timed out|apple-drm.*(error|fail)|aurora.*(fault|timeout|hang)' "$OUT/dmesg.txt" | grep -avE 'Kernel command line|scheduling pause timeout [0-9]+ us \(m5_pause_timeout_us\)' | tail -8)
 [ -z "$k" ] && ok "no DCP/GPU errors in dmesg" || { bad "DCP/GPU errors in dmesg:"; sed 's/^/      /' <<<"$k"; }
 
 if [ "$MODE" = static ]; then
