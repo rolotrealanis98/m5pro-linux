@@ -63,6 +63,11 @@ G17: recovery gen N queue Q blamed guilty: 3 retained commands, client quickshel
 
 ### H1. DSF (scheduling) pause timeout, reason 5. The firmware gets 150 us to pause the hardware.
 
+> **Hardware result 2026-11-08 (RESULTS.md 12:08 and 12:24 entries):** the blame log of kernel
+> 7.3.0-g12c445fa5371 names reason 5 for all three recoveries seen under a 10 min mixed load at 150 us,
+> and the same load at `aurora.m5_pause_timeout_us=2000` produced zero recoveries in 10 min. One run
+> each; the lead is strong, not yet proof.
+
 Evidence:
 - **The firmware's pause routine** (27.2 TEXT 0x23180):
   - sets MMIO +0x211c8 bit 0;
