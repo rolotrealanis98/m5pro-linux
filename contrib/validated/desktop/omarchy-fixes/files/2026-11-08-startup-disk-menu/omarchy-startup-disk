@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# omarchy-startup-disk: boot macOS once from the Omarchy menu on the J716s (MacBook Pro M5 Pro).
+# usage: omarchy-startup-disk status | reboot-macos | clear-next
+#
+# This is a thin front end for nvram-next-boot.sh (m5pro-linux, contrib/pending/nvram, tracker issue #4).
+# That script is the only thing that touches NVRAM: it writes alt-boot-volume (the one-shot "next boot only"
+# target) and nothing else, and it refuses unless the read-only probe passed, the NVRAM is unchanged since,
+# and the spi_apple_qspi module carries the J716s write row. Until the attended sitting in issue #4 has made
+# that true, every command here ends in a REFUSED line and changes nothing.
+#
+# No sudoers rule on purpose: root would be running a script from a user-writable checkout, so sudo asks for
+# the password each time, and nvram-next-boot.sh asks you to type WRITE before it programs anything.
+# The default startup disk (boot-volume) is deliberately not written from here.
+
+set -euo pipefail
+
+TOOLS="${NVRAM_TOOLS:-$HOME/Work/m5pro-linux/contrib/pending/nvram/tools}"
+NEXT="$TOOLS/nvram-next-boot.sh"
+
+die() { echo "omarchy-startup-disk: $*" >&2; exit 1; }
+
+cmd="${1:-}"
+[[ -f $NEXT ]] || die "missing $NEXT (clone rolotrealanis98/m5pro-linux, or set NVRAM_TOOLS)"
+
+# sudo needs a password here, so every action needs a terminal. A menu click has none:
+# re-run ourselves in Omarchy's floating terminal.
+need_terminal() {
+  [[ -t 0 ]] && return 0
+  exec omarchy-launch-floating-terminal-with-presentation "$(printf '%q ' "$0" "$cmd")"
+}
+
+case "$cmd" in
+  status)
+    need_terminal
+    sudo bash "$NEXT" status
+    ;;
+  clear-next)
+    need_terminal
+    sudo bash "$NEXT" clear-next
+    ;;
+  reboot-macos)
+    need_terminal
+    echo "Reboot into macOS, one time. The default boot stays Omarchy."
+    echo
+    # Prompts you to type WRITE; a refusal or a failed read-back exits non-zero and we stop here.
+    sudo bash "$NEXT" to-macos
+    echo
+    echo "If iBoot consumes the one-shot, the restart after macOS comes back to Omarchy."
+    echo "That return leg is not verified on this machine yet; if macOS comes up again,"
+    echo "hold the power button at startup and pick Omarchy."
+    read -r -p "Reboot into macOS now? [y/N] " answer
+    [[ $answer == [yY]* ]] || { echo "Not rebooting. Undo with: omarchy-startup-disk clear-next"; exit 0; }
+    exec omarchy-system reboot
+    ;;
+  *)
+    die "usage: omarchy-startup-disk status | reboot-macos | clear-next"
+    ;;
+esac
