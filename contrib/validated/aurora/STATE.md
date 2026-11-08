@@ -224,3 +224,15 @@ NVMe/SART commits are PR #936, the combo-PHY and dwc3 commits are PR #939 plus A
   (`contrib/pending/gpu/userspace/mesa-aurora/session-dcp/`), native GL.
 - Rollback: `boot.bin.prev` = `daily-n1k-test-20261107-5c74c66c.bin`; the previous daily `daily-n1k-20261107-512a1c00.bin`
   stays on the Studio. `~/Work/agents/daily-n1k/loop/run-restore-daily.sh` restores the new daily.
+
+## 2026-11-08 05:28 UTC: daily-dcp-lfix-vrr promoted (VRR on)
+
+- Payload `daily-dcp-lfix-vrr-20261107-7e244836.bin` (sha256 7e244836c80aa6ca83b9794a1db8065bee690fbf024f6df6df3566784712db15)
+  = daily-dcp-lfix (same kernel `7.3.0-gbd53915f2ef1`, loader `m1n1-plain-n1-dt-gpu-dcp-phfix`, in-tree DTB,
+  variables, initramfs) with `appledrm.fw27_panel_vrr=1` appended to the bootargs. Test twin
+  `daily-dcp-lfix-test-vrr-20261107-54b4d1c9.bin` (verifier: 22 passed, 0 failed).
+- The session profile turns `misc:vrr=1` on when the panel offers VRR; the firmware minimum is 24 Hz.
+- Rollback unchanged: `boot.bin.prev` = `daily-n1k-test-20261107-5c74c66c.bin`. `run-restore-daily.sh` restores this daily.
+- The root also carries `/etc/systemd/system.conf.d/m5pro-watchdog.conf` (`RuntimeWatchdogSec=60`) since the loop-safety v2
+  positive test; the daily runs with the systemd runtime watchdog.
+

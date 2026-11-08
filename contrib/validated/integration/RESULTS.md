@@ -2060,3 +2060,31 @@ cleared before each boot, `ESP_SETTLE=120`.
   machine; s2idle is handled by the watchdog core's PM notifier and `apple_wdt` suspend/resume (to be confirmed with a
   lid-close sleep, attended). Test payloads built by the patched `mk-daily.py` carry `watchdog.open_timeout=300` and
   the v2 opener initramfs; the daily carries neither.
+
+## 2026-11-08 05:28 UTC: VRR ROUND: verifier PASS on the daily and on the VRR twin; `daily-dcp-lfix-vrr` PROMOTED
+
+Fixed verifier (`hypr-dcp-verify`, run as root over ssh, finds the user's Hyprland instance itself; every timed PASS
+requires captured `dcp:iomfb_swap_complete` events).
+
+Daily `daily-dcp-lfix` (VRR off): 19 passed, 0 failed, 3 warnings. Hyprland drives the apple card and renders on
+`renderD128` (Apple M5 Pro (G17S B1)), scanout buffers 3456x2234 XR24 LINEAR rendered into directly, KMS explicit
+sync and EGL native fence sync, mode 3456x2234 at 120.000 Hz, profile `m5pro-dcp` active. vkcube composited:
+2405 swaps in 20 s, median 120.0/s, p50 8.333 ms, 0 late. Warnings: the idle desktop flipped 247 times in 3 s on
+this boot (something animating right after login; 0 swaps in 3 s on the twin boots), Mesa skipped glmark2 draws
+(the AGX backend refused `persp_mul_agx3`), and fullscreen mpv is not direct-scanned (`blockedBy ["CANDIDATE"]`,
+composited; to look at).
+
+VRR twin `daily-dcp-lfix-test-vrr` (54b4d1c9, `appledrm.fw27_panel_vrr=1`): 22 passed, 0 failed, 2 warnings
+(the same Mesa and direct-scanout notes). `vrr_capable` on, aquamarine "capable of vrr", hyprctl `vrrCapable=true`,
+`misc:vrr=1` active. vkcube: 2405 swaps, p50 8.333 ms, p99 8.49 ms, stdev 0.033 ms, 0 late, submit-to-complete
+2.7 ms. glmark2 fullscreen: the panel showed 91 frames/s (late compositor frames land at 12.4 ms, three 4.17 ms
+steps). 50 fps client, VRR off: intervals p50 12.5 ms, whole-refresh multiples {1: 622, 2: 578} (judder). 50 fps
+client, VRR on: intervals p50 20.825 ms, p99 20.92 ms, 0 late, 80 % within 1.5 ms of 20 ms: the panel follows the
+client. Kernel: `VRR_ENABLED 0 -> 1`, firmware `adaptive_sync minRR = 0x180000` (24 Hz), `3456x2234@120 Hz DSC=NO
+VRR=YES`. No flip or transaction timeouts, no DCP crash, no faults.
+
+Promotion: `daily-dcp-lfix-vrr-20261107-7e244836.bin` (sha256 7e244836c80aa6ca83b9794a1db8065bee690fbf024f6df6df3566784712db15)
+= `daily-dcp-lfix` + `appledrm.fw27_panel_vrr=1`, daily form; identical ingredients to the twin that passed. Booted
+clean on the primary slot (delta 50 s): `card0` aurora, `card1` apple-drm, DCP session active, Hyprland up.
+`boot.bin.prev` stays `daily-n1k-test-20261107-5c74c66c.bin`; `run-restore-daily.sh` now restores the VRR daily.
+Open: direct scanout for fullscreen clients, the Mesa shader refusal (native GL), the idle-flip warning on the daily boot.
