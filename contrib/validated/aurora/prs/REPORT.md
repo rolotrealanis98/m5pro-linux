@@ -200,3 +200,12 @@ Pre-reviews on #1082-#1084 (merge-train bot, 14:33 UTC): per-device RTKit timeou
   https://github.com/omacom/linux-aurora/issues/293#issuecomment-6716546581 (agree on both; content staged under
   rolotrealanis98 and transferred to `omacom/m4plus-linux` when omacom confirms; neutral org as the fallback; J716s
   seeded and J714s/J714c drafts for their owners this weekend).
+
+## 2026-11-08 04:50 UTC: omacom/m1n1 #35 updated with the phandle fix
+
+- Pushed `ffee101` "kboot: t6050: give the display nodes a phandle if the DT has none" to the PR branch (22 commits
+  now) and explained it in https://github.com/omacom/m1n1/pull/35#issuecomment-6717322207. The in-tree J716s DTB has no
+  phandle on `dcp` and `display-subsystem` (dtc emits one only for referenced nodes); #35 logged "no handoff" and booted
+  without the display, our stage-2 variant bailed into the proxy and the stage-1 watchdog reset the machine (nine
+  bisect boots, `contrib/pending/dcp/daily-dcp/FIRST-BOOT-ANALYSIS.md`). Hardware: the same fix in our loader
+  (`n1-dt-gpu-dcp-phfix`) booted the in-tree DTB with the DCP driving the panel next to the GPU (`daily-dcp-lfix-test`).
