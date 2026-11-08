@@ -2038,3 +2038,25 @@ connected, Bluetooth `hci0`, backlight 300/600 and writes reach the panel. Rollb
 `daily-n1k-test-20261107-5c74c66c.bin` (the previous daily's self-test twin; reaches the network; N1-aware loader);
 `~/Work/agents/daily-n1k/loop/run-restore-daily.sh` now restores the new daily. Loop runners written before this
 point still name the old daily as their restore target and must be updated before reuse.
+
+## 2026-11-08 05:10 UTC: LOOP-SAFETY v2: negative PASS, positive hand-over PASS, systemd now owns the watchdog on the daily
+
+Kernel `7.3.0-ga0f2f30c967b` twins with the v2 initramfs opener (`contrib/pending/boot-ab/loop-safety/`), error stage
+cleared before each boot, `ESP_SETTLE=120`.
+
+- Negative `wdt2-noopener` (`m5.wdt=off`, `watchdog.open_timeout=120`, drop-in removed first): the twin ran (its
+  journal is on disk), wrote the marks 0x31 (initramfs), 0x33 (root) and 0x34 (network up, 8.5 s), the kernel stopped
+  feeding the dog at the 120 s open timeout and it bit about 150 s in; stage 1 fell back to prev with error stage 0x34
+  (fallback kernel 192 s after the reboot, the "apple_wdt bite" band). PASS: a boot that reaches userspace but never
+  opens the device is reset and recovered, with the stage of death recorded.
+- Positive `wdt2-opener` (`watchdog.open_timeout=300`): `m5-wdt` lines in the kernel log in order: initramfs reached,
+  `/dev/watchdog0` opened and petted, `m5pro-watchdog.conf` installed, device released, "systemd opens it next";
+  systemd 1.4 s: "Using hardware watchdog /dev/watchdog0", `RuntimeWatchdogUSec=1min`. The twin then ran 100 s with
+  PID 1 feeding the dog (no reset) until its own self-test reverted it: `ping` of the fixed check address failed
+  although wlan0 had associated at 6.5 s (the USB NIC also had carrier); one occurrence, not understood, unrelated to
+  the watchdog. Hand-over PASS; the 400 s criterion was not reached on this boot (v1 reached it with the petter).
+- Side effect, intended: the drop-in now lives on the shared root, so the daily runs with `RuntimeWatchdogSec=60`
+  (`RuntimeWatchdogUSec=1min` on the restored daily-dcp-lfix boot). A PID 1 stall of over 60 s now resets the
+  machine; s2idle is handled by the watchdog core's PM notifier and `apple_wdt` suspend/resume (to be confirmed with a
+  lid-close sleep, attended). Test payloads built by the patched `mk-daily.py` carry `watchdog.open_timeout=300` and
+  the v2 opener initramfs; the daily carries neither.
