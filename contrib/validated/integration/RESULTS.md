@@ -1847,3 +1847,21 @@ pass, 55 s to SSH; 60 s settle rule; GPU daily restored afterwards (primary).
   session scored 1278 (zink: 597-890 during the earlier soak). No GPU errors.
 - A 30-minute desktop soak on the native session is running next; the launcher keeps the 30 s fallback to the software
   session and `/etc/mesa-aurora/session.env.zink` is the one-file rollback.
+
+## 2026-11-08 02:51 UTC: GL-NATIVE soak v3, PASS
+
+Native Gallium GL as the desktop GL (`/etc/mesa-aurora/session.env` -> `/opt/mesa-aurora-gl`), kernel
+`7.3.0-g36845aa5f650`, Hyprland running throughout. Six rounds of glmark2 over 24 minutes inside the live session:
+
+| round | glmark2 | GPU error lines | Hyprland | hottest sensor |
+|---|---|---|---|---|
+| 1 | 988 | 0 | up | 28.3 °C |
+| 2 | 937 | 0 | up | 28.6 °C |
+| 3 | 937 | 0 | up | 29.0 °C |
+| 4 | 995 | 0 | up | 29.2 °C |
+| 5 | 942 | 0 | up | 29.4 °C |
+| 6 | 930 | 0 | up | 29.6 °C |
+
+GL_RENDERER `Apple M5 Pro (G17S B1)` every round, aquamarine `IMG_context_priority supported, requesting high`.
+Scores are lower than the 1278 A/B figure because the compositor was running; no faults, no hangs, no fallback.
+The native session stays. Log: `~/Work/agents/gpu-gl-native/loop/run-gl-soak-v3.log`.
