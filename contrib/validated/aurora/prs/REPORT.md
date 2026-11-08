@@ -287,3 +287,16 @@ force-pushed with lease, notes posted on all five PRs.
 Checks: W=1 + CLIPPY=1 over `drivers/gpu/drm/{asahi,apple}` per commit, no new warnings (68 at the integration
 base, 53 at #1173's), checkpatch --strict 0 errors, rustfmt-clean hunks. Hardware evidence in RESULTS.md (12:08,
 12:24, 14:19 entries). Branches live in `/Volumes/linux-cs/linux`, pushed to the `rolotrealanis98/linux` fork.
+
+### 2026-11-08 16:30 UTC — review round 1 on #1240/#1241 (Codex)
+
+Aurora's automated reviewer raised five findings, all valid on reading the code: #1240 (a) a replay refused with
+EBUSY kept its prepared descriptor, so it could never be prepared again and the new timeout path left the slot
+unusable; (b) a replay's own compute fault stayed classified Spared and was failed with ENODATA instead of failing
+its VM. #1241 (a) on the 12.3/13.5/14.7-template/H17G paths a late firmware completion after the 10 s fallback
+retired the next commit's event; (b) a lost swap's displaced framebuffers were never unarmed (one leak per lost
+swap); (c) `jiffies` read twice could yield a negative timeout (-EINVAL from `dma_fence_wait_timeout`). Fixes pushed
+as one follow-up commit per PR (fast-forward; the amended single-commit versions are kept locally as
+`pr/*-amended` for a squash on request): #1240 tip 9e8fa1e28ac5 (3 commits), #1241 tip f2f745f21544 (2 commits).
+Compile deltas: 68 warnings at base and at each new commit; checkpatch --strict clean; rustfmt unchanged. Replies
+posted on each thread; the 12.3/13.5 fixes are compiled and reviewed only (the T6050 runs the fw-27 path).
