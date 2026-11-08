@@ -1,0 +1,44 @@
+mode 0: 3456x2234 120 Hz clock 1042130 vtotal 2456 preferred
+mode 1: 3456x2234 100 Hz clock 1042130 vtotal 2947
+mode 2: 3456x2234 60 Hz clock 521065 vtotal 2456
+mode 3: 3456x2234 60 Hz clock 520544 vtotal 2456
+mode 4: 3456x2234 50 Hz clock 520853 vtotal 2946
+mode 5: 3456x2234 48 Hz clock 416852 vtotal 2456
+mode 6: 3456x2234 48 Hz clock 416435 vtotal 2456
+connector 49 crtc 47 plane 35 mode 3456x2234@120 vrr_capable 1
+vrrflip: modeset 3456x2234@120
+vrrflip: phase fixed
+vrrflip: result fixed flips 446 fps 55.48 p50 13.18 ms p5 8.15 p95 49.96 min 7.65 max 91.75
+vrrflip: phase vrr-on
+vrrflip: VRR_ENABLED 1 committed
+vrrflip: result vrr-on flips 439 fps 57.70 p50 8.35 ms p5 8.21 p95 50.10 min 8.05 max 141.78
+vrrflip: phase vrr-on-50
+vrrflip: result vrr-on-50 flips 400 fps 50.01 p50 20.83 ms p5 8.54 p95 28.89 min 7.98 max 54.20
+vrrflip: phase vrr-off
+vrrflip: VRR_ENABLED 0 committed
+vrrflip: result vrr-off flips 452 fps 58.86 p50 8.34 ms p5 8.13 p95 49.96 min 7.93 max 116.64
+vrrflip: phase vrr-off-50
+vrrflip: result vrr-off-50 flips 399 fps 49.49 p50 16.65 ms p5 8.22 p95 41.72 min 8.05 max 141.76
+swap_complete fixed         446  mean 18.02 ms  min 7.65  max 91.75
+swap_complete vrr-on        439  mean 17.33 ms  min 8.07  max 141.78
+swap_complete vrr-on-50     400  mean 20.00 ms  min 8.15  max 54.20
+swap_complete vrr-off       452  mean 16.99 ms  min 8.01  max 116.64
+swap_complete vrr-off-50    400  mean 20.30 ms  min 8.15  max 141.77
+[   74.656405] apple-dcp 48ae00000.dcp: VRR_ENABLED 1: selecting "3456x2234": 120 1042130 3456 3464 3496 3536 2234 2352 2360 2456 0x48 0x5 again
+[   74.656413] vrrflip: VRR_ENABLED 1 committed
+[   74.657692] apple-dcp 48ae00000.dcp: set_digital_out_mode(color:1 timing:2) "3456x2234": 120 1042130 3456 3464 3496 3536 2234 2352 2360 2456 0x48 0x5
+[   74.660636] apple-dcp 48ae00000.dcp: set_digital_out_mode() color mode depth:8 format:0 colorimetry:16 eotf:0 range:0 vrr:1
+[   74.662244] apple-dcp 48ae00000.dcp: RTKit: syslog message: FramebufferDCP.cpp:7585: IOMFBParameter_adaptive_sync Req minRR = 0x180000, mediaTargetRate = 0x0, Fractional Rate = 0
+[   74.666048] apple-dcp 48ae00000.dcp: RTKit: syslog message: ifiedPipeline.cpp:11636: set_digital_out_mode: Modeset requested for colorID: 1, timingID: 2
+[   75.041388] apple-dcp 48ae00000.dcp: set_digital_out_mode finished:2030
+[   75.042628] apple-dcp 48ae00000.dcp: set_digital_out_mode finished with 8120 to spare
+[   90.667767] vrrflip: VRR_ENABLED 0 committed
+[   90.667770] apple-dcp 48ae00000.dcp: VRR_ENABLED 0: selecting "3456x2234": 120 1042130 3456 3464 3496 3536 2234 2352 2360 2456 0x48 0x5 again
+[   90.667779] apple-dcp 48ae00000.dcp: set_digital_out_mode(color:1 timing:2) "3456x2234": 120 1042130 3456 3464 3496 3536 2234 2352 2360 2456 0x48 0x5
+[   90.667785] apple-dcp 48ae00000.dcp: set_digital_out_mode() color mode depth:8 format:0 colorimetry:16 eotf:0 range:0 vrr:1
+[   90.669570] apple-dcp 48ae00000.dcp: RTKit: syslog message: FramebufferDCP.cpp:7585: IOMFBParameter_adaptive_sync Req minRR = 0x0, mediaTargetRate = 0x0, Fractional Rate = 0
+[   90.688036] apple-dcp 48ae00000.dcp: RTKit: syslog message: ifiedPipeline.cpp:11636: set_digital_out_mode: Modeset requested for colorID: 1, timingID: 2
+[   90.990030] apple-dcp 48ae00000.dcp: set_digital_out_mode finished:2045
+[   90.991564] apple-dcp 48ae00000.dcp: set_digital_out_mode finished with 8180 to spare
+[  106.771966] apple-dcp 48ae00000.dcp: swap failed! status 4294967295
+rc=0, files in ./vrrflip-021654
