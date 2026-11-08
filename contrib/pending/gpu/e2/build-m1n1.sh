@@ -39,6 +39,11 @@ cat /out/toolchain.txt
 cd "$OUT" && shasum -a 256 *.bin | tee SHA256SUMS && cat *.commit
 [ "$(shasum -a 256 m1n1-plain-n1-warm.bin | cut -c1-64)" = 4c202e9dbf0738cb256fb3903f02c6abd2d653b8cfecea74d764f19d9ce6e1d5 ] \
     && echo "RECIPE CHECK: n1-warm rebuilds byte-identical (4c202e9d)" || { echo "RECIPE CHECK FAILED"; exit 1; }
-# A plain m1n1 must stay 0x400000: mk-daily.py and the payload layout put the variables at 0x400000.
-for f in *.bin; do [ "$(stat -f %z "$f")" = 4194304 ] || { echo "SIZE: $f is $(stat -f %z "$f") bytes, not 0x400000"; exit 1; }; done
-echo "all images 0x400000"
+# Each image has one exact size, set by the packer that reads its variables right after it:
+#   n1-warm (the daily's m1n1)  0x400000: mk-daily.py, M1N1_SIZE = 0x400000
+#   n1-warm-gpu, -gpu-dcp       0x410000: mk-e2.py, M1N1_SIZE = 0x410000 (the GPU hand-off pushes .text past 0x70000)
+size() { [ "$(stat -f %z "$1")" = "$2" ] || { echo "SIZE: $1 is $(stat -f %z "$1") bytes, not $3"; exit 1; }; }
+size m1n1-plain-n1-warm.bin         4194304 0x400000
+size m1n1-plain-n1-warm-gpu.bin     4259840 0x410000
+size m1n1-plain-n1-warm-gpu-dcp.bin 4259840 0x410000
+echo "sizes: n1-warm 0x400000, n1-warm-gpu and n1-warm-gpu-dcp 0x410000"
