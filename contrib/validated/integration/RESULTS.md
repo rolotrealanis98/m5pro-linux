@@ -1796,3 +1796,15 @@ probe blocked forever on a completion (prime suspect: the USB4/CIO controller or
 combo-PHY tunables), so userspace and the self-test never started; Linux had taken over the watchdog, so no reset
 happened. Rolando power-cycled it. Rule: Thunderbolt/USB4 bring-up payloads are attended-only; the kernel-side hang
 needs a probe timeout (and a boot-time watchdog that only Linux's init completion pets) before another loop attempt.
+
+### Reconciliation notes (2026-11-08 02:40 UTC)
+
+- GL-NATIVE: the "PARTIAL, 11/12, 3 patches" section above is superseded: with patches 0004-0005 (and timer queries back)
+  the native tree passes 12/12 scenes, the scanout test and gpubench on the machine (`contrib/pending/gpu/gl-native/REPORT.md`,
+  22:50 UTC); the session switch is in progress.
+- Fallback tallies: the exact counts differ slightly between sections because they were written as the runs came in; the
+  authoritative table is `contrib/pending/boot-ab/firstboot/REPORT.md` (immediate reboots after a burst: about 1 in 3
+  fail; with at least 60 s idle: 0 failures in 17 including the exp3/exp4 arms).
+- POWER-T1 "FAIL" above is superseded by the retest (PASS) and the baseline section.
+- m1n1 0028 (keep a down N1 port enabled, copy host tunables) lives in `contrib/pending/wireless/patches/m1n1/`; the GPU
+  hand-off patch also numbered 0028 lives in `contrib/pending/gpu/patches/m1n1/`.
