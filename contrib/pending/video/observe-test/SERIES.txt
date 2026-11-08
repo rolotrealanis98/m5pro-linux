@@ -1,0 +1,39 @@
+video-observe series: branch j716s-video-observe, worktree /Volumes/linux-cs-gpurec/wt-video-observe
+base: j716s-daily-dcp-recovery2 @ 12c445fa5371 (the daily, 2026-11-08: drm/asahi: g17: Add M5 GPU fault experiment parameters)
+applied with `git am --3way`, in this order (P = ~/Documents/GitHub/m5pro-linux/contrib/pending/video):
+
+ 1  67b032c2a104  P/patches/linux/0006-media-apple-ave-Add-the-T6050-encoder-probe-only.patch           clean
+ 2  2dda533e7051  P/patches/linux/0008-arm64-dts-apple-t6050-Add-the-media-engines.patch                 clean (adds t6050-media.dtsi: ave, ave_dart0/1, avd, jpeg0/1, apr0, apr0_dart, pmgr4 states, ps_fab7_soc/ps_scodec in pmgr1)
+ 3  7179051199c6  P/encode/patches/linux/0001-arm64-dts-apple-t6050-j716s-Enable-the-video-encoder-probe-only.patch  clean
+ 4  50f7cfc4f7d7  P/encode/patches/linux/0002-arm64-configs-j716s-Build-the-video-encoder-driver.patch   clean
+ 5  791e72144be8  P/prores/patches/0001-dt-bindings-media-apple-prores-Add-T6050.patch                  clean (needed: video 0007 is not applied)
+ 6  5abea78b471f  P/prores/patches/0003-media-apple-prores-Observe-the-T6050-engine-probe-only.patch   clean
+ 7  94e9fa0acb25  P/prores/patches/0004-arm64-dts-apple-t6050-j716s-Enable-the-ProRes-engine-for-observation.patch
+                  CONFLICT resolved by hand: both this patch and encode 0001 append a block at the end of
+                  arch/arm64/boot/dts/apple/t6050-j716s.dts; kept both blocks (encode's &ave_dart0/&ave_dart1/&ave
+                  first, then this patch's &apr0_dart/&apr0), content of each unchanged. The &apr0/&apr0_dart labels
+                  resolve to 0008's t6050-media.dtsi nodes, so no reference needed adapting.
+ 8  0933f881d736  P/prores/patches/0005-arm64-configs-j716s-Build-the-ProRes-observer.patch
+                  CONFLICT resolved by hand: same end-of-file collision with encode 0002 in
+                  arch/arm64/configs/j716s.config; kept both blocks (encode's CONFIG_VIDEO_APPLE_AVE=m comment+line,
+                  then this patch's CONFIG_VIDEO_APPLE_PRORES=m / CONFIG_VIDEO_APPLE_PRORES_T6050_OBSERVE=y).
+
+left out, and why:
+ - P/patches/linux/0005, 0007, 0009, 0010, 0011: do not apply to the daily (made on j716s-series; the encode study).
+   0007 (generic prores binding + T6050) is replaced by prores 0001 above.
+ - P/prores/patches/0002-arm64-dts-apple-t6050-Add-the-ProRes-engine.patch: dropped. 0008's t6050-media.dtsi already
+   defines apr0 and apr0_dart (same labels, same unit addresses, same reg/reg-names/interrupts/power-domains/resets/
+   iommus = <&apr0_dart 1>, same compatible "apple,t6050-prores", "apple,prores") and the same ps_fab7_soc/ps_scodec
+   under &pmgr1; 0002 would add a second include to t6050-max.dtsi at the same line and redefine every label.
+   One difference, NOT carried over: prores 0002's apr0_dart has `apple,dma-range = /bits/ 64 <0x10000000000 0x30000000000>`
+   (the ADT's vm-base/vm-size); 0008's apr0_dart has no apple,dma-range (the DART driver then uses its default window).
+   Irrelevant for the observe-only probe (no DMA, no mapping: prores 0003 only powers up and reads registers);
+   to be reconciled in 0008 before any data path.
+
+not in the kernel series: P/encode/patches/m1n1/0001-kboot-Hand-over-the-preloaded-AVE-encoder-firmware.patch
+   -> m1n1 branch n1-dt-gpu-dcp-phfix-ave @ 8ca7e4a8 = n1-dt-gpu-dcp-phfix @ 694d4040 (the daily loader) + this patch,
+      applied clean with `git am --3way` (hunk 2 of kboot_prepare_dt lands at an offset: the study measured it on m5-t6050
+      459a3af2, an ancestor of 694d4040). Worktree ~/Work/agents/video-observe/m1n1-wt of ~/Work/agents/daily-dcp/m1n1.
+
+config: kbuild-r2/config.daily-dcp + CONFIG_VIDEO_APPLE_PRORES_T6050_OBSERVE=y, olddefconfig; CONFIG_VIDEO_APPLE_AVE=m and
+CONFIG_VIDEO_APPLE_PRORES=m were already set in the daily config. Build: build-kernel-video.sh (this directory).
