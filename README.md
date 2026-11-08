@@ -64,8 +64,9 @@ link text).
 | **Not realistic** | ProRes | Only a device-tree binding exists, no driver. |
 | **Not realistic** | Hardware video encode, for now | The encoder has a probe-only driver; nothing beyond that is expected soon. |
 
-Open PRs: `aurora-silicon/linux` **#1082** (rtkit handshake wait 1 s to 10 s), **#1083** (dockchannel-hid 50 ms settle
-after the AFE reset), **#1084** (macsmc hwmon keeps a fan whose optional keys are missing), **#1152** (T6050 idles in WFI
+Merged into `aurora-silicon/linux` (2026-11-08, fleet-tested by the maintainers): **#1082** (rtkit handshake wait
+1 s to 10 s), **#1083** (dockchannel-hid 50 ms settle after the AFE reset), **#1084** (macsmc hwmon keeps a fan whose
+optional keys are missing). Open PRs: `aurora-silicon/linux` **#1152** (T6050 idles in WFI
 even with `idle=nop`), **#1160** (macsmc-input confirms a lid-open report during sleep), **#1167** (the J716s board device
 tree), **#1173** (M5 GPU InitData for the 27.2 and 27.3 firmware), **#1174** (display driver: 27.3 method table and swap
 layout), **#1182** (kernel-side N1 training, driver half, on #937's branch), **#1183** (kernel-side N1 training, DT half,
