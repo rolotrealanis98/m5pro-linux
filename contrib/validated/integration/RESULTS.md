@@ -2273,3 +2273,20 @@ later probes were flat; the storm also needs an idle cursor, which the untouched
 - Reproduction attempts on the same boot (glmark2 windowed, fullscreen with and without direct scanout, the
   verifier's own steps, the full verifier at 13:04 and at 75 s uptime, a 0.5 s-sampled run with the cursor hidden)
   all stayed flat with `directScanoutBlockedBy: CANDIDATE`; the storm did not re-arm after the first session.
+
+## 2026-11-08 13:54-13:58 UTC — video observe boot 1: AVE encoder probe-only bind PASS, ProRes observer blocked by the kernel blacklist
+
+`video-observe-test-20261108-c8c92158.bin` (kernel 7.3.0-g0933f881d736 = daily-dcp-rec-p2000 + the stack in
+`contrib/pending/video/observe-test/SERIES.txt`; loader = the daily's + the AVE hand-off patch; test flags). Booted
+first try (58 s, DCP + GPU, Hyprland up).
+- **AVE (hardware encoder): rung (a) PASS.** m1n1 handed over the iBoot-preloaded firmware and recorded both
+  segment checksums in `/chosen` (`aurora,ave-text-crc32 c25b4ddb`, `aurora,ave-data-crc32 d2223517`); the
+  kernel driver bound to `2283100000.video-codec` and logged "probe only: firmware TEXT c25b4ddb DATA d2223517
+  needs qualification"; `/dev/video0` = "Apple AVE video encoder" (v4l2-ctl); no DART fault, no SError,
+  MemAvailable unchanged. These checksums identify firmware build 9013.55.1 for Aurora's command-layout table.
+- **ProRes observer: not run.** `module_blacklist=apple_prores` on the command line makes the kernel refuse
+  even a manual `modprobe` ("Operation not permitted"), unlike a modprobe.d blacklist. The engine node is in the
+  DT and sits unbound (`48d000000.video-codec`, status okay, no driver). Second boot queued with the same kernel,
+  no kernel-side blacklist, a modprobe.d blacklist on the root instead
+  (`video-observe2-test-20261108-8e71e548.bin`).
+- Artefacts (Studio, private): `~/Work/agents/video-observe/observe-20261108-1354/`.
