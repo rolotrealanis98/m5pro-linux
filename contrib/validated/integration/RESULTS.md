@@ -2109,3 +2109,27 @@ edimoldovan's late-heap commit, daily kernel a0f2f30c967b, `t6050-n1=4`, self-te
   dropped). The desktop GL is back on zink (`session.env.zink` copied over `session.env`, `session.env.native-20261108`
   kept), desktop restarted: Hyprland on the DCP session with zink, Alacritty clean. Native GL stays the A/B variant;
   analysis of the app regressions in `contrib/pending/gpu/gl-native/APP-REGRESSIONS.md` (in progress).
+
+## 2026-11-08 10:45 UTC: Omarchy convergence with Rolando at the machine (second batch)
+
+- `rolo` added to `wheel` with a validated `%wheel ALL=(ALL:ALL) ALL` drop-in (Omarchy's NOPASSWD helpers kept).
+- Omarchy package fill: 163 packages from the base and aarch64 lists (deferred: ufw, docker, dotnet, libreoffice,
+  moonlight, qemu binfmt, db libs, the two Hyprland 0.56-pinned add-ons, kernel-modules-hook which the boot guard refuses).
+- Wi-Fi moved from systemd-networkd + wpa_supplicant@wlan0 to NetworkManager (what Omarchy's Wi-Fi menu drives):
+  self-reverting script `nm-switch.sh` (backup under /root/nm-switch-backup, the wlan .network file moved aside,
+  networkd and wpa_supplicant@wlan0 disabled, NetworkManager enabled, keyfile profile from the existing passphrase).
+  The first activation failed with "ssid-not-found" although the SSID was in the scan list: the network is WPA2/WPA3
+  transition and the profile needed `802-11-wireless-security.pmf=1` (optional protected management frames); with it
+  wlan0 connected. The USB NIC kept the machine reachable throughout.
+- Hyprland crash into safe mode (10:35 UTC): not a config problem. The GPU driver logged recovery faults from
+  Chromium-class clients (`chrome[14008]`, then `claude-desktop[4017]`, "GPU work of a client failed ... the client sees
+  a lost device"), the recovery also failed Hyprland's context (ENODATA), zink then crashed in `dri_create_fence_fd`
+  (SEGV) instead of reporting a lost context, and the respawned Hyprland could not initialise EGL while the GPU was
+  recovering (abort, safe-mode screen). A session restart after recovery brought the DCP session back. Analysis of the
+  isolation and the zink crash in progress (`contrib/pending/gpu/GPU-RECOVERY-KILLS-COMPOSITOR.md`); stopgap: run
+  Electron/Chromium apps without GPU acceleration until then.
+- Native GL gl2 tree (patches 0001-0008) installed at /opt/mesa-aurora-gl2 next to zink; the first "readable" window
+  Rolando saw ran on software rendering (env file missing at that moment); the proper gl2 window was opened but the
+  GPU crash interrupted the check. The A/B moves to a dedicated session, not next to the zink compositor.
+- `j716-listen` (local listening-test TUI) installed; fixed its pre-play gate (the daemon prints speaker lines only
+  during playback).
