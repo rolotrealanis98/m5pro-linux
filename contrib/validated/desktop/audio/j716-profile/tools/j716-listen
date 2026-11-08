@@ -307,6 +307,7 @@ class Safety:
     def begin_play(self):
         with self.lock:
             self.play_active = True
+            self.play_t0 = time.time()
             self.play_max = 0.0
             for s in self.speakers.values():
                 s["play_max"] = 0.0
@@ -323,7 +324,9 @@ class Safety:
             return (now or time.time()) - self.last_speaker_t
 
     def check_stale(self, now=None):
-        if self.play_active:
+        # The daemon prints per-speaker lines only while a stream is active (one set every 85 ms),
+        # so staleness is judged only during play, after a short grace for the first lines.
+        if self.play_active and (now or time.time()) - getattr(self, "play_t0", 0.0) > 3.0:
             age = self.telemetry_age(now)
             if age is None or age > STALE_S:
                 self.trip("speakersafetyd telemetry lost (no speaker line for %.0f s)" % (STALE_S if age is None else age))
@@ -929,10 +932,13 @@ class App:
             for k in ("journal", "dmesg"):
                 if not st[k][0]:
                     return "%s monitor not running (%s); stop rules blind. Restart with sudo access" % (k, st[k][1])
-            age = self.safety.telemetry_age()
-            if age is None or age > STALE_S:
-                return ("no speakersafetyd speaker lines in the last %.0f s: run it verbose "
-                        "(-v, LISTENING-TEST.md section 0)" % STALE_S)
+            # Idle speakersafetyd prints nothing; it reports per speaker only while a stream runs.
+            # Require the daemon active and verbose here; the lines are checked once play starts.
+            state, verbose = self.sys.service_state()
+            if state != "active":
+                return "speakersafetyd is %s: not playing" % state
+            if verbose is False:
+                return "speakersafetyd is not verbose (-v): run it verbose (LISTENING-TEST.md section 0)"
         if self.ceiling is not None and self.ceiling > -30.0 + 1e-6:
             return "kernel ceiling is %g dB, not -30 dB: not playing" % self.ceiling
         v = self.volume()
