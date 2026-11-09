@@ -2716,3 +2716,8 @@ captures directory (private; the decode and the resulting 27.3 method table go t
   `contrib/pending/hv/tools/`. Finding from the hardening study: the "first-stage fault at entry" (IABORT at 0x200,
   x0 0x20003) also occurs without any tracer module (3 of 25 guest starts tonight, right after `hv_amcc:`): an
   intermittent early SPTM BRK, now stopped at its real PC by the `handle_brk` guard for the next occurrence.
+- 02:57 UTC: MacBook returned to the normal slot layout (boot.bin = hv27 daily c7f84366, prev = 26ca25f0), slot
+  primary, Hyprland up. Final DCP RPC capture: 22,038 records (private; decode into the 27.3 method table running).
+  Rung iii-b approved by Rolando; runbook published (`contrib/pending/hv/RUNG-IIIB-RUNBOOK.md`); preflight (installer
+  availability for 26C5035r, container space, VG UUIDs) to run over Tailscale next time macOS is booted, ceremony in a
+  daytime session. #293 reply posted (PMP/PTD findings).
