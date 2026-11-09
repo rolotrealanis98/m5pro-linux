@@ -2578,3 +2578,7 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   secondary-core trap path is fixed, rung-iv captures run single-core.
 - Method summary: proxy loader on the slot (prev = hv27 daily), `cycle.sh pre` with `HV27_TRACE_LATE=1
   HV27_TRACE=<groups> HV27_TRACE_MBOX_ONLY=1 HV27_ARGS="-v debug=0x14e wdt=-1 cpus=1"`, screenshots via `shot.sh`.
+- 00:5x UTC: that single-core guest panicked after ~3 min on a sibling register, `msr S3_7_C15_C15_0` (`d51fff08`,
+  same CLPC family, different op2), after the USB-C port stage. The text-patcher rule now covers every op2 of
+  `S3_7_C15_C{11,13,15}` (NOP / `mov Xd, xzr`). Second single-core capture cycle launched 01:01 UTC with the same
+  three mailbox pages; tracer groups `pmp`, `sio`, `aop` added for later runs.
