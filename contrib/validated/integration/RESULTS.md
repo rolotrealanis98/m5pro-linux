@@ -2682,3 +2682,19 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   generic flag-clear + AUTO_ENABLE sweep; APCIE_* sit in auto-PM idle. Root-port DBI sequence matches the ADT
   tunables and m1n1 0023 / Linux `port_configure`; after link-up macOS adds PTM, LTR, AER clears, L1SS + ASPM L1,
   bus numbers (N1 = bus 2). PHY/AXI2AF tunables untouched by macOS (iBoot?). Next N1 capture needs a root volume.
+
+## 2026-11-09 02:45 UTC — state at the end of the night's capture run
+
+- MacBook: sitting in a dead hypervisor session (client lost after the ASYNC RPC handler desync; hypervisor keeps the
+  watchdog fed and ignores new clients). Needs a power-hold; `~/Work/agents/hv27/runs/after-powerhold2.sh` is armed
+  and restarts cycle 11 (DCP RPC, sync mode) by itself afterwards. Slot: boot.bin = proxy loader 3ea65595,
+  boot.bin.prev = hv27 daily c7f84366 (the fallback after any watchdog reset is the daily; a power-hold boots the
+  proxy loader, which waits for a client).
+- Captures (private, `~/Work/agents/hv27/captures/`): SEP/SMC/DCP x2, PMP, PMP+PTD, AVE+N1, deep N1 (ECAM/GPIO/PMGR),
+  AOP/SIO (empty), ACIO (empty), DCP RPC partial. Decodes published under `contrib/pending/hv/captures/`.
+- Method (all in the agent dir, notes in `contrib/pending/hv/tools/README.md`): single-core guest, tracers from
+  SPTM's first AMCC read (`hv27-trace-late.py`), groups sep/esm/isp/ave/apr/dcp/darts/smc/pmp/ptd/sio/aop/n1/n1x/acio,
+  `cycle.sh pre` / `cycle2.sh pre` (v2 = with the DCP RPC module), `shot.sh` screenshots, `mbox-decode.py`,
+  `ptd-decode.py`, `n1-ave-decode.py`. Client-side fixes: CLPC register family NOP, pt_update barriers, handle_brk.
+- Open: multi-core traced guests stall (secondary-core traps), ACIO mailbox offset, DCP RPC payload capture (sync
+  run pending), rung iii-b decision (root volume) for Exclaves/camera/N1 endpoint/userspace-driven DCP (HDR).
