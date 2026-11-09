@@ -2563,3 +2563,18 @@ Cycles with the proxy loader on the slot (prev = hv27 daily), pipe-driven client
   enumerates (connecting earlier corrupts the first request). Tools: `shot.sh` (panel screenshot via the proxy),
   `cycle.sh pre` (tracers from the `-m` module), `HV27_TRACE_MBOX_ONLY=1`.
 - Running: the same from-start trace on a single-core guest (`cpus=1`), where the trap lands on the proxy core.
+
+## 2026-11-09 00:49-00:56 UTC — **hv27 rung (iv) FIRST CAPTURE: SEP, SMC and DCP mailbox traffic of macOS 27.3 on the J716s**
+
+Single-core guest (`cpus=1`, CLPC register patched), tracers on the three mailbox pages installed from SPTM's first
+AMCC read. 52,666 MMIO events in the first three minutes: DCP 51,543 (51,337 of them one status-register poll at
++0x114 from one PC), SMC 709, SEP 397. Layout as on earlier SoCs: A2I send at +0x800/+0x808 (64-bit message +
+info), I2A receive at +0x830/+0x838, status at +0x110/+0x114. The SEP receive words carry ASCII endpoint names
+(`hibe`, `stac`, `cntl`, `xars`, `xarm`, ...): the SEP endpoint advertisement during AppleSEPManager's attach, the
+protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, guest kernel addresses inside):
+`~/Work/agents/hv27/captures/trace-cpus1-sep-dcp-smc-20261109-0050.log`.
+- Root cause of the earlier silence, now proven: the same traps on a secondary core hang the guest silently (the
+  multi-core traced guests froze at the line before IOMFB start); on the proxy core they work. Until the
+  secondary-core trap path is fixed, rung-iv captures run single-core.
+- Method summary: proxy loader on the slot (prev = hv27 daily), `cycle.sh pre` with `HV27_TRACE_LATE=1
+  HV27_TRACE=<groups> HV27_TRACE_MBOX_ONLY=1 HV27_ARGS="-v debug=0x14e wdt=-1 cpus=1"`, screenshots via `shot.sh`.
