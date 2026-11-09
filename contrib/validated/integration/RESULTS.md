@@ -2643,3 +2643,7 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   capture holds the full IOMFB bring-up (SET_SHMEM, INIT_COMPLETE, 330 callbacks). The panel stays in verbose text
   because `-v` sets `video.display = 0`. Next: a shared-memory tracer behind `dva=0x10000044000` for the 27.3 method
   tags (HDR, colour elements).
+- 02:03-02:10 UTC capture cycle 7 (`n1x`: ECAM 0x1cb0000000+0x300000, GPIO page 0x29c000000, PMGR APCIE chain, root
+  complex): 9,711 events in five minutes: config space 1,832 (root port and bus 1/2), GPIO 5,034 (mostly polls of
+  +0x118/+0x11c), PMGR chain 273, root complex 2,614. Capture private; decode queued (`DECODE-N1-DEEP`). Cycle 8
+  (`acio` = Thunderbolt coprocessor mailboxes acio1/2/3) launched 02:10 UTC.
