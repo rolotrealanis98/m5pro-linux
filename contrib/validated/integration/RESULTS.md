@@ -2544,3 +2544,22 @@ Cycles with the proxy loader on the slot (prev = hv27 daily), pipe-driven client
   register the hypervisor does not virtualise in the `cpus=1` configuration, not on a traced access. The multi-core
   traced runs (stalled at the same 101 s frame, link lost) still need the same screenshot check. The screenshot
   method (`iface.readmem` of the boot-args framebuffer, 31 MB, ~20 s) replaces photos of the panel from now on.
+
+## 2026-11-09 00:07-00:40 UTC — hv27 rung (iv): from-start tracers install cleanly; a traced DCP access hangs the guest silently
+
+- From-start install works: `hv27-trace-late.py` arms itself on the SPTM AMCC hook; at SPTM's first AMCC read the
+  three mailbox pages (SEP 0x502608000, DCP 0x48ae08000, SMC 0x28c608000) become ASYNC trace descriptors
+  (`PT[...] -> ASYNC.RW PrintTracer`), no first-stage fault, all 18 cores enter the guest.
+- Zero events again; tripwires (whole 0x88000 coprocessor windows unmapped, then their 0x20_0000_0000 aliases)
+  never fired. Screenshots through the proxy 60 s apart are byte-identical: the console is frozen at
+  `AppleARMBacklight::start: Pre-strobe iDAC=2046 default`, the line that precedes `IOMFB: service matched
+  AppleDCPExpert` in every untraced guest. So the guest hangs at its first DCP mailbox access when that page is
+  traced; the hypervisor keeps feeding the watchdog, prints nothing, and everything after that point never runs,
+  which is why all later observation windows were empty. Consistent with a stage-2 trap on a secondary core
+  deadlocking against the proxy core (study 2, F5 note on the big hypervisor lock and the USB ring).
+- Client-side changes in the hv27 proxyclient: `msr S3_7_C15_C11_3` (CLPC, plus CRm 13/15 siblings) patched to NOP
+  / `mov Xd, xzr` in the SPTM-emulation text patcher; `pt_update` brackets its TLBI with `dsb ishst` / `dsb ish;
+  isb`; `handle_brk` no longer reflects a BRK into a guest without vectors; the runner waits 6 s after the gadget
+  enumerates (connecting earlier corrupts the first request). Tools: `shot.sh` (panel screenshot via the proxy),
+  `cycle.sh pre` (tracers from the `-m` module), `HV27_TRACE_MBOX_ONLY=1`.
+- Running: the same from-start trace on a single-core guest (`cpus=1`), where the trap lands on the proxy core.
