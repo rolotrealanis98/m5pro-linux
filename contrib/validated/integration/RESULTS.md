@@ -2651,3 +2651,12 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   node, its mailbox is elsewhere in the 1 MiB window (to be located from the ADT/driver before another run).
   Cycle 9 (DCP RPC logger `hv27-dcp-trace.py`: mailbox page + DART register writes, payloads read from shared
   memory through a DART walk seeded from the ADT) launched 02:19 UTC via the v2 runner copies.
+- 02:35 UTC PTD decode (`contrib/pending/hv/captures/DECODE-PTD-20261109.md`): correction to the cycle-6 note: there
+  is **no periodic sweep**; 91% of the 126,847 accesses are one 6,425-iteration busy-wait on an MC command handshake
+  (0x11220 = 0x1002, 0x11228 = 0x600000, acked by 0x2690 = 2). All five T6041 offsets behave as `pmp-report.c` says
+  (status 0x10, tgt_read 0x1e00, tgt_write 0x10f00, actual 0x1e80, fast_die 0x2580). macOS writes 20 request words
+  before PMP-STATUS is 1 (the driver's "no request before start" comment is wrong for T6050); request bit N = PMGR
+  id1 - 1 (checked to id 37); no DRAM/fabric floor is requested through the PTD (bits 0-11 never set), the only
+  performance-level write is DVFS entry 0x1f0 (levels 0..14, domain unresolved); a CLPC-to-SMC float feed ticks
+  every ~98 ms; AP mailbox rate ~310 msg/s (earlier 17/s estimate wrong). Missing in `pmp-report.c` for T6050:
+  update 0x10000, dvfs_first 0x1f0, dvfs_count 0x30, the MC command pair, SMC/PPM/CLPC channels, LTS-VOLT-CAP.
