@@ -2626,3 +2626,20 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   usual end state (N1 manager loop): the AOP and SIO coprocessors are not started in a guest without a root volume
   (their drivers come after userspace/Exclaves). Nothing to capture for audio/sensors in rung iii-a; rung iii-b.
   Cycle 6 (`pmp` mailbox + `ptd` = the PMP report window 0x284240000+0x14000) launched 01:47 UTC.
+
+## 2026-11-09 01:50-02:00 UTC — cycle 6 (PMP + PTD window), N1 decode, DCP under the hypervisor cleared
+
+- Cycle 6: 146,611 events in four minutes: PMP mailbox 22,403, **PTD report window 124,211** (6,425 sweeps of the
+  0x2630-0x2698 area, i.e. ~27 per second; first touches: reads of tgt_read 0x1e00 and status 0x10, a write of
+  0x80000000 to tgt_write 0x10f00). Joshua's "how often" has a number now; decode queued.
+- N1 decode (`contrib/pending/hv/captures/DECODE-N1-AVE-20261109.md`): port 0 links up on every attempt
+  (INTSTAT LINK_UP latched, LINKSTS 0x9b001001); macOS brings it up three times in the window; teardown matches
+  Linux `port_disable` step by step; 19 differences against m1n1 0023 / Linux `pcie-apple` listed (reset-table
+  0x104 = 0xfffffff0, RID2SID and MSI-map clears, CGDIS clear before LTSSM, CGEN after link-up, lane bit 28 clear on
+  all lanes, phy-ctl bit 26, three unknown blocks, no L2 requirement, N1 at bus 2). PERST/CLKREQ, SMC and ECAM were
+  outside the traced windows (cycle 7 covers them). AVE: `ave0.reg3` is the die-1 PMGR power-state array; only
+  VENC0_SYS is cycled, no firmware boot.
+- DCP (`contrib/pending/hv/DCP-UNDER-HV.md`): the "unanswered IOMFB endpoint" was the CLPC-panicked run; the second
+  capture holds the full IOMFB bring-up (SET_SHMEM, INIT_COMPLETE, 330 callbacks). The panel stays in verbose text
+  because `-v` sets `video.display = 0`. Next: a shared-memory tracer behind `dva=0x10000044000` for the 27.3 method
+  tags (HDR, colour elements).
