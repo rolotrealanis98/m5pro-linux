@@ -2708,3 +2708,11 @@ DVAs. Sequence after SET_SHMEM/INIT_COMPLETE: AP call `A451` (out 4), then DCP c
 `D109`, `D110` (property queries, out 4), `D406` (in 72), `D414` x many (in 80, out 4), `D413` (in 4168, out 4),
 `D415` (in 76), each acknowledged by the AP. Output: `DCPRPC:` lines in the run log and the JSONL in the agent's
 captures directory (private; the decode and the resulting 27.3 method table go to `contrib/pending/dcp/`).
+- 02:50 UTC: 17,900 RPC records, 0 errors. Tags: AP commands A136 A137 A353 A378 A379 A381 A385 A390 A391 A451 A503
+  A504 A515 A526 A529 A534 (+ OOB A384 A400); callbacks D102 D107 D108 D109 D110 D126 D127 D128 D201 D401 D406 D408
+  D413 D414 D415 D451 D552 D561 D563 D565; steady state = D300 (8,593 ASYNC + 162 CB) and D006. Decode into a 27.3
+  method table running. Module hardened (ASYNC = words only, no proxy reads in event callbacks; SYNC = payloads;
+  standalone arming equal to the late module; ASCII-only output) and published with the other tracer modules under
+  `contrib/pending/hv/tools/`. Finding from the hardening study: the "first-stage fault at entry" (IABORT at 0x200,
+  x0 0x20003) also occurs without any tracer module (3 of 25 guest starts tonight, right after `hv_amcc:`): an
+  intermittent early SPTM BRK, now stopped at its real PC by the `handle_brk` guard for the next occurrence.
