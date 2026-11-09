@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Decode the sep/dcp/smc mailbox windows of an m1n1 hypervisor MMIO trace.
 
-usage: mbox-decode.py TRACE.log [--dev sep|dcp|smc] [--polls]
+usage: mbox-decode.py TRACE.log [--dev sep|dcp|smc|pmp] [--polls]
 
 Mailbox layout (Apple ASC, as in m1n1 hw/asc.py and Linux apple-mailbox):
   +0x110 A2I_CTRL   (status of the AP->coprocessor FIFO)
@@ -14,7 +14,8 @@ I2A_MSG1 read-back: OUTCNT 56:52, INCNT 51:48, OUTPTR 47:44, INPTR 43:40
            (FIFO state, not payload); bits 7:0 are the RTKit endpoint.
 
 Decoders:
-  RTKit  (dcp, smc): endpoint = MSG1[7:0]; mgmt (ep 0) type = MSG0[59:52].
+  RTKit  (dcp, smc, pmp): endpoint = MSG1[7:0]; mgmt (ep 0) type = MSG0[59:52].
+  PMP app endpoint 0x20: TYPE = MSG0[55:48] (m1n1 proxyclient/experiments/pmp_init.py).
   SEP    : own format, ep = MSG0[7:0], tag 15:8, type/opcode 23:16,
            param 31:24, data 63:32 (m1n1 hw/sep.py SEPMessage; Linux
            drivers/soc/apple/proto.rs).  ep 0xFD = discovery, 0xFE = shmem,
@@ -206,6 +207,14 @@ def rtkit_decode(direction, m0, m1, state):
         return pre + f"type {t:#x} msg0={m0:#018x} (not decoded by m1n1/Linux)"
     if ep == 0x20 and state.get("smc"):
         return pre + smc_decode(direction, m0, state)
+    if ep == 0x20 and state.get("pmp"):
+        return pre + pmp_decode(direction, m0, state)
+    if ep == 7 and state.get("pmp"):
+        # unidentified endpoint started by the PMP EPMAP; crashlog-like layout
+        # (TYPE 63:52, SIZE 51:44 in pages, DVA 43:0) but the AP reply has TYPE 5
+        t = (m0 >> 52) & 0xfff
+        return (pre + f"BUFFER-REQUEST-like type={t:#x} size={((m0 >> 44) & 0xff) << 12:#x} "
+                f"addr={m0 & 0xfffffffffff:#x} (role of ep 0x7 unidentified)")
     if ep == 0x37:  # m1n1 fw/dcp/dcpep.py
         t = m0 & 0xf
         if t == 0:
@@ -246,6 +255,38 @@ def smc_decode(direction, m0, state):
     kv = key4(val) if size == 4 and all(32 <= ((val >> (8 * i)) & 0xff) < 127 for i in range(4)) else ""
     return (f"id={mid} result={res:#x}{'(ok)' if res == 0 else '(error)'} size={size} "
             f"value={val:#x}" + (f" ('{kv}')" if kv else ""))
+
+
+# PMP application endpoint 0x20, layouts from m1n1 proxyclient/experiments/pmp_init.py
+# (PMPMessage TYPE = 55:48; IOVA = 47:0).  PMP initiates every request; the AP only replies.
+PMP_TYPES = {0x10: "GET_IOVA_TABLE", 0x11: "IOVA_TABLE_ACK", 0x12: "MALLOC", 0x13: "MALLOC_ACK",
+             0x14: "FREE", 0x15: "FREE_ACK", 0x30: "SET_BUF", 0x31: "SET_BUF_ACK",
+             0x32: "ADVERTISE", 0x33: "ADVERTISE_ACK", 0x34: "SET_VAL", 0x35: "SET_VAL_ACK"}
+
+
+def pmp_decode(direction, m0, state):
+    t = (m0 >> 48) & 0xff
+    hi = m0 >> 56
+    low = m0 & 0xffffffffffff
+    nm = PMP_TYPES.get(t, f"type{t:#x}")
+    extra = ""
+    if t == 0x11:
+        extra = f" table_iova={low:#x}" + (" (none)" if low == 0 else "")
+    elif t == 0x12:
+        extra = f" size={m0 & 0xffffff:#x}"
+    elif t == 0x13:
+        extra = f" iova={low:#x}"
+    elif t in (0x14, 0x30, 0x32):
+        extra = f" iova={low:#x}"
+    elif t == 0x33:
+        extra = f" index={(m0 >> 32) & 0xffff:#x} size={m0 & 0xffffffff:#x}"
+    elif t == 0x34:
+        extra = f" index={m0 & 0xffff:#x}"
+    elif t == 0x35:
+        extra = f" size={m0 & 0xffffffff:#x}"
+    if hi:
+        extra += f" (bits 63:56={hi:#x})"
+    return f"PMP {nm}{extra}"
 
 
 # ------------------------------------------------------------------ driver
@@ -303,7 +344,7 @@ def run_poll_summary(d):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("log")
-    ap.add_argument("--dev", choices=["sep", "dcp", "smc"])
+    ap.add_argument("--dev", choices=["sep", "dcp", "smc", "pmp"])
     ap.add_argument("--polls", action="store_true", help="also print poll runs")
     a = ap.parse_args()
 
@@ -316,7 +357,7 @@ def main():
               f"{d['cnt_polls']} status polls (+0x110/+0x114)")
         if d.get("other"):
             print(f"  other accesses: {len(d['other'])} (first {d['other'][:3]})")
-        state = dict(eps={}, pending=[], epmap=[], smc=(dev == "smc"))
+        state = dict(eps={}, pending=[], epmap=[], smc=(dev == "smc"), pmp=(dev == "pmp"))
         dec = sep_decode if dev == "sep" else rtkit_decode
         names = []
         for i, m in enumerate(d["msgs"]):

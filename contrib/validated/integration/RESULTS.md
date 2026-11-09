@@ -2615,3 +2615,10 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   Linux N1 port lacks); AVE 235 reads of its power/clock bank (probe only). Capture private; decode queued. The
   rung-(a) SEP payload was rebuilt with the 0x1c000 table (`sep-a2-test-20261108-fb200ca2.bin`, kernel-only change).
   Cycle 5 (`aop`, `sio` mailboxes) launched ~01:37 UTC; a study on the unanswered DCP IOMFB endpoint is running.
+- 01:40 UTC PMP decode (`contrib/pending/hv/captures/DECODE-PMP-20261109.md`): endpoint 0x20 speaks the protocol of
+  m1n1's `pmp_init.py` (GET_IOVA_TABLE, MALLOC/FREE, SET_BUF, ADVERTISE, SET_VAL); the PMP is the sole requester
+  (3,063 each way), the AP serves `iop-pmp0-nub` ADT properties and an IOReport buffer; no AP-originated voter or
+  floor commands in the window; no SET_IOP_PWR (PMP already running); no oslog endpoint (ep 7 instead). The report
+  region is the PTD aperture 0x284240000, whose offsets from the runtime ADT equal `apple_pmp_offsets_t6041`. The
+  earlier "3 apr events" were the window registration lines: ProRes saw no accesses at all. Reply for #293 drafted
+  (`~/Work/outreach-bodies/reply-293-pmp.md`), not posted. Next PMP capture: PTD window + PMC.
