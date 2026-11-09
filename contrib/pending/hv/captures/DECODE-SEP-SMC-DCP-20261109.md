@@ -252,3 +252,12 @@ Compared against `drivers/soc/apple/{proto,sep,xarm,shmem,profile}.rs` in `/Volu
 - It stops after the first 7 endpoints and about 2,400 log lines into boot because the guest stopped servicing the mailboxes (DCP wait loop), so the 7 -> 11 -> 12 steps of the ladder and the key store (EP 0x12) are not observed on T6050.
 - The xarm QUERY_PROTECTED request was never answered by macOS inside the window; the SEP's reaction to that is unknown.
 - `GET_ENTROPY` replies exist in the capture but are not reproduced here.
+
+## Correction (2026-11-09 02:00 UTC, see `../DCP-UNDER-HV.md`)
+
+Sections 4 and 5 describe the first capture, whose guest had panicked on `msr S3_7_C15_C15_0` (AppleT6050CLPC) before
+IOMFB started. The "18 unanswered type-0xf messages" are `RTBuddy::_signalNmi` from XNU's panic path, and the +0x114
+poll is the panic flow, not IOMFB bring-up. The second capture (same inputs, CLPC register patched) has the full IOMFB
+conversation on endpoint 0x37: STARTEP for all 14 DCP endpoints, `SET_SHMEM dva=0x10000044000`, `INIT_COMPLETE`, 330
+DCP-to-AP callbacks acknowledged, 10 AP commands, ~7.7k ASYNC notifications; 16,569 DCP messages in total. The DCP
+works under the hypervisor; the 27.3 method tags are in the shared memory behind SET_SHMEM, not in the mailbox words.
