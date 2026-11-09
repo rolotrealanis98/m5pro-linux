@@ -2660,3 +2660,12 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   performance-level write is DVFS entry 0x1f0 (levels 0..14, domain unresolved); a CLPC-to-SMC float feed ticks
   every ~98 ms; AP mailbox rate ~310 msg/s (earlier 17/s estimate wrong). Missing in `pmp-report.c` for T6050:
   update 0x10000, dvfs_first 0x1f0, dvfs_count 0x30, the MC command pair, SMC/PPM/CLPC channels, LTS-VOLT-CAP.
+- 02:29-02:37 UTC cycle 10 (DCP RPC logger chained after the late module, ASYNC): installed cleanly at SPTM's AMCC
+  read (mailbox page + DART register page; DART stream IDs 23/24, 4-level tables seeded from the ADT), decoded the
+  whole RTKit bring-up of the DCP (SET_IOP_PWR 0x220, HELLO v12, EPMAP, STARTEP 2/3/4/8 then 0x37, 0x20-0x25,
+  0x28-0x2d, 0x31; IOP_PWR_ACK; SET_AP_PWR 0x20), then `SET_SHMEM dva=0x10000044000 flag=0x4` and `INIT_COMPLETE
+  0x0040227b39590101`. On the first IOMFB message the handler read guest memory through the proxy from inside an
+  ASYNC event callback while the hypervisor delivered an exception event on the same channel: protocol desync
+  (`Reply data sentinel error`), client stuck. Cycle 10 standalone (without the late module) faulted the first stage
+  at entry: the standalone AMCC-hook arming is wrong, chain it after `hv27-trace-late.py`. Cycle 11 = same, mailbox
+  tracer in SYNC mode (guest stopped while the payload is read), launched 02:38 UTC.
