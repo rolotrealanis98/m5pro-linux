@@ -2610,3 +2610,8 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   way: RTKit bring-up then continuous traffic, the power-management handshake Joshua asked about in #293 and the
   basis for our floor work); ProRes `apr0` only 3 register touches (probe only, no workloads without userspace).
   Capture private, decode running. Cycle 4 (`ave`, `n1` = apcie0 root-complex registers) launched 01:24 UTC.
+- 01:29-01:36 UTC capture cycle 4 (`ave`, `n1`): N1 PCIe root complex (apcie0 registers) 1,127 events in four
+  minutes, the port's link/PHY register sequence AppleCentauriManager runs around its chip resets (the training our
+  Linux N1 port lacks); AVE 235 reads of its power/clock bank (probe only). Capture private; decode queued. The
+  rung-(a) SEP payload was rebuilt with the 0x1c000 table (`sep-a2-test-20261108-fb200ca2.bin`, kernel-only change).
+  Cycle 5 (`aop`, `sio` mailboxes) launched ~01:37 UTC; a study on the unanswered DCP IOMFB endpoint is running.
