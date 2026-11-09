@@ -12,3 +12,17 @@ so an undefined register raises `ProxyError` in the client and m1n1 keeps runnin
 
 Record: `contrib/validated/integration/RESULTS.md` (2026-11-08 19:37 entry). Consumer: the Windows track
 (`m5pro-windows`, OPEN-QUESTIONS Q1).
+
+## 2026-11-08 night, second study and the tools it produced
+
+- `TRACE-UNDER-SPTM-2.md`: no silent path exists in the hypervisor for a traced access (every early return prints
+  or opens the shell), the guest runs in EL1&0 under the one stage-2 table, ASYNC events are pushed per event; so
+  zero events means no access in the window. Live installs after SMP bring-up land after the drivers' init bursts
+  and a static console makes no DCP traffic. Tracing from guest start is the way (`hv27-trace-late.py`, installed
+  from the SPTM AMCC-read callback, mailbox pages only via `HV27_TRACE_MBOX_ONLY=1`), with a tripwire
+  (`p.hv_map(page, 0, 0x4000, 0)`) as the decisive check.
+- The single-core traced guest panicked on `msr S3_7_C15_C11_3` (AppleT6050CLPC): an unlisted sibling of a
+  virtualised register family. Client-side fix: the text patcher rewrites that MSR to NOP and the MRS to
+  `mov Xd, xzr` (sprr.py); `pt_update` now brackets its TLB invalidate with `dsb ishst` / `dsb ish; isb`.
+- `shot.sh`: screenshot of the guest's panel through the proxy (boot-args framebuffer, 31 MB, ~20 s) as PNG, half
+  size plus a full-size crop of the last text rows. Replaces photos of the panel; it is how the panic was read.
