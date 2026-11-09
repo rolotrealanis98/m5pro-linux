@@ -2721,3 +2721,25 @@ captures directory (private; the decode and the resulting 27.3 method table go t
   Rung iii-b approved by Rolando; runbook published (`contrib/pending/hv/RUNG-IIIB-RUNBOOK.md`); preflight (installer
   availability for 26C5035r, container space, VG UUIDs) to run over Tailscale next time macOS is booted, ceremony in a
   daytime session. #293 reply posted (PMP/PTD findings).
+
+## 2026-11-09 03:15 UTC — DCP RPC decode (`contrib/pending/hv/captures/DECODE-DCP-RPC-20261109.md`)
+
+- Content: AppleDCP bring-up only (28 AP calls, 330 callbacks, 8,590 ASYNC `D300` notifications every 41 ms); no
+  swap, no `set_digital_out_mode`, no brightness or EDR call (no WindowServer in a no-root-volume guest).
+- Method table: the firmware-27.3 table already in our tree (`/Volumes/linux-cs/wt-dcp-27`, branch `dcp/27.3`,
+  716bce007fd3) is **confirmed for 20 of its 41 tags** by tag and in/out lengths, nothing contradicts it; A526/A529/
+  A534 fit 27.3 and not 27.2; every callback tag is already in Linux's 27.0 `cb_handlers[]` with identical sizes. New
+  or unknown in 27.x: A378 (44/40), A379, A381, A384 and A400 (OOBCMD), A515 (`0x800, 0x20`).
+- **HDR on the internal panel:** the firmware gives macOS exactly one colour element too (ID 1, 8-bit RGB, SDR,
+  EOTF 0, colorimetry 16); all six timings (120/60/48/59.94/47.95/50 Hz, ID 2 = 120 Hz preferred) reference it. A
+  PQ link is impossible on this firmware; HDR must travel as EDR inside the swap on the SDR link (inference, no swap
+  captured). `D300` id 20 = 300 nits; 1600.0 appears under ids 25/117/118/261 (candidate panel-peak source replacing
+  the A128 call Linux lacks on fw 27). A WindowServer capture (rung iii-b) settles it; the swap request is 4,420
+  bytes, above the module's 4,096-byte payload cap (raise it).
+- Cross-checks for the Linux DCP driver's stage C: `D408` sr_getClockFrequency('PROV', 0) = 810,000,000 Hz on macOS
+  (Linux answers 0: the "EDT ERROR ... Giving up on frequencies" line); `D003` reply {0x286720000, 0} confirms the
+  PMC + 0x20000 offset; `A534` returns 1 while `complete_dfb_surface()` treats non-zero as failure (candidate for
+  "Creating default FB surface failed"); macOS's default surface id = 3 (Linux 5), buf_size 0x025ec000 matches
+  `apple_dcp_dfb_allocation()`; macOS answers `D109` create_PMU_service with false (Linux true).
+- Module bug: ack pairing must be LIFO per context (6 acks mis-paired, their return values lost); D127 property
+  blobs exceed the payload cap (reassembled). Fix in `hv27-dcp-trace.py` before the next DCP run.
