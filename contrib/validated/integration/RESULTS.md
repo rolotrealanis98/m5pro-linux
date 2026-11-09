@@ -2669,3 +2669,16 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   (`Reply data sentinel error`), client stuck. Cycle 10 standalone (without the late module) faulted the first stage
   at entry: the standalone AMCC-hook arming is wrong, chain it after `hv27-trace-late.py`. Cycle 11 = same, mailbox
   tracer in SYNC mode (guest stopped while the payload is read), launched 02:38 UTC.
+- 02:40 UTC deep N1 decode (`contrib/pending/hv/captures/DECODE-N1-DEEP-20261109.md`, 30-row checklist): the N1's
+  own config space is never accessed in this guest (no endpoint driver without a root volume): ECAM traffic is bus 0
+  only (root ports 00:00.0 N1 and 00:01.0 SD reader). macOS programs the root-port bridge window before any endpoint
+  exists (prefetchable 0xb80000000..0xb820fffff, 33 MiB, 64-bit; the live-macOS BARs sit one 32 MiB step higher: open
+  question), brings port 0 up three times (link-up on the first INTSTAT read after LTSSM start each time, LnkSta
+  Gen1 x1, Gen3 target the first time only, never retrains, L2 never reached, then PERST# assert and teardown).
+  GPIO confirmed from the ADT: PERST# pad 80 (+0x140), CLKREQ# pad 76 (+0x130); PERST# released by a plain
+  0x76a03 write right after lane bit 10, two events before LTSSM start (our order matches); macOS rewrites all
+  CLKREQ# pads 58..77 from ..21 to ..11 before RC init (we do not). The 2,195 "polls" are read-write-read rounds of
+  an unchanged value on pads 68-71, 55% of all events, not N1 traffic. PMGR: no APCIE power-up writes, only the
+  generic flag-clear + AUTO_ENABLE sweep; APCIE_* sit in auto-PM idle. Root-port DBI sequence matches the ADT
+  tunables and m1n1 0023 / Linux `port_configure`; after link-up macOS adds PTM, LTR, AER clears, L1SS + ASPM L1,
+  bus numbers (N1 = bus 2). PHY/AXI2AF tunables untouched by macOS (iBoot?). Next N1 capture needs a root volume.
