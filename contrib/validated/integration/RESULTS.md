@@ -2582,3 +2582,9 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   same CLPC family, different op2), after the USB-C port stage. The text-patcher rule now covers every op2 of
   `S3_7_C15_C{11,13,15}` (NOP / `mov Xd, xzr`). Second single-core capture cycle launched 01:01 UTC with the same
   three mailbox pages; tracer groups `pmp`, `sio`, `aop` added for later runs.
+- 01:05-01:12 UTC capture cycle 2 (same three pages, widened CLPC patch): 53,905 events in four minutes, SEP again
+  exactly 397 (the attach conversation is deterministic and complete), SMC 15,077, DCP 38,434; the guest passed
+  both earlier panic points and settled in AppleCentauriManager's loop (CentauriControlDext launch timeouts, N1 warm
+  resets, PCI configuration of apcie0: it waits for a DriverKit extension that needs userspace). Third study
+  (`contrib/pending/hv/HV-SECONDARY-TRAP.md`): no secondary-core deadlock found in the hypervisor's trace path;
+  keep captures single-core, treat the multi-core stall as a guest-level issue for later.
