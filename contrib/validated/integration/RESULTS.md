@@ -2647,3 +2647,7 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   complex): 9,711 events in five minutes: config space 1,832 (root port and bus 1/2), GPIO 5,034 (mostly polls of
   +0x118/+0x11c), PMGR chain 273, root complex 2,614. Capture private; decode queued (`DECODE-N1-DEEP`). Cycle 8
   (`acio` = Thunderbolt coprocessor mailboxes acio1/2/3) launched 02:10 UTC.
+- 02:13-02:19 UTC capture cycle 8 (`acio` = acio1/acio2 reg0+0x8000): zero events; `acio,v2` is not an ASC-wrapper
+  node, its mailbox is elsewhere in the 1 MiB window (to be located from the ADT/driver before another run).
+  Cycle 9 (DCP RPC logger `hv27-dcp-trace.py`: mailbox page + DART register writes, payloads read from shared
+  memory through a DART walk seeded from the ADT) launched 02:19 UTC via the v2 runner copies.
