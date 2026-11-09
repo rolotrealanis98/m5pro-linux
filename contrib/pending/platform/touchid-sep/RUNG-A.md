@@ -54,7 +54,7 @@ is unavailable` and the enclave's lane lookups would fail "unavailable", a confo
 (OS-IDENTITY.md), so it does not point the enclave at macOS's records.
 
 ### Kernel patches, in short
-- `profile.rs`: `T6050` = `T6040` (warm register, 0x40000/CINP, Variant5 key store, variant-5
+- `profile.rs`: `T6050` = `T6040` (warm register, 0x40000/CINP **-> 0x1c000 since patch 0004: the macOS 27.3 capture registers a 0x1c000 table on endpoint 0xFE**, Variant5 key store, variant-5
   keybag create, nonce session, wide DMA mask, `DART_HIGH_ALIAS` fallback window, `xart_guard = 1`)
   with the J716s sensor controller base `0x505108000`, `persistent_enrol = false` (nothing is tested
   here), selected only when the root compatible has both `apple,t6050` and `apple,j716s`. KUnit
@@ -238,3 +238,16 @@ again before reading the logs.
   drivers' `bind` files: `apple-dart` suppresses its bind attributes, and `drivers_probe` works with
   `drivers_autoprobe = 0`, which is what keeps `modprobe apple_sep` from binding before the parameter
   check.
+
+## Update 2026-11-09 (after the hypervisor capture)
+
+macOS 27.3's AppleSEPManager, captured under the m1n1 hypervisor on this J716s
+(`contrib/pending/hv/captures/DECODE-SEP-SMC-DCP-20261109.md`), registers a **0x1c000**-byte table on endpoint 0xFE
+(warm registration, no boot-ROM traffic), then receives seven endpoints (hibe 0x14, stac 0x18, cntl 0x00, xars 0x10,
+xarm 0x13, pnon 0x15, hdcp 0x0e), does GET_ENTROPY (tag 8, no NOP probes), per-endpoint OOL buffers, SECMODE, and
+drives hdcp, stac and xars. Patch `patches/linux/0004-soc-apple-sep-T6050-register-a-0x1c000-table.diff` sets
+`shmem_capacity` for T6050 accordingly (the manifests tile to 0x14000, so they fit). Rebuilt payload:
+`sep-a2-test-20261108-fb200ca2.bin` (agent dir, runner `run-sep-a2.sh`). Differences that stay in the Linux attach
+and may matter if discovery stalls at 7 endpoints: the NOP survey before SECMODE, entropy tag 0xE7, and the three
+endpoints (hdcp, stac, xars) Linux does not drive. The registration is one-shot per boot: a wrong table parks the
+SEP until a cold boot, so the backup step before rung (a) stands.

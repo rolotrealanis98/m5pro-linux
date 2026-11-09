@@ -1,0 +1,46 @@
+diff --git a/drivers/soc/apple/profile.rs b/drivers/soc/apple/profile.rs
+index f63676db1c06..7e4aa1d3f5cf 100644
+--- a/drivers/soc/apple/profile.rs
++++ b/drivers/soc/apple/profile.rs
+@@ -27,7 +27,9 @@
+ //! * `T6040` / J616s (MacBook Pro 16", M4 Pro): iBoot boots sepOS, so the
+ //!   driver uses the warm registration path; the sensor is the J700 part.
+ //! * `T6050` / J716s (MacBook Pro 16", M5 Pro): the T6040 model on the next
+-//!   SoC, from its ADT alone; nothing has been exchanged with this SEP yet.
++//!   SoC, from its ADT alone, except that the warm registration covers a
++//!   0x1c000 window (seen in macOS 27.3's registration); nothing has been
++//!   exchanged with this SEP from Linux yet.
+ 
+ // The boot handshake, identity source, sensor and DART fields are consumed by
+ // the boot-endpoint, identity and sensor-transport paths.
+@@ -486,6 +488,12 @@ pub(crate) struct PlatformProfile {
+     // macOS shares this enclave and Linux has no records here: keep Linux
+     // to its own xART records from the first boot, as on J616s.
+     xart_guard: 1,
++    // The table is 0x1c000 bytes here, not the 0x40000 of the earlier SoCs:
++    // a hypervisor capture of macOS 27.3 on this machine shows the warm
++    // registration on endpoint 0xFE carrying size field 0x1c (x 4 KiB). The
++    // allocation size is also the registered size, so it follows this. The
++    // manifests tile to 0x14000 (header, CINP, OPLA, IPIS), which it holds.
++    shmem_capacity: 0x1_c000,
+     ..T6040
+ };
+ 
+@@ -535,7 +543,7 @@ pub(crate) struct PlatformProfile {
+ static_assert!(T8132.nonce_session && T8132.wide_dma_mask);
+ static_assert!(T6050.sensor.controller_base == 0x505108000);
+ static_assert!(T6050.sensor.expected_id == T6040.sensor.expected_id);
+-static_assert!(T6050.shmem_capacity == T6040.shmem_capacity);
++static_assert!(T6050.shmem_capacity == 0x1c000);
+ static_assert!(T6050.nonce_session && T6050.wide_dma_mask && T6050.xart_guard == 1);
+ static_assert!(!T6050.persistent_enrol);
+ 
+@@ -799,7 +807,7 @@ fn j716s_takes_the_j616s_profile_on_the_t6050() {
+         assert!(T6050.sensor.mode == T6040.sensor.mode);
+         assert!(T6050.nonce_session && T6050.wide_dma_mask);
+         assert!(!T6050.persistent_enrol);
+-        assert!(T6050.shmem_capacity == T6040.shmem_capacity);
++        assert!(T6050.shmem_capacity == 0x1c000);
+         assert!(T6050.shmem_first_item == T6040.shmem_first_item);
+         assert!(matches!(T6050.key_store, KeyStore::Variant5));
+         assert!(T6050.keybag_create.variant == 5);
