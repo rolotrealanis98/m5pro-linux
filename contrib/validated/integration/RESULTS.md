@@ -2622,3 +2622,7 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   region is the PTD aperture 0x284240000, whose offsets from the runtime ADT equal `apple_pmp_offsets_t6041`. The
   earlier "3 apr events" were the window registration lines: ProRes saw no accesses at all. Reply for #293 drafted
   (`~/Work/outreach-bodies/reply-293-pmp.md`), not posted. Next PMP capture: PTD window + PMC.
+- 01:40-01:47 UTC capture cycle 5 (`aop`, `sio` mailboxes): zero events in six minutes while the guest reached its
+  usual end state (N1 manager loop): the AOP and SIO coprocessors are not started in a guest without a root volume
+  (their drivers come after userspace/Exclaves). Nothing to capture for audio/sensors in rung iii-a; rung iii-b.
+  Cycle 6 (`pmp` mailbox + `ptd` = the PMP report window 0x284240000+0x14000) launched 01:47 UTC.
