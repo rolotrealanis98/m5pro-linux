@@ -1,0 +1,751 @@
+     3    7.1388 boot        AP>DCP CMD       A451  in=0    out=4    start_signal  [C]
+    ack seq 699 at t=12.0599 (+4921.1 ms)  [module paired this ack with call #403; LIFO says #3]
+    out: UNRELIABLE (module read the wrong slot for this ack); stale bytes 00000100
+     4    7.1457 boot        DCP>AP CB        D603  in=0    out=0    find_swap_function_gated (m1n1 V14_7 D598 +5)  [C]
+    ack seq 5 at t=7.1522 (+6.5 ms)
+     6    7.1584 boot        DCP>AP CB        D107  in=0    out=4    create_provider_service  [S]
+    ack seq 7 at t=7.1644 (+6.0 ms)
+    out: ret=true (raw 01000000)
+     8    7.1684 boot        DCP>AP CB        D107  in=0    out=4    create_provider_service  [S]
+    ack seq 9 at t=7.1780 (+9.6 ms)
+    out: ret=true (raw 01000000)
+    10    7.1827 boot        DCP>AP CB        D108  in=0    out=4    create_product_service  [S]
+    ack seq 11 at t=7.1917 (+9.0 ms)
+    out: ret=true (raw 01000000)
+    12    7.1974 boot        DCP>AP CB        D109  in=0    out=4    create_PMU_service  [S]
+    ack seq 13 at t=7.2021 (+4.7 ms)
+    out: ret=false (raw 00000000)
+    14    7.2089 boot        DCP>AP CB        D110  in=0    out=4    create_iomfb_service  [S]
+    ack seq 15 at t=7.2269 (+18.0 ms)
+    out: ret=true (raw 01000000)
+    16    7.2318 props       DCP>AP CB        D406  in=72   out=0    set_fx_prop  [C]
+    obj IOMF key 'InitialPanelTemperature' = 1966080 (0x1e0000; as 16.16 = 30.0000)
+    ack seq 17 at t=7.2461 (+14.3 ms)
+    18    7.2516 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'bics_mode' = 0 (0x0)
+    ack seq 19 at t=7.2600 (+8.4 ms)
+    out: ret=true (raw 01000000)
+    20    7.2653 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'IdleState' = 5 (0x5)
+    ack seq 21 at t=7.2744 (+9.1 ms)
+    out: ret=true (raw 01000000)
+    22    7.2782 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'IdleCachingMethod' = 2 (0x2)
+    ack seq 23 at t=7.2949 (+16.7 ms)
+    out: ret=true (raw 01000000)
+    24    7.2995 props       DCP>AP CB        D413  in=4168 out=4    sr_setProperty_dict  [C]
+    obj IOMF key 'M3TimingParameters' = {"subframe-duration-nclks":100000,"display-lead-time-nclks":15256,"initial-subframe-irq-time-lines":1060,"subframe-interrupt-time-lines":1060,"initial-vbi-advance-lines":2,"vbi-advance-lines":2}
+    ack seq 25 at t=7.3086 (+9.1 ms)
+    out: ret=true (raw 01000000)
+    26    7.3142 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'IOMFBTestBacklightDimValue' = 12288 (0x3000)
+    ack seq 27 at t=7.3212 (+7.0 ms)
+    out: ret=true (raw 01667261)
+    28    7.3262 props       DCP>AP CB        D415  in=76   out=4    sr_setProperty_bool  [C]
+    obj IOMF key 'BICSDaemonPanicOnStartFail' = 0
+    ack seq 29 at t=7.3303 (+4.1 ms)
+    out: ret=true (raw 01000000)
+    30    7.3348 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'IOMFBBICSType' = 0 (0x0)
+    ack seq 31 at t=7.3409 (+6.1 ms)
+    out: ret=true (raw 01667261)
+    32    7.3454 props       DCP>AP CB        D415  in=76   out=4    sr_setProperty_bool  [C]
+    obj IOMF key 'IOMFBSwapAppleLookSupported' = 1
+    ack seq 33 at t=7.3542 (+8.8 ms)
+    out: ret=true (raw 01000000)
+    34    7.3582 props       DCP>AP CB        D415  in=76   out=4    sr_setProperty_bool  [C]
+    obj IOMF key 'APTDevice' = 1
+    ack seq 35 at t=7.3665 (+8.3 ms)
+    out: ret=true (raw 01000000)
+    36    7.3717 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'W40a_Blending_OK' = 1 (0x1)
+    ack seq 37 at t=7.3778 (+6.1 ms)
+    out: ret=true (raw 01667261)
+    38    7.3836 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'color-accuracy-index' = 239 (0xef)
+    ack seq 39 at t=7.3898 (+6.2 ms)
+    out: ret=true (raw 01667261)
+    40    7.3948 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'IOMFBWPASupported' = 1 (0x1)
+    ack seq 41 at t=7.4024 (+7.6 ms)
+    out: ret=true (raw 01667261)
+    42    7.4069 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'IOMFBPPASupported' = 1 (0x1)
+    ack seq 43 at t=7.4171 (+10.2 ms)
+    out: ret=true (raw 01667261)
+    44    7.4215 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'MaxVideoSrcDownscalingWidth' = 5120 (0x1400)
+    ack seq 45 at t=7.4313 (+9.8 ms)
+    out: ret=true (raw 01667261)
+    46    7.4355 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'VideoClock' = 0 (0x0)
+    ack seq 47 at t=7.4426 (+7.1 ms)
+    out: ret=true (raw 01667261)
+    48    7.4473 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'PixelClock' = 0 (0x0)
+    ack seq 49 at t=7.4513 (+4.0 ms)
+    out: ret=true (raw 01667261)
+    50    7.4560 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'DisplayClock' = 0 (0x0)
+    ack seq 51 at t=7.9789 (+522.9 ms)
+    out: ret=true (raw 01667261)
+    52    7.9835 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'DispPerfState' = 0 (0x0)
+    ack seq 53 at t=7.9895 (+6.0 ms)
+    out: ret=true (raw 01667261)
+    54    7.9934 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'ean-mode-update-thesh' = 172800 (0x2a300)
+    ack seq 55 at t=8.0746 (+81.2 ms)
+    out: ret=true (raw 01667261)
+    56    8.0784 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'ean-mode-caching' = 1 (0x1)
+    ack seq 57 at t=8.0891 (+10.7 ms)
+    out: ret=true (raw 01667261)
+    58    8.0939 props       DCP>AP CB        D415  in=76   out=4    sr_setProperty_bool  [C]
+    obj IOMF key 'ADP is generic pipe' = 1
+    ack seq 59 at t=8.1363 (+42.4 ms)
+    out: ret=true (raw 01000000)
+    60    8.1412 props       DCP>AP CB        D415  in=76   out=4    sr_setProperty_bool  [C]
+    obj IOMF key 'NormalModeActive' = 0
+    ack seq 61 at t=8.1573 (+16.1 ms)
+    out: ret=true (raw 01000000)
+    62    8.1611 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'DisplayWidth' = 3456 (0xd80)
+    ack seq 63 at t=8.1673 (+6.2 ms)
+    out: ret=true (raw 01667261)
+    64    8.1727 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'DisplayHeight' = 2234 (0x8ba)
+    ack seq 65 at t=8.1836 (+10.9 ms)
+    out: ret=true (raw 01667261)
+    66    8.1878 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'DPTimingModeId' = 2 (0x2)
+    ack seq 67 at t=8.2056 (+17.8 ms)
+    out: ret=true (raw 01667261)
+    68    8.2093 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'Brightness_Scale' = 65536 (0x10000)
+    ack seq 69 at t=8.2290 (+19.7 ms)
+    out: ret=true (raw 01667261)
+    70    8.2339 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'IOMFBSecureContentFactor' = 65536 (0x10000)
+    ack seq 71 at t=8.2409 (+7.0 ms)
+    out: ret=true (raw 01667261)
+    72    8.2464 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'IOMFBSecureIndicatorFactor' = 65536 (0x10000)
+    ack seq 73 at t=8.2700 (+23.6 ms)
+    out: ret=true (raw 01667261)
+    74    8.2752 props       DCP>AP CB        D414  in=80   out=4    sr_setProperty_int  [C]
+    IOMF-obj IOMF key 'IOMFBSecureIndicatorSDRFactor' = 65536 (0x10000)
+    ack seq 75 at t=8.2823 (+7.1 ms)
+    out: ret=true (raw 01667261)
+    76    8.2879 props       DCP>AP CB        D111  in=0    out=4    create_backlight_service  [C]
+    ack seq 77 at t=8.2954 (+7.5 ms)
+    out: ret=true (raw 014d4f49)
+    78    8.3024 props       DCP>AP CB        D112  in=0    out=4    create_nvram_service  [S]
+    ack seq 79 at t=8.3263 (+23.9 ms)
+    out: ret=true (raw 014d4f49)
+    80    8.3389 publish     DCP>AP CB        D575  in=88   out=76   hotPlug_notify_gated (88 in / 76 out)  [C]
+    connected=1 tiled_display[0x4c] all zero null=0
+    ack seq 81 at t=8.3702 (+31.3 ms)
+    out: raw 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+    82    8.3754 publish     DCP>AP CB        D300  in=16   out=0    pr_publish (id, value, unk0, unk1)  [C]
+    id 58 (0x3a) value 0 (0x0) unk0 0x0 unk1 0x0
+    ack seq 83 at t=8.3819 (+6.5 ms)
+    84    8.3865 publish     DCP>AP CB        D300  in=16   out=0    pr_publish (id, value, unk0, unk1)  [C]
+    id 94 (0x5e) value 0 (0x0) unk0 0x0 unk1 0x0
+    ack seq 85 at t=8.3926 (+6.1 ms)
+    86    8.3969 publish     DCP>AP CB        D300  in=16   out=0    pr_publish (id, value, unk0, unk1)  [C]
+    id 95 (0x5f) value 0 (0x0) unk0 0x0 unk1 0x0
+    ack seq 87 at t=8.4099 (+13.0 ms)
+       ... 155 more identical-shape D300 transactions suppressed (--collapse 0 shows all)
+   398    9.9873 hw_boot     DCP>AP CB        D100  in=0    out=0    match_pmu_service  [C]
+    ack seq 399 at t=9.9965 (+9.2 ms)
+   400   10.0043 hw_boot     DCP>AP CB        D206  in=0    out=4    match_pmu_service_2  [C]
+    ack seq 401 at t=10.0132 (+8.9 ms)
+    out: ret=true (raw 01000000)
+   402   10.0187 hw_boot     DCP>AP CB        D207  in=0    out=4    match_backlight_service  [C]
+    ack seq 407 at t=10.0500 (+31.3 ms)  [module paired this ack with call #404; LIFO says #402]
+    out: UNRELIABLE (module read the wrong slot for this ack); stale bytes 01000000
+   403   10.0257 hw_boot     AP>DCP CB          A137  in=0    out=4    backlight_service_matched  [C]
+      ack seq 406 at t=10.0382 (+12.5 ms)  [module paired this ack with call #3; LIFO says #403]
+      out: UNRELIABLE (module read the wrong slot for this ack); stale bytes 04000000
+   404   10.0295 hw_boot     DCP>AP CB            D108  in=0    out=4    create_product_service  [S]
+        ack seq 405 at t=10.0322 (+2.7 ms)  [module paired this ack with call #402; LIFO says #404]
+        out: UNRELIABLE (module read the wrong slot for this ack); stale bytes 01000000
+   408   10.0548 hw_boot     DCP>AP CB        D552  in=4164 out=4    setProperty_dict  [C]
+    key 'DisplayPipeStrideRequirements' = {"StrideLinearHorizontal":64,"StrideLinearVertical":1}
+    ack seq 409 at t=10.0601 (+5.3 ms)
+    out: ret=true (raw 01000000)
+   410   10.0647 hw_boot     DCP>AP CB        D552  in=4164 out=4    setProperty_dict  [C]
+    key 'DisplayPipePlaneBaseAlignment' = {"PlaneBaseAlignmentLinear":64}
+    ack seq 411 at t=10.0687 (+4.0 ms)
+    out: ret=true (raw 01000000)
+   412   10.0739 hw_boot     DCP>AP CB        D107  in=0    out=4    create_provider_service  [S]
+    ack seq 413 at t=10.0771 (+3.2 ms)
+    out: ret=true (raw 01697370)
+   414   10.0812 hw_boot     DCP>AP CB        D401  in=80   out=12   sr_get_uint_prop  [C]
+    obj PROV key 'minimum-frequency' in-value 0x0
+    ack seq 415 at t=10.0847 (+3.5 ms)
+    out: value 0x0 ret 0
+   416   10.0921 hw_boot     DCP>AP CB        D107  in=0    out=4    create_provider_service  [S]
+    ack seq 417 at t=10.1020 (+9.9 ms)
+    out: ret=true (raw 014f5250)
+   418   10.1079 hw_boot     DCP>AP CB        D408  in=8    out=8    sr_getClockFrequency  [C]
+    obj PROV clock id 0
+    ack seq 419 at t=10.1115 (+3.6 ms)
+    out: 810000000 Hz
+   420   10.1179 hw_boot     DCP>AP CB        D300  in=16   out=0    pr_publish (id, value, unk0, unk1)  [C]
+    id 57 (0x39) value 101876 (0x18df4) unk0 0x0 unk1 0x0
+    ack seq 421 at t=10.1273 (+9.4 ms)
+   422   10.1325 hw_boot     DCP>AP CB        D563  in=76   out=4    setProperty_int  [C]
+    key 'MaxVideoSrcDownscalingWidth' = 10744 (0x29f8)
+    ack seq 423 at t=10.1361 (+3.6 ms)
+    out: ret=true (raw 01000000)
+   424   10.1407 hw_boot     DCP>AP CB        D563  in=76   out=4    setProperty_int  [C]
+    key 'VideoClock' = 521064960 (0x1f0ed200)
+    ack seq 425 at t=10.1447 (+4.0 ms)
+    out: ret=true (raw 01000000)
+   426   10.1499 hw_boot     DCP>AP CB        D563  in=76   out=4    setProperty_int  [C]
+    key 'PixelClock' = 810000000 (0x30479e80)
+    ack seq 427 at t=10.1538 (+3.9 ms)
+    out: ret=true (raw 01000000)
+   428   10.1601 hw_boot     DCP>AP CB        D563  in=76   out=4    setProperty_int  [C]
+    key 'DisplayClock' = 677384448 (0x28601100)
+    ack seq 429 at t=10.1643 (+4.2 ms)
+    out: ret=true (raw 01000000)
+   430   10.1686 hw_boot     DCP>AP CB        D563  in=76   out=4    setProperty_int  [C]
+    key 'DispPerfState' = 5 (0x5)
+    ack seq 431 at t=10.1725 (+3.9 ms)
+    out: ret=true (raw 01000000)
+   432   10.1815 hw_boot     DCP>AP CB        D124  in=100  out=36   read_edt_data  [C]
+    key 'initial-vbi-advance-lines' count 1 value[0..7] [2, 1883362624, 0, 0, 93713216, 0, 93578400, 0]
+    ack seq 433 at t=10.1961 (+14.6 ms)
+    out: value[0] 2 (value[1..] stale), ret 0
+   434   10.2007 hw_boot     DCP>AP CB        D561  in=4164 out=4    setProperty_dict  [C]
+    key 'M3TimingParameters' = {"subframe-duration-nclks":100000,"display-lead-time-nclks":15256,"initial-subframe-irq-time-lines":1060,"subframe-interrupt-time-lines":1060,"initial-vbi-advance-lines":2,"vbi-advance-lines":2}
+    ack seq 435 at t=10.2051 (+4.4 ms)
+    out: ret=true (raw 01000000)
+   436   10.2089 hw_boot     DCP>AP CB        D552  in=4164 out=4    setProperty_dict  [C]
+    key 'IOMFBNumLayers' = {"MaxNumLayers":3,"FullFrameRequired":0}
+    ack seq 437 at t=10.2124 (+3.5 ms)
+    out: ret=true (raw 01000000)
+   438   10.2171 hw_boot     DCP>AP CB        D552  in=4164 out=4    setProperty_dict  [C]
+    key 'IOMFBMaxSrcPixels' = {"MaxSrcRectWidthForPipe":[5120,0,0,0],"MaxSrcRectHeightForPipe":[4608,4608,4608,4608],"MaxSrcBufferWidth":16384,"MaxSrcBufferHeight":16384,"MaxVideoSrcDownscalingWidth":10744,"VideoClock":521064960,"PixelClock":810000000,"IOMFBMaxCompressedSizeInBytes":0,"IOMFBCompressionSupport":1,"IOMFBAsyncRGBCompressionSupport":1}
+    ack seq 439 at t=10.2208 (+3.7 ms)
+    out: ret=true (raw 01000000)
+   440   10.2259 hw_boot     DCP>AP CB        D101  in=0    out=4    get_display_default_stride (m1n1 UNK_get_some_field)  [C]
+    ack seq 441 at t=10.2289 (+3.0 ms)
+    out: ret=false (raw 00000000)
+   442   10.2339 hw_boot     DCP>AP CB        D552  in=4164 out=4    setProperty_dict  [C]
+    key 'DisplayPipePlaneBaseAlignment' = {"DefaultStride":0,"LinearX_Alignment":64,"LinearY_Alignment":1,"PlaneBaseAlignmentLinear":64}
+    ack seq 443 at t=10.2369 (+3.0 ms)
+    out: ret=true (raw 01000000)
+   444   10.2419 hw_boot     DCP>AP CB        D552  in=4164 out=4    setProperty_dict  [C]
+    key 'IOMFBScalingLimits' = {"RGBLayer_MinScaleFraction":2,"RGBLayer_MaxScale":4,"YUVLayer_MinScaleFraction":2,"YUVLayer_MaxScale":4}
+    ack seq 445 at t=10.2448 (+2.9 ms)
+    out: ret=true (raw 01000000)
+   446   10.2505 hw_boot     DCP>AP CB        D565  in=72   out=4    setProperty_bool  [C]
+    key 'IOMFBSupportsYFlip' = 1
+    ack seq 447 at t=10.2560 (+5.5 ms)
+    out: ret=true (raw 01005247)
+   448   10.2607 hw_boot     DCP>AP CB        D565  in=72   out=4    setProperty_bool  [C]
+    key 'IOMFBSupportsXFlip' = 1
+    ack seq 449 at t=10.2658 (+5.1 ms)
+    out: ret=true (raw 01005247)
+   450   10.2711 hw_boot     DCP>AP CB        D565  in=72   out=4    setProperty_bool  [C]
+    key 'IOMFBSupportsYFlip' = 1
+    ack seq 451 at t=10.2746 (+3.5 ms)
+    out: ret=true (raw 01005247)
+   452   10.2803 hw_boot     DCP>AP CB        D565  in=72   out=4    setProperty_bool  [C]
+    key 'IOMFBSupportsXFlip' = 1
+    ack seq 453 at t=10.2838 (+3.5 ms)
+    out: ret=true (raw 01005247)
+   454   10.2879 hw_boot     DCP>AP CB        D565  in=72   out=4    setProperty_bool  [C]
+    key 'ALSSSupported' = 0
+    ack seq 455 at t=10.2917 (+3.8 ms)
+    out: ret=true (raw 01005247)
+   456   10.2968 hw_boot     DCP>AP CB        D565  in=72   out=4    setProperty_bool  [C]
+    key 'ACSSSupported' = 1
+    ack seq 457 at t=10.3001 (+3.3 ms)
+    out: ret=true (raw 01005247)
+   458   10.3043 hw_boot     DCP>AP CB        D565  in=72   out=4    setProperty_bool  [C]
+    key 'ELVSSCalDataReversed' = 0
+    ack seq 459 at t=10.3068 (+2.5 ms)
+    out: ret=true (raw 01005247)
+   460   10.3114 hw_boot     DCP>AP CB        D565  in=72   out=4    setProperty_bool  [C]
+    key 'SPLCSupported' = 0
+    ack seq 461 at t=10.3153 (+3.9 ms)
+    out: ret=true (raw 01005247)
+   462   10.3193 hw_boot     DCP>AP CB        D102  in=68   out=0    set_number_property  [C]
+    key 'PanelLayout' value 0x0
+    ack seq 463 at t=10.3249 (+5.6 ms)
+   464   10.3293 hw_boot     DCP>AP CB        D102  in=68   out=0    set_number_property  [C]
+    key 'SupportRelbufInfoCb' value 0x0
+    ack seq 465 at t=10.3329 (+3.6 ms)
+   466   10.3397 hw_boot     DCP>AP CB        D552  in=4164 out=4    setProperty_dict  [C]
+    key 'MaxDisplayBandwidthLimitKey' = {"MaxGPBandwidthLimitKey":12800,"MaxGPLiteBandwidthLimitKey":1300,"MaxGPSumBandwidthLimitKey":25000}
+    ack seq 467 at t=10.3491 (+9.4 ms)
+    out: ret=true (raw 01000000)
+   468   10.3549 hw_boot     DCP>AP CB        D000  in=0    out=4    did_boot_signal  [C]
+    ack seq 469 at t=10.3592 (+4.3 ms)
+    out: ret=true (raw 01617844)
+   470   10.3645 hw_boot     DCP>AP CB        D001  in=0    out=4    did_power_on_signal  [C]
+    ack seq 471 at t=10.3673 (+2.8 ms)
+    out: ret=true (raw 01617844)
+   472   10.3735 hw_boot     DCP>AP CB        D120  in=0    out=4    start_hardware_boot  [C]
+    ack seq 661 at t=11.4193 (+1045.8 ms)  [module paired this ack with call #490; LIFO says #472]
+    out: UNRELIABLE (module read the wrong slot for this ack); stale bytes 494f4d46
+   473   10.3778 hw_boot     AP>DCP CB          A390  in=0    out=0    set_create_DFB  [C]
+      ack seq 474 at t=10.3824 (+4.6 ms)
+   475   10.3867 hw_boot     AP>DCP CB          A504  in=0    out=4    do_create_default_frame_buffer  [C]
+      ack seq 476 at t=10.3912 (+4.5 ms)
+      out: ret=true (raw 01000000)
+   477   10.3973 hw_boot     AP>DCP CB          A037  in=8    out=8    get_dfb_compression_info  [C]
+      in: ptr value 0x0 (zero input, size-checked only)
+      ack seq 478 at t=10.4035 (+6.2 ms)
+      out: u32 0x3 (Linux dfb_compression: 3 = DCP_COMPRESSION_INTERCHANGE), u32 0x1 (byte@4&1 = Linux dfb_compression_valid: valid)
+   479   10.4067 hw_boot     AP>DCP CB          A036  in=44   out=44   get_dfb_info  [C]
+      ack seq 480 at t=10.4108 (+4.1 ms)
+      out: format fourcc 'b3a8' (0x62336138); word@4 u64 0x10002528000; word@12 u64 0x1000429c000 (second - first = 0x1d74000 = plane0 size 3456*2234*4 rounded to 16K, so these look like the RGB10 and A8 plane DVAs of the default framebuffer); u32@28 0x3600 (=3456*4 stride); u32@32 3456 (width); u32@36 0; flag@0x28 1 (Linux: dfb_format_valid)
+   481   10.4139 hw_boot     AP>DCP CB          A103  in=12   out=8    get_config_frame_size (Linux: get_dfb_layout)  [C]
+      in: width/height in-out pointers, values 0 x 0, null flags 0000
+      ack seq 482 at t=10.4205 (+6.6 ms)
+      out: 0 x 0
+   483   10.4238 hw_boot     AP>DCP CB          A503  in=4    out=8    get_display_size (Linux: get_dfb_state)  [C]
+      in: null flags width_null=0 height_null=0
+      ack seq 484 at t=10.4294 (+5.6 ms)
+      out: 3456 x 2234
+   485   10.4327 hw_boot     AP>DCP CB          A104  in=8    out=0    set_config_frame_size (Linux: set_dfb_dimensions)  [C]
+      width 3456 height 2234
+      ack seq 486 at t=10.4377 (+5.0 ms)
+   487   10.4408 hw_boot     AP>DCP CB          A105  in=0    out=0    program_config_frame_size (Linux: commit_dfb_info)  [C]
+      ack seq 488 at t=10.4478 (+7.0 ms)
+   489   10.4561 hw_boot     AP>DCP CB          A027  in=0    out=0    setup_video_limits  [C]
+      ack seq 510 at t=10.5760 (+119.9 ms)
+   490   10.4612 hw_boot     DCP>AP CB            D107  in=0    out=4    create_provider_service  [S]
+        ack seq 491 at t=10.4660 (+4.8 ms)  [module paired this ack with call #472; LIFO says #490]
+        out: UNRELIABLE (module read the wrong slot for this ack); stale bytes 01617844
+   492   10.4716 hw_boot     DCP>AP CB            D401  in=80   out=12   sr_get_uint_prop  [C]
+        obj PROV key 'minimum-frequency' in-value 0x0
+        ack seq 493 at t=10.4751 (+3.5 ms)
+        out: value 0x0 ret 0
+   494   10.4855 hw_boot     DCP>AP CB            D107  in=0    out=4    create_provider_service  [S]
+        ack seq 495 at t=10.4951 (+9.6 ms)
+        out: ret=true (raw 014f5250)
+   496   10.5004 hw_boot     DCP>AP CB            D408  in=8    out=8    sr_getClockFrequency  [C]
+        obj PROV clock id 0
+        ack seq 497 at t=10.5041 (+3.7 ms)
+        out: 810000000 Hz
+   498   10.5114 hw_boot     DCP>AP CB            D300  in=16   out=0    pr_publish (id, value, unk0, unk1)  [C]
+        id 57 (0x39) value 101876 (0x18df4) unk0 0x0 unk1 0x0
+        ack seq 499 at t=10.5211 (+9.7 ms)
+   500   10.5278 hw_boot     DCP>AP CB            D563  in=76   out=4    setProperty_int  [C]
+        key 'MaxVideoSrcDownscalingWidth' = 10744 (0x29f8)
+        ack seq 501 at t=10.5312 (+3.4 ms)
+        out: ret=true (raw 01000000)
+   502   10.5361 hw_boot     DCP>AP CB            D563  in=76   out=4    setProperty_int  [C]
+        key 'VideoClock' = 521064960 (0x1f0ed200)
+        ack seq 503 at t=10.5410 (+4.9 ms)
+        out: ret=true (raw 01000000)
+   504   10.5464 hw_boot     DCP>AP CB            D563  in=76   out=4    setProperty_int  [C]
+        key 'PixelClock' = 810000000 (0x30479e80)
+        ack seq 505 at t=10.5495 (+3.1 ms)
+        out: ret=true (raw 01000000)
+   506   10.5549 hw_boot     DCP>AP CB            D563  in=76   out=4    setProperty_int  [C]
+        key 'DisplayClock' = 677384448 (0x28601100)
+        ack seq 507 at t=10.5587 (+3.8 ms)
+        out: ret=true (raw 01000000)
+   508   10.5631 hw_boot     DCP>AP CB            D563  in=76   out=4    setProperty_int  [C]
+        key 'DispPerfState' = 5 (0x5)
+        ack seq 509 at t=10.5671 (+4.0 ms)
+        out: ret=true (raw 01000000)
+   511   10.5886 hw_boot     AP>DCP CB          A529  in=4    out=0    flush_supports_power  [C]
+      arg bool 1
+      ack seq 512 at t=10.5943 (+5.7 ms)
+   513   10.6000 hw_boot     AP>DCP CB          A035  in=0    out=4    dfb_query / apt_supported? (bool query)  [C]
+      ack seq 514 at t=10.6046 (+4.6 ms)
+      out: ret=true (raw 01aaaaaa)
+   515   10.6111 hw_boot     AP>DCP CB          A034  in=0    out=4    is_hilo? (bool query)  [S]
+      ack seq 516 at t=10.6152 (+4.1 ms)
+      out: ret=false (raw 00aaaaaa)
+   517   10.6190 hw_boot     AP>DCP CB          A381  in=0    out=4    UNKNOWN query (0/4)  [U]
+      ack seq 518 at t=10.6233 (+4.3 ms)
+      out: raw 00000000
+   519   10.6271 hw_boot     AP>DCP CB          A135  in=0    out=4    init_ca_pmu? (bool query)  [S]
+      ack seq 520 at t=10.6310 (+3.9 ms)
+      out: ret=false (raw 00000000)
+   521   10.6352 hw_boot     AP>DCP CB          A000  in=4    out=4    late_init_signal  [C]
+      arg bool 1
+      ack seq 654 at t=11.3675 (+732.3 ms)
+      out: ret=true (raw 01080000)
+   522   10.6393 hw_boot     DCP>AP CB            D003  in=4    out=20   rt_bandwidth_setup_ap (H17P reply: 4 in / 20 out)  [C]
+        in: 00000000
+        ack seq 523 at t=10.6456 (+6.3 ms)
+        out[20]: reg_scratch 0x286720000 (= PMC window 0x286700000 + 0x20000: the DISP_INT bw-scratch of contrib/pending/dcp/BW-SCRATCH.md), second u64 0x0, u32 0x0
+   524   10.6544 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x40000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 525 at t=10.6684 (+14.0 ms)
+        out: dva 0x10000174000 capacity 0x40000 mem_desc_id 1
+   526   10.6739 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 1 unk 1 nulls 000000
+        ack seq 527 at t=10.6790 (+5.1 ms)
+        out: buffer 1 dva 0x10000000000 unk 0
+   528   10.6855 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x40000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 529 at t=10.6910 (+5.5 ms)
+        out: dva 0x100001b8000 capacity 0x40000 mem_desc_id 2
+   530   10.6961 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 2 unk 1 nulls 000000
+        ack seq 531 at t=10.6997 (+3.6 ms)
+        out: buffer 2 dva 0x10000044000 unk 0
+   532   10.7045 dfb_alloc   DCP>AP CB            D107  in=0    out=4    create_provider_service  [S]
+        ack seq 533 at t=10.7082 (+3.7 ms)
+        out: ret=true (raw 01000000)
+   534   10.7313 dfb_alloc   DCP>AP CB            D209  in=0    out=8    get_calendar_time_ms (get_time)  [C]
+        ack seq 535 at t=10.7774 (+46.1 ms)
+        out: u64 0x1a1be312a89
+   536   10.7831 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 537 at t=10.7859 (+2.8 ms)
+        out: dva 0x100001fc000 capacity 0x1000 mem_desc_id 3
+   538   10.7912 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 3 unk 1 nulls 000000
+        ack seq 539 at t=10.7942 (+3.0 ms)
+        out: buffer 3 dva 0x10000088000 unk 0
+   540   10.8002 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 541 at t=10.8047 (+4.5 ms)
+        out: dva 0x10000204000 capacity 0x1000 mem_desc_id 4
+   542   10.8092 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 4 unk 1 nulls 000000
+        ack seq 543 at t=10.8142 (+5.0 ms)
+        out: buffer 4 dva 0x10000090000 unk 0
+   544   10.8188 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 545 at t=10.8236 (+4.8 ms)
+        out: dva 0x1000020c000 capacity 0x1000 mem_desc_id 5
+   546   10.8311 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 5 unk 1 nulls 000000
+        ack seq 547 at t=10.8349 (+3.8 ms)
+        out: buffer 5 dva 0x10000098000 unk 0
+   548   10.8401 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 549 at t=10.8436 (+3.5 ms)
+        out: dva 0x10000214000 capacity 0x1000 mem_desc_id 6
+   550   10.8478 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 6 unk 1 nulls 000000
+        ack seq 551 at t=10.8513 (+3.5 ms)
+        out: buffer 6 dva 0x100000a0000 unk 0
+   552   10.8560 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 553 at t=10.8592 (+3.2 ms)
+        out: dva 0x1000021c000 capacity 0x1000 mem_desc_id 7
+   554   10.8639 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 7 unk 1 nulls 000000
+        ack seq 555 at t=10.8684 (+4.5 ms)
+        out: buffer 7 dva 0x100000a8000 unk 0
+   556   10.8731 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 557 at t=10.8776 (+4.5 ms)
+        out: dva 0x10000224000 capacity 0x1000 mem_desc_id 8
+   558   10.8822 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 8 unk 1 nulls 000000
+        ack seq 559 at t=10.8876 (+5.4 ms)
+        out: buffer 8 dva 0x100000b0000 unk 0
+   560   10.8921 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 561 at t=10.8954 (+3.3 ms)
+        out: dva 0x1000022c000 capacity 0x1000 mem_desc_id 9
+   562   10.8999 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 9 unk 1 nulls 000000
+        ack seq 563 at t=10.9035 (+3.6 ms)
+        out: buffer 9 dva 0x100000b8000 unk 0
+   564   10.9076 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 565 at t=10.9128 (+5.2 ms)
+        out: dva 0x10000234000 capacity 0x1000 mem_desc_id 10
+   566   10.9178 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 10 unk 1 nulls 000000
+        ack seq 567 at t=10.9212 (+3.4 ms)
+        out: buffer 10 dva 0x100000c0000 unk 0
+   568   10.9264 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 569 at t=10.9303 (+3.9 ms)
+        out: dva 0x1000023c000 capacity 0x1000 mem_desc_id 11
+   570   10.9353 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 11 unk 1 nulls 000000
+        ack seq 571 at t=10.9397 (+4.4 ms)
+        out: buffer 11 dva 0x100000c8000 unk 0
+   572   10.9452 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 573 at t=10.9486 (+3.4 ms)
+        out: dva 0x10000244000 capacity 0x1000 mem_desc_id 12
+   574   10.9543 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 12 unk 1 nulls 000000
+        ack seq 575 at t=10.9596 (+5.3 ms)
+        out: buffer 12 dva 0x100000d0000 unk 0
+   576   10.9642 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 577 at t=10.9681 (+3.9 ms)
+        out: dva 0x1000024c000 capacity 0x1000 mem_desc_id 13
+   578   10.9728 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 13 unk 1 nulls 000000
+        ack seq 579 at t=10.9774 (+4.6 ms)
+        out: buffer 13 dva 0x100000d8000 unk 0
+   580   10.9823 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 581 at t=10.9862 (+3.9 ms)
+        out: dva 0x10000254000 capacity 0x1000 mem_desc_id 14
+   582   10.9914 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 14 unk 1 nulls 000000
+        ack seq 583 at t=10.9951 (+3.7 ms)
+        out: buffer 14 dva 0x100000e0000 unk 0
+   584   11.0000 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 585 at t=11.0033 (+3.3 ms)
+        out: dva 0x1000025c000 capacity 0x1000 mem_desc_id 15
+   586   11.0081 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 15 unk 1 nulls 000000
+        ack seq 587 at t=11.0113 (+3.2 ms)
+        out: buffer 15 dva 0x100000e8000 unk 0
+   588   11.0164 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 589 at t=11.0201 (+3.7 ms)
+        out: dva 0x10000264000 capacity 0x1000 mem_desc_id 16
+   590   11.0245 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 16 unk 1 nulls 000000
+        ack seq 591 at t=11.0289 (+4.4 ms)
+        out: buffer 16 dva 0x100000f0000 unk 0
+   592   11.0344 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 593 at t=11.0381 (+3.7 ms)
+        out: dva 0x1000026c000 capacity 0x1000 mem_desc_id 17
+   594   11.0432 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 17 unk 1 nulls 000000
+        ack seq 595 at t=11.0503 (+7.1 ms)
+        out: buffer 17 dva 0x100000f8000 unk 0
+   596   11.0552 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 597 at t=11.0586 (+3.4 ms)
+        out: dva 0x10000274000 capacity 0x1000 mem_desc_id 18
+   598   11.0636 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 18 unk 1 nulls 000000
+        ack seq 599 at t=11.0674 (+3.8 ms)
+        out: buffer 18 dva 0x10000100000 unk 0
+   600   11.0729 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 601 at t=11.0772 (+4.3 ms)
+        out: dva 0x1000027c000 capacity 0x1000 mem_desc_id 19
+   602   11.0843 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 19 unk 1 nulls 000000
+        ack seq 603 at t=11.0884 (+4.1 ms)
+        out: buffer 19 dva 0x10000108000 unk 0
+   604   11.0950 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 605 at t=11.0984 (+3.4 ms)
+        out: dva 0x10000284000 capacity 0x1000 mem_desc_id 20
+   606   11.1048 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 20 unk 1 nulls 000000
+        ack seq 607 at t=11.1116 (+6.8 ms)
+        out: buffer 20 dva 0x10000110000 unk 0
+   608   11.1170 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 609 at t=11.1202 (+3.2 ms)
+        out: dva 0x1000028c000 capacity 0x1000 mem_desc_id 21
+   610   11.1257 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 21 unk 1 nulls 000000
+        ack seq 611 at t=11.1290 (+3.3 ms)
+        out: buffer 21 dva 0x10000118000 unk 0
+   612   11.1346 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 613 at t=11.1379 (+3.3 ms)
+        out: dva 0x10000294000 capacity 0x1000 mem_desc_id 22
+   614   11.1427 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 22 unk 1 nulls 000000
+        ack seq 615 at t=11.1469 (+4.2 ms)
+        out: buffer 22 dva 0x10000120000 unk 0
+   616   11.1516 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 617 at t=11.1545 (+2.9 ms)
+        out: dva 0x1000029c000 capacity 0x1000 mem_desc_id 23
+   618   11.1595 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 23 unk 1 nulls 000000
+        ack seq 619 at t=11.1643 (+4.8 ms)
+        out: buffer 23 dva 0x10000128000 unk 0
+   620   11.1700 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 621 at t=11.1743 (+4.3 ms)
+        out: dva 0x100002a4000 capacity 0x1000 mem_desc_id 24
+   622   11.1788 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 24 unk 1 nulls 000000
+        ack seq 623 at t=11.1842 (+5.4 ms)
+        out: buffer 24 dva 0x10000130000 unk 0
+   624   11.1890 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 625 at t=11.1930 (+4.0 ms)
+        out: dva 0x100002ac000 capacity 0x1000 mem_desc_id 25
+   626   11.1983 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 25 unk 1 nulls 000000
+        ack seq 627 at t=11.2026 (+4.3 ms)
+        out: buffer 25 dva 0x10000138000 unk 0
+   628   11.2075 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 629 at t=11.2122 (+4.7 ms)
+        out: dva 0x100002b4000 capacity 0x1000 mem_desc_id 26
+   630   11.2173 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 26 unk 1 nulls 000000
+        ack seq 631 at t=11.2212 (+3.9 ms)
+        out: buffer 26 dva 0x10000140000 unk 0
+   632   11.2268 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 633 at t=11.2307 (+3.9 ms)
+        out: dva 0x100002bc000 capacity 0x1000 mem_desc_id 27
+   634   11.2367 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 27 unk 1 nulls 000000
+        ack seq 635 at t=11.2407 (+4.0 ms)
+        out: buffer 27 dva 0x10000148000 unk 0
+   636   11.2456 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x1000 dva_null 0 capacity_null 0
+        ack seq 637 at t=11.2499 (+4.3 ms)
+        out: dva 0x100002c4000 capacity 0x1000 mem_desc_id 28
+   638   11.2546 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 28 unk 1 nulls 000000
+        ack seq 639 at t=11.2598 (+5.2 ms)
+        out: buffer 28 dva 0x10000150000 unk 0
+   640   11.2645 dfb_alloc   DCP>AP CB            D451  in=20   out=20   allocate_buffer (27.x: 20 in / 20 out)  [C]
+        options 0x703 size 0x1000 alignment/flags 0x4 dva_null 0 capacity_null 0
+        ack seq 641 at t=11.2697 (+5.2 ms)
+        out: dva 0x100002cc000 capacity 0x1000 mem_desc_id 29
+   642   11.2748 dfb_alloc   DCP>AP CB            D201  in=12   out=16   map_buf (piodma)  [C]
+        buffer(mem_desc_id) 29 unk 1 nulls 000000
+        ack seq 643 at t=11.2780 (+3.2 ms)
+        out: buffer 29 dva 0x10000158000 unk 0
+   644   11.2921 modes       DCP>AP CB            D104  in=68   out=0    set_boolean_property  [C]
+        key 'NormalModeActive' value 1
+        ack seq 645 at t=11.3122 (+20.1 ms)
+   646   11.3169 modes       DCP>AP CB            D300  in=16   out=0    pr_publish (id, value, unk0, unk1)  [C]
+        id 124 (0x7c) value 1 (0x1) unk0 0x0 unk1 0x0
+        ack seq 647 at t=11.3196 (+2.7 ms)
+   648   11.3243 modes       DCP>AP CB            D300  in=16   out=0    pr_publish (id, value, unk0, unk1)  [C]
+        id 37 (0x25) value 0 (0x0) unk0 0x0 unk1 0x0
+        ack seq 649 at t=11.3339 (+9.6 ms)
+   650   11.3391 modes       DCP>AP CB            D107  in=0    out=4    create_provider_service  [S]
+        ack seq 651 at t=11.3461 (+7.0 ms)
+        out: ret=true (raw 01000000)
+   652   11.3520 modes       DCP>AP CB            D400  in=76   out=3076 get_property (out 0xc04)  [C]
+        obj PROV key 'power-lut-data-x' length 3072 (data_null=0 length_null=0)
+        ack seq 653 at t=11.3593 (+7.3 ms)
+        out: length field 0, first bytes 01000000000000000000000000617847 (rest of the 0xc00 data area is stale buffer)
+   655   11.3832 modes       AP>DCP CB          A385  in=0    out=4    dfb_ready_query  [C]
+      ack seq 656 at t=11.3879 (+4.7 ms)
+      out: ret=false (raw 00000000)
+   657   11.3945 modes       AP>DCP CB          A526  in=0    out=4    set_display_refresh_properties  [C]
+      ack seq 660 at t=11.4160 (+21.5 ms)
+      out: ret=true (raw 01000000)
+   658   11.3999 modes       DCP>AP CB            D561  in=4164 out=4    setProperty_dict  [C]
+        key 'IOMFBDisplayRefresh' = {"displayMinRefreshInterval":35785667,"displayMinRefreshIntervalMachTime":200000,"displayMaxRefreshInterval":178928337,"displayMaxRefreshIntervalMachTime":1000000,"displayRefreshStep":4166000,"displayRefreshStepMachTime":100000}
+        ack seq 659 at t=11.4104 (+10.5 ms)
+        out: ret=true (raw 01000000)
+   662   11.4244 modes       DCP>AP CB        D586  in=8    out=4    create_default_fb_surface (m1n1 V14_7 D582 +4)  [C]
+    default fb surface 3456 x 2234
+    ack seq 665 at t=11.4420 (+17.6 ms)
+    out: ret=true (raw 01794261)
+   663   11.4323 modes       AP>DCP CB          A534  in=560  out=4    register_dfb_surface (m1n1 update_dfb: one IOSurface)  [C]
+      surface base: nonzero named fields: is_premultiplied=1 format='b3a8'(0x62336138) pix_size=1 pel_w=1 pel_h=1 buf_size=0x25ec000 (39763968) surface_id=3  (all other named fields 0)
+      surface base: every nonzero byte: +0x2=0x1 +0xb=0x38 +0xc=0x61 +0xd=0x33 +0xe=0x62 +0x19=0x1 +0x1b=0x1 +0x1c=0x1 +0x2a=0xc0 +0x2b=0x5e +0x2c=0x2 +0x35=0x3 +0x51=0x1 +0x149=0x1  (has_comp@0x51=1 has_planes@0x149=1, plane/compression infos all zero)
+      padding[47] is stale 0xaa fill; byte@509 (surf null flag) = 0x0; tail aaaaaaaa00aaaaaa
+      ack seq 664 at t=11.4368 (+4.5 ms)
+      out: raw 01000000
+   666   11.4473 modes       DCP>AP CB        D126  in=4    out=4    setDCPAVPropStart  [C]
+    DCPAV property length 345 (0x159)
+    ack seq 667 at t=11.4508 (+3.5 ms)
+    out: ret=true (raw 01080000)
+   668   11.4564 modes       DCP>AP CB        D127  in=4104 out=4    setDCPAVPropChunk  [C]
+    chunk, first 16 bytes d3000000010000820c00008105000009 (offset/length fields lie past the capture's 4096-byte cap)
+    ack seq 669 at t=11.4599 (+3.5 ms)
+    out: ret=true (raw 01000000)
+   670   11.4650 modes       DCP>AP CB        D128  in=64   out=4    setDCPAVPropEnd  [C]
+    DCPAV property key 'ColorElements'
+    ack seq 671 at t=11.4681 (+3.1 ms)
+    out: ret=true (raw 01747561)
+   672   11.4753 modes       DCP>AP CB        D126  in=4    out=4    setDCPAVPropStart  [C]
+    DCPAV property length 9513 (0x2529)
+    ack seq 673 at t=11.4769 (+1.6 ms)
+    out: ret=true (raw 01456c65)
+   674   11.4815 modes       DCP>AP CB        D127  in=4104 out=4    setDCPAVPropChunk  [C]
+    chunk, first 16 bytes d3000000060000821800000105000009 (offset/length fields lie past the capture's 4096-byte cap)
+    ack seq 675 at t=11.4852 (+3.7 ms)
+    out: ret=true (raw 01000000)
+   676   11.4901 modes       DCP>AP CB        D127  in=4104 out=4    setDCPAVPropChunk  [C]
+    chunk, first 16 bytes 7370656374526174696f020040000004 (offset/length fields lie past the capture's 4096-byte cap)
+    ack seq 677 at t=11.4939 (+3.8 ms)
+    out: ret=true (raw 01000000)
+   678   11.4988 modes       DCP>AP CB        D127  in=4104 out=4    setDCPAVPropChunk  [C]
+    chunk, first 16 bytes 0900000949735669727475616c010000 (offset/length fields lie past the capture's 4096-byte cap)
+    ack seq 679 at t=11.5048 (+6.0 ms)
+    out: ret=true (raw 01000000)
+   680   11.5098 modes       DCP>AP CB        D128  in=64   out=4    setDCPAVPropEnd  [C]
+    DCPAV property key 'TimingElements'
+    ack seq 681 at t=11.5142 (+4.4 ms)
+    out: ret=true (raw 0100000a)
+   682   11.5194 modes       DCP>AP CB        D126  in=4    out=4    setDCPAVPropStart  [C]
+    DCPAV property length 1593 (0x639)
+    ack seq 683 at t=11.5227 (+3.3 ms)
+    out: ret=true (raw 0167456c)
+   684   11.5274 modes       DCP>AP CB        D127  in=4104 out=4    setDCPAVPropChunk  [C]
+    chunk, first 16 bytes d3000000010000821800008105000009 (offset/length fields lie past the capture's 4096-byte cap)
+    ack seq 685 at t=11.5311 (+3.7 ms)
+    out: ret=true (raw 01000000)
+   686   11.5361 modes       DCP>AP CB        D128  in=64   out=4    setDCPAVPropEnd  [C]
+    DCPAV property key 'PreferredTimingElements'
+    ack seq 687 at t=11.5401 (+4.0 ms)
+    out: ret=true (raw 01747561)
+   688   11.5458 modes       DCP>AP CB        D126  in=4    out=4    setDCPAVPropStart  [C]
+    DCPAV property length 285 (0x11d)
+    ack seq 689 at t=11.5488 (+3.0 ms)
+    out: ret=true (raw 01727265)
+   690   11.5538 modes       DCP>AP CB        D127  in=4104 out=4    setDCPAVPropChunk  [C]
+    chunk, first 16 bytes d3000000030000811000000954696c65 (offset/length fields lie past the capture's 4096-byte cap)
+    ack seq 691 at t=11.5569 (+3.1 ms)
+    out: ret=true (raw 01000000)
+   692   11.5621 modes       DCP>AP CB        D128  in=64   out=4    setDCPAVPropEnd  [C]
+    DCPAV property key 'DisplayAttributes'
+    ack seq 693 at t=11.5653 (+3.2 ms)
+    out: ret=true (raw 0161696e)
+   694   11.5752 modes       DCP>AP CB        D110  in=0    out=4    create_iomfb_service  [S]
+    ack seq 695 at t=11.5949 (+19.7 ms)
+    out: ret=true (raw 01697370)
+   696   12.0419 modes       DCP>AP CB        D122  in=0    out=4    is_waking_from_hibernate  [C]
+    ack seq 697 at t=12.0479 (+6.0 ms)
+    out: ret=false (raw 00697370)
+   781   12.5145 ap_init     AP>DCP CMD       A515  in=8    out=0    UNKNOWN command (in 8: u32 0x800, u32 0x20 / out 0)  [U]
+    args u32 0x800 u32 0x20
+    ack seq 782 at t=12.5196 (+5.1 ms)
+   785   12.5324 ap_init     AP>DCP OOBCMD    A400  in=0    out=4    UNKNOWN OOBCMD query (0/4)  [U]
+    ack seq 786 at t=12.5377 (+5.3 ms)
+    out: raw 00000000
+   787   12.5415 ap_init     AP>DCP CMD       A353  in=0    out=8    pipe_query_353 (27.x out is 8 bytes; m1n1 get_system_type returned 4)  [S]
+    ack seq 788 at t=12.5459 (+4.4 ms)
+    out: u64 0x7f26c8 = 8333000 (as nanoseconds 8.3330 ms; 1/120 s = 8.3333 ms - inference)
+   791   12.5551 ap_init     AP>DCP OOBCMD    A384  in=0    out=4    UNKNOWN OOBCMD query (0/4)  [U]
+    ack seq 792 at t=12.5604 (+5.3 ms)
+    out: raw 00000000
+   793   12.5674 ap_init     AP>DCP CMD       A379  in=0    out=4    UNKNOWN query (0/4, returns 0x7f2600)  [U]
+    ack seq 794 at t=12.5730 (+5.6 ms)
+    out: u32 0x7f2600 = 8332800
+   797   12.5836 ap_init     AP>DCP CMD       A378  in=44   out=40   UNKNOWN query (in 44 / out 40)  [U]
+    ack seq 798 at t=12.5883 (+4.7 ms)
+    out[40] as u32: ['0x3200', '0x0', '0x6400', '0x0', '0x6784', '0x0', '0x1400', '0x1e00', '0x1a40', '0x1']  (unknown struct; 12800 = MaxGPBandwidthLimitKey, 25000/25600 appear in the D552 bandwidth dict)
+   805   12.6614 ap_init     AP>DCP CMD       A391  in=0    out=4    vi_set_temperature_hint  [C]
+    ack seq 812 at t=12.6937 (+32.3 ms)
+    out: raw 00000000
+   807   12.6678 ap_init     DCP>AP CB        D109  in=0    out=4    create_PMU_service  [S]
+    ack seq 811 at t=12.6876 (+19.8 ms)
+    out: ret=false (raw 00697370)
+   813   12.6997 ap_init     AP>DCP CMD       A136  in=0    out=4    pmu_service_matched  [C]
+    ack seq 816 at t=12.7131 (+13.4 ms)
+    out: ret=false (raw 00000000)
+   814   12.7054 ap_init     DCP>AP CB        D109  in=0    out=4    create_PMU_service  [S]
+    ack seq 815 at t=12.7083 (+2.9 ms)
+    out: ret=false (raw 00697370)
+
+NOTE: 6 ack(s) were re-paired by the per-context LIFO rule (module call_seq differed): ack#699->call#3(A451), ack#407->call#402(D207), ack#406->call#403(A137), ack#405->call#404(D108), ack#661->call#472(D120), ack#491->call#490(D107)
