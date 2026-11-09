@@ -2698,3 +2698,13 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   `ptd-decode.py`, `n1-ave-decode.py`. Client-side fixes: CLPC register family NOP, pt_update barriers, handle_brk.
 - Open: multi-core traced guests stall (secondary-core traps), ACIO mailbox offset, DCP RPC payload capture (sync
   run pending), rung iii-b decision (root volume) for Exclaves/camera/N1 endpoint/userspace-driven DCP (HDR).
+
+## 2026-11-09 02:43 UTC — **DCP RPC capture works (IOMFB method tags with payloads, firmware 27.3)**
+
+After the power cycle the watcher attached the sync-mode DCP RPC run (single core, `hv27-trace-late.py` +
+`hv27-dcp-trace.py`, mailbox page SYNC, DART register page ASYNC, payloads read from guest memory through the module's
+own DART walk, stream IDs 23/24). 6,610 RPC records in the first two minutes, 0 handler errors, 3 untranslated
+DVAs. Sequence after SET_SHMEM/INIT_COMPLETE: AP call `A451` (out 4), then DCP callbacks `D603`, `D107`, `D108`,
+`D109`, `D110` (property queries, out 4), `D406` (in 72), `D414` x many (in 80, out 4), `D413` (in 4168, out 4),
+`D415` (in 76), each acknowledged by the AP. Output: `DCPRPC:` lines in the run log and the JSONL in the agent's
+captures directory (private; the decode and the resulting 27.3 method table go to `contrib/pending/dcp/`).
