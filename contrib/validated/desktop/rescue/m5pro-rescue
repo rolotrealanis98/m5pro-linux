@@ -14,7 +14,12 @@ hc() { local s; s=$(live_sig); [ -n "$s" ] && runuser -u "$U" -- env XDG_RUNTIME
 swaps() { mountpoint -q /sys/kernel/tracing || mount -t tracefs tracefs /sys/kernel/tracing 2>/dev/null; echo 1 > /sys/kernel/tracing/events/dcp/iomfb_swap_complete/enable 2>/dev/null; echo 1 > /sys/kernel/tracing/tracing_on 2>/dev/null; local n; n=$(grep -c iomfb_swap_complete /sys/kernel/tracing/trace 2>/dev/null); echo "${n:-0}"; }
 has_dcp() { for c in /sys/class/drm/card[0-9]; do [ "$(basename "$(readlink "$c/device/driver")")" = apple-drm ] && return 0; done; return 1; }
 draws() {  # returns 0 if a forced redraw reaches the panel (DCP) or Hyprland answers (simpledrm)
-  if has_dcp; then local a b; a=$(swaps); hc dispatch exec "alacritty --title m5pro-rescue-probe -e sleep 2" >/dev/null; sleep 3; b=$(swaps); hc dispatch closewindow "title:m5pro-rescue-probe" >/dev/null 2>&1; [ $((b-a)) -gt 0 ]
+  # Hyprland 0.57 took the Lua dispatch syntax, so the probe window is launched directly in the session
+  # (WAYLAND_DISPLAY from the runtime dir), like hypr-dcp-verify does, instead of via `hyprctl dispatch exec`.
+  if has_dcp; then local a b WLD; WLD=$(basename "$(ls "$X"/wayland-[0-9]* 2>/dev/null | head -1)")
+    a=$(swaps)
+    su - "$U" -c "WAYLAND_DISPLAY=$WLD XDG_RUNTIME_DIR=$X timeout 5 alacritty --title m5pro-rescue-probe -e sleep 3" >/dev/null 2>&1 &
+    sleep 3; b=$(swaps); wait 2>/dev/null; [ $(( ${b:-0} - ${a:-0} )) -gt 5 ]
   else hc monitors >/dev/null; fi; }
 status() {
   echo "kernel $(uname -r), slot $(tr -d '\0' < /proc/device-tree/chosen/m5pro,boot-slot 2>/dev/null), cards: $(for c in /sys/class/drm/card[0-9]; do echo -n "$(basename "$c")=$(basename "$(readlink "$c/device/driver")") "; done)"
