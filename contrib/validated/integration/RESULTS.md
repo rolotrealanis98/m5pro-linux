@@ -2606,3 +2606,7 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   firmware does not respond under the hypervisor (state left by the loader's DCP hand-off, or a missing step).
 - Guest PCs are the shared `AppleASCWrapV6` inbox/outbox/status primitives (resolved against the 27.3 kernelcache).
   Tool: `mbox-decode.py LOG [--dev sep|dcp|smc] [--polls]`.
+- 01:18-01:24 UTC capture cycle 3 (`pmp,apr`, mailbox pages): **PMP 21,585 events** in 3.5 min (~3,500 messages each
+  way: RTKit bring-up then continuous traffic, the power-management handshake Joshua asked about in #293 and the
+  basis for our floor work); ProRes `apr0` only 3 register touches (probe only, no workloads without userspace).
+  Capture private, decode running. Cycle 4 (`ave`, `n1` = apcie0 root-complex registers) launched 01:24 UTC.
