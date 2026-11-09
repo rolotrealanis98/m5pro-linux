@@ -2588,3 +2588,21 @@ protocol the Linux SEP driver (Touch ID rung a) has to speak. Capture (private, 
   resets, PCI configuration of apcie0: it waits for a DriverKit extension that needs userspace). Third study
   (`contrib/pending/hv/HV-SECONDARY-TRAP.md`): no secondary-core deadlock found in the hypervisor's trace path;
   keep captures single-core, treat the multi-core stall as a guest-level issue for later.
+
+## 2026-11-09 01:20 UTC — decode of the first capture (SEP, SMC, DCP), `contrib/pending/hv/captures/`
+
+- **SEP (Touch ID track):** no boot-ROM traffic; the AP sends one warm-registration message on endpoint 0xFE
+  (`0x100005dc001c00fe`: size field 0x1c = a 0x1c000-byte table, IOVA inside the ADT-derived DART window). The SEP
+  answers with the discovery burst on 0xFD: hibe 0x14, stac 0x18, cntl 0x00, xars 0x10, xarm 0x13, pnon 0x15, hdcp
+  0x0e (seven endpoints, 17 messages); inside it the SEP sends an xarm QUERY_PROTECTED (opcode 0x0e) that macOS never
+  answers in the window. Then GET_ENTROPY (tag 8), OOL buffers per endpoint, a SECMODE exchange, hdcp (OOL + 14
+  steps), stac (echo), xars (OOL + one message). Formats match the Linux rung-(a) plan; **the table size does not**
+  (our T6050 profile clones T6040's 0x40000; macOS registers 0x1c000) and must be fixed before the rung-(a) boot.
+  sbio/skdl/sse/scrd/sks never appear in the window (no root volume). macOS uses low tags, no NOP probes.
+- **SMC:** standard RTKit v12 bring-up, then endpoint 0x20 INITIALIZE, `#KEY`, `NTAP` write, `RGEN`, key walk.
+- **DCP:** standard RTKit boot plus syslog/oslog/ioreport/kdebug; the AP starts endpoint 0x37 (IOMFB) and sends 18
+  mgmt type-0xf messages; the firmware consumes them and never answers; the 0x27701 poll = I2A empty. m1n1's own
+  path sends SET_SHMEM on 0x37 first and waits for INIT_COMPLETE; macOS does neither here. Open: why the DCP
+  firmware does not respond under the hypervisor (state left by the loader's DCP hand-off, or a missing step).
+- Guest PCs are the shared `AppleASCWrapV6` inbox/outbox/status primitives (resolved against the 27.3 kernelcache).
+  Tool: `mbox-decode.py LOG [--dev sep|dcp|smc] [--polls]`.
