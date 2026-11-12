@@ -78,12 +78,13 @@ Current upstream plus only what upstream does not have:
 1. ~~VRR on the internal panel~~: ported and booted (see State). Open: a swap-complete cadence measurement, which
    needs tracing in the config (`CONFIG_FTRACE` and the `dcp` events).
 2. ~~Frame timing~~: clean in a 7 minute load; the soak (item 8) is the longer check.
-3. **Tether:** the cable is in (left-back port to the Mac Studio). "not attached" only meant that no gadget was
-   bound. A configfs ACM gadget bound to `2a2280000.usb` reached `configured` at high speed and the Mac Studio listed
-   it (1d6b:0104, 480 Mb/s), but macOS made no serial device for it. Open: after the first unbind every new bind
-   (NCM or ACM, also `soft_connect`) stops at `default` or `not attached` and the Mac Studio no longer lists the
-   device (`dwc3: wait for SETUP phase timed out`, `ep0 data phase end transfer failed: -110` at the unbind); no data
-   has crossed the link yet. Compare with the daily, and try a first bind as NCM after a fresh boot.
+3. **Tether:** at the daily's level, which is not a working link. The cable is in (left-back port to the Mac
+   Studio); "not attached" only meant that no gadget was bound. On `j716s-next` and on the old daily alike, after a
+   fresh boot: a configfs NCM gadget bound to `2a2280000.usb` reaches `configured` at high speed and the Mac Studio
+   lists it (480 Mb/s), but macOS creates no interface for it (no network interface; no serial device for ACM), and
+   `usb0` stays without carrier. An unbind logs `dwc3: wait for SETUP phase timed out` and `ep0 data phase end
+   transfer failed: -110`, and no later bind attaches. No data has crossed the link under Linux on either kernel.
+   Does not block promotion; the control-endpoint fault is its own item (scripts: `m5pro-linux-re/tooling/tether/`).
 4. **Audio in userspace:** on the new card the `j716-convolver` chain is linked to `RawSpeakers` and speakersafetyd
    runs with `j716.conf` (it panicked once at its first start, `main.rs:298`, and ran on the restart). Nobody has
    listened yet (`contrib/validated/desktop/audio/j716-profile/LISTENING-TEST.md`). Does not block promotion.
