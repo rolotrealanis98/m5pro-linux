@@ -2743,3 +2743,14 @@ captures directory (private; the decode and the resulting 27.3 method table go t
   `apple_dcp_dfb_allocation()`; macOS answers `D109` create_PMU_service with false (Linux true).
 - Module bug: ack pairing must be LIFO per context (6 acks mis-paired, their return values lost); D127 property
   blobs exceed the payload cap (reassembled). Fix in `hv27-dcp-trace.py` before the next DCP run.
+
+## 2026-11-12 — #1174 boot report, `j716s-next` on current upstream (parked)
+
+- **#1174** (`aurora-silicon/linux`): the exact head `bf43e8cefdf3` booted on the J716s (firmware 27.3 beta); with a
+  device tree that describes `dcp` it prints `DCP firmware-compat 27.3.0 not started: no ID known for 21 methods
+  (first: dcpep_swap_start)` and never starts the DCP. Report posted; merged the same day.
+- **#1242**: not validated this round: 9 minutes of GPU stress without `aurora.m5_pause_timeout_us` produced no fault.
+- **`j716s-next`**: 25 commits on `integration/aurora` `107b3619a1bc` (the daily's base was 1,475 commits behind).
+  Booted once: display 3456x2234 at 120 Hz, GPU on 27.3 (`glmark2` 983), Wi-Fi, Bluetooth, both sound cards. Not the
+  daily; VRR not ported. Everything else: `contrib/pending/next/HANDOFF.md`.
+- MacBook left on the old daily in both slots (`629fc84c`).
