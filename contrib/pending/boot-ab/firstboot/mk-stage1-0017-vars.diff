@@ -1,0 +1,13 @@
+--- ../prototypes/contrib/distro/tools/mk-stage1.py	2026-11-05 07:51:28
++++ mk-stage1-0017.py	2026-11-08 05:19:27
+@@ -47,7 +47,9 @@
+ MAX_CHOSEN_VARS = 16
+ KNOWN_PREFIXES = ("chosen.", "chainload=", "display=", "mitigations=", "tso=",
+                   # m1n1 patch 0016 (A/B stage-1); an older stage-1 logs and ignores them
+-                  "chainload.fallback=", "chainload.wdt=", "chainload.pmu-clear=")
++                  "chainload.fallback=", "chainload.wdt=", "chainload.pmu-clear=",
++                  # m1n1 patch 0017: stage marks 0x31/0x32, restart-failure policy
++                  "chainload.stage-mark=", "chainload.restart-failure=")
+ STACKBOT = b"STACKBOT"
+ CHAIN_MARK = b"chosen.asahi,m1n1-stage1-version="       # only in CHAINLOADING builds
+ PLAIN_MARK = b"Chainloading files not supported"         # only in CHAINLOADING=0 builds
