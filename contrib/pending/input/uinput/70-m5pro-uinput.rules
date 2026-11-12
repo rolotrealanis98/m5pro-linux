@@ -1,0 +1,5 @@
+# /dev/uinput for the desktop user (issue #4). With CONFIG_INPUT_UINPUT=y devtmpfs creates the
+# node root:root 0600 and nothing in systemd's rules changes that, so ydotool, key remappers
+# and Steam Input could not open it. Group "input" (the desktop user is in it) plus an ACL for
+# the user on the active seat. /dev/uhid stays root-only: bluetoothd runs as root.
+KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660", TAG+="uaccess", OPTIONS+="static_node=uinput"
