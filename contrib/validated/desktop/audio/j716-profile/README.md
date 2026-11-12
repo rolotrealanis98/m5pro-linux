@@ -16,7 +16,7 @@ asahi-audio drives the J516 and Aurora drives the J616s with the J316 FIRs, so t
 |---|---|
 | node names `audio_effect.j716-convolver` / `effect_output.j716-convolver`, sink "MacBook Pro J716 Speakers" | asahi-audio naming; Omarchy's `audio.json` hides `effect_output.jNNN-convolver` and `RawSpeakers` |
 | FIR paths `/usr/share/asahi-audio/j716/profile/` | asahi-audio is not installed on this root; the eight J316 FIRs are copied here unchanged |
-| `capture.volumes` max -10 dB (asahi: 0 dB) | the bring-up graph's cap, kept until the listening check |
+| `capture.volumes` max 0 dB, as asahi (was -10 dB until 2026-11-10) | the kernel's -30 dB ceiling is the limit that protects the speakers: at 0 dB the amps get at most about 0.2 V, about 10 mW per driver against AID41's 1.74/1.77 W, and every output still ends in a -1 dBFS limiter. Lifted before the listening check at Rolando's request; not yet applied on the machine |
 | rates 48000/44100 | the AOP speaker serializer runs at 48 kHz only |
 | `graph.json` has no bankstown node; `graph-bankstown.json` is the full J616s chain | bankstown-lv2 is not built for this root; bankstown adds harmonics on top of the dry signal, so removing it changes no frequency content the woofers get |
 

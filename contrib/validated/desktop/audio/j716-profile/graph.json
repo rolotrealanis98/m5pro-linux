@@ -255,13 +255,13 @@
             {
                 "control": "ell:volume",
                 "min": -65.0,
-                "max": -10.0,
+                "max": 0.0,
                 "scale": "cubic"
             },
             {
                 "control": "elr:volume",
                 "min": -65.0,
-                "max": -10.0,
+                "max": 0.0,
                 "scale": "cubic"
             }
         ]
