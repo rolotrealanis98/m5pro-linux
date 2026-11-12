@@ -9,6 +9,7 @@ daily (`629fc84c`).
 | What | Where |
 |---|---|
 | Branch `j716s-next` (25 commits on `aurora-silicon/linux` `integration/aurora` `107b3619a1bc`, tip `bf857188d078`) | repo `/Volumes/linux-cs/linux`, worktree `/Volumes/prv-build/wt-next` (**both on the 8TB drive**) |
+| The branch, in a repo (source of truth) | `rolotrealanis98/linux` branch `j716s-next` (`bf857188d078`), pushed 2026-11-12 |
 | Copy that survives the 8TB format | `~/Documents/m5pro-next-park/` (internal disk, 100 MB, `SHA256SUMS.park`) |
 | - the branch | `j716s-next.bundle` (needs upstream `107b3619a1bc`) and `patches/0001..0025` |
 | - working kernel and modules | `kbuild-next/` (release `7.3.0-26630-g8bd0ee1b59b3`) |
@@ -17,8 +18,9 @@ daily (`629fc84c`).
 | - scripts | `tools/` (`build-next.sh`, `mk-next-test.py`, `boot-next.sh`, DT `build.sh` / `mkvar.sh`) |
 | - boot logs | `logs/run-next/` (this work), `logs/run-1174/`, `logs/run-1242/` |
 
-Restore after the format: fetch `aurora-silicon/linux` `integration/aurora` into a kernel clone on a
-**case-sensitive** volume, `git fetch ~/Documents/m5pro-next-park/j716s-next.bundle j716s-next:j716s-next`,
+Restore after the format: in a kernel clone on a **case-sensitive** volume, fetch `j716s-next` from
+`rolotrealanis98/linux` (or, offline, `git fetch ~/Documents/m5pro-next-park/j716s-next.bundle j716s-next:j716s-next`
+on top of `aurora-silicon/linux` `integration/aurora`),
 then put the scripts back (they hard-code `~/Work/agents/pr-verify`, `/Volumes/prv-build/wt-next`,
 `/Volumes/prv-build/out-next`, and the bindgen at `/Volumes/linux-cs/wt-daily-dcp/tools/aurora-bindgen/build/bin/bindgen`;
 `tools/aurora-bindgen/build.py` in the tree rebuilds it).
