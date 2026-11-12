@@ -1,10 +1,18 @@
 # After a boot that systemd counts as good, promote the running payload to m1n1/fallback.bin.
 # Pulls in boot-complete.target and runs after it; systemd-boot-check-no-failures.service
 # (RequiredBy= that target, enabled by the install script) fails it when any unit failed.
+#
+# DefaultDependencies=no, as in systemd-bless-boot.service: multi-user.target orders itself
+# after every unit it wants that has default dependencies, and boot-complete.target comes after
+# multi-user.target (through systemd-boot-check-no-failures.service), so with the default this
+# unit sat in an ordering cycle and systemd could drop its job.
 [Unit]
 Description=Mark the running M5 Pro boot payload as known-good
+DefaultDependencies=no
 Requires=boot-complete.target
 After=boot-complete.target local-fs.target
+Conflicts=shutdown.target
+Before=shutdown.target
 
 [Service]
 Type=oneshot

@@ -118,9 +118,20 @@ refresh)
     mount -u -w "$SYS_MNT" || die "could not remount $SYS_MNT read-write"
     echo "stub mounts:       System $SYS_MNT (rw), Preboot $PB_MNT, Recovery $REC2_MNT"
     old="$STUB_RESTORE.$(build_of "$STUB_RESTORE/BuildManifest.plist")"
+    [ -x "$OM/scripts/prep-stub.sh" ] && [ -x "$OM/scripts/finish-install.sh" ] \
+        || die "prep-stub.sh or finish-install.sh missing in $OM/scripts"
+    [ ! -e "$old" ] || die "$old already exists (an earlier refresh stopped half way?); move it away first"
     echo; echo "==> moving $STUB_RESTORE -> $old"; mv "$STUB_RESTORE" "$old"
     echo "==> prep-stub.sh (resume: re-populates restore, BaseSystem, SystemVersion)"
-    (cd "$OM" && scripts/prep-stub.sh --yes)
+    if ! (cd "$OM" && scripts/prep-stub.sh --yes); then
+        # put the bundle back so the stub still has one and the next run starts from the same state
+        if [ -e "$STUB_RESTORE" ]; then
+            mv "$STUB_RESTORE" "$STUB_RESTORE.failed.$$"
+            echo "prep-stub.sh left a partial bundle: kept as $STUB_RESTORE.failed.$$" >&2
+        fi
+        mv "$old" "$STUB_RESTORE"
+        die "prep-stub.sh failed; the previous restore bundle is back at $STUB_RESTORE"
+    fi
     echo "==> stub restore now: $(build_of "$STUB_RESTORE/BuildManifest.plist")"
     echo "==> finish-install.sh --m1n1 $M1N1"
     (cd "$OM" && scripts/finish-install.sh --m1n1 "$M1N1")
