@@ -144,7 +144,9 @@ Leave the graph on whichever you chose. `j716-audio-ab bringup` restores the exa
 
 ## After this test (not part of it)
 
-- Lift the graph cap: `"max": -10.0` to `0.0` in both `capture.volumes` entries (the offline render shows no clipping
+- Lift the graph cap (done in the repo 2026-11-10, ahead of this test; apply with `stage.sh` + `j716-audio-ab profile`.
+  With it every level in the volume table above is 10 dB higher: 1.00 is 0 dB in the graph, still -30 dB in the kernel):
+  `"max": -10.0` to `0.0` in both `capture.volumes` entries (the offline render shows no clipping
   at 0 dB).
 - Before lifting the **kernel** ceiling: settle the sensed-power reading (the daemon reads about 4x the electrical
   power on all six amps, which points at a one-bit sense slot offset under the NB_IF link; see the header of
