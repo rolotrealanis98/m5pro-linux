@@ -1,6 +1,6 @@
 # Desktop defaults for the J716s (staged 2026-11-16; applied on the MacBook 2026-11-16 on 7.3.0-g4e0413c09f9a)
 
-Applied and checked: charge limit (80/75, `Not charging` at 89 %, 0 W), journal 1.5 G -> 475 M, `/boot` read-only
+Applied and checked: lock screen (Omarchy PAM file was missing), charge limit (80/75, `Not charging` at 89 %, 0 W), journal 1.5 G -> 475 M, `/boot` read-only
 automount, fstrim.timer, screensaver off, menu rows parse, region US. Not yet: systemd-oomd and the fq/bbr sysctl keys
 (need next6's PSI and qdiscs), lid lock (next boot).
 

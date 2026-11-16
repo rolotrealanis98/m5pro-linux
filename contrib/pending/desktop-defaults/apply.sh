@@ -72,6 +72,12 @@ else
   echo "   $SJ missing: idle left alone"
 fi
 pkill -f org.omarchy.screensaver 2>/dev/null || true
+# The bring-up never ran Omarchy's installer step install/config/lockscreen-pam.sh, so the lock screen refused
+# every lock ("lock-denied: missing-pam" in the shell log). Its own helper writes the PAM file; the shell watches it.
+if [ ! -f /etc/pam.d/omarchy-lock-password ]; then
+  OMARCHY_INSTALL_USER=$U OMARCHY_PATH=/usr/share/omarchy /usr/bin/omarchy-apply-lock
+fi
+ls /etc/pam.d/omarchy-lock-password
 
 say "menu rows: System > Battery charge limit (user menu extension, backup .before-m5pro-battery)"
 MENU=$H/.config/omarchy/extensions/omarchy-menu.jsonc
