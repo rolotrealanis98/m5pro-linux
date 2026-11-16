@@ -138,3 +138,55 @@ was written): `mk-daily.py` packs the aura image with the same ingredients as th
    with `HOSTWAIT_MS=0`); it was already not a working link on the daily.
 7. **Windows test loop.** `P_CHAINLOAD_IMAGE` runs aura's `chainload_image()`, whose placement logic differs from m1n1's; untested with a
    resident image.
+
+## j716s-fix1 (2026-11-15, after the first hardware boot)
+
+First boot of `aura-j716s-nohostwait.bin` (j716s-next2 kernel): `pcie-t6050: STOP: ANS is not running (before)`, `kboot: refusing T6050
+handoff ...`, `No valid payload found`, then the proxy for 11+ minutes with no watchdog reset. Branch `j716s-fix1` @ `436287b0` (3 commits on
+`j716s` 8609ceb6, nothing pushed):
+
+| Commit | Bug | Cause | Change |
+|---|---|---|---|
+| `349f78f4` | watchdog never fired | Stage 1 (m1n1) keeps boot_args in a naturally aligned union: it reads/writes the command line at **+0x70** and appends ` m1n1.wdt=keep` there. Aura reads it at iBoot's real **+0x6c** (aura `e287bbf2`). iBoot's line is empty on the J716s, so +0x6c is a terminator and the token is a separate string 4 bytes in: `boot_options_init()` never saw it, `wdt_disable()` disarmed stage 1's 150 s watchdog. (The old m1n1 stage 2 has stage 1's layout, so it always matched.) Nothing else disarms it: `wdt_kick()` only on proxy requests/HV ticks, `wdt_host_attached()` only for aura stage 1's own watchdog, CDC is T8140-only, `P_WDT_DISABLE` only on request | if iBoot's line ends within 4 bytes, also scan the string at +4 for this one token; kboot logs `watchdog left armed for the OS (m1n1.wdt=keep)` into `aura_stage2.log`. Host test `test_wdt_keep_from_an_m1n1_stage1` (m1n1's struct + stage 1's append, iBoot lines of 0/2/4/20 chars, all revisions); fails on `j716s` |
+| `575c58a5` | proxy forever | `run_actions()` ends in an unbounded `uartproxy_run()` | plain stage 2 with the token: 30 s (`STAGE2_FALLBACK_WINDOW_MS`) for a host via `uartproxy_wait_stage1()`, else `flush_and_reboot()` (WDT reset, iBoot's boot stage left set, so stage 1 counts a failure and boots the fallback). Independent of the watchdog |
+| `436287b0` | kboot refusal | m1n1 stage 1's `chainload_load()` reads boot.bin via NVMe then `nvme_shutdown()`: RTKit sleep + `pmgr_reset("ANS"/"ANS2")`. The plain stage 2 never restarts ANS (no `nvme.sart=` from an m1n1 stage 1, so #213 does not apply). The storage checks need a running ANS; aura refused the whole hand-off | on a board whose ADT has no required GP port (J716s: port 0 only): a stop before any write -> `PCIE_T6050_LEFT`, nothing written to apcie0/PHY/PMGR/SMC, the tree describes the N1 port for Linux's cold train exactly as the m1n1 stage 2's `kboot_n1.c` (port + DART `okay` when `pwren-gpios` + `apple,manual-availability`, port link tunables, host `apple,tunable-{axi2af,cio3pllcore(+0x2200),pcieclkgen,phy,phy-ip-pll,phy-ip-auspma}` 4-cell); APCIe deep-sleep tables not published then (their 3-cell `apple,tunable-axi2af/-phy*` would clobber the train's lists, so deep sleep stays refused on this path). A stop after a write -> `PCIE_T6050_PARTIAL`: down ports disabled, boot goes on. Boards with a required port (J775D) keep the refusal |
+
+NVMe safety: in the left case aura writes nothing; storage reaches Linux as stage 1 left it (stopped), as behind the old stage 2, and
+nvme-apple cold-starts ANS; the shared GP init then happens in the kernel's train (the daily's path). The live-ANS check still guards
+every case where aura writes. Not chosen: adopting ANS as #159 (needs a running session; m1n1's stage 1 resets it, and `nvme_init()`
+refuses an off ANS without `nvme.sart=`), or training with no storage reference.
+
+Build (`build-stage2.sh j716s-fix1 ...`, same container/toolchain): `aura-j716s-fix1b.bin` `741e9004b4bcdb610f2e2184d9d43f2fe1ed70b2a19bbdc9d789e9330b7cd835`,
+`aura-j716s-fix1b-nohostwait.bin` `8d71c06acb7689332d95a2b52a2b986358c63ed51cd5a1bd9a8ce6c3741dfe93` (0x3b0000 each, `_file_vital_end`
+0xfb7b0, only the 9 old Rust warnings). (`aura-j716s-fix1*.bin` without the `b` are the same code at the pre-squash id `bac23a06`.)
+Tests (`run-tests.sh j716s-fix1 fix1b-tests-clang`): 2 failed, 741 passed, 27 skipped, 27 errors = the `main` baseline (+1 new test);
+`test_smp_handoff_gate.py` needed a `PCIE_T6050_LEFT` stub. No host test models the T6050 left-for-OS DT path.
+Test request: `/Volumes/m5pro/bench/requests/boot-aura-1.md` (file `next2-aura-fix1b-nohw-20261115-7a95410a.bin`). Built, not booted.
+
+### boot-aura-1 result and the debug build (2026-11-15)
+
+boot-aura-1 (`next2-aura-fix1b-nohw-...-7a95410a.bin`): logo only, no text; reset ~150 s after stage 1 armed the watchdog, fallback
+`fallback-after-failure`, pmu `300130`, no journal. Reading: the token fix works (unattended fallback). A clean logo is what aura's
+hand-off leaves (`fb_shutdown(restore_logo=false)` clears the text), so aura most likely vectored and the kernel died before fbcon and
+before apple_wdt (else the core would ping, or a panic would restart in 10 s with `300100`). `300130` = boot_error_stage 0x30 (after
+iBoot's hand-over, no clean restart). Next: `e94051a8` adds `HANDOFF_DEBUG` (debug builds only): a host that had the hostwait window
+gets the proxy again for 60 s after kboot, before anything is shut down, and the log stays on the panel at the hand-off. Image
+`aura-j716s-fix2-dbg.bin` `acac4771...`; host script `m5pro-linux-re/tooling/pr-verify/aura-handoff-capture.py` dumps the console ring,
+the phram log and the hand-off FDT for a diff against the old loader's `/sys/firmware/fdt`. Request `boot-aura-2.md`. Built, not booted.
+
+### boot-aura-2 result and fix3 (2026-11-15)
+
+boot-aura-2 (`fix2-dbg`, host window + hold): Linux up in 61 s on the primary slot, display 120 Hz + VRR, GPU, N1 (trained by Linux),
+NVMe, watchdog fed; capture in `/Volumes/m5pro/bench/boot-aura/run2/`. Two problems, both fixed on `j716s-fix1`:
+- **One CPU** (`d1c5ac92`): the locked RVBAR 0x10004160000 is stage 1's base (m1n1, 0x430000 up to the DCP log carve-outs at
+  0x10004590000); d3b75564's retired-*aura*-image test refused it. Now forwarded on T6050 like the m1n1 stage 2 did (RAM, below this
+  image and the inherited top, EL2, once); the log prints the slot words it saw. Test extended.
+- **Non-debug hang** (`16ab9c11`): of the boot-aura-1 vs boot-aura-2 differences only the USB side reaches hardware the kernel then
+  drives. Without the host window aura never touched the T6050 USB2 controller (usb_init() defers on T6050), so Linux inherited it,
+  its PHY and the PIPE mux as iBoot leaves them; the m1n1 stage 2 always ran usb_init() before the hand-off (PIPE parked at 0x42, the
+  only value the kernel's combo PHY accepts at its first reset), and boot-aura-2 had aura's USB2 transition (PIPE=42). On one CPU a
+  stalled MMIO access stops everything, watchdog feeding included. fb_shutdown() only clears aura's own console text and frees its
+  back buffer (no hardware); the hold is only a delay. Fix: a no-window plain stage 2 runs the same USB2 transition (bounded 5 s, no
+  host wait), and plain stage 2s keep the log on the panel at the hand-off. Not proven on hardware which of the two mattered.
+Images (`j716s-fix1` @ `16ab9c11`): `aura-j716s-fix3.bin` (window) `26fa411e...`, `aura-j716s-fix3-nohostwait.bin` `2342da0f...`; tests 2 failed /
+741 passed / 27 errors (= baseline). Request `boot-aura-3.md` (file `next2-aura-fix3-nohw-20261115-c7e2e338.bin`). Built, not booted.

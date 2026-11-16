@@ -135,6 +135,15 @@ Current upstream plus only what upstream does not have:
 
 ## Traps already found
 
+- **2026-11-16, aura stage 2 first boot:** "pcie-t6050: STOP: ANS is not running (before)" -> "refusing T6050 handoff after
+  the apcie0 port 2 bring-up stopped" -> "No valid payload found" -> proxy, and its `m1n1.wdt=keep` handling let the
+  watchdog lapse, so the machine sat in the proxy. **A power-button cycle does not make stage 1 fall back** (only a
+  watchdog reset counts as a failed boot), so it booted the same `boot.bin` again. Recovery: power-hold picker ->
+  Macintosh HD -> Continue; in macOS `sudo diskutil mount disk0s4` (plain `mount -t msdos` fails: the msdosfs kext no
+  longer loads on 27.3), copy `m1n1/boot.bin.prev` over `m1n1/boot.bin`, check the hash, `diskutil unmount`, reboot
+  (the startup disk stayed Omarchy; `sudo bless --mount /Volumes/Omarchy --setBoot` set it, non-interactively, from ssh).
+  Never boot a loader whose watchdog behaviour is unproven without someone at the machine.
+
 - **The loader stops at a `sep` alias** ("FDT: sep not found in devtree", then "Running proxy", then the watchdog
   falls back). No `sep` alias, SEP mailbox or `ps_sep` in the device tree.
 - **The loader's GPU hand-off needs exactly four states** (`gpx`, `afr`, `cs`, `gfx`) in the GPU's PMGR node and
