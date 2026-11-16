@@ -1,6 +1,101 @@
 # J716 speaker profile: listening test
 
-For Rolando, at the MacBook. About 30 minutes. The profile is staged and not active; this test turns it on, compares
+For Rolando, at the MacBook. The speaker path changed on 2026-11-15: speakerguardd v2 with this Mac's own macOS tuning
+replaces speakersafetyd (`../speakerguardd-v2/README.md`; speakersafetyd panics at `main.rs:298` and is held off). Two
+parts:
+
+- **Part A, speakerguardd v2** (about 30 minutes, the test for the current design). Not run yet; no package is installed
+  on the machine. v2 builds its own voicing from macOS's tuning, so there is no A/B against the staged J616s graph.
+- **Part B, the staged J616s-derived profile under speakersafetyd** (sections 0-5 below). Only runnable if the
+  speakersafetyd hold (`../speakerguardd-v2/speakersafetyd-hold.conf`) is lifted. Kept because it is the record of the A/B
+  procedure and of the AID41 numbers.
+
+The kernel's -30 dB ceiling is the legacy interface's limit. Under v2 it does not apply (the lease runs the amps at a fixed
+gain and the engine attenuates; `../speakerguardd-v2/README.md`, "The kernel ceiling"). That makes the first grant the
+first time these speakers can be driven above -30 dB by this tree: start at 5 %, as below.
+
+## Part A: speakerguardd v2
+
+### A0. Setup (root shell over SSH, or a terminal on the machine with `sudo -i`)
+
+```
+amixer -c AppleJ716 cget name='Speaker Protection Interface'           # the control exists (dual-interface kernel)
+systemctl is-active speakersafetyd                                     # inactive: held off
+systemctl cat speakersafetyd | grep -A1 j716                           # the hold drop-in is there
+aurora-speaker-upgrade --check --json /root/sgv2-check.json --device <System volume partition>
+speakerguardd-gate explain                                             # one stack, or none
+```
+
+`--check` collects the tuning, compiles it and runs the silent self-check in `/run`, and stores and switches nothing. A
+refusal here (macOS 27.3 has no `parity.json` block, missing speaker ID, ADT not found: README, "Will it qualify") ends
+the test; record the reason. Do not edit `gate.json` or `parity.json`.
+
+If it passes: `j716-audio-ab v2`, `aurora-speaker-upgrade run`, log in as the seat user (the switch test runs after login),
+then
+
+```
+speakerguardd-gate explain; systemctl status speakerguardd-v2
+wpctl status | grep -i -E 'speaker|sgv2'                               # the voicing sink; no "Raw Speaker Device"
+```
+
+Second root shell, open the whole time (the stop rules read it):
+
+```
+journalctl -u speakerguardd-v2 -f -o short-monotonic & dmesg -w | grep -E 'tas2764|sn012776|spkr|macaudio'
+```
+
+### A1. First sound
+
+Before any sample: v2 owns "Speaker Protection" and is ready; the voicing sink is at 5 % (`wpctl set-volume
+@DEFAULT_AUDIO_SINK@ 0.05`; the first start defaults to 30 %); nothing else is playing; no amp fault in dmesg.
+
+As `rolo`, with the test signals (`sh /usr/share/asahi-audio/j716/profile/make-test-signals.sh`, `~/j716-listen/`):
+
+```
+pw-play ~/j716-listen/t1k.wav      # 5 %, then 10 %
+```
+
+While it plays, as root: `sgv2-telemetry /run/speakerguardd/<uid>/<engine page>` (installed by `speakerguardd-v2/install.sh`) (coil and magnet temperatures,
+modelled and measured power, `sense_v_ms` / `sense_i_ms`, gain). Non-zero V/I mean squares mean current flowed. The old
+daemon read about 4x the electrical power on this machine: note what v2 reads for the same tone.
+
+### A2. If A1 is clean, by ear (volume 0.05 -> 0.10 -> 0.25 -> 0.50, quietest first, one step at a time)
+
+`b60 b100 b150 b200 b300 b500`, `h2000 h5000 h10000`, `pinkL pinkR pinkC`, `sweep`, then music. Listen for: rattle or buzz
+on bass, a hole at the 1-3 kHz handover, harshness on highs, left/right/centre from the right side, pops on pause and
+seek. Compare with the macOS speakers if you can: v2's target is macOS's own voicing.
+
+### A3. Stop rules (any one: `amixer -c AppleJ716 cset name='Speaker Switch' off`, stop `pw-play`, report)
+
+- any `tas2764` / `sn012776` fault line in dmesg;
+- the engine reports a NaN, a temperature rising without bound, or a grant while the sense does not move;
+- speakerguardd-v2 restarts, fails its self-check, or the gate flips stacks;
+- distortion, buzz, crackle, sound from the wrong side, or sound that does not stop;
+- anything else unexpected (smell, heat, a loud pop): hold the power button.
+
+### A4. Record
+
+| check | result | notes |
+|---|---|---|
+| `--check` verdict, macOS build read | | |
+| `speakerguardd-gate explain` | | |
+| 1 kHz at 5 % / 10 %: audible, peak coil temperature, sensed power | | |
+| V/I mean squares non-zero | | |
+| bass / handover / highs / L-R-C | | |
+| pops on pause and seek | | |
+| faults, restarts | | |
+
+### A5. Undo
+
+```
+systemctl disable aurora-speaker-upgrade; aurora-speaker-upgrade --revert; j716-audio-ab bringup
+```
+
+Then the speakers are back to the kernel floor (speakersafetyd stays held off).
+
+## Part B: the staged profile under speakersafetyd (held off on the current design)
+
+Needs speakersafetyd running (lift the hold first). The profile is staged and not active; this test turns it on, compares
 it with the bring-up graph, and decides what stays.
 
 Safety stays where it is for the whole test: the kernel ceiling (`Speaker volume ceiling -30 dB`), speakersafetyd

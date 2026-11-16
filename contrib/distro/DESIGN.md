@@ -129,8 +129,11 @@ Prototypes in `pkg/` (all `bash -n` clean, `shellcheck -S warning` clean for the
 |---|---|---|
 | `linux-m5pro` (`pkg/linux-m5pro/PKGBUILD`) | `/usr/lib/modules/$kver/{vmlinuz,Image.gz,dtbs/apple/t6050-j71{4,6}s.dtb,pkgbase}`, modules, `/etc/mkinitcpio.d/linux-m5pro.preset` (default image only) | AsahiLinux/linux `asahi-wip-7.2` @ 236788cd + omarchy-m5 `patches/linux/0001-0009` + `dt/` + config fragments, exactly `build-kernel.sh:50-78`, plus `m5pro-distro.config` (modules, vfat, `-m5pro`) |
 | `m1n1-m5pro` (`pkg/m1n1-m5pro/PKGBUILD`) | `/usr/lib/m1n1-m5pro/m1n1-stage2.bin` (CHAINLOADING=0), `m1n1-stage1-chain.bin` (CHAINLOADING=1, bare) | m1n1 @ 7cde7d1a + `patches/m1n1/0001-0014`, two tree copies (build_cfg.h trap, `build-m1n1.sh:37-48`); `check()` refuses a stage-1 that would pad past 0x430000 |
-| `m5pro-boot` (`pkg/m5pro-boot/`) | `m5pro-update-payload`, `m5pro-mk-stage1`, `95-m5pro-payload.hook`, `96-m5pro-stage1.hook`, `m5pro-boot-ok.service`, `/etc/mkinitcpio.conf.d/m5pro.conf` (`COMPRESSION="gzip"`), `/etc/m5pro/boot.conf` | this repo |
-| `m5pro-firmware` (`pkg/m5pro-firmware/`) | `m5pro-vendorfw` + unit: unpacks `ESP/vendorfw/firmware.tar` to `/run/m5pro/vendorfw` and sets `/sys/module/firmware_class/parameters/path` | this repo; ships **no** Apple blobs |
+| `m5pro-boot` (`pkg/m5pro-boot/`) | `m5pro-update-payload`, `m5pro-mk-stage1`, `m5pro-boot-guard`, `00-m5pro-boot-guard{,-remove}.hook`, `95-m5pro-payload.hook`, `96-m5pro-stage1.hook`, `m5pro-boot-ok.service`, `/etc/mkinitcpio.conf.d/m5pro.conf` (`COMPRESSION="gzip"`), `/etc/m5pro/boot.conf` | this repo; the guard after betizzel/omarchy-m5 `m5-boot-guard` (j714s13, `6a4947185a92`, MIT) |
+| `m5pro-firmware` (`pkg/m5pro-firmware/`) | `m5pro-vendorfw` + unit: unpacks `ESP/vendorfw/firmware.tar` to `/run/m5pro/vendorfw` and sets `/sys/module/firmware_class/parameters/path`; `m5pro-als-cal` for the Mac side | this repo; ships **no** Apple blobs; `m5pro-als-cal` after omarchy-m5 `save-als-cal.py` (`68aafa3d0d76`, MIT) |
+| `avd-fw` (`pkg/avd-fw/`) | the eight open AVD firmware images in `/usr/lib/firmware/apple/` | aurora-silicon/avd-fw `6062e8516c0a`, via alarm-aurora; `linux-m5pro` optdepends it |
+| `speakerguardd-v2`, `aurora-speaker-upgrade` (`pkg/`) | speaker protection that derives everything from the Mac's own tuning, and the tool that collects the tuning and switches the kernel to it | aurora-silicon/speakerguardd `v2` `04169c44` via alarm-aurora `282881f37c86`; replaces speakersafetyd (held off); see `validated/desktop/audio/speakerguardd-v2/README.md` |
+| Mesa | no package: alarm-aurora's `mesa-aurora` (aurora-silicon/mesa `d4ad4a4dce6d`) already contains the M5 Pro admission | `pkg/mesa-aurora/README.md` |
 
 ### The pacman hook
 
@@ -161,6 +164,23 @@ with a live `/chosen`.
 Kernel command line: `/etc/m5pro/boot.conf` `CMDLINE`, or `/etc/m5pro/cmdline` if present. Same
 role as asahi-scripts' `/etc/m1n1.conf` (`update-m1n1` copies only `chosen.`, `display=`,
 `mitigations=` lines into `boot.bin`); a later convergence can read that file instead.
+
+### The boot guard
+
+`95-` and `96-` run PostTransaction: they rebuild, they cannot refuse. What stops a transaction that puts the wrong
+build in place is `00-m5pro-boot-guard.hook` (Install/Upgrade) and `00-m5pro-boot-guard-remove.hook` (Remove), both
+PreTransaction with `AbortOnFail`, running `m5pro-boot-guard`. Targets: `linux-m5pro`, `m1n1-m5pro`, `m5pro-boot`,
+`omarchy-m5pro-boot`, `omarchy-mac-boot`. The hazard is Omarchy's channel switch, `omarchy refresh pacman` and
+`omarchy reinstall`, which overwrite `/etc/pacman.conf` (the `[m5pro]` repo goes) and run `pacman -Syyuu`: the first repo
+listing a target takes over, and `omarchy-mac-boot` there is U-Boot/Limine, which this chain does not use.
+
+The incoming build is judged by its repo, which must be in `BOOT_REPOS` (`/etc/m5pro/boot.conf`, default `m5pro`):
+the package file named on pacman's command line (`-U`), a `repo/name` argument, else the first sync repo listing the name.
+Anything it cannot tell is refused. Removal is a separate hook so a removal pacman does to resolve a conflict is caught
+(a look at `-R` on the command line misses it). `sudo touch /etc/m5pro/allow-boot-package-change` lets one transaction
+through. Upstream's version matches a version-string pattern (`v272`, `up273`, `j714s`); ours have none, hence the repo test.
+Not taken over: its K114s ESP-space check (`m5pro-update-payload` already fails before touching `boot.bin` when the ESP is
+short). Tested with a fake pacman, `tools/test-boot-guard.sh`; not run under real pacman.
 
 ### Stage-1 updates
 
@@ -194,12 +214,18 @@ it at every boot (`m5pro-vendorfw.service`), so a stub refresh from macOS that r
 first boot. Today that is one file, `apple/tpmtfw-j716s.bin`; Wi-Fi/BT, GPU, DCP firmware will
 join the same tar when drivers exist.
 
+The ambient light sensor's calibration (`apple/aop-als-cal.bin`) is per machine and comes from the *running* macOS's
+IORegistry (`als` node, `CalibrationData`), not from the stub's restore bundle. `pkg/m5pro-firmware/m5pro-als-cal`
+writes it into the firmware tree or into an existing `firmware.tar` (and refreshes the `.sha256`); the installer runs it
+beside `extract-tpmtfw.py` (`installer/CHECKLIST.md` step 2). It is the user's own data: never packaged, never uploaded.
+The open AVD firmware is the opposite case: built from source (`pkg/avd-fw`), not extracted.
+
 ## 7. Root image and first boot
 
 Built off-device (the Studio is aarch64, so natively, no QEMU), from the Arch Linux ARM tarball as
 `mkrootfs-image.py` does today, plus:
 
-- the four packages above from a `[m5pro]` repo, `mkinitcpio` with the gzip drop-in;
+- the packages above (the four boot packages, `avd-fw`, `speakerguardd-v2`, `aurora-speaker-upgrade`) from a `[m5pro]` repo, `mkinitcpio` with the gzip drop-in;
 - no SSH keys of the builder (`mkrootfs-image.py:90-93` requires them today), no locked-only root:
   `systemd-firstboot` style prompts on tty1 instead, because console login is the only login a
   non-expert has (`boot-and-recovery.md:216-218`);

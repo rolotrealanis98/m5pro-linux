@@ -1,0 +1,18 @@
+# Removing a boot package, or having pacman remove one to resolve a conflict or a Replaces=, leaves
+# the ESP payload and the installed kernel out of step. A Remove trigger fires for those too, which
+# a look at pacman's command line (omarchy-m5's -R test) would miss. See 00-m5pro-boot-guard.hook.
+[Trigger]
+Operation = Remove
+Type = Package
+Target = linux-m5pro
+Target = m1n1-m5pro
+Target = m5pro-boot
+Target = omarchy-m5pro-boot
+Target = omarchy-mac-boot
+
+[Action]
+Description = Checking that no M5 Pro boot package is being removed...
+When = PreTransaction
+Exec = /usr/bin/m5pro-boot-guard remove
+NeedsTargets
+AbortOnFail

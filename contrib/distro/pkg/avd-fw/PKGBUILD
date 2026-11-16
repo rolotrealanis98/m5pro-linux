@@ -1,0 +1,91 @@
+# Maintainer: m5pro-linux
+# Open replacement firmware for the Apple Video Decoder (AVD). Built from source, no Apple blobs.
+#
+# Source: aurora-silicon/alarm-aurora packages/avd-fw (main @ 27109d22, 2026-11-15), recipe unchanged
+# except for this header. Firmware source: aurora-silicon/avd-fw 6062e8516c0a ("Merge pull request #6
+# ... avd/multi-vp-2"), MIT; tarball sha256 computed here 2026-11-15 and equal to alarm-aurora's.
+#
+# Ships all eight images (v2-t0 ... v5-t2) in /usr/lib/firmware/apple/. Our kernel on T6050 asks for
+# apple/avd-fw-v5-t2.bin (patch 0003 of contrib/pending/video/avd-a, fw_name; boot log: "video decode
+# fails for a missing apple/avd-fw-v5-t2.bin"). That image is among the eight. UNTESTED ON T6050:
+# upstream builds v5-t2 for T6040/T6041 (docs/queue.md "v5-t2 (T6040/T6041)"; its queue-mode SRAM
+# aperture 0x01094000 must equal the SoC's DT sram offset from the AVD base, +0x94000 on T6040;
+# legacy mode does not use the aperture). Whether T6050's AVD matches that is not established here.
+#
+# The check() hashes are LLVM 22's. LLVM 23 changes image bytes (alarm-aurora docs/avd-fw.md: clang
+# 23.1.4 gives another v2-t0 hash), so the versioned clang22/llvm22/lld22 packages are required; a
+# mismatch fails the build and must be investigated, not "fixed" by editing the list.
+# Not built or run on macOS (Homebrew has LLVM 23 only, so the check() would fail there by design).
+pkgname=avd-fw
+pkgver=0.1.aurora3
+_commit=6062e8516c0a751bc8e50f5d604a17395923189f
+pkgrel=1
+pkgdesc='Open replacement firmware for the Apple Video Decoder (AVD) on Apple Silicon'
+arch=('aarch64')
+url='https://github.com/aurora-silicon/avd-fw'
+license=('MIT')
+makedepends=('meson' 'clang22' 'llvm22' 'lld22' 'python')
+# !buildflags: makepkg's aarch64 CFLAGS/LDFLAGS must not reach a bare-metal Cortex-M3 build.
+# !strip: no host strip over raw firmware images.
+options=('!strip' '!debug' '!buildflags' '!lto')
+source=("$pkgname-$_commit.tar.gz::https://codeload.github.com/aurora-silicon/avd-fw/tar.gz/$_commit")
+sha256sums=('49a631c8ba0c87bac187376bc642acaad1f62791dde6ed285fbc2bad21d60cf0')
+
+build() {
+  export PATH="/usr/lib/llvm22/bin:$PATH"
+  # llvm.ini selects clang and pins the host machine to cortex-m3; meson.build installs the images
+  # under <prefix>/lib/firmware/apple. Upstream defaults (-O2, no debug) give reproducible images.
+  meson setup \
+    --cross-file "$pkgname-$_commit/llvm.ini" \
+    --prefix=/usr \
+    "$pkgname-$_commit" build
+
+  meson compile -C build
+}
+
+check() {
+  export PATH="/usr/lib/llvm22/bin:$PATH"
+  python -I - <<'CHECK'
+from pathlib import Path
+import hashlib
+import struct
+# clang 22 with upstream's Make and Meson defaults must produce these exact images.
+expected = [
+    ('v2-t0', 0xc000, '0db99c023d91e89e866d763229912e373cb0cfd5b91f46603df9d926ce036967'),
+    ('v3-t0', 0x10000, 'fc5219b2166e114fcd88898a8b2fb93fadfa8406dfb2c63c4d48c1b75adb49a9'),
+    ('v3-t1', 0x10000, '6d7f74406e93b9e0b6b6cf7bd630b5669a2e8b43a143d6abaaa85c1f93b02e34'),
+    ('v3-t2', 0x10000, '7bc2f5a30543331be6050ed2bb68198139e905b42c4622724b50cf8bf59e531a'),
+    ('v4-t0', 0x12000, 'adedf50ff0cb7ad8db539126585afab1d2fd83a82cd3ed2d3f7e0ec6d06723e2'),
+    ('v5-t0', 0x10000, 'aaa50276a9cc2320cb0ee6633319e82a54cf339018c03e22f33961a336bc61d1'),
+    ('v5-t1', 0x12000, '6490420bc7c0156686aface9057815849a4e4a823a0bef7a82f9274144c03343'),
+    ('v5-t2', 0x12000, '585f0a54c47078cb1c8c5928d7937dbcb99391aab53cec8f712af30c15071d5f'),
+]
+for name, size, expected_hash in expected:
+    files = list(Path('build').rglob('avd-fw-' + name + '.bin'))
+    assert len(files) == 1 and files[0].stat().st_size == size, name
+    firmware = files[0].read_bytes()
+    actual_hash = hashlib.sha256(firmware).hexdigest()
+    print(f"{actual_hash}  {files[0].name}", flush=True)
+    if actual_hash != expected_hash:
+        raise SystemExit(f"{name}: expected {expected_hash}, got {actual_hash}; check the clang toolchain")
+    elf = (Path('build') / ('avd-fw-' + name + '.elf')).read_bytes()
+    assert elf[:6] == b'\x7fELF\x01\x01' and struct.unpack_from('<H', elf, 18)[0] == 40
+    stack, reset = struct.unpack_from('<II', firmware)
+    entry = struct.unpack_from('<I', elf, 24)[0]
+    assert stack and stack % 8 == 0 and reset & 1 and reset == entry, name
+    assert 0 < (reset & ~1) < size, name
+CHECK
+}
+
+package() {
+  export PATH="/usr/lib/llvm22/bin:$PATH"
+  meson install -C build --destdir "$pkgdir"
+  # The linked ELFs, for symbols.
+  for elf in build/avd-fw-*.elf; do
+    install -Dm644 "$elf" "$pkgdir/usr/lib/debug/firmware/apple/${elf##*/}"
+  done
+  # meson installs custom_target outputs 0755; firmware blobs are 0644.
+  chmod 644 "$pkgdir"/usr/lib/firmware/apple/*.bin
+
+  install -Dm644 "$pkgname-$_commit/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

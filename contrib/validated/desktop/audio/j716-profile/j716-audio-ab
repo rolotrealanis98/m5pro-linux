@@ -7,6 +7,7 @@
 #   j716-audio-ab status
 #   j716-audio-ab bringup | profile | profile-bankstown   [--no-restart]
 #   j716-audio-ab safety bringup | aid41                   [--no-restart]
+#   j716-audio-ab v2                                       [--no-restart]
 #
 # Graph switch: installs one of the staged WirePlumber fragments as
 # /usr/share/wireplumber/wireplumber.conf.d/99-asahi-j716.conf, then restarts
@@ -16,6 +17,11 @@
 # /usr/share/speakersafetyd/apple/j716.conf and restarts speakersafetyd. The
 # kernel locks the speaker volume while the daemon restarts and keeps its
 # -30 dB ceiling either way.
+# v2 switch (speakerguardd v2 design, speakerguardd-v2/README.md): removes the 99-asahi-j716.conf
+# fragment, because v2 builds its own voicing graph from this Mac's macOS tuning and owns
+# hw:AppleJ716,1; a second filter on the same PCM would process the signal twice. The removed file
+# is kept as .j716-ab-orig; `bringup` or `profile` puts a fragment back. Does not touch
+# speakersafetyd (held off by its own drop-in) or speakerguardd-v2.
 set -euo pipefail
 
 STAGE=/usr/share/asahi-audio/j716/profile
@@ -60,8 +66,13 @@ restart_audio() {
 }
 
 status() {
-	echo "graph:  $(which_variant "$WP" "$STAGE/wireplumber/99-asahi-j716.conf")"
-	echo "safety: $(which_variant "$SSD" "$STAGE/speakersafetyd/j716.conf")  (speakersafetyd $(systemctl is-active speakersafetyd))"
+	if [ -e "$WP" ]; then
+		echo "graph:  $(which_variant "$WP" "$STAGE/wireplumber/99-asahi-j716.conf")"
+	else
+		echo "graph:  none (v2: no j716 fragment; speakerguardd v2's graph, if it runs, is in /run/speakerguardd-graph)"
+	fi
+	echo "safety: $(which_variant "$SSD" "$STAGE/speakersafetyd/j716.conf")  (speakersafetyd $(systemctl is-active speakersafetyd || true))"
+	echo "v2:     speakerguardd-v2 $(systemctl is-active speakerguardd-v2 2>/dev/null || true); $( [ -e /run/speakerguardd-graph/speakerguardd-owns-speakers ] && echo 'owns the speakers' || echo 'does not own the speakers' )"
 	echo "kernel: $(dmesg 2>/dev/null | grep -o 'Speaker volume ceiling.*' | tail -1)"
 	[ -d "$LV2_BANKSTOWN" ] && echo "bankstown-lv2: installed" || echo "bankstown-lv2: not installed (profile-bankstown unavailable)"
 	local u
@@ -93,6 +104,15 @@ bringup | profile | profile-bankstown)
 		die "bankstown-lv2 is not installed; the graph would fail to load"
 	fi
 	install_variant "$STAGE/wireplumber/99-asahi-j716.conf.$1" "$WP"
+	restart_audio ;;
+v2)
+	if [ -e "$WP" ]; then
+		[ -e "$WP.j716-ab-orig" ] || cp -a "$WP" "$WP.j716-ab-orig"
+		rm -f "$WP"
+		echo "removed $WP (kept as $WP.j716-ab-orig)"
+	else
+		echo "$WP already absent"
+	fi
 	restart_audio ;;
 safety)
 	case "${2:-}" in

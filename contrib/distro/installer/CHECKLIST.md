@@ -55,6 +55,11 @@ scripts/extract-tpmtfw.py --installer <asahi-installer checkout> \
   `--behavior Update --variant "macOS Customer Software Update"` (m5pro-linux `boot-and-recovery.md:207-210`).
 - The installer vendors asahi-installer's `asahi_firmware` package (pinned commit) instead of
   needing a checkout.
+- Ambient light sensor: the calibration is per machine and comes from the **running** macOS, not the stub's bundle.
+  Run `m5pro-als-cal --out <tmp>/fw` (from `pkg/m5pro-firmware`, `ioreg -r -a -n als -l` underneath) before the tar is
+  built, or `m5pro-als-cal --tar vendorfw/firmware.tar` afterwards (it refreshes the `.sha256`). It writes
+  `apple/aop-als-cal.bin`. A Mac with no `als` node or no `CalibrationData` makes it exit 1: treat that as "no ALS", not
+  as an install failure. The data is the user's own and is never uploaded or packaged. Untested on the J716s.
 - Write `vendorfw/firmware.tar` (+ `.sha256`, `source.txt` = stub build) to the ESP (step 4) and
   also into the root image (step 3) so the first boot has the trackpad even before
   `m5pro-vendorfw.service` runs.

@@ -2,8 +2,14 @@
 # Boot glue for the MacBook Pro M5 Pro (T6050): builds the ESP stage-2 payload
 # (m1n1 + bootargs + Image.gz + DTB + initramfs) whenever its inputs change,
 # keeps rollback/fallback slots, and stages new stage-1 images for macOS.
+#
+# 00-m5pro-boot-guard*.hook + m5pro-boot-guard (0.2.0): PreTransaction refusal of a transaction that
+# replaces the boot packages with another repo's build or removes them. Pattern from betizzel/omarchy-m5
+# installer/recipes/omarchy-aurora-firmware (m5-boot-guard, 00-omarchy-m5-boot-guard.hook; j714s13,
+# 6a4947185a92, MIT); reworked, see the guard's header. Tested with a fake pacman
+# (tools/test-boot-guard.sh); not run under real pacman.
 pkgname=m5pro-boot
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="ESP boot payload management for Linux on MacBook Pro M5 Pro (m1n1 stage-2)"
 arch=(any)
@@ -18,14 +24,20 @@ source=(m5pro-update-payload
         mk-stage1.py
         95-m5pro-payload.hook
         96-m5pro-stage1.hook
+        m5pro-boot-guard
+        00-m5pro-boot-guard.hook
+        00-m5pro-boot-guard-remove.hook
         m5pro-boot-ok.service
         m5pro-mkinitcpio.conf
         boot.conf)
-sha256sums=(SKIP SKIP SKIP SKIP SKIP SKIP SKIP)
+sha256sums=(SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP)
 
 package() {
     install -Dm755 m5pro-update-payload "$pkgdir/usr/bin/m5pro-update-payload"
     install -Dm755 mk-stage1.py         "$pkgdir/usr/bin/m5pro-mk-stage1"
+    install -Dm755 m5pro-boot-guard     "$pkgdir/usr/bin/m5pro-boot-guard"
+    install -Dm644 00-m5pro-boot-guard.hook        "$pkgdir/usr/share/libalpm/hooks/00-m5pro-boot-guard.hook"
+    install -Dm644 00-m5pro-boot-guard-remove.hook "$pkgdir/usr/share/libalpm/hooks/00-m5pro-boot-guard-remove.hook"
     install -Dm644 95-m5pro-payload.hook "$pkgdir/usr/share/libalpm/hooks/95-m5pro-payload.hook"
     install -Dm644 96-m5pro-stage1.hook  "$pkgdir/usr/share/libalpm/hooks/96-m5pro-stage1.hook"
     install -Dm644 m5pro-boot-ok.service "$pkgdir/usr/lib/systemd/system/m5pro-boot-ok.service"

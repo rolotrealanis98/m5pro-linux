@@ -1,0 +1,129 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# m5pro-boot-guard: stop a pacman transaction that would replace the M5 Pro boot packages with another
+# repo's build, or remove them. Run by 00-m5pro-boot-guard.hook (packages) and
+# 00-m5pro-boot-guard-remove.hook (remove), PreTransaction with AbortOnFail: a non-zero exit leaves
+# the system exactly as it was.
+#
+#   m5pro-boot-guard packages   package names on stdin; Install/Upgrade
+#   m5pro-boot-guard remove     package names on stdin; Remove (also pacman removing one for a conflict)
+#
+# The hazard: an Omarchy channel switch, `omarchy refresh pacman` and `omarchy reinstall` overwrite
+# /etc/pacman.conf and run pacman -Syyuu. The [m5pro] repo line goes, and the first repo that lists
+# omarchy-mac-boot (U-Boot/Limine, which this chain does not use) or a kernel package takes over.
+# Same idea as betizzel/omarchy-m5 omarchy-aurora-firmware m5-boot-guard (j714s13, 6a4947185a92, MIT,
+# betizzel/omarchy-m5#11), changed in two ways: the build is judged by the repo it comes from
+# (BOOT_REPOS), not by a version-string pattern our versions do not have (linux-m5pro 7.2.2,
+# m1n1-m5pro 1.6.1.m5pro14), and removal is its own hook so a conflict-driven removal is caught.
+#
+# ALPM tells a hook only the names. The incoming build is found the way pacman found it: a package
+# file named on pacman's command line (pacman -U), otherwise the first sync repository that lists the
+# name (pacman -S/-Su; what pacman uses), or the repo in a `repo/name` argument. Anything it cannot
+# tell is refused.
+#
+# One transaction can be let through: sudo touch /etc/m5pro/allow-boot-package-change (removed when used).
+set -u
+export LC_ALL=C
+
+# pacman hooks inherit the environment of whoever ran pacman: the test overrides count only under
+# M5PRO_GUARD_TEST ("sudo env M5PRO_ROOT=... pacman" must not move the guard).
+if [[ -z ${M5PRO_GUARD_TEST:-} ]]; then unset M5PRO_ROOT M5PRO_PACMAN M5PRO_PACMAN_ARGS; fi
+root=${M5PRO_ROOT:-}
+pacman_bin=${M5PRO_PACMAN:-pacman}
+allow=$root/etc/m5pro/allow-boot-package-change
+mode=${1:-packages}
+case $mode in packages | remove) ;; *) echo "usage: m5pro-boot-guard packages|remove" >&2; exit 2 ;; esac
+
+# BOOT_REPOS in /etc/m5pro/boot.conf (shell syntax, space-separated), default m5pro.
+BOOT_REPOS=m5pro
+if [[ -r $root/etc/m5pro/boot.conf ]]; then
+  # shellcheck disable=SC1091
+  r=$(. "$root/etc/m5pro/boot.conf" >/dev/null 2>&1; printf '%s' "${BOOT_REPOS:-}")
+  [[ -n $r ]] && BOOT_REPOS=$r
+fi
+repo_ok() { local r; for r in $BOOT_REPOS; do [[ $1 == "$r" ]] && return 0; done; return 1; }
+
+mapfile -t lines
+targets=()
+for name in "${lines[@]+"${lines[@]}"}"; do [[ -n $name ]] && targets+=("$name"); done
+((${#targets[@]})) || exit 0
+
+# A package file name, name-pkgver-pkgrel-arch.pkg.tar.*, as "name version".
+from_name() {
+  local base=${1##*/}
+  base=${base%.pkg.tar*} base=${base%-*}
+  echo "${base%-*-*} ${base#"${base%-*-*}"-}"
+}
+
+problems=()
+if [[ $mode == remove ]]; then
+  for name in "${targets[@]}"; do
+    have=$("$pacman_bin" -Q "$name" 2>/dev/null | cut -d' ' -f2)
+    problems+=("$name ${have:-?} -> removed")
+  done
+else
+  # pacman's command line (this hook's parent). pacman has changed to / by now, so a relative file is
+  # looked for from the directory pacman was started in ($PWD in its environment).
+  args=() pwd=
+  if [[ -n ${M5PRO_PACMAN_ARGS+x} ]]; then
+    read -r -a args <<<"$M5PRO_PACMAN_ARGS"
+  elif [[ $(cat "/proc/$PPID/comm" 2>/dev/null) == pacman ]]; then
+    mapfile -d '' -t args < "/proc/$PPID/cmdline"
+    args=("${args[@]:1}")
+    pwd=$(tr '\0' '\n' < "/proc/$PPID/environ" 2>/dev/null | sed -n 's/^PWD=//p')
+  fi
+  declare -A file_ver=() repo_of=()
+  for arg in "${args[@]+"${args[@]}"}"; do
+    case $arg in
+      -*) ;;
+      *://*.pkg.tar*) read -r name ver < <(from_name "$arg"); file_ver[$name]=$ver ;;
+      *.pkg.tar*)
+        path=$arg; [[ $path == /* || -z $pwd ]] || path=$pwd/$path
+        read -r name ver < <("$pacman_bin" -Qp "$path" 2>/dev/null || from_name "$arg")
+        file_ver[$name]=$ver ;;
+      */*) repo_of[${arg#*/}]=${arg%%/*} ;;
+    esac
+  done
+  for name in "${targets[@]}"; do
+    have=$("$pacman_bin" -Q "$name" 2>/dev/null | cut -d' ' -f2)
+    if [[ -n ${file_ver[$name]:-} ]]; then
+      continue # a package file named on the command line: the person chose that exact build
+    fi
+    repo=${repo_of[$name]:-}
+    if [[ -z $repo ]]; then
+      repo=$("$pacman_bin" -Si "$name" 2>/dev/null | awk -F' *: ' '$1 == "Repository" { print $2; exit }')
+    fi
+    if [[ -z $repo ]]; then
+      problems+=("$name ${have:-none} -> (cannot tell which repo it comes from)")
+    elif ! repo_ok "$repo"; then
+      new=$("$pacman_bin" -Si "$repo/$name" 2>/dev/null | awk -F' *: ' '$1 == "Version" { print $2; exit }')
+      problems+=("$name ${have:-none} -> ${new:-?} from [$repo], not from [${BOOT_REPOS// /], [}]")
+    fi
+  done
+fi
+((${#problems[@]})) || exit 0
+
+if [[ -e $allow ]]; then
+  rm -f "$allow"
+  echo "m5pro boot guard: ${allow#"$root"} was set, so this change is allowed once:"
+  printf '  %s\n' "${problems[@]}"
+  exit 0
+fi
+
+cat >&2 <<MSG
+
+==> STOPPED by the M5 Pro boot guard. Nothing has been changed.
+    This would replace or remove this MacBook Pro's boot packages with builds that are not from the
+    [${BOOT_REPOS// /], [}] repo, and the next boot would most likely not start Linux:
+$(printf '      %s\n' "${problems[@]}")
+
+    Usually /etc/pacman.conf has lost the [${BOOT_REPOS%% *}] repo: an Omarchy channel switch (Update > Channel),
+    'omarchy refresh pacman' and 'omarchy reinstall' overwrite that file. Put the repo back (and keep it
+    above the others), then run the update again.
+
+    Only if you really mean to make this change:
+      sudo touch ${allow#"$root"}
+    (allows one transaction), then run the same command again.
+
+MSG
+exit 1

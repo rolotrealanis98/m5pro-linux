@@ -5,6 +5,11 @@ the bring-up graph, and an AID41-calibrated speakersafetyd profile. Staged on th
 `/usr/share/asahi-audio/j716/profile/` and `/usr/local/bin/j716-audio-ab` by `stage.sh`; nothing active changes until
 `j716-audio-ab` is run. Listening procedure: `LISTENING-TEST.md`.
 
+**Superseded as the speaker path (2026-11-15).** The design moved to speakerguardd v2 with this Mac's own macOS tuning
+(`../speakerguardd-v2/README.md`); speakersafetyd is held off. v2 builds its own voicing and owns `hw:AppleJ716,1`, so
+under v2 neither graph below is used (`j716-audio-ab v2` removes the fragment). The graph, FIRs and the AID41 numbers stay
+as the record and as the voicing for the speakersafetyd path if its hold is ever lifted.
+
 ## Why the J616s graph
 
 macOS 27.2 ships AID41's speaker tuning byte-identical to AID35 (J616s, M4 Pro 16") and AID29 (J516, M3 Pro 16"): the

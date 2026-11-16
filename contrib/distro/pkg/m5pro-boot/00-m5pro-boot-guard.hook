@@ -1,0 +1,22 @@
+# The boot packages must stay m5pro builds (contrib/distro/DESIGN.md "Boot guard").
+# Nothing else stops a pacman transaction that puts another repo's build of them in place: an Omarchy
+# channel switch, `omarchy refresh pacman` and `omarchy reinstall` copy a template over /etc/pacman.conf
+# (dropping the [m5pro] repo and any IgnorePkg line) and run pacman -Syyuu. 95-m5pro-payload.hook and
+# 96-m5pro-stage1.hook run PostTransaction, so they can rebuild but never refuse. 00- runs first.
+# Pattern: betizzel/omarchy-m5 omarchy-aurora-firmware 00-omarchy-m5-boot-guard.hook (j714s13, 6a4947185a92, MIT).
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = linux-m5pro
+Target = m1n1-m5pro
+Target = m5pro-boot
+Target = omarchy-m5pro-boot
+Target = omarchy-mac-boot
+
+[Action]
+Description = Checking that the M5 Pro boot packages come from the m5pro repo...
+When = PreTransaction
+Exec = /usr/bin/m5pro-boot-guard packages
+NeedsTargets
+AbortOnFail

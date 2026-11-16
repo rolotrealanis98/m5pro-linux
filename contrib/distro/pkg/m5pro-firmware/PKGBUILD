@@ -2,19 +2,29 @@
 # Ships no Apple firmware (not redistributable). It ships the loader that takes the firmware the
 # macOS-side installer extracted onto the ESP (vendorfw/firmware.tar) and exposes it to the kernel
 # at boot, plus the extraction tool for re-running it from a Mac (the macOS side runs it today).
+#
+# m5pro-als-cal (macOS side, copied from /usr/share/m5pro-firmware/macos/): saves the user's own ambient
+# light sensor calibration (apple/aop-als-cal.bin, per machine, from the running macOS's IORegistry) into
+# the same firmware tree or firmware.tar. Source betizzel/omarchy-m5 tools/als-calibration/save-als-cal.py
+# @ 68aafa3d0d76 (MIT; file sha256 168a07c2...), itself from aurora-silicon/aurora-installer
+# asahi_firmware/als.py (MIT); licences in LICENSE.als-cal. Ships no calibration data.
 pkgname=m5pro-firmware
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
-pkgdesc="Loads Apple vendor firmware (trackpad tpmtfw) for MacBook Pro M5 Pro from the ESP"
+pkgdesc="Loads Apple vendor firmware (trackpad tpmtfw, ambient light calibration) for MacBook Pro M5 Pro from the ESP"
 arch=(any)
 url="https://github.com/RolandoT98/m5pro-linux"
 license=(MIT)
 depends=(bash tar coreutils util-linux systemd)
 install=m5pro-firmware.install
-source=(m5pro-vendorfw m5pro-vendorfw.service)
-sha256sums=(SKIP SKIP)
+optdepends=('python: m5pro-als-cal, run on the Mac side (macOS ships its own python3)')
+source=(m5pro-vendorfw m5pro-vendorfw.service m5pro-als-cal LICENSE.als-cal)
+sha256sums=(SKIP SKIP SKIP SKIP)
 
 package() {
     install -Dm755 m5pro-vendorfw         "$pkgdir/usr/bin/m5pro-vendorfw"
     install -Dm644 m5pro-vendorfw.service "$pkgdir/usr/lib/systemd/system/m5pro-vendorfw.service"
+    # for the Mac, not for this root: not in PATH
+    install -Dm755 m5pro-als-cal "$pkgdir/usr/share/m5pro-firmware/macos/m5pro-als-cal"
+    install -Dm644 LICENSE.als-cal "$pkgdir/usr/share/licenses/$pkgname/LICENSE.als-cal"
 }

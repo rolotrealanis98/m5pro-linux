@@ -21,7 +21,13 @@ url="https://github.com/AsahiLinux/linux"
 license=(GPL-2.0-only)
 depends=(coreutils kmod mkinitcpio)
 optdepends=('m5pro-boot: rebuilds the ESP boot payload when this package changes'
-            'm5pro-firmware: Apple firmware (trackpad) from the ESP')
+            'm5pro-firmware: Apple firmware (trackpad) from the ESP'
+            'avd-fw>=0.1.aurora3: open video decoder firmware (apple/avd-fw-v5-t2.bin); see below')
+# avd-fw: aurora-silicon/alarm-aurora PR #298 makes linux-aurora *depend* on avd-fw>=0.1.aurora3,
+# because apple-avd then fails to probe with -ENOENT and its power domains stay in sync_state.
+# This kernel does not build apple-avd yet (the AVD series is contrib/pending/video, not in the
+# package, and the J716s boot log's "missing apple/avd-fw-v5-t2.bin" comes from the j716s-next
+# kernel), so it is an optdepends. Move it to depends=() together with the AVD patches.
 makedepends=(bc cpio gettext git libelf pahole perl python tar xz dtc
              rust rust-src rust-bindgen)
 options=(!strip !debug)

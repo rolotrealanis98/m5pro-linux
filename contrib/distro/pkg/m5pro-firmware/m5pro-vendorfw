@@ -11,6 +11,11 @@
 #   ESP/vendorfw/firmware.tar.sha256
 #   ESP/vendorfw/source.txt        restore bundle build the blobs came from (e.g. 26C5035r)
 #
+# The tree also carries apple/aop-als-cal.bin when the user ran m5pro-als-cal on their own Mac (the
+# ambient light sensor's per-machine calibration, not part of the stub's restore bundle). Nothing here
+# treats it specially: it is found like any other blob. The driver that consumes it (Aurora's
+# Rust aop_als) is not part of linux-m5pro as packaged; untested.
+#
 # At boot this unpacks it into /run/m5pro/vendorfw (tmpfs, nothing written under /usr that no
 # package owns) and points the firmware loader's custom search path at it
 # (/sys/module/firmware_class/parameters/path, the runtime form of firmware_class.path=).

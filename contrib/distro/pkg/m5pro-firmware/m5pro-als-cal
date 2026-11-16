@@ -1,0 +1,131 @@
+#!/usr/bin/python3 -I
+# SPDX-License-Identifier: MIT
+"""m5pro-als-cal: run on macOS, save this Mac's ambient light sensor calibration for Linux.
+
+macOS keeps the calibration per machine, as the CalibrationData of the `als` node in the IORegistry
+(AppleSPUVD6286 on the M5 Pro). The Linux light sensor (aop_als) reports only once it can load
+apple/aop-als-cal.bin, so the file must come from the user's own Mac and is never packaged or shipped.
+
+    m5pro-als-cal --out DIR            write DIR/apple/aop-als-cal.bin (the lib/firmware-relative tree
+                                       that is tarred into ESP/vendorfw/firmware.tar)
+    m5pro-als-cal --tar FIRMWARE.TAR   put apple/aop-als-cal.bin into an existing firmware.tar (replacing
+                                       a previous one) and refresh FIRMWARE.TAR.sha256 if it exists
+    --ioreg-file FILE                  read `ioreg -r -a -n als -l` output from FILE (testing)
+
+At boot m5pro-vendorfw unpacks the tar to /run/m5pro/vendorfw and points the firmware loader at it, so the
+file is found as apple/aop-als-cal.bin like every other blob. Whether aop_als asks for it after that has
+not been tested on the MacBook.
+
+Source: betizzel/omarchy-m5 tools/als-calibration/save-als-cal.py @ 68aafa3d0d76 (MIT, Copyright (c) betizzel
+and omarchy-m5 contributors), gathered from aurora-silicon/aurora-installer asahi_firmware/als.py (MIT,
+Copyright (c) 2021 The Asahi Linux contributors); LICENSE.als-cal. Changes: the CalibrationData is found by
+walking the `als` subtree instead of a fixed child path, output goes to a tree or into the firmware tar,
+the tar's checksum is refreshed. The raw HmCA factory files that asahi-installer's collector also copies
+are not collected (neither does omarchy-m5; no driver here asks for them). Python 3.6+ (macOS's own).
+"""
+import argparse
+import hashlib
+import io
+import os
+import plistlib
+import subprocess
+import sys
+import tarfile
+import time
+
+NAME = "apple/aop-als-cal.bin"
+
+
+def find_cal(node, found):
+    """Collect every CalibrationData below an IORegistry node (a dict tree from `ioreg -a`)."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "CalibrationData" and isinstance(value, (bytes, bytearray)):
+                found.append(bytes(value))
+            else:
+                find_cal(value, found)
+    elif isinstance(node, list):
+        for item in node:
+            find_cal(item, found)
+
+
+def read_calibration(ioreg_file=None):
+    if ioreg_file:
+        with open(ioreg_file, "rb") as f:
+            raw = f.read()
+    else:
+        try:
+            run = subprocess.run(["ioreg", "-r", "-a", "-n", "als", "-l"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except OSError:
+            sys.exit("m5pro-als-cal: ioreg not found: run this on macOS")
+        if run.returncode != 0 or not run.stdout.strip():
+            sys.exit("m5pro-als-cal: no 'als' node in ioreg: run this on macOS, on a Mac with an ambient light sensor")
+        raw = run.stdout
+    try:
+        tree = plistlib.loads(raw)
+    except Exception as e:  # plistlib raises several types
+        sys.exit("m5pro-als-cal: ioreg output is not a property list: %s" % e)
+    found = []
+    find_cal(tree, found)
+    if not found:
+        sys.exit("m5pro-als-cal: the 'als' node has no CalibrationData")
+    if any(c != found[0] for c in found):
+        sys.exit("m5pro-als-cal: the 'als' subtree has %d different CalibrationData values; refusing to guess" % len(set(found)))
+    if not found[0]:
+        sys.exit("m5pro-als-cal: CalibrationData is empty")
+    return found[0]
+
+
+def write_tree(data, out):
+    path = os.path.join(out, NAME)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(data)
+    os.chmod(path, 0o644)
+    return path
+
+
+def add_to_tar(data, tar_path):
+    """Rebuild the tar with NAME replaced, atomically; refresh the .sha256 next to it if there is one."""
+    tmp = tar_path + ".new"
+    with tarfile.open(tar_path, "r:*") as src, tarfile.open(tmp, "w", format=tarfile.GNU_FORMAT) as dst:
+        for member in src.getmembers():
+            if member.name.lstrip("./") == NAME:
+                continue
+            dst.addfile(member, src.extractfile(member) if member.isreg() else None)
+        info = tarfile.TarInfo(NAME)
+        info.size = len(data)
+        info.mode = 0o644
+        info.mtime = int(time.time())
+        dst.addfile(info, io.BytesIO(data))
+    os.replace(tmp, tar_path)
+    sumfile = tar_path + ".sha256"
+    if os.path.exists(sumfile):
+        with open(tar_path, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+        # the form m5pro-vendorfw checks with `sha256sum -c` from the tar's directory
+        with open(sumfile, "w") as f:
+            f.write("%s  %s\n" % (digest, os.path.basename(tar_path)))
+        return tar_path, sumfile
+    return tar_path, None
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Save this Mac's ambient light sensor calibration (apple/aop-als-cal.bin).")
+    where = ap.add_mutually_exclusive_group(required=True)
+    where.add_argument("--out", metavar="DIR", help="write DIR/apple/aop-als-cal.bin")
+    where.add_argument("--tar", metavar="FIRMWARE.TAR", help="add it to an existing vendorfw firmware.tar")
+    ap.add_argument("--ioreg-file", metavar="FILE", help="read the ioreg plist from FILE instead of running ioreg")
+    args = ap.parse_args()
+    data = read_calibration(args.ioreg_file)
+    if args.out:
+        path = write_tree(data, args.out)
+        print("saved %d bytes to %s" % (len(data), path))
+    else:
+        tar_path, sumfile = add_to_tar(data, args.tar)
+        print("put %s (%d bytes) into %s%s" % (NAME, len(data), tar_path, "; refreshed " + sumfile if sumfile else ""))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
