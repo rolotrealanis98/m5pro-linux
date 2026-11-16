@@ -26,3 +26,15 @@ Record: `contrib/validated/integration/RESULTS.md` (2026-11-08 19:37 entry). Con
   `mov Xd, xzr` (sprr.py); `pt_update` now brackets its TLB invalidate with `dsb ishst` / `dsb ish; isb`.
 - `shot.sh`: screenshot of the guest's panel through the proxy (boot-args framebuffer, 31 MB, ~20 s) as PNG, half
   size plus a full-size crop of the last text rows. Replaces photos of the panel; it is how the panic was read.
+
+## 2026-11-16: GPU InitData capture (aurora-silicon/linux#1173), prepared, not run
+
+Notes: `../GPU-INITDATA.md`. Attended request: `/Volumes/m5pro/bench/requests/hv-gpu-initdata-1.md`.
+
+| tool | what |
+|---|---|
+| `hv27-gpu-initdata.py` | run_guest `-m` module (after `hv27-trace-late.py`): SYNC trace of the gfx-asc/gfx1-asc mailbox pages; at the host's INITDATA word it walks the UAT and dumps the root and every object it reaches, raw, plus a second snapshot at the acknowledgement. Shell helpers `gpu_status()`, `gpu_redump()`, `gpu_dump_root(va)`, `gpu_walk(va)`, `gpu_shot()` |
+| `initdata-compare.py` | dump -> private JSON + redacted public summary against the PR's "not yet confirmed" items; expectations parsed from the PR source; refuses to write the public file if its redaction scan hits |
+| `dryrun-synthetic.py` | offline end-to-end check: synthetic graph (PR layout or the 27.0 control) behind synthetic UAT tables, mock hv with the real ADT and m1n1 range maps |
+| `run-hv27-gpu.sh` | Studio runner (`check`, `smoke`, `gpu`, `compare`, `reboot`), paths under `/Volumes/m5pro/bench/hv27-gpu` |
+| `kc-entries.py`, `kc-personalities.py` | fileset entries and IOKit personalities of a kernelcache (metadata only): which kexts are in the BootKC and what they match on |

@@ -11,6 +11,8 @@ placeholders; the private plan, scripts and binaries are in the Studio's `~/Work
   (guest files via an apfs-fuse read-only mount of Preboot). Boot args must omit `serial=3` (XNU hangs switching
   its console to the emulated uart0); the panel is the console. Rung iv (tracers) started the same evening.
   Rung iii-b waits for Rolando's decision below.
+- 2026-11-16: GPU InitData capture for aurora-silicon/linux#1173 prepared on rung iii-a (single core, GPU mailbox
+  tracer); not run yet. `GPU-INITDATA.md`.
 
 ## 0. Decision needed before rung iii-b (read first)
 
