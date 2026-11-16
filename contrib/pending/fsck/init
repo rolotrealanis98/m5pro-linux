@@ -1,0 +1,79 @@
+#!/bin/sh
+# omarchy-m5 bring-up init.
+#
+# echo alone proves nothing while the console is broken, so paint bands
+# straight into the framebuffer through /dev/mem, the same way the kernel's
+# checkpoint markers do. Rows 112..143 are ours (kernel uses 0..111, m1n1
+# uses 144..159).
+BB=/bin/busybox
+$BB mkdir -p /proc /sys /dev /tmp /run
+$BB mount -t proc     proc     /proc
+$BB mount -t sysfs    sysfs    /sys
+$BB mount -t devtmpfs devtmpfs /dev 2>/dev/null
+$BB mount -t tmpfs    tmpfs    /tmp
+
+FB_BASE=1149440917504      # 0x10bd3110000, from m1n1's "fb init:" line
+STRIDE=12096               # 0x2f40
+
+# 16 rows x 256 px of one 32-bit x2r10g10b10 pixel value, written at a row
+# offset. STRICT_DEVMEM permits this because the framebuffer sits above the
+# usable-RAM window m1n1 reports.
+band() {
+    # FB_BASE is the J714s panel; anywhere else (QEMU) it is unbacked.
+    $BB grep -q 'apple,t6050' /proc/device-tree/compatible 2>/dev/null || return 0
+    row="$1"; pattern="$2"
+    $BB rm -f /tmp/px
+    i=0
+    while [ $i -lt 256 ]; do printf "$pattern" >> /tmp/px; i=$((i + 1)); done
+    y=0
+    while [ $y -lt 16 ]; do
+        off=$((FB_BASE + (row + y) * STRIDE))
+        $BB dd if=/tmp/px of=/dev/mem bs=1 seek=$off conv=notrunc 2>/dev/null
+        y=$((y + 1))
+    done
+}
+
+# rows 112..127: /init is running at all
+band 112 '\x00\x00\xff\x3f'
+
+# rows 128..143: the DRM/fbdev devices the console depends on exist
+if [ -e /dev/fb0 ] || [ -e /dev/dri/card0 ]; then
+    band 128 '\xff\xff\xff\x3f'
+fi
+
+echo
+echo "================================================"
+echo " omarchy-m5: userspace is alive on T6050 (M5 Pro)"
+echo "================================================"
+echo "kernel:  $($BB uname -a)"
+echo "cpus:    $($BB grep -c ^processor /proc/cpuinfo)"
+echo "cmdline: $($BB cat /proc/cmdline)"
+echo "fb:      $($BB ls /dev/fb0 /dev/dri/ 2>&1)"
+echo "drm:     $($BB dmesg | $BB grep -iE 'simpledrm|simple-framebuffer|fbcon|drm' | $BB tail -10)"
+echo
+$BB dmesg | $BB tail -20
+echo
+
+# USB gadget network + serial console (see usb-gadget-net.sh), then root FS.
+[ -x /usr/sbin/usb-gadget-net ] && /usr/sbin/usb-gadget-net
+ROOT=$($BB sed -n 's/.*\bm5\.root=\([^ ]*\).*/\1/p' /proc/cmdline)
+if [ -n "$ROOT" ]; then
+    i=0; while [ ! -b "$ROOT" ] && [ $i -lt 100 ]; do $BB sleep 0.1; i=$((i+1)); done
+    # Root file system check before the mount, as distros do at boot: "e2fsck -p" repairs what is safe to repair
+    # unattended and returns at once on a clean file system. m5.fsck=force: one full "-fy" pass. m5.nofsck skips it.
+    # Bounded: the boot never waits more than 10 minutes on it; the result is kept for /var/log/m5-fsck.log.
+    if ! $BB grep -qw m5.nofsck /proc/cmdline && [ -x /sbin/e2fsck ]; then
+        FSCKOPT=-p; $BB grep -qw m5.fsck=force /proc/cmdline && FSCKOPT="-f -y"
+        echo "fsck: e2fsck $FSCKOPT $ROOT"
+        $BB timeout 600 /sbin/e2fsck $FSCKOPT -C 0 "$ROOT" > /run/m5-fsck.log 2>&1; FSCKRC=$?
+        echo "fsck: rc=$FSCKRC (0 clean, 1 repaired, 4 needs a manual run)"; $BB tail -3 /run/m5-fsck.log
+        echo "rc=$FSCKRC opts=$FSCKOPT" >> /run/m5-fsck.log
+    fi
+    if $BB mount -t ext4 -o noatime "$ROOT" /mnt 2>/dev/null; then
+        [ -f /run/m5-fsck.log ] && { $BB mkdir -p /mnt/var/log; $BB cp /run/m5-fsck.log /mnt/var/log/m5-fsck.log; }
+        $BB umount /proc /sys /dev /tmp 2>/dev/null
+        exec $BB switch_root /mnt /sbin/init
+    fi
+    echo "m5.root=$ROOT did not mount; staying in initramfs"
+fi
+exec $BB sh
