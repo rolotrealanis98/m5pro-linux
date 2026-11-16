@@ -259,3 +259,39 @@ No public tool turns that recording into a dtsi. aura main fills only `apple,wak
 - So the J716s deep path now stops safely at the display. What it needs next: the 27.3 method tags of the display
   sleep's calls (a macOS 27.3 sleep trace through the HV), then the platform dry run, then an attended `rtcwake`.
 - Logs: `/Volumes/m5pro/bench/deep-sleep/run13pre/`. deep-sleep-11's oops log: `/Volumes/m5pro/bench/deep-sleep/results/`.
+
+## The 27.3 sleep tags are known; DPMS power-down and the deep step built, not booted (2026-11-16)
+
+From the J716s's own DCP firmware 27.3 (`t605xdcp`), matched to 27.0 (26A428) handler by handler
+(`derived-dcp/{macos-27.0-26A428,j716s-fw_Firmware_dcp}/rtxt.dis`, `switch_ap.json`; capture evidence in
+`WINDOWS-MINING-20261116.md`):
+
+| role | 27.0 (J714s) | 27.3 (J716s) | basis |
+|---|---|---|---|
+| set_power_state | A484 | A535 | handler 0x41fa820 (27.0 0x41f39f4); plain power-on `{1,0..}` OOB answers `01 00..` on the J716s |
+| AP link release / wake | A500 | A550 | in code, not the table: 27.3 0x41ad070 `mov w9,#0x3530; movk w9,#0x4135,lsl#16` (27.0 0x41a6a48, #0x3030); handlers 0x41bee54 / 0x41b85f0 identical but one pointer offset, both want >= 4 bytes |
+| pipe_cfg_414 | A414 | A464 | 0x41ffaf0; 8 zero bytes in, reply 01 on the J716s |
+| pipe_query_478 | A489 | A540 | 0x41fa4f4; sent at every client open |
+| pipe_set_476 | A487 | A538 | 0x41fa628; u32 1 in |
+| is_main_display | A412 | A462 | 0x41ffd20 |
+| A115 | A115 | A115 | 0x4258314, 0.98 alike, never sent on 27.3 |
+| A442 (OOB) | A442 | A492 | 0x41fd7e4, 0.95 alike, never sent on 27.3 |
+
+Not yet run on 27.3: set_power_state(0) (plain and flags `01 00 00 01 01..`), the command context for it, A550, A115,
+A492.
+
+Kernel (local, not pushed; worktrees under `/Volumes/m5pro/wt/`):
+
+- **`j716s-dcp-sleep-27.3`** (`dcp-sleep-27.3`), head `07f30d5e4360`, release `7.3.0-g07f30d5e4360`, BUILD OK: next6 +
+  #1941/#2019/#2063 (dcp-pm) + #2027-#2029 (T6050 DCP stop/power/restart helpers) + `83b3dafc746b` (the sleep's tags
+  by build: every sleep call takes its tag from `iomfb_v27_sleep_tags()`, J714s 27.0 / J716s 27.3, nothing sent
+  elsewhere) + `07f30d5e4360` (`appledrm.j716s_sleep`, default 0: 1 = display off on the running firmware, 2 = also
+  the DCP stopped and powered down; every step logged as `J716s DPMS: ...`).
+  Test file `dcp-sleep-27.3-20261116-9571d966.bin`.
+- **`j716s-s2r-27.3`** (`s2r-27.3`), head `0558d13754ca`: the above + `appledrm.j716s_deep_sleep` (command line, default
+  0) so the deep sleep's DCP .prepare runs the J714s step with the 27.3 tags instead of refusing; endpoint tracking
+  (`v27_sleep_eps`) for the J716s; one `J716s: sleep step (...)` line per try. Release `7.3.0-g0558d13754ca`, BUILD OK;
+  test file `s2r-27.3-20261116-44aa8fbe.bin` (s2r2 aura loader, `appledrm.j716s_deep_sleep=1`). Supersedes `j716s-s2r-data` (its five
+  #2027-#2029 commits are in the base).
+- Request: `/Volumes/m5pro/bench/requests/dcp-sleep-27.3.md` (part A DPMS levels 1/2 and s2idle devices; part B deep
+  devices/platform dry runs).
