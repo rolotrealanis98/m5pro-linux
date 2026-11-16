@@ -25,7 +25,29 @@ Branch `vrr` (worktree `/Volumes/m5pro/wt/vrr`) on `j716s-next2`.
   (20.83 ms = 5 subframes, not a multiple of 8.33 ms) and 90 fps (11.11 ms, between 8.33 and 16.67) are the discriminating
   rates; 60 fps (16.67) is the control. Whether VRR-off really quantises to the 8.33 ms grid is part of the measurement.
 
-## Default-on: not yet
+## vrr-1 result (2026-11-15) and the reading
+
+Swaps complete 3.3-4.3 ms after submit on a 4.167 ms lattice at every rate, VRR on and off alike; the firmware logs
+VRR=YES/NO. So the swap cadence cannot show VRR; `minRR` is the refresh floor. Decided: default on (commit 9f50374b97d5),
+`appledrm.fw27_panel_vrr=0` is the off switch; vrr-2 looks at static power, event rates and rates below 24 Hz.
+
+## vrr-2 result (2026-11-16, kernel 9f50374b97d5, default on, compositor stopped)
+
+- **Cadence: VRR on = VRR off, at every rate.** 45/41/30/24/20/15/90/50 fps: mean interval within 0.1 ms of the target,
+  100 % of intervals on the 4.17 ms lattice, 0 stalls, swap latency 3.2-4.4 ms (7.5 ms at 20 fps in both modes). 45 and
+  41 fps (not divisors of 120) are paced exactly by mixing 5- and 6-subframe intervals, so a game below 120 fps judders by at
+  most one 4.17 ms subframe, VRR or not. 90 fps: min 8.4 ms (one 2-subframe catch-up), p50 12.4.
+- **Static screen: no difference.** ~80 DCP events/s both ways (`iomfb_callback` ~79/s with matching send/recv: the
+  firmware's own chatter, not swaps; 2-4 swaps per phase). Nothing shows the panel dropping its refresh when idle.
+- **Static power: not measured.** The script's battery reads returned -1 (its sysfs path, not the gauge: `power_now`
+  worked in low-power-4). Use `contrib/pending/low-power/lp-s2idle-power.sh`'s reader for the next pass.
+- Health: no swap timeouts or DCP errors.
+- **Reading:** on firmware 27.3 the internal panel already presents on a 240 Hz subframe grid with the deadline stamps,
+  so "VRR working properly" is true in the sense that matters for motion (any frame time to 4.17 ms). What VRR on does
+  not show is a lower self-refresh rate at idle; that would need the power reader, or an HV capture of macOS's mode select
+  (parameter 15 minRR) to compare against.
+
+## Default-on (old text, superseded)
 
 The evidence is one cadence measurement of a different kernel, and no swap-complete data on this one. The parameter stays
 default off (`appledrm.fw27_panel_vrr=1` on the cmdline). Flip the default only if `vrr-1` passes in the request and the

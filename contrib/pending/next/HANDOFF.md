@@ -10,6 +10,42 @@ of 7 November. `j716s-next` replaces that with **current upstream plus 25 commit
 work, but it is **not the daily yet**. The job is to finish the port, test it, and promote it, without losing
 anything the daily does today. The owner's GPU and display work must not regress.
 
+## State (2026-11-16 morning): next4 on the aura loader is the boot
+
+- **`boot.bin` = `next4-aura-20261116-9c329ba5.bin`** (self-reverting test file; `boot.bin.prev` is still the old daily
+  `629fc84c`). Kernel `j716s-next4` `e7dde826c821` = `j716s-next3` + 8: parking fix and skip counters (lowpower), VRR on by
+  default on the fw 27 panel (vrr), the mailbox split switches, the debugfs fix, no CPM boot writes, the PTD ownership fix
+  and the boot-core timer guard (j716s-s2r-data). Loader aura fix3 (`aura-j716s-fix3-nohostwait.bin`).
+- **next4-1 regression passed** (`/Volumes/m5pro/bench/next4/results-1/`): 18 CPUs, eDP 120 Hz, GPU, Wi-Fi, BT, USB3
+  SuperSpeed, Apollo over Thunderbolt (gen3 2x20 Gb/s), speaker ID 3, sgv2 verify PASS before and after, parking live,
+  s2idle woken by the WD0 timer with identical health. Expected lines: `avd ... -2` (no AVD firmware installed),
+  `dwc3-apple ... genpd_prepare returns -11` (the syscore retry, by design).
+- Local, built, not booted: `j716s-next4` `1052a5f7849e` (+ `CONFIG_UCLAMP_TASK`, + the DCP deep-sleep refusal),
+  `kbuild-next4b`. Not on the fork yet.
+- **Deep sleep (`j716s-s2r-data`):** deep-sleep-11's dry run oopsed: the boot-core Apple timer MSR (`S3_4_C15_C2_7`) is
+  undefined here, and the oops killed CPU0's high-priority kworker, which hung block I/O (root fs) two minutes later.
+  Guarded off (`77f43d0e2a53`, `apple_sleep.t6050_agt_off`). deep-sleep-12b then passed `.begin` and crashed the DCP
+  firmware in the devices dry run: the firmware 27 display sleep (J714s, 27.0 tags) ran on 27.3 and restarted a live AFK
+  endpoint. `eb13c59cec29` refuses deep sleep at the DCP's `.prepare` unless that sleep is known (request
+  `deep-sleep-13pre.md`). A real J716s deep sleep needs the 27.3 tags of the display sleep's calls (macOS sleep trace).
+- **Idle power:** the two clusters at their top state half of every idle minute are speakerguardd v2's RT threads
+  (`sgv2-helper`, `sgv2-pcm`, FIFO 10) waking every 12.2 ms with nothing playing; without `UCLAMP_TASK` every RT wake
+  means top state. Omarchy's screensaver (alacritty + ttfx at 120 fps) adds ~7700 IPIs/s whenever it runs. Details in
+  `contrib/pending/low-power/FINDINGS-20261116.md`.
+- **VRR (vrr-2):** on and off present identically on the 240 Hz subframe grid; static DCP traffic the same. See
+  `contrib/pending/vrr/NOTES.md`.
+- **Speakers, attended (next4):** five 1 kHz beeps at 5-30 % gave no sound: speakerguardd v2 granted, then withdrew at
+  once with "amp fault ... granted, but Left Woofer 1 is at 141 (-3000 cdB), not 0 dB". v2 expects the kernel to open the
+  amps to 0 dB under its lease (it protects in DSP with the macOS tuning); our kernel keeps the -30 dB ceiling
+  ("Speaker Volume Unlock refused"). Sound needs that unlock honoured for v2's lease: a deliberate decision, not done.
+  No current flowed (V2 = I2 = 0). v2 restarted clean afterwards.
+- **Thunderbolt, attended:** part B passes (hub hot re-plug on the left-front comes back SuperSpeed Plus with #2018).
+  The Apollo trains 20 Gb/s per lane on the left-front port but 10 Gb/s per lane on the right port, same TB5 cable: open.
+  A MacBook on the TS5 Plus's downstream port (dock hosted by the Studio) sees the Studio as a host (`Mac14,14`, 2 x 20
+  Gb/s XDomain): a Thunderbolt bridge needs only `thunderbolt_net`, which is missing from next4's module list (in next3's).
+- Machine-side runner: `/Volumes/m5pro/bench/requests/run-boot.sh` refuses a machine whose disk I/O is hung and bounds
+  `esp-put` (the deep-sleep-11 hang held vrr-2 for an hour).
+
 ## State (updated 2026-11-15): three things built, none booted yet
 
 The MacBook was busy on 2026-11-15, so everything below is built and packed but not booted.

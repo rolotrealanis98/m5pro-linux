@@ -182,6 +182,7 @@ restore() {
     [ -n "$CB_OLD" ] && echo "$CB_OLD" > "$BAT/charge_behaviour" 2>/dev/null
     [ -n "$PARK_OLD" ] && echo "$PARK_OLD" > /sys/module/apple_soc_cpufreq/parameters/idle_park 2>/dev/null
     [ -n "${GPU_OLD:-}" ] && echo "$GPU_OLD" > /sys/module/clpc/parameters/gpu_floor 2>/dev/null
+    [ -e /sys/module/sn201202x/parameters/s2idle_spmi_sleep ] && echo Y > /sys/module/sn201202x/parameters/s2idle_spmi_sleep 2>/dev/null
     [ -e /sys/module/apple_wdt/parameters/s2idle_wake_s ] && echo 0 > /sys/module/apple_wdt/parameters/s2idle_wake_s 2>/dev/null
     echo none > /sys/power/pm_test 2>/dev/null
     true
@@ -226,6 +227,7 @@ health() {
         for t in /sys/class/typec/port*; do [ -d "$t" ] && echo "  $(basename "$t"): data $(rd "$t/data_role") power $(rd "$t/power_role") partner $([ -d "$t/$(basename "$t")-partner" ] && echo yes || echo no) dev $(basename "$(readlink -f "$t/device")") $(rd "$t/device/of_node/connector/label" | tr -d '\0')"; done
         for r in /sys/kernel/debug/usb/tipd/*/regs; do [ -r "$r" ] && { echo "  tipd $(basename "$(dirname "$r")"):"; timeout 5 cat "$r" | sed 's/^/    /'; }; done
         timeout 5 lsusb -t 2>/dev/null
+        echo "--- pci"; echo "  pci devices: $(timeout 5 lspci 2>/dev/null | wc -l)"; timeout 5 lspci 2>/dev/null
         echo "--- audio (listed only)"; cat /proc/asound/cards 2>/dev/null
         echo "--- gpu"; command ls /dev/dri 2>/dev/null | tr '\n' ' '; echo
         command -v vulkaninfo >/dev/null && timeout 20 vulkaninfo --summary 2>&1 | grep -E 'deviceName|driverName|apiVersion' | head -4
@@ -268,7 +270,7 @@ s2idle_cycle() {   # label pm_test wake_s fallback_s
         echo -n "$f=$(rd /sys/power/suspend_stats/$f) "; done | sed 's/^/  stats: /' | tee -a "$SUM"; echo | tee -a "$SUM"
     sleep 5
     health "$lbl"
-    grep -E 'card.*eDP|wl.*:|Powered|devices:|superspeed:|port[0-9]: data|^ *[0-9] \[|deviceName|loss' "$OUT/health-$lbl.txt" | sed 's/^/  /' | tee -a "$SUM"
+    grep -E 'card.*eDP|wl.*:|Powered|devices:|pci devices:|superspeed:|port[0-9]: data|^ *[0-9] \[|deviceName|loss' "$OUT/health-$lbl.txt" | sed 's/^/  /' | tee -a "$SUM"
 }
 
 # Battery charge and energy every 5 s for $2 s, on whatever carries the system now.
@@ -321,6 +323,21 @@ loadwin single-m 5 0
 loadwin all 10 $(seq 0 $((NCPU - 1)))
 dmesg | grep -iE 'DVFS|cpufreq' | tail -5 | sed 's/^/  dmesg: /' | tee -a "$SUM"
 
+# ------------------------------------------------------------------ 3b. Type-C data role probe (before the sleeps, which can lose the partner; SWDF may wedge the controller)
+# A port with a partner that reads [device] (the PD-level UFP) while USB2 runs as host: ask for host once
+# (DR_Swap through SWDF) and see whether its SuperSpeed side appears.
+for t in /sys/class/typec/port*; do
+    [ -d "$t/$(basename "$t")-partner" ] || continue
+    grep -q '\[device\]' "$t/data_role" 2>/dev/null || continue
+    sum "$(basename "$t") is [device] with a partner: requesting host"
+    kmsg "$(basename "$t") data_role host"
+    timeout 15 sh -c "echo host > $t/data_role"; sum "  write rc=$?"
+    sleep 8
+    health "drswap-$(basename "$t")"
+    grep -E 'superspeed:|port[0-9]: data|devices:' "$OUT/health-drswap-$(basename "$t").txt" | sed 's/^/  after: /' | tee -a "$SUM"
+    dmesg | tail -40 > "$OUT/dmesg-drswap-$(basename "$t").txt"
+done
+
 # ------------------------------------------------------------------ 4. s2idle on the charger
 health before-sleep
 grep -E 'superspeed:|port[0-9]: data|devices:' "$OUT/health-before-sleep.txt" | sed 's/^/  before sleep: /' | tee -a "$SUM"
@@ -346,6 +363,12 @@ print("wd0 check: ctrl before %#x, after 4 s %#x (bit 1 = bark status), count %.
 PY
     if grep -q 'wd0 check.*PASS' "$SUM"; then
         kmsg "real s2idle"
+        # First with the polled Type-C controllers left awake, then as by default (SLEEP): which one loses a partner.
+        if [ -e /sys/module/sn201202x/parameters/s2idle_spmi_sleep ]; then
+            echo N > /sys/module/sn201202x/parameters/s2idle_spmi_sleep
+            s2idle_cycle real-30s-awake none 30 60
+            echo Y > /sys/module/sn201202x/parameters/s2idle_spmi_sleep
+        fi
         s2idle_cycle real-30s none 30 60
         grep -q 'woken by the wake timer' "$OUT/dmesg-real-30s.txt" && WOKE=1
         [ "$WOKE" = 1 ] || sum "real-30s did not end by the wake timer: no further sleep"
@@ -378,21 +401,6 @@ fi
 # ------------------------------------------------------------------ 6. after everything: idle again
 kmsg "idle after sleep"
 window idle-after 60
-
-# ------------------------------------------------------------------ 7. Type-C data role probe (last: SWDF may wedge the controller)
-# A port with a partner that reads [device] (the PD-level UFP) while USB2 runs as host: ask for host once
-# (DR_Swap through SWDF) and see whether its SuperSpeed side appears.
-for t in /sys/class/typec/port*; do
-    [ -d "$t/$(basename "$t")-partner" ] || continue
-    grep -q '\[device\]' "$t/data_role" 2>/dev/null || continue
-    sum "$(basename "$t") is [device] with a partner: requesting host"
-    kmsg "$(basename "$t") data_role host"
-    timeout 15 sh -c "echo host > $t/data_role"; sum "  write rc=$?"
-    sleep 8
-    health "drswap-$(basename "$t")"
-    grep -E 'superspeed:|port[0-9]: data|devices:' "$OUT/health-drswap-$(basename "$t").txt" | sed 's/^/  after: /' | tee -a "$SUM"
-    dmesg | tail -40 > "$OUT/dmesg-drswap-$(basename "$t").txt"
-done
 
 dmesg > "$OUT/dmesg-full.txt"
 grep -iE 'DVFS|stopping requests|clpc|apple-watchdog|pcie-apple|sn201202x|tipd|typec' "$OUT/dmesg-full.txt" | tail -60 > "$OUT/dmesg-key.txt"

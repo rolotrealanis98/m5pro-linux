@@ -127,3 +127,135 @@ No public tool turns that recording into a dtsi. aura main fills only `apple,wak
 - deep-sleep-3 is requested: the s2r loader with writes off, plus aura's USB console capture.
 - deep-sleep-4 is outlined in the same request file. It uses the same boot file and runs the groups from ssh while
   `dmesg -w` streams live.
+
+## deep-sleep-3 stopped about 13 s into the checks (2026-11-16)
+
+- The mailbox was there and the writes were off. The debugfs read is ruled out: it only counts DT cells.
+- The ds3 USB capture is the fallback daily's console (it has the `hostwait:` string, which the s2r loader lacks),
+  not aura's.
+- The kernel fix is `bddd15bb7fe6`, which adds two switches:
+  - `spin_table_park=0` keeps plain spin-table despite the mailbox;
+  - `apple_sleep.enable=0` leaves the controller unbound, and writing 1 to the parameter binds it at runtime.
+- deep-sleep-4 is requested: one boot with live dmesg and heartbeat streams over ssh.
+  - Stage A: mailbox on, kernel switches off. A stop here means aura.
+  - Stage B: bind the controller at runtime. A stop here means the binding.
+  - If both pass, the parking ops are left, and deep-sleep-5 tests them.
+
+## deep-sleep-4 died within about 30 s (orderly restart 300100), 2026-11-16
+
+- Every kernel-side effect of the mailbox was off, so that kernel behaved like deep-sleep-1's. The parameters, the
+  420-byte bootargs and the layout are all fine.
+- That leaves two suspects: aura's behaviour with the mailbox published (for example `smp_s2r_return_to_os()`
+  reboots on an unarmed boot-core RVBAR entry, which would be an orderly restart), or the s2r kernel and DTB under
+  any aura. No boot has had aura with the sleep node and hpm5.
+- deep-sleep-5 is requested: boot-aura-3's fix3 loader (no mailbox) with kernel `bddd15bb7fe6`, `panic=0`, live
+  streams and a 5 min soak.
+
+## The cause is in aura's mailbox path; fixed and recorded (2026-11-16)
+
+- next3-1 booted the whole s2r-data kernel under aura fix3 (no mailbox) and passed, so the kernel is cleared.
+- aura `j716s-s2r` `74aa840e`:
+  - `1e11b38a`: an unarmed boot-core RVBAR entry parks the core instead of calling `reboot()`.
+  - Every RVBAR entry after the publish is counted per core in a 16 KiB page that Linux sees as MTD
+    `aura_s2r_resets`.
+  - Host test `tests/python/test_s2r_reset.py`.
+  - `74aa840e` fixes 2 host-test regressions from `41272343`. That earlier commit had been reported as passing; it
+    did not.
+- Built loaders:
+  - `out/aura/aura-j716s-s2r2-nohostwait.bin` `d7375c28...`;
+  - `aura-j716s-s2r2.bin` (hostwait) `09f85e05...`.
+- deep-sleep-6 is requested with deep-sleep-4's kernel and switches, `panic=0`, live streams, and the record read
+  every minute.
+
+## The debugfs read was the hang (2026-11-16)
+
+- deep-sleep-6/7/8 (s2r2 aura with the mailbox, in every kernel configuration) were stable with no RVBAR entries.
+  The record never caught one.
+- deep-sleep-8 hung on `cat` of `apple_sleep/t6050_boot_writes`, as deep-sleep-3 had: 2 of 2.
+- The cause was my bug in `t6050_boot_writes_open()`: it overwrote `single_open()`'s `seq_file` pointer with
+  `struct apple_sleep`, so `seq_read()` ran on the sleep state.
+- The fix is in `1387a783a606` (`kbuild-deep-sleep4`).
+- pmu-scrpad 300134 is boot_stage 0x30, one counted failure, error stage 0x34 (after network-online).
+- deep-sleep-9 is requested: the write ranges at runtime in probe order (clk in chunks of 500, then cpm, then seq),
+  each announced at KERN_EMERG, then a soak, then one read to confirm the fix.
+- Still open: deep-sleep-2's hang before userspace, with the writes at probe. Its reason is not yet known; it is
+  either the writes or an aura reboot-path entry. aura now parks on that path instead of rebooting, and the record
+  counts such entries.
+
+## The CPM boot writes stop the J716s (2026-11-16)
+
+- deep-sleep-9 and the orchestrator's bisection:
+  - all 3357 clock-gating writes run clean at runtime;
+  - CPM entry 0 alone (cluster 0's `cpm-impl-reg` block `0x2_10e40000` + 0x8000 <- 0) stops the machine within
+    about 10 s, with or without the clock writes first.
+- `apple,cpm-boot` is XNU's recorded runtime CPM traffic: per cluster, +0x8000 <- 0, +0x8008 <- 0, +0x40f8 <- 1.
+  The sleep only reads +0x8000/+0x8008. One possible difference from the J714s: the J714s runs the PMP and the
+  J716s does not. Unproven.
+- `fb5f67175200` deletes `apple,cpm-boot` in `t6050-j716s.dts`, and an empty write group now counts as done.
+  Deep sleep still works without the CPM writes; the entry needs only the reads.
+- deep-sleep-10 (requested): the deep-sleep-9 file, with `clk` then `seq 0 125` at runtime. The boot sequence has
+  never run on this machine.
+- deep-sleep-11 (built `d48c11be`, requested only after deep-sleep-10 passes): the writes at probe, deep offered,
+  then the step 1 checks and the `pm_test=devices` dry run.
+
+## First dry run (deep-sleep-11) refused at .begin; fixed for deep-sleep-12 (2026-11-16)
+
+- deep-sleep-10 passed: the boot sequence ran at runtime.
+- deep-sleep-11: the writes ran at probe (no CPM), deep was offered, all checks were fine.
+  - Its `pm_test=devices` run refused at `.begin` with -ENODEV, from PTD ownership: the J716s's PMP report is
+    disabled.
+  - The same `.begin` warned that the boot core's AGT timers were not cleared: the bound worker missed its 2 s.
+- The kernel fix is `a629c409e709`:
+  - a disabled PMP report leaves the PTD entries to the sleep;
+  - the AGT write goes by IPI.
+- deep-sleep-12 is requested: devices, then platform dry runs, with on-machine logs because ssh freezes.
+- deep-sleep-13 (a real sleep with the PMU RTC alarm, `rtcwake -m mem -s 30`) is proposed for the owner's approval
+  only. If the alarm fails to wake the SoC, a person has to press power.
+
+## deep-sleep-12b crashed the DCP in the devices dry run; deep now refused at .prepare (2026-11-16)
+
+- **What happened.** `.begin` passed. In the device suspend, `dcp_platform_suspend()` (dcp.c:8792 at
+  `77f43d0e2a53`) took the firmware 27 display sleep.
+  - `dcp_v27_sleep_selected()` (dcp-v27-sleep.inc:85) asks only for: a T6050 DCP, firmware 27, the T6050 sleep,
+    adopt-live and the default method profile. The J716s on 27.3 matches all of them.
+- **Why the firmware crashed.** In `dcp_v27_sleep_prepare()`, the step "open" (inc:1003) calls
+  `dcp_v27_sleep_endpoints_open()`.
+  - That function skips an endpoint only if it is in `dcp->sleep_v27_ep`. `afk_init()` (afk.c:139) fills that
+    table only for `dcp->v27_j714s`, which is the J714s machine compatible. So on the J716s nothing was tracked.
+  - It then ran `afk_init()` + `afk_start()` (inc:583/606) on endpoint 0x20, the system endpoint that
+    `systemep_init()` had started at boot: `START_EP` (mailbox #122 `0x0050002000000002`), then `RBEP_INIT`
+    (#123 `0x0080000000000000`) on its running ring.
+  - The firmware asserted at `afk_messenger_common.c:246` with that exact message (`0x80000000000000`). The crash
+    report arrived on the crashlog endpoint, which the firmware never advertised ("Message to undiscovered
+    endpoint 0x01").
+  - `afk_start()` waited 1 s for an INIT_ACK and returned -ETIMEDOUT. That is the `platform_pm_suspend returns
+    -110`.
+- **No 27.3 sleep path yet.** Even with the endpoint tracked, the rest of the sleep sends 27.0's literal tags:
+  A484 (set_power_state), A500 (the sleep's own call), A414/A489/A487/A412 (display stage) and A115.
+  - 27.2 and 27.3 renumbered those methods. set_power_state is A534/A535 there, and A500 is set_parameter_dcp.
+  - The 27.3 tags of the sleep's own calls are unknown: the 27.3 trace has no power-state or sleep calls.
+  - The A500 sleep entry exists only in the J714s's private copy of the 27.0 table.
+- **Kernel `eb13c59cec29` on `j716s-s2r-data`** (not built):
+  - `dcp->v27_sleep_known` is set only for the J714s on its 27.0 table copy.
+  - `dcp_platform_prepare()` refuses a firmware (deep) sleep on any other T6050 firmware 27 DCP. It returns
+    -EOPNOTSUPP before any device suspends and logs one line: `deep sleep refused: no display sleep known for
+    firmware 27.3.0 on this machine (only the J714s on 27.0); s2idle is not affected`.
+  - s2idle does not reach that branch (no `pm_suspend_via_firmware()`).
+  - `dcp_v27_sleep_endpoints_open()` now refuses (-EPROTO) rather than start an endpoint that already has an
+    untracked AFK ring. On the J714s every AFK ring is tracked.
+- **Request:** deep-sleep-13pre, the deep devices and platform dry runs (refused, no crash), then an s2idle devices
+  dry run.
+- **What a J716s deep sleep needs from the display:**
+  - the 27.3 tags of A484/A500/A414/A489/A487/A412/A115's methods, from a macOS 27.3 sleep trace of the DCP;
+  - the endpoint tracking (`sleep_v27_ep`) opened to this machine;
+  - then the same dry runs again.
+
+## deep-sleep-13pre result (2026-11-16, `eb13c59cec29`, `deep-sleep-13pre-20261116-ef2bd978.bin`)
+
+- Deep, `pm_test=devices`: refused at `prepare` with -95 and the one line `deep sleep refused: no display sleep known for
+  firmware 27.3.0 on this machine (only the J714s on 27.0); s2idle is not affected`. `.begin` ran first (timer guard and
+  PTD lines), no device suspended, no DCP crash, display connected, network up, 18 CPUs.
+- s2idle, `pm_test=devices`: success +1, the display mode set again on resume, no new errors.
+- So the J716s deep path now stops safely at the display. What it needs next: the 27.3 method tags of the display
+  sleep's calls (a macOS 27.3 sleep trace through the HV), then the platform dry run, then an attended `rtcwake`.
+- Logs: `/Volumes/m5pro/bench/deep-sleep/run13pre/`. deep-sleep-11's oops log: `/Volumes/m5pro/bench/deep-sleep/results/`.
