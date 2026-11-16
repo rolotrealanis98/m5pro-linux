@@ -79,6 +79,13 @@ if [ ! -f /etc/pam.d/omarchy-lock-password ]; then
 fi
 ls /etc/pam.d/omarchy-lock-password
 
+say "Omarchy installer steps the bring-up skipped (install/config: locale, ssh keepalive/PATH, lockout limit, browser policy, chromium theme)"
+# All 218 migrations were applied, but the one-time installer steps never ran (audit 2026-11-16). These six touch no
+# boot, kernel or ESP file; locale.sh only acts while LANG is C/POSIX, the others are idempotent. Not run here on
+# purpose: sddm, snapper (root is ext4), docker/ufw (owner's choice), hardware/apple (T2/SPI Macs; touches limine).
+OMARCHY_PATH=/usr/share/omarchy OMARCHY_INSTALL=/usr/share/omarchy/install PATH=/usr/share/omarchy/bin:$PATH bash -c \
+  'for s in locale ssh-keepalive ssh-command-path increase-lockout-limit browser-policy theme-system; do source "$OMARCHY_INSTALL/config/$s.sh" || echo "   $s failed"; done'
+
 say "menu rows: System > Battery charge limit (user menu extension, backup .before-m5pro-battery)"
 MENU=$H/.config/omarchy/extensions/omarchy-menu.jsonc
 if [ ! -f "$MENU" ]; then echo "   $MENU missing: rows not added (see README)"
