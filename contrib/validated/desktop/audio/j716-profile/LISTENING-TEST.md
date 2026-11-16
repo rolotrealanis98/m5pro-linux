@@ -10,9 +10,11 @@ parts:
   speakersafetyd hold (`../speakerguardd-v2/speakersafetyd-hold.conf`) is lifted. Kept because it is the record of the A/B
   procedure and of the AID41 numbers.
 
-The kernel's -30 dB ceiling is the legacy interface's limit. Under v2 it does not apply (the lease runs the amps at a fixed
-gain and the engine attenuates; `../speakerguardd-v2/README.md`, "The kernel ceiling"). That makes the first grant the
-first time these speakers can be driven above -30 dB by this tree: start at 5 %, as below.
+The kernel's -30 dB ceiling holds under v2 too: the lease limits every amp's "Speaker Volume" to `max_vol` (-30 dB, raw 141)
+and the grant runs the amps at that value (`macaudio_vlimit_unlock`, `macaudio_spk_gain`; `../speakerguardd-v2/README.md`, "The
+kernel ceiling under v2", corrected 2026-11-16). Start at 5 % all the same. The kernel must carry the ramp-down fix
+(`contrib/pending/speakers/patches/`): without it a release under a playing stream ran the amps up to -2 dB for a few tens of ms.
+The short, current procedure for the first sound is `contrib/pending/speakers/MORNING.md`; Part A below is the long form.
 
 ## Part A: speakerguardd v2
 

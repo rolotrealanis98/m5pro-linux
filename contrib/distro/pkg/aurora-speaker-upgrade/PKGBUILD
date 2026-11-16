@@ -7,20 +7,24 @@
 # (16, as omarchy-m5) and the dropped Aurora package group differ, as in betizzel/omarchy-m5
 # installer/recipes/aurora-speaker-upgrade-upstream @ b23d9630. The tool needs liblzfse for
 # LZFSE-compressed macOS files; Arch Linux ARM has none, alarm-aurora packages/lzfse builds it
-# (optdepends below). Not built or run here.
+# (optdepends below; the recipe is lzfse/PKGBUILD in this folder, built with makepkg in an Arch Linux ARM container
+# 2026-11-16, check() passed). Built, not installed or run on the MacBook.
 pkgname=aurora-speaker-upgrade
 pkgver=0.1
-pkgrel=16
+pkgrel=17
 pkgdesc='Move the speakers to speakerguardd v2 with this Mac'"'"'s own tuning (preview, ships disabled; the legacy protection stays the default, --revert goes back)'
 arch=('any')
 url='https://github.com/aurora-silicon/speakerguardd/tree/v2/packaging/upgrade'
 license=('MIT')
 _commit=04169c4470650f8e2554db70d4072fb92e484138
 makedepends=('git' 'make' 'python' 'python-cryptography')
-depends=('python' 'python-cryptography' 'util-linux' 'alsa-utils' 'systemd')
+# python-cryptography is imported lazily, only by aea_ro (route 2, Apple's restore image over HTTP); route 1 (the Mac's own
+# System volume) never loads it. Optional here so a root with stale sync databases needs no new binary package for route 1.
+depends=('python' 'util-linux' 'alsa-utils' 'systemd')
 # The switch needs speakerguardd v2; without it the tool refuses and the
 # legacy protection keeps the speakers.
-optdepends=('speakerguardd-v2: the protection it switches to'
+optdepends=('python-cryptography: route 2 (Apple'"'"'s restore image, AEA decryption)'
+            'speakerguardd-v2: the protection it switches to'
             'lzfse: route 2 (Apple'"'"'s restore image) and LZFSE-compressed macOS files')
 source=("speakerguardd::git+https://github.com/aurora-silicon/speakerguardd.git#commit=$_commit")
 sha256sums=('SKIP')

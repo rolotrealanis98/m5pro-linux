@@ -8,5 +8,6 @@ install -Dm0644 70-j716-speaker-upgrade-auto.conf "$S/aurora-speaker-upgrade.ser
 install -Dm0644 speakersafetyd-hold.conf "$S/speakersafetyd.service.d/50-m5pro-j716-hold.conf"
 install -Dm0755 sgv2-telemetry.py /usr/local/bin/sgv2-telemetry
 systemctl daemon-reload
-systemctl enable aurora-speaker-upgrade.service
+# SGV2_NO_ENABLE=1 leaves the boot unit off (the silent bring-up test does; the morning procedure enables it)
+[ -n "${SGV2_NO_ENABLE:-}" ] || systemctl enable aurora-speaker-upgrade.service
 echo "installed; 'j716-audio-ab v2' removes the old speaker graph, then reboot. Undo: see README.md"

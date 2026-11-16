@@ -1,0 +1,50 @@
+From 483d072e61a7ed0e83bfee9ea3d91d8b0116b5f4 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Sun, 15 Nov 2026 20:52:24 -0500
+Subject: [PATCH 1/2] ASoC: apple: macaudio: the lease's ramp-down starts below
+ the machine's ceiling, not at -2 dB
+
+The ramp steps are absolute (-2 dB ... -50 dB). Only a fixed-ceiling machine skipped the steps at
+or above its operating gain; a machine whose ceiling is max_vol (the J716, -30 dB) ran the amps up
+to -2 dB, 28 dB over the ceiling, for a few tens of milliseconds under a still-playing stream
+whenever its owner released, vanished or was replaced. Skip every step at or above the operating
+gain, whichever way the machine holds it.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TYoPBXdNYTj12jEVptd1y7
+---
+ sound/soc/apple/macaudio.c | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/sound/soc/apple/macaudio.c b/sound/soc/apple/macaudio.c
+index b7cd59f9df7c..fb24c0002875 100644
+--- a/sound/soc/apple/macaudio.c
++++ b/sound/soc/apple/macaudio.c
+@@ -1181,15 +1181,21 @@ static bool macaudio_spk_ramps(const struct macaudio_snd_data *ma)
+ static void macaudio_spk_ramp_down(struct macaudio_snd_data *ma, ktime_t deadline)
+ {
+ 	ktime_t next = ktime_get();
++	int op_db = ma->cfg->spk_fixed_ceiling ? ma->cfg->safe_vol :
++						 macaudio_max_vol(ma);
+ 	unsigned int i;
+ 	s64 wait;
+ 
+ 	lockdep_assert_held(&ma->spk_mutex);
+ 
+ 	for (i = 0; i < ARRAY_SIZE(macaudio_spk_ramp_db); i++) {
+-		/* A fixed ceiling is the operating gain: start below it */
+-		if (ma->cfg->spk_fixed_ceiling &&
+-		    macaudio_spk_ramp_db[i] >= ma->cfg->safe_vol)
++		/*
++		 * The operating gain is the machine's ceiling: start below it. The
++		 * steps are absolute, so a machine whose ceiling is under the first
++		 * step (the J716's -30 dB) must not ramp up to -2 dB under a playing
++		 * stream when its owner lets go.
++		 */
++		if (macaudio_spk_ramp_db[i] >= op_db)
+ 			continue;
+ 		if (!ktime_before(ktime_get(), deadline))
+ 			return;
+-- 
+2.56.0
+

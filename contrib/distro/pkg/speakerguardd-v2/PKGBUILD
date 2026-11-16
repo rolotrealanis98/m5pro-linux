@@ -11,8 +11,9 @@
 #     root has neither Aurora's PipeWire nor aurora-audio); the consequences are in the comment in
 #     package_speakerguardd-v2().
 # The pin contains #158 (apple,t6050-aop-audio transport in wiring.py), #168, #169/#175, #173.
-# Source tarball sha256 c6d8b072... computed 2026-11-15, equal to alarm-aurora's. Not built here
-# (no aarch64 Arch on macOS); check() runs upstream's cargo and python tests when it is.
+# Source tarball sha256 c6d8b072... computed 2026-11-15, equal to alarm-aurora's.
+# Built 2026-11-16 with makepkg --nodeps in an Arch Linux ARM container (menci/archlinuxarm, rust 1.100) on the
+# Mac Studio: check() passed (cargo 234 + 36 tests and the three python suites). Not installed or run on the MacBook.
 pkgbase=speakerguardd-v2
 pkgname=('speakerguardd-v2')
 pkgver=1.0.0alpha.1
