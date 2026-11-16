@@ -16,5 +16,12 @@ From the 2026-11-16 gap hunt and the Windows agent's Linux-side report
 | `wireless-regdb` | Wi-Fi regulatory database | next4 journal: `failed to load regulatory.db` |
 | `fstrim.timer` | weekly TRIM if the NVMe reports discard | |
 | `systemd-oomd` | PSI-based OOM handling | needs `CONFIG_PSI` (next6) |
+| `usr/local/bin/m5pro-charge-limit`, `usr/local/lib/m5pro/charge-limit-restore`, `etc/udev/rules.d/94-m5pro-battery-charge-limit.rules`, `/etc/udev/macsmc-battery.conf` (`CHARGE_CONTROL_END_THRESHOLD=80`, written only if absent) | battery charge limit, default 80 % (resumes at 75 %); `m5pro-charge-limit [50-99\|100\|full\|status]`; `full` = 100 % until unplugged or reboot | the SMC key CHLS through `macsmc-power` (any 10-99 %); udev restores the saved value at boot and on unplug. Same saved file and line as omarchy-mac's `omarchy battery charge limit` (omacom/omarchy-mac-pkgs `76d8b722`) and asahi-scripts, so moving to either keeps the value |
+| `user/omarchy/menu-battery-rows.jsonc` | System > Battery charge limit: Limit to 80 %, Charge to 100 % once, No limit, Show | merged into `~/.config/omarchy/extensions/omarchy-menu.jsonc` (backup `.before-m5pro-battery`); sudo asks in a floating terminal |
+
+Charge limit check (on the charger, battery above 80 %): `m5pro-charge-limit` shows 80/75; within a minute
+`status` reads `Not charging` and `current_now` is 0 or negative. `m5pro-charge-limit full` -> `Charging`;
+unplug -> back to 80. Reboot -> still 80. Untested on the J716s; whether macOS keeps or rewrites the SMC value
+after a visit is unknown (macOS's own Battery setting may set its own limit).
 
 Order: `baseline.sh` -> attended DPMS cycle -> `apply.sh` -> `baseline.sh` again.

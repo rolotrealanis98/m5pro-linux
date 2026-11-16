@@ -1,0 +1,4 @@
+# Restore the charge limit saved by m5pro-charge-limit: at boot, when the SMC battery appears, and when the charger
+# is unplugged (which ends a one-time `m5pro-charge-limit full`).
+ACTION=="add", SUBSYSTEM=="power_supply", KERNEL=="macsmc-battery", RUN+="/usr/local/lib/m5pro/charge-limit-restore"
+ACTION=="change", SUBSYSTEM=="power_supply", KERNEL=="macsmc-ac", ATTR{online}=="0", RUN+="/usr/local/lib/m5pro/charge-limit-restore"

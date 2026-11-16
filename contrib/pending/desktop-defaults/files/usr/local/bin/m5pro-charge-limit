@@ -1,0 +1,63 @@
+#!/bin/bash
+# m5pro-charge-limit: show or set the battery charge limit on the J716s (Apple SMC key CHLS through macsmc-power).
+#   m5pro-charge-limit              show the limit and the battery state
+#   m5pro-charge-limit 80           keep the battery between 75 and 80 % (any 50-99 works; charging resumes 5 below)
+#   m5pro-charge-limit 100          no limit, saved
+#   m5pro-charge-limit full         charge to 100 % this time only: the saved limit comes back when the charger is
+#                                   unplugged or at the next boot
+# The saved value lives in /etc/udev/macsmc-battery.conf as CHARGE_CONTROL_END_THRESHOLD=N, the same file and line
+# that omarchy-mac's `omarchy battery charge limit` and asahi-scripts use, so switching to either keeps the value.
+# Run from a menu (no terminal), it reopens itself in a floating terminal so sudo can ask for the password.
+set -euo pipefail
+
+BAT=/sys/class/power_supply/macsmc-battery
+END=$BAT/charge_control_end_threshold
+START=$BAT/charge_control_start_threshold
+SAVED=/etc/udev/macsmc-battery.conf
+
+usage() { echo "usage: m5pro-charge-limit [50-99|100|full]" >&2; exit 2; }
+(( $# <= 1 )) || usage
+arg=${1:-status}
+case $arg in
+  status|full|100) ;;
+  [5-9][0-9]) ;;
+  *) usage ;;
+esac
+
+if [[ ! -r $END ]]; then
+  echo "No charge limit on this machine ($END is missing)." >&2
+  exit 1
+fi
+
+saved() { sed -n 's/^CHARGE_CONTROL_END_THRESHOLD=\([0-9]*\)$/\1/p' "$SAVED" 2>/dev/null | tail -1; }
+
+status() {
+  local s; s=$(saved)
+  printf 'Charge limit: %s%% (charging resumes at %s%%), saved: %s\n' "$(<"$END")" "$(<"$START")" "${s:-none}"
+  printf 'Battery: %s%%, %s\n' "$(<"$BAT/capacity")" "$(<"$BAT/status")"
+}
+
+if [[ $arg == status ]]; then status; exit 0; fi
+
+# A menu click has no terminal for sudo's password prompt.
+if (( EUID != 0 )) && [[ ! -t 0 ]] && command -v omarchy-launch-floating-terminal-with-presentation >/dev/null; then
+  exec omarchy-launch-floating-terminal-with-presentation "$(printf '%q ' "$0" "$arg")"
+fi
+
+as_root() { if (( EUID == 0 )); then "$@"; else sudo "$@"; fi; }
+
+if [[ $arg == full ]]; then
+  echo 100 | as_root tee "$END" >/dev/null
+  s=$(saved)
+  echo "Charging to 100 % this time. The saved limit (${s:-none}) returns when you unplug or reboot."
+else
+  echo "$arg" | as_root tee "$END" >/dev/null
+  printf 'CHARGE_CONTROL_END_THRESHOLD=%s\n' "$arg" | as_root tee "$SAVED" >/dev/null
+fi
+
+got=$(<"$END")
+if [[ $arg != full && $got != "$arg" ]] || [[ $arg == full && $got != 100 ]]; then
+  echo "The SMC did not take it: it reports $got %." >&2
+  exit 1
+fi
+status

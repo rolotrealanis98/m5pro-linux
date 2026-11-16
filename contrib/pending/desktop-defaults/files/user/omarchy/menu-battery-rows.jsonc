@@ -1,0 +1,7 @@
+  // Battery charge limit, from System. m5pro-charge-limit (m5pro-linux desktop-defaults) asks for the sudo password
+  // in a floating terminal; the limit is kept in the SMC and restored at boot and on unplug.
+  "system.battery-limit": {"icon":"󰂁","label":"Battery charge limit","aliases":["battery","charge-limit"],"description":"Keep the battery at 80 % to protect it"},
+  "system.battery-limit.80": {"icon":"󰂁","label":"Limit to 80 %","description":"Charging stops at 80 % and resumes at 75 %","action":"m5pro-charge-limit 80"},
+  "system.battery-limit.full": {"icon":"󰁹","label":"Charge to 100 % once","description":"Until you unplug or reboot, then back to the limit","action":"m5pro-charge-limit full"},
+  "system.battery-limit.off": {"icon":"󰁹","label":"No limit","description":"Always charge to 100 %","action":"m5pro-charge-limit 100"},
+  "system.battery-limit.status": {"icon":"󰋽","label":"Show charge limit","description":"Current limit and battery level","action":"omarchy-launch-floating-terminal-with-presentation m5pro-charge-limit"}

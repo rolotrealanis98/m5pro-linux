@@ -1,0 +1,12 @@
+#!/bin/bash
+# Run by udev (94-m5pro-battery-charge-limit.rules) when the SMC battery appears at boot and when the charger is
+# unplugged: puts back the limit saved by m5pro-charge-limit, which also ends a one-time `full` charge.
+# Never fails the udev event; anything unexpected leaves the SMC alone.
+END=/sys/class/power_supply/macsmc-battery/charge_control_end_threshold
+SAVED=/etc/udev/macsmc-battery.conf
+[[ -r $SAVED && -w $END ]] || exit 0
+limit=$(sed -n 's/^CHARGE_CONTROL_END_THRESHOLD=\([0-9]*\)$/\1/p' "$SAVED" | tail -1)
+[[ $limit =~ ^([5-9][0-9]|100)$ ]] || exit 0
+[[ $(cat "$END" 2>/dev/null) == "$limit" ]] && exit 0
+echo "$limit" > "$END" 2>/dev/null || true
+exit 0
