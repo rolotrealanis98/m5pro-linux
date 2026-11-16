@@ -10,7 +10,41 @@ of 7 November. `j716s-next` replaces that with **current upstream plus 25 commit
 work, but it is **not the daily yet**. The job is to finish the port, test it, and promote it, without losing
 anything the daily does today. The owner's GPU and display work must not regress.
 
-## State (updated 2026-11-12, evening)
+## State (updated 2026-11-15): three things built, none booted yet
+
+The MacBook was busy on 2026-11-15, so everything below is built and packed but not booted.
+
+- **`j716s-next2`** (`e4fc1f3d43ba`, on the fork): `j716s-next` moved onto `integration/aurora` `07ade53fd116`
+  (557 upstream commits newer, among them T6050 suspend to RAM for the J714s, the T6050 GPU mailbox interrupt,
+  the AVE 27.3 admission, the ALS setup-port fix and the T6050 WFxT/vGIC errata). 19 commits: the dead
+  `APPLE_RTKIT_PLACED_BUFFERS_UNACKED` flag and the three aop_t8140 commits with their reverts were dropped (no
+  user left). Conflicts kept both sides: the J714s A407 swap (27.0 table only) beside our 27.3 swap record, K114c
+  beside J716s in the adopted-link s2idle list and the ATC2 router guards, upstream's `spk_fixed_ceiling` beside our
+  `max_vol`, upstream's tiled-display mode context beside our VRR fallback. Builds clean (`kbuild-next2`, all 125
+  modules). Packed as `next2-oldloader-20261115-c956167b.bin` (today's loader).
+- **`j716s-s2r`** (`e8a25915a7ac`, on the fork, on top of `j716s-next2`; builds clean, `kbuild-s2r`; packed with the
+  aura stage 2 as `s2r-aura-nohw-20261115-3c636fe6.bin`): the J716s taken into every T6050 deep-sleep gate
+  (`apple_t6050_sleep_board()`), the J716s tree includes `t6050-j714s-sleep.dtsi` and describes the MagSafe's `hpm5`.
+  The display's firmware 27 sleep stays J714s-only (it is built on the 27.0 table). **Blocked on the loader:** the
+  kernel needs the SoC sleep data (commit schedule, SMC sleep policy, register sequences, `apple,seq-*`) from the boot
+  loader, and no public loader produces it (aura main fills only the wake sources and skipped pins, #214). Without
+  it the default sleep stays s2idle, so the branch is safe to boot.
+- **aura stage 2** (`/Volumes/m5pro/aura`, branch `j716s` `8609ceb6`, 8 commits on aura main `52af355c`; bundle in
+  `m5pro-linux-re/git-bundles/aura-j716s.bundle`): replaces the m1n1 stage 2 inside `boot.bin`; stage 1 stays.
+  The port table and first-boot risks are in `contrib/pending/boot-aura/PORT.md`. Built `aura-j716s.bin` and
+  `aura-j716s-nohostwait.bin` (0x3b0000); aura's host tests pass apart from the failures aura main has in the same
+  container. `mk-next-test.py` takes it with `NEXT_M1N1=PATH`; packed as `next2-aura-nohw-20261115-a5ad4dd9.bin`.
+  Brings aura #173 (clears iBoot's failed-boot count on T6050, unmaps the TZ carve-outs: candidates for the early
+  reset), no stop on a missing `sep` alias, the SIO tables and the sleep wake sources.
+
+**Test order on the machine** (each a self-reverting `boot.bin`, `boot.bin.prev` untouched):
+1. `next2-oldloader`: the rebase alone; same checks as the 2026-11-12 boot (display 120 Hz, VRR, GPU, Wi-Fi, BT,
+   sound, backlight, battery, 18 CPUs).
+2. `next2-aura-nohw`: aura without the USB window. Then read `/chosen/asahi,t6050-dcp-handoff`, the loader log
+   for "handoff refused", and check the N1 came up (aura trains it itself now).
+3. The aura image with the 4 s USB window (`aura-j716s.bin`), then the `j716s-s2r` kernel (expect s2idle only).
+
+## State on 2026-11-12, evening (before the rebase above)
 
 - Branch `j716s-next`, tip `8ab10100a4c1`, on `rolotrealanis98/linux` (public fork): `aurora-silicon/linux`
   `integration/aurora` at `34a447be54ea` plus 26 commits. The tip before the rebase (on `107b3619a1bc`, with the VRR
@@ -88,7 +122,8 @@ Current upstream plus only what upstream does not have:
 4. **Audio in userspace:** on the new card the `j716-convolver` chain is linked to `RawSpeakers` and speakersafetyd
    runs with `j716.conf` (it panicked once at its first start, `main.rs:298`, and ran on the restart). Nobody has
    listened yet (`contrib/validated/desktop/audio/j716-profile/LISTENING-TEST.md`). Does not block promotion.
-5. **Never exercised on this branch:** suspend (no RTC alarm, so it needs a person to wake it), external displays,
+5. **Never exercised on this branch:** suspend (s2idle; deep sleep is `j716s-s2r`, blocked on loader data; the
+   PMU RTC alarm is now described there, so `rtcwake` may work), external displays,
    USB4, camera, ANE, lid angle. Seen in the boot log: the two JPEG encoders probe; video decode fails for a missing
    `apple/avd-fw-v5-t2.bin`; the encoder has "no preloaded firmware"; ProRes has no init file; ALS stays off ("no ALS
    calibration named in the device tree"); only the eDP connector exists.
@@ -121,6 +156,13 @@ Current upstream plus only what upstream does not have:
   1. `t6050-j716s.dts` includes `t6050-peripherals.dtsi` last, which disables the N1's power states again.
   2. `mfd: macsmc` never registers `apple,smc-gpio` on T6050, so the N1 `pwren-gpios` never resolves (no Wi-Fi on
      upstream J716s).
+- Both upstream bugs above are still open on `integration/aurora` `07ade53fd116` (2026-11-15); our branch carries
+  the fixes.
+- Upstream in flight that touches ours: #1816 (joshuaswarren) fills the 27.3 method table too (overlaps our
+  `drm/apple: firmware 27.3` commit); aurora-silicon/m1n1#65 was asked to move to aura (the `j716s` aura branch now
+  carries the equivalent); omacom/m1n1 #33-#37 have had no review since 2026-11-10.
+- Aurora's device-support page lists J716s Touch ID, speakers, SDXC and video decoding as working from a general M5
+  statement; none of these has run on a J716s.
 - Rules: open nothing upstream without the owner asking, and first check that nobody has the same change in flight.
 
 ## Ledger rows this moves (`contrib/community/gap-map.csv`, not edited: nothing is the daily yet)
