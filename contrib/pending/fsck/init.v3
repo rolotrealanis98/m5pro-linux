@@ -1,0 +1,262 @@
+#!/bin/sh
+# omarchy-m5 bring-up init, debug variant (m5pro-linux host/macos/mk-debug-initramfs.sh).
+BB=/bin/busybox
+$BB mkdir -p /proc /sys /dev /tmp /run
+$BB mount -t proc     proc     /proc
+$BB mount -t sysfs    sysfs    /sys
+$BB mount -t devtmpfs devtmpfs /dev 2>/dev/null
+$BB mount -t tmpfs    tmpfs    /tmp
+$BB mkdir -p /dev/pts && $BB mount -t devpts devpts /dev/pts 2>/dev/null
+
+# ---- m5-wdt-opener v2 (loop-safety): only with m5.selftest=1 -----------------------------------
+# Stage 1 hands the watchdog to Linux armed (m1n1.wdt=keep, 30 s) and the kernel core feeds it until
+# userspace opens /dev/watchdog0 (watchdog.open_timeout=N on the cmdline bounds that wait). Open it
+# here, once, and pet it from a background subshell. NEVER write 'V' (magic close: it would stop
+# the dog for good). Messages go to the console AND /dev/kmsg (dmesg: "m5-wdt: ...").
+m5log() { echo "m5-wdt: $*"; echo "<5>m5-wdt: $*" > /dev/kmsg 2>/dev/null; }
+# boot_stage in the PMU scratchpad (0xf801 = 63489), the same byte m5-stage-mark.sh writes: "1" = 0x31, "2" = 0x32
+m5mark() {
+    for d in /sys/bus/nvmem/devices/*; do
+        case "$($BB ls -l $d/of_node 2>/dev/null)" in
+        *spmi@28a014000/pmic@e*) $BB echo -n "$1" | $BB dd of=$d/nvmem bs=1 seek=63489 conv=notrunc 2>/dev/null && return 0 ;;
+        esac
+    done
+    return 1
+}
+# close every open file on /dev/watchdog0 (plain close, no magic character): the petter, and anything it spawned
+m5wdt_release() {
+    [ -n "$M5WDT" ] && kill -9 $M5WDT 2>/dev/null
+    i=0
+    while [ $i -lt 30 ]; do
+        held=
+        for f in /proc/[0-9]*/fd/*; do
+            case "$($BB readlink $f 2>/dev/null)" in
+            */watchdog0) p=${f#/proc/}; p=${p%%/*}; if [ "$p" != "$$" ]; then held="$held $p"; kill -9 $p 2>/dev/null; fi ;;
+            esac
+        done
+        [ -z "$held" ] && return 0
+        i=$((i+1)); $BB sleep 0.1
+    done
+    return 1
+}
+M5WDT=; M5SELF=; M5NOWDT=
+if $BB grep -q 'm5\.selftest=1' /proc/cmdline; then
+    M5SELF=1
+    # m5.wdt=off: negative test, marks only (0x31/0x32), no opener, no drop-in, no hand-over
+    if $BB grep -q 'm5\.wdt=off' /proc/cmdline; then M5NOWDT=1; fi
+    m5log "initramfs reached, m5.selftest=1 (stage mark 0x31)"
+    ( i=0; until m5mark 1; do i=$((i+1)); [ $i -ge 100 ] && { m5log "stage mark 0x31: PMU nvmem not found"; exit 0; }; $BB sleep 0.2; done
+      m5log "stage mark 0x31 written" ) &
+    i=0; while [ -z "$M5NOWDT" ] && [ ! -c /dev/watchdog0 ] && [ $i -lt 100 ]; do $BB sleep 0.1; i=$((i+1)); done
+    if [ -n "$M5NOWDT" ]; then
+        m5log "m5.wdt=off: not opening /dev/watchdog0 (negative test)"
+    elif [ -c /dev/watchdog0 ]; then
+        ( exec 9<>/dev/watchdog0 || exit 1
+          while :; do echo . >&9; $BB sleep 10 9>&-; done ) &
+        M5WDT=$!       # always remembered: the hand-over kills it whatever the probe below says
+        i=0; until $BB ls -l /proc/$M5WDT/fd 2>/dev/null | $BB grep -q watchdog0; do
+            i=$((i+1)); [ $i -ge 30 ] && break; $BB sleep 0.1
+        done
+        # (fd 9 itself is closed while the pet loop runs its sleep, so look for any fd on the device)
+        if [ $i -lt 30 ]; then m5log "/dev/watchdog0 opened, petting every 10 s (pid $M5WDT)"
+        else m5log "WARNING: /dev/watchdog0 not seen open after 3 s (pid $M5WDT); it is still killed at the hand-over"; fi
+    else
+        m5log "no /dev/watchdog0 after 10 s; the kernel core keeps feeding it"
+    fi
+fi
+# ---- end m5-wdt-opener ---------------------------------------------------------------------------
+
+echo
+echo "================================================"
+echo " omarchy-m5: userspace is alive on T6050 (M5 Pro)  [debug initramfs]"
+echo "================================================"
+echo "kernel:  $($BB uname -a)"
+echo "cpus:    $($BB grep -c ^processor /proc/cpuinfo)"
+echo "cmdline: $($BB cat /proc/cmdline)"
+echo
+
+# USB gadget network, then an SSH server on it so a failed root mount is
+# still reachable: eem-vm.py --keep 'dmesg'  (root@10.55.0.2, key ~/.ssh/mbp)
+[ -x /usr/sbin/usb-gadget-net ] && /usr/sbin/usb-gadget-net
+/usr/sbin/dropbear -R -E -p 22 2>/tmp/dropbear.log && echo "debug: dropbear listening on the gadget link"
+
+ROOT=$($BB sed -n 's/.*\bm5\.root=\([^ ]*\).*/\1/p' /proc/cmdline)
+
+# ---- m5.root by name (v3): m5.root=PARTUUID=<guid> | LABEL=<label> | UUID=<fs uuid> | /dev/<path> (unchanged) ------
+# The GPT on this disk is renumbered when macOS or Windows tools rewrite it, so root can be named instead of numbered.
+# LABEL= and UUID= go through busybox findfs (it probes every partition in /proc/partitions; no udev needed).
+# busybox findfs/blkid know no PARTUUID, so that one is read from the GPT itself: m5_partno finds the entry whose
+# unique partition GUID matches, m5_resolve maps entry N to the kernel's partition N of the same disk.
+# m5_partno DISK RAWHEX: prints the 1-based GPT entry number whose unique GUID (raw, on-disk byte order, 32 hex digits)
+# is RAWHEX. DISK needs a primary GPT; the sector size is read from sysfs (4096 on the Apple NVMe), 512 if unknown.
+m5_partno() {
+    d=$1; w=$2; b=${d##*/}
+    ss=$($BB cat /sys/class/block/$b/queue/logical_block_size 2>/dev/null); ss=${ss:-512}
+    [ "$($BB dd if=$d bs=$ss skip=1 count=1 2>/dev/null | $BB dd bs=8 count=1 2>/dev/null)" = "EFI PART" ] || return 1
+    lba=$($BB od -An -tu4 -j $((ss + 72)) -N 4 $d 2>/dev/null | $BB tr -d ' ')
+    cnt=$($BB od -An -tu4 -j $((ss + 80)) -N 4 $d 2>/dev/null | $BB tr -d ' ')
+    esz=$($BB od -An -tu4 -j $((ss + 84)) -N 4 $d 2>/dev/null | $BB tr -d ' ')
+    [ -n "$lba" ] && [ -n "$cnt" ] && [ -n "$esz" ] && [ "$esz" -ge 128 ] && [ "$cnt" -ge 1 ] && [ "$cnt" -le 1024 ] || return 1
+    $BB dd if=$d bs=$ss skip=$lba count=$(( (cnt * esz + ss - 1) / ss )) 2>/dev/null \
+        | $BB od -An -v -tx1 | $BB tr -d ' \n' | $BB fold -w $((esz * 2)) | $BB head -n $cnt \
+        | $BB cut -c33-64 | $BB grep -n "^$w\$" | $BB sed -n '1s/:.*//p'
+}
+# m5_resolve SPEC: prints the /dev path for SPEC, returns 1 if it cannot be resolved (yet).
+m5_resolve() {
+    case "$1" in
+    PARTUUID=*)
+        # wanted GUID text -> raw on-disk bytes (the first three fields are stored little-endian)
+        w=$(echo "${1#PARTUUID=}" | $BB tr 'A-F' 'a-f' | $BB tr -d '-')
+        case "$w" in *[!0-9a-f]*|"") return 1 ;; esac
+        [ ${#w} -eq 32 ] || return 1
+        w=$(echo "$w" | $BB sed 's/^\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(..\)\(.*\)$/\4\3\2\1\6\5\8\7\9/')
+        for s in /sys/class/block/*; do
+            [ -e $s/partition ] && continue
+            case "${s##*/}" in loop*|ram*|zram*|dm-*|md*|nbd*) continue ;; esac
+            [ -b /dev/${s##*/} ] || continue
+            n=$(m5_partno /dev/${s##*/} "$w") || continue
+            [ -n "$n" ] || continue
+            for p in $s/*/partition; do
+                [ -e $p ] || continue
+                if [ "$($BB cat $p)" = "$n" ]; then q=${p%/partition}; echo /dev/${q##*/}; return 0; fi
+            done
+        done
+        return 1 ;;
+    LABEL=*|UUID=*) $BB findfs "$1" 2>/dev/null ;;
+    *) echo "$1" ;;
+    esac
+}
+M5ROOTSPEC=$ROOT
+case "$ROOT" in PARTUUID=*|LABEL=*|UUID=*) M5BYNAME=1 ;; *) M5BYNAME= ;; esac
+# ---- end m5.root by name ---------------------------------------------------------------------------------
+
+if [ -n "$ROOT" ]; then
+    # T6050 2026-11-05: the ANS (storage coprocessor) firmware sometimes needs
+    # ~3 s to come up, the RTKit transport waits 1 s and nvme-apple gives up
+    # for good ("ANS did not boot", "Reset failure status: -62"). A rebind
+    # of the driver a few seconds later succeeds, so retry every 12 s.
+    NVME=45dcc0000.nvme; DRV=/sys/bus/platform/drivers/nvme-apple
+    i=0; while [ ! -b "$ROOT" ] && [ $i -lt 300 ]; do
+        [ $((i % 100)) -eq 0 ] && echo "debug: waiting for $M5ROOTSPEC ($((i / 10)) s)"
+        # by name: try once a second (the first try is at once); the loop ends when the name maps to a block device
+        if [ -n "$M5BYNAME" ] && [ $((i % 10)) -eq 0 ]; then
+            R=$(m5_resolve "$M5ROOTSPEC")
+            if [ -n "$R" ] && [ -b "$R" ]; then
+                ROOT=$R; echo "debug: $M5ROOTSPEC is $ROOT"; echo "<5>m5-root: $M5ROOTSPEC is $ROOT" > /dev/kmsg 2>/dev/null
+                continue
+            fi
+        fi
+        if [ $i -gt 0 ] && [ $((i % 120)) -eq 0 ] && [ -d $DRV ] && $BB dmesg | $BB grep -q "ANS did not"; then
+            echo "debug: ANS did not boot in time, rebinding $NVME"
+            echo $NVME > $DRV/unbind 2>/dev/null; $BB sleep 1; echo $NVME > $DRV/bind 2>/dev/null
+        fi
+        $BB sleep 0.1; i=$((i+1))
+    done
+    if [ -b "$ROOT" ]; then
+        echo "debug: $ROOT appeared after $((i / 10)) s"
+        # Root file system check before the mount, as distros do at boot: "e2fsck -p" repairs what is safe to repair
+        # unattended and returns at once on a clean file system. m5.fsck=force: one full "-fy" pass. m5.nofsck skips it.
+        # Bounded to 10 minutes; the result is copied to /var/log/m5-fsck.log once the root is mounted.
+        if ! $BB grep -qw m5.nofsck /proc/cmdline && [ -x /sbin/e2fsck ]; then
+            FSCKOPT=-p; $BB grep -qw m5.fsck=force /proc/cmdline && FSCKOPT="-f -y"
+            echo "fsck: e2fsck $FSCKOPT $ROOT"
+            $BB timeout 600 /sbin/e2fsck $FSCKOPT "$ROOT" > /run/m5-fsck.log 2>&1; FSCKRC=$?
+            echo "fsck: rc=$FSCKRC (0 clean, 1 repaired, 4 needs a manual run)"; $BB tail -3 /run/m5-fsck.log
+            echo "rc=$FSCKRC opts=$FSCKOPT" >> /run/m5-fsck.log
+        fi
+        if $BB mount -t ext4 -o noatime "$ROOT" /mnt 2>/dev/null; then
+            [ -f /run/m5-fsck.log ] && { $BB mkdir -p /mnt/var/log; $BB cp /run/m5-fsck.log /mnt/var/log/m5-fsck.log; }
+            if $BB grep -q "m5.selftest=1" /proc/cmdline; then
+                echo "selftest: installing the self-revert watchdog into the root (90 s, reverts to boot.bin.prev without network)"
+                $BB mkdir -p /mnt/usr/local/sbin /mnt/etc/systemd/system/multi-user.target.wants
+                $BB cat > /mnt/usr/local/sbin/m5-selftest <<'SFT'
+#!/bin/bash
+# m5pro-linux self-revert: a payload booted with m5.selftest=1 must reach the network
+# within 90 s, or it is replaced by boot.bin.prev and the machine reboots.
+sleep 90
+if ip route get 1.1.1.1 >/dev/null 2>&1 && ping -c1 -W3 1.1.1.1 >/dev/null 2>&1; then
+    logger -t m5-selftest "network OK, keeping this payload"; exit 0
+fi
+mountpoint -q /boot || mount /dev/nvme0n1p4 /boot
+G=/boot/r1-logs/.reverted-once
+if [ -e "$G" ]; then
+    logger -t m5-selftest "network down again after a revert: NOT reverting a second time (guard $G); staying up for inspection"
+    D=/boot/r1-logs/selftest-$(date +%Y%m%d-%H%M)-noloop; mkdir -p "$D"; dmesg > "$D/dmesg.txt"; ip -br link > "$D/links.txt"; sync; exit 0
+fi
+touch "$G"
+D=/boot/r1-logs/selftest-$(date +%Y%m%d-%H%M); mkdir -p "$D"
+dmesg > "$D/dmesg.txt"; journalctl -b --no-pager > "$D/journal.txt" 2>&1; ip -br link > "$D/links.txt"
+ls /sys/bus/usb/devices > "$D/usb-devices.txt" 2>&1; cat /proc/cmdline > "$D/cmdline.txt"
+sha256sum /boot/m1n1/boot.bin > "$D/boot.bin.failed.sha256" 2>/dev/null
+cp /boot/m1n1/boot.bin.prev /boot/m1n1/boot.bin && sync && echo "reverted to boot.bin.prev" > "$D/REVERTED"
+sync; systemctl reboot
+SFT
+                $BB chmod 755 /mnt/usr/local/sbin/m5-selftest
+                $BB cat > /mnt/etc/systemd/system/m5-selftest.service <<'SFT'
+[Unit]
+Description=m5pro-linux self-reverting test boot
+ConditionKernelCommandLine=m5.selftest=1
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/m5-selftest
+[Install]
+WantedBy=multi-user.target
+SFT
+                $BB ln -sf /etc/systemd/system/m5-selftest.service /mnt/etc/systemd/system/multi-user.target.wants/m5-selftest.service
+            fi
+            $BB killall dropbear 2>/dev/null
+            if [ -n "$M5SELF" ] && [ -n "$M5NOWDT" ]; then
+                ( m5mark 2 ) &
+                $BB sleep 0.3
+            elif [ -n "$M5SELF" ]; then
+                # m5-wdt-opener: hand the watchdog to the root's systemd (single-open device: close first).
+                if $BB grep -qsE '^[[:space:]]*RuntimeWatchdogSec=[1-9]' /mnt/etc/systemd/system.conf /mnt/etc/systemd/system.conf.d/*.conf /mnt/usr/lib/systemd/system.conf.d/*.conf 2>/dev/null; then
+                    m5log "root already sets RuntimeWatchdogSec"
+                else
+                    $BB mkdir -p /mnt/etc/systemd/system.conf.d
+                    $BB cat > /mnt/etc/systemd/system.conf.d/m5pro-watchdog.conf <<'WDT'
+[Manager]
+RuntimeWatchdogSec=60
+RebootWatchdogSec=5min
+WDT
+                    if $BB grep -qs '^RuntimeWatchdogSec=60' /mnt/etc/systemd/system.conf.d/m5pro-watchdog.conf; then
+                        $BB sync; m5log "installed /etc/systemd/system.conf.d/m5pro-watchdog.conf"
+                    else
+                        m5log "WARNING: could not write m5pro-watchdog.conf: systemd will not open the watchdog, it will bite ~30 s after switch_root"
+                    fi
+                fi
+                if m5wdt_release; then m5log "/dev/watchdog0 released (no magic character), nobody holds it; systemd opens it next"
+                else m5log "WARNING: /dev/watchdog0 still held after 3 s"; fi
+                M5WDT=
+                ( m5mark 2 ) &
+                $BB sleep 0.3
+            fi
+            $BB umount /dev/pts 2>/dev/null
+            $BB umount /proc /sys /dev /tmp 2>/dev/null
+            exec $BB switch_root /mnt /sbin/init
+        fi
+        echo "debug: mount of $ROOT failed"
+    fi
+    echo "m5.root=$M5ROOTSPEC did not mount after 30 s; staying in initramfs (sshd up)"
+    $BB dmesg > /tmp/dmesg.txt 2>/dev/null
+    echo "================ DIAG: drivers bound ================"
+    $BB ls /sys/bus/platform/drivers | $BB tr '\n' ' ' | $BB fold -w 150
+    echo
+    echo "================ DIAG: nvme/sart/smc/mailbox/rtkit/deferred ================"
+    $BB dmesg | $BB grep -iE "nvme|sart|smc|mailbox|rtkit|ans|dockchannel|deferred|probe .*fail|error -[0-9]" | $BB grep -vE "pmgr|Failed to reach power|syslog message" | $BB tail -42
+    echo "================ DIAG: devices without driver (platform) ================"
+    for d in /sys/bus/platform/devices/*nvme* /sys/bus/platform/devices/*smc* /sys/bus/platform/devices/*sart* /sys/bus/platform/devices/*mtp* /sys/bus/platform/devices/*input*; do [ -e "$d" ] && echo "$d -> $($BB readlink $d/driver 2>/dev/null || echo NO-DRIVER)"; done
+    echo "================ END DIAG (photograph) ================"
+fi
+if [ -n "$M5WDT" ]; then
+    # m5-wdt-opener: still in the initramfs (root did not mount). Bounded, so the loop can recover.
+    GRACE=$($BB sed -n 's/.*\bm5\.wdt_diag=\([0-9][0-9]*\).*/\1/p' /proc/cmdline); GRACE=${GRACE:-600}
+    if [ "$GRACE" -gt 0 ]; then
+        m5log "no root: petting stops in $GRACE s, then the watchdog resets the machine (stage-1 fallback). m5.wdt_diag=0 pets forever"
+        ( $BB sleep $GRACE; kill -9 $M5WDT ) &
+    else
+        m5log "no root: m5.wdt_diag=0, petting forever"
+    fi
+fi
+exec $BB sh

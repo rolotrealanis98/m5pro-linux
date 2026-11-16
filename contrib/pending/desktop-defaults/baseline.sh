@@ -1,0 +1,30 @@
+#!/bin/sh
+# Read-only baseline of the desktop settings on the J716s: turns the "unknown" rows of the 2026-11-16 gap hunt
+# into facts. Changes nothing. Run as root; prints to stdout (redirect to a file).
+#   ssh root@MBP 'sh -s' < baseline.sh > baseline-$(date +%Y%m%d).txt
+s() { echo; echo "### $*"; sh -c "$*" 2>&1 | head -60; }
+s 'uname -r; cat /proc/cmdline'
+s 'cat /proc/sys/kernel/tainted; dmesg | grep -iE "taint|verification failed" | head'
+s 'systemd-analyze; systemd-analyze blame | head -15'
+s 'systemctl --failed --no-legend'
+s 'lsblk -D; cat /sys/block/nvme0n1/queue/discard_max_bytes'
+s 'systemctl is-enabled fstrim.timer systemd-oomd zram-generator 2>&1; swapon --show; zramctl'
+s 'findmnt /boot; findmnt -t autofs; grep -v "^#" /etc/fstab'
+s 'journalctl --disk-usage'
+s 'pacman -Q wireless-regdb zram-generator hypridle hyprlock brightnessctl power-profiles-daemon tuned earlyoom 2>&1'
+s 'iw reg get; dmesg | grep -i regulatory | head -5'
+s 'iw dev; for d in $(iw dev | awk "/Interface/{print \$2}"); do iw dev $d get power_save; iw dev $d link; done'
+s 'bluetoothctl show; bluetoothctl devices'
+s 'ls /sys/class/backlight /sys/class/leds; for b in /sys/class/backlight/* /sys/class/leds/*kbd*; do echo "$b $(cat $b/brightness)/$(cat $b/max_brightness)"; done'
+s 'ls /sys/bus/iio/devices/ 2>/dev/null; for d in /sys/bus/iio/devices/*; do echo "$d $(cat $d/name)"; done'
+s 'cat /sys/firmware/acpi/platform_profile 2>/dev/null; ls /sys/class/platform-profile/ 2>/dev/null; for p in /sys/class/platform-profile/*; do cat $p/name $p/profile $p/choices; done'
+s 'for p in /sys/class/power_supply/*; do echo "== $p"; grep -H . $p/{type,online,status,capacity,charge_control_end_threshold,charge_behaviour,cycle_count,power_now} 2>/dev/null; done'
+s 'cat /sys/devices/system/cpu/cpuidle/current_governor* ; ls /sys/devices/system/cpu/cpu0/cpuidle/'
+s 'for p in /sys/devices/system/cpu/cpufreq/policy*; do echo "$p $(cat $p/scaling_governor) $(cat $p/scaling_cur_freq) $(cat $p/scaling_available_frequencies 2>/dev/null | wc -w)"; done'
+s 'cat /sys/kernel/mm/transparent_hugepage/enabled; cat /sys/kernel/mm/lru_gen/enabled 2>/dev/null; ls /proc/pressure 2>/dev/null'
+s 'sysctl net.core.default_qdisc kernel.sched_util_clamp_min_rt_default vm.swappiness 2>&1'
+s 'pgrep -a hypridle; pgrep -a hyprlock; pgrep -af screensaver; ls -l /home/*/.config/hypr/hypridle.conf; grep -n "hypridle" /home/*/.config/hypr/*.conf /home/*/.config/hypr/*.lua 2>/dev/null'
+s 'loginctl; systemd-inhibit --list --no-pager; ls /etc/systemd/sleep.conf.d /etc/systemd/logind.conf.d 2>&1; cat /sys/power/mem_sleep /sys/power/state'
+s 'lspci -vv 2>/dev/null | grep -E "^[0-9a-f]|ASPM|LnkSta:" | head -40'
+s 'perf stat -a -e cycles,instructions sleep 1 2>&1 | tail -6'
+s 'cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io 2>/dev/null'
