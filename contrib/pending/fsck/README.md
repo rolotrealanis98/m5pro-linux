@@ -4,7 +4,7 @@ The bring-up initramfs (`initramfs-ftab-wdt2`, Alpine/musl) mounted `m5.root` di
 ext4 errors logged since 2026-11-08 ("mounting fs with errors, running e2fsck is recommended", online resize refused)
 were never repaired.
 
-`init` here adds, before the mount:
+`init` here (the final init of the five-archive initramfs; v1 kept only the first archive and is not to be used) adds, before the mount:
 - `e2fsck -p` (preen) every boot, as distros do: instant on a clean file system, repairs what is safe unattended.
 - `m5.fsck=force` on the command line: one `e2fsck -f -y` pass. `m5.nofsck` skips the check.
 - Bounded by `timeout 600`; the result goes to `/var/log/m5-fsck.log` (exit code: 0 clean, 1 repaired, 4 needs a manual run).
