@@ -1,0 +1,122 @@
+--- a/ImagePicker.qml
++++ b/ImagePicker.qml
+@@ -61,6 +61,12 @@
+   property int sliceHeight: 432
+   property int sliceSpacing: -30
+   property int skewOffset: 28
++  // The shell runs on Qt's software renderer while QT_QUICK_BACKEND=software is set
++  // (the GPU-fault stopgap on this machine). That renderer cannot draw ShaderEffects,
++  // so the MultiEffect mask a card is cut with would leave every preview blank.
++  // With it set, a card is cut to its parallelogram by a sheared clip instead;
++  // on a GPU backend the original mask is used unchanged.
++  readonly property bool softwareRender: String(Quickshell.env("QT_QUICK_BACKEND") || "").indexOf("software") === 0
+   property int bottomChromeHeight: showLabels ? (filterable ? 104 : 74) : (filterable ? 60 : 30)
+   // Render only what fits on this display, plus one prefetch slice per side.
+   readonly property int previewRadius: Math.max(1, Math.min(16, Math.ceil((panel.width - expandedWidth) / (2 * (sliceWidth + sliceSpacing))) + 1))
+@@ -768,10 +774,11 @@
+                 id: maskShape
+                 anchors.fill: parent
+                 visible: false
+-                layer.enabled: true
++                layer.enabled: !root.softwareRender
+ 
+                 Shape {
+                   anchors.fill: parent
++                  visible: !root.softwareRender
+                   antialiasing: true
+                   preferredRendererType: Shape.CurveRenderer
+                   ShapePath {
+@@ -786,9 +793,25 @@
+                 }
+               }
+ 
++              // The card face. On a GPU backend the MultiEffect masks it to the
++              // parallelogram. On the software renderer it is a rectangle sheared
++              // into the parallelogram and clipped; its content carries the
++              // opposite shear, so the picture itself stays straight.
+               Item {
+-                anchors.fill: parent
+-                layer.enabled: true
++                id: face
++                readonly property real shear: (item.bottomLeft - item.topLeft) / Math.max(1, item.height)
++                x: 0
++                y: 0
++                width: root.softwareRender ? item.width - item.skAbs : item.width
++                height: item.height
++                clip: root.softwareRender
++                transform: Matrix4x4 {
++                  matrix: Qt.matrix4x4(1, root.softwareRender ? face.shear : 0, 0, root.softwareRender ? item.topLeft : 0,
++                                       0, 1, 0, 0,
++                                       0, 0, 1, 0,
++                                       0, 0, 0, 1)
++                }
++                layer.enabled: !root.softwareRender
+                 layer.smooth: true
+                 layer.effect: MultiEffect {
+                   maskEnabled: true
+@@ -797,31 +820,42 @@
+                   maskSpreadAtMin: 0.3
+                 }
+ 
+-                Rectangle { anchors.fill: parent; color: root.dimColor }
++                Item {
++                  width: item.width
++                  height: item.height
++                  transform: Matrix4x4 {
++                    matrix: Qt.matrix4x4(1, root.softwareRender ? -face.shear : 0, 0, root.softwareRender ? -item.topLeft : 0,
++                                         0, 1, 0, 0,
++                                         0, 0, 1, 0,
++                                         0, 0, 0, 1)
++                  }
+ 
+-                Image {
+-                  id: image
+-                  anchors.fill: parent
+-                  // Decode at the expanded card's physical size, off the GUI
+-                  // thread. Keep that size during navigation to avoid reloads.
+-                  // Departing cards release their images instead of retaining
+-                  // every preview visited in a large collection.
+-                  // Queue the selected preview first; neighbors must not delay
+-                  // the image the user opened the picker to see.
+-                  source: previewHold.held && (item.selected || root.neighborImagesEnabled) && item.thumbnailPath ? Util.fileUrl(item.thumbnailPath) : ""
+-                  sourceSize.width: Math.ceil(root.expandedWidth * Screen.devicePixelRatio)
+-                  sourceSize.height: Math.ceil(root.expandedHeight * Screen.devicePixelRatio)
+-                  fillMode: Image.PreserveAspectCrop
+-                  asynchronous: true
+-                  cache: false
+-                  smooth: true
+-                  opacity: status === Image.Ready ? 1 : 0
+-                  onStatusChanged: if (item.selected && (status === Image.Ready || status === Image.Error)) root.neighborImagesEnabled = true
+-                }
++                  Rectangle { anchors.fill: parent; color: root.dimColor }
+ 
+-                Rectangle {
+-                  anchors.fill: parent
+-                  color: Util.alpha(root.dimColor, item.selected ? 0 : 0.42)
++                  Image {
++                    id: image
++                    anchors.fill: parent
++                    // Decode at the expanded card's physical size, off the GUI
++                    // thread. Keep that size during navigation to avoid reloads.
++                    // Departing cards release their images instead of retaining
++                    // every preview visited in a large collection.
++                    // Queue the selected preview first; neighbors must not delay
++                    // the image the user opened the picker to see.
++                    source: previewHold.held && (item.selected || root.neighborImagesEnabled) && item.thumbnailPath ? Util.fileUrl(item.thumbnailPath) : ""
++                    sourceSize.width: Math.ceil(root.expandedWidth * Screen.devicePixelRatio)
++                    sourceSize.height: Math.ceil(root.expandedHeight * Screen.devicePixelRatio)
++                    fillMode: Image.PreserveAspectCrop
++                    asynchronous: true
++                    cache: false
++                    smooth: true
++                    opacity: status === Image.Ready ? 1 : 0
++                    onStatusChanged: if (item.selected && (status === Image.Ready || status === Image.Error)) root.neighborImagesEnabled = true
++                  }
++
++                  Rectangle {
++                    anchors.fill: parent
++                    color: Util.alpha(root.dimColor, item.selected ? 0 : 0.42)
++                  }
+                 }
+               }
+ 
