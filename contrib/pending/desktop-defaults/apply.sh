@@ -36,7 +36,7 @@ say "packages (wireless-regdb: Wi-Fi regulatory database; zram-generator: compre
 pacman -S --needed --noconfirm wireless-regdb zram-generator
 
 say "sysctl, journald, zram"
-sysctl --system >/dev/null
+sysctl --system >/dev/null 2>&1 || echo "   some sysctl keys are not in this kernel (fq/bbr: next6 and later); the rest are set"
 systemctl restart systemd-journald
 systemctl daemon-reload
 systemctl start systemd-zram-setup@zram0.service || echo "   zram setup failed (see journalctl -u systemd-zram-setup@zram0)"
@@ -48,13 +48,29 @@ if [ "$(cat /sys/block/nvme0n1/queue/discard_max_bytes)" != 0 ]; then systemctl 
 say "systemd-oomd (needs CONFIG_PSI: next6 and later)"
 if [ -e /proc/pressure/memory ]; then systemctl enable --now systemd-oomd.service; else echo "   no /proc/pressure: left off"; fi
 
-say "hypridle for $U"
+say "idle for $U: Omarchy's shell does it (no hypridle): screensaver off, lock at 5 min, panel off 5 s after the lock"
+# The shell's idle service (plugins/services/idle) reads idle.screensaver / idle.lock (seconds, 0 = off) from
+# shell.json and reloads it by itself; the lock screen blanks the panel 5 s after locking
+# (omarchy-brightness-display off = hl.dsp.dpms disable, DCP cycle checked 2026-11-16). The screensaver
+# (alacritty + ttfx at 120 fps) cost ~7700 IPIs/s on next4, so it goes; turn it back on in shell.json.
 H=$(getent passwd "$U" | cut -d: -f6)
-C=$H/.config/hypr/hypridle.conf
-[ -f "$C" ] && [ ! -f "$C.before-m5pro" ] && cp -p "$C" "$C.before-m5pro"
-install -Dm644 -o "$U" -g "$U" files/user/hypr/hypridle.conf "$C"
-echo "   $C (old copy: $C.before-m5pro). hypridle must be started by the compositor: check with 'pgrep -a hypridle'"
-pgrep -a hypridle || echo "   hypridle is NOT running (queue item 8: find which autostart line is missing)"
+SJ=$H/.config/omarchy/shell.json
+if [ -f "$SJ" ]; then
+  [ -f "$SJ.before-m5pro-idle" ] || cp -p "$SJ" "$SJ.before-m5pro-idle"
+  python3 - "$SJ" <<'EOF'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+idle = d.setdefault("idle", {})
+idle["screensaver"] = 0
+idle.setdefault("lock", 300)
+open(p, "w").write(json.dumps(d, indent=2) + "\n")
+print("   idle:", json.dumps(idle))
+EOF
+  chown "$U:$U" "$SJ"
+else
+  echo "   $SJ missing: idle left alone"
+fi
 pkill -f org.omarchy.screensaver 2>/dev/null || true
 
 say "menu rows: System > Battery charge limit (user menu extension, backup .before-m5pro-battery)"
@@ -76,6 +92,14 @@ EOF
   chown "$U:$U" "$MENU"; echo "   added; Quickshell reloads the file by itself"
 fi
 
-say "regulatory database"
-iw reg reload 2>/dev/null || true; iw reg get | head -3
+say "regulatory database + country (m5pro-regdom.service; country from /etc/conf.d/wireless-regdom)"
+if ! grep -q '^WIRELESS_REGDOM=' /etc/conf.d/wireless-regdom 2>/dev/null; then
+  echo 'WIRELESS_REGDOM="US"' >> /etc/conf.d/wireless-regdom; echo "   country set to US (change it in /etc/conf.d/wireless-regdom)"
+fi
+systemctl daemon-reload; systemctl enable m5pro-regdom.service; systemctl restart m5pro-regdom.service
+iw reg get | sed -n 2p
+
+say "root fs: drop x-systemd.growfs (systemd-growfs-root failed on every boot; the partition is already full size)"
+if grep -q 'x-systemd.growfs' /etc/fstab; then cp -p /etc/fstab /etc/fstab.before-m5pro-growfs; sed -i 's/,x-systemd\.growfs//; s/x-systemd\.growfs,//' /etc/fstab; systemctl daemon-reload; systemctl reset-failed systemd-growfs-root.service 2>/dev/null || true; fi
+grep -E '\s/\s' /etc/fstab
 say "done; lid setting takes effect at the next boot"

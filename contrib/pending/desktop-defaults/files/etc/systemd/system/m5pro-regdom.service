@@ -1,0 +1,17 @@
+[Unit]
+# cfg80211 is built into the J716s kernel, so it looks for regulatory.db before the root file system is mounted
+# ("failed to load regulatory.db") and Wi-Fi stays on the restrictive world domain 00. Reload it once the root file
+# system is up and set the country from /etc/conf.d/wireless-regdom. With US the Wi-Fi firmware also lists its
+# 6 GHz channels (0 on domain 00, 59 on US: checked 2026-11-16).
+Description=Wi-Fi regulatory database and country (m5pro)
+After=local-fs.target
+Before=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/iw reg reload
+ExecStart=/bin/sh -c '. /etc/conf.d/wireless-regdom 2>/dev/null; [ -z "$WIRELESS_REGDOM" ] || exec /usr/bin/iw reg set "$WIRELESS_REGDOM"'
+
+[Install]
+WantedBy=multi-user.target
