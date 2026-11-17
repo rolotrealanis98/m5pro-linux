@@ -37,3 +37,10 @@ Use `d4ad4a4d` or later; do not pin the two topic commits.
   `integration/aurora`, is the kernel this Mesa matches.
 - Not built, not run: nothing here has touched the MacBook, and the M5 Pro contract is "admitted", which the source
   itself says "is not a declaration of a complete or conformant device path".
+
+## Update 2026-11-17 (gpu-mesa-aurora-1)
+
+`PKGBUILD` here is alarm-aurora's recipe (main `580027d3a57f`) with only `pkgver`/`_commit` moved to aurora-wip `db928e79933d`,
+the commit tested on the J716s (G17S): `/opt/mesa-aurora-20261117`, native GL about 1.8x glmark2 vs zink, no GPU faults. `build-container.sh`
+builds the same tree on the Studio (needs makepkg's -O2; plain meson without CFLAGS is -O0). Results:
+`/Volumes/m5pro/bench/requests/gpu-mesa-aurora-1.md`. Installed side by side only; the session still runs `/opt/mesa-aurora`.
