@@ -236,7 +236,7 @@ def op_window(pid=None):
     clients = hypr_json('clients') or []
     for c in clients:
         cls = (c.get('class') or c.get('initialClass') or '').lower()
-        if '1password' in cls and is_op_pid(c.get('pid')) and c.get('mapped', True) and not c.get('hidden', False):
+        if ('1password' in cls or 'onepassword' in cls) and is_op_pid(c.get('pid')) and c.get('mapped', True) and not c.get('hidden', False):
             return c
     return None
 
