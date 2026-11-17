@@ -51,7 +51,12 @@ Omarchy theme. It is summoned with `omarchy-shell shell summon m5pro.touchid` (a
   (`auth_self_keep`) with `pkcheck --process <its pid>`, *before* claiming the reader, so Omarchy's
   polkit dialog can take a touch of an enrolled finger (once fprintd holds the reader for the
   enrolment, pam_fprintd could not use it and the dialog would fall back to the password). Then it
-  claims the reader and enrols. Touch ID's first `enroll-stage-passed` is fprintd's duplicate check and
+  claims the reader and enrols, on a D-Bus connection opened after the dialog: fprintd broadcasts
+  its Verify/EnrollStatus signals, and on the shared connection the dialog's own `verify-match`
+  was queued and then ended the enrolment 13 ms after it started (first owner test, 11:27). The
+  helper also ignores any signal that is not its own kind or arrives before its Start returned.
+  Its diagnostics go to the shell's journal (`journalctl --user _COMM=quickshell | grep m5pro-touchid`).
+  Touch ID's first `enroll-stage-passed` is fprintd's duplicate check and
   is not counted. A ring fills per accepted touch (paced for ~14), retries say why
   (not centered, too fast, lift). At the end the finger can be named.
 - *Test*: `VerifyStart(<finger>)`. Aurora's patch 0011 reports a touch of a different enrolled finger

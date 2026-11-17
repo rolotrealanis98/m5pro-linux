@@ -65,8 +65,11 @@ REARM_MODULES = ('/usr/lib/security/pam_aurora_touchid.so', '/usr/lib64/security
 
 
 def emit(**fields):
-    sys.stdout.write(json.dumps(fields) + '\n')
+    line = json.dumps(fields)
+    sys.stdout.write(line + '\n')
     sys.stdout.flush()
+    if fields.get('event') != 'status' or 'result' in fields:
+        log(line)
 
 
 def labels_path():
@@ -118,9 +121,25 @@ def short_error(error):
     return message
 
 
+def log(message):
+    """Diagnostics on stderr; the panel forwards them to the shell's journal."""
+    sys.stderr.write(f'm5pro-touchid[{os.getpid()}]: {message}\n')
+    sys.stderr.flush()
+
+
 class Reader:
-    def __init__(self):
-        self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+    def __init__(self, fresh=False):
+        if fresh:
+            # A connection of its own. fprintd broadcasts its Verify/EnrollStatus signals, so the
+            # shared connection queues the ones pam_fprintd's verify for the polkit dialog caused
+            # while pkcheck ran; dispatched later, they read as this session's result
+            # (2026-11-17 11:27: a verify-match ended the enrolment 13 ms after EnrollStart).
+            address = Gio.dbus_address_get_for_bus_sync(Gio.BusType.SYSTEM, None)
+            self.bus = Gio.DBusConnection.new_for_address_sync(
+                address, Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
+                | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+        else:
+            self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
         manager = Gio.DBusProxy.new_sync(self.bus, Gio.DBusProxyFlags.NONE, None, BUS, MANAGER,
                                          'net.reactivated.Fprint.Manager', None)
         path = manager.call_sync('GetDefaultDevice', None, Gio.DBusCallFlags.NONE, 10000, None).unpack()[0]
@@ -155,9 +174,9 @@ class Reader:
                 pass
 
 
-def open_reader():
+def open_reader(fresh=False):
     try:
-        return Reader(), None
+        return Reader(fresh), None
     except GLib.Error as error:
         name = dbus_error_name(error)
         if name.endswith('NoSuchDevice'):
@@ -274,6 +293,11 @@ class Session:
 
     def on_signal(self, proxy, sender, name, params):
         args = params.unpack()
+        log(f'{self.kind}: signal {name}{tuple(args)} started={self.started}')
+        # Only this session's own signals, and only once its Start has returned: fprintd
+        # broadcasts them, so anyone else's verify on this reader reaches us too.
+        if not self.started or not name.startswith(self.kind):
+            return
         if name == 'VerifyFingerSelected':
             emit(event='finger', finger=args[0])
             return
@@ -339,6 +363,11 @@ def cmd_enroll(argv):
     if not authorize('enroll'):
         emit(event='finished', ok=False, result='denied')
         return 1
+    # A fresh connection, so nothing queued during the polkit dialog reaches the session.
+    reader, problem = open_reader(fresh=True)
+    if reader is None:
+        emit(event='finished', ok=False, result=problem[0], error=problem[1])
+        return 1
     return Session(reader, 'Enroll', finger, ENROLL_TIMEOUT_S).run()
 
 
@@ -367,6 +396,10 @@ def cmd_delete(argv):
         return 1
     if not authorize('delete'):
         emit(event='finished', ok=False, result='denied')
+        return 1
+    reader, problem = open_reader(fresh=True)
+    if reader is None:
+        emit(event='finished', ok=False, result=problem[0], error=problem[1])
         return 1
     try:
         reader.claim()

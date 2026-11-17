@@ -405,7 +405,9 @@ Item {
   Process {
     id: opProc
     stdout: SplitParser { onRead: function(line) { root.onOpLine(line) } }
-    onExited: function(exitCode, exitStatus) { root.onOpExited(exitCode) }
+    // The helper's diagnostics go to the shell's journal (journalctl --user -t omarchy-shell / _COMM=quickshell).
+    stderr: SplitParser { onRead: function(line) { console.log(line) } }
+    onExited: function(exitCode, exitStatus) { console.log("m5pro-touchid exited " + exitCode); root.onOpExited(exitCode) }
   }
 
   Timer { id: flashTimer; interval: 260; onTriggered: root.touchFlash = false }
