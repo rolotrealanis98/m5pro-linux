@@ -1,0 +1,14 @@
+[Unit]
+Description=Automatically adjust brightness (ambient light -> panel and keyboard backlight)
+After=graphical-session.target
+PartOf=graphical-session.target
+ConditionPathExists=/sys/class/backlight/apple-panel-bl
+
+[Service]
+ExecStart=%h/.local/bin/m5pro-auto-brightness run
+Restart=on-failure
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=graphical-session.target

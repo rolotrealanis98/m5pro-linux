@@ -1,0 +1,4 @@
+  // Automatically adjust brightness (m5pro-linux contrib/omarchy-mac/auto-brightness): panel and keyboard backlight follow the
+  // ambient light sensor; manual brightness keys are learned, not fought. Row shows a check mark while it is on.
+  "system.auto-brightness": {"icon":"󰃠","label":"Automatically adjust brightness","aliases":["auto brightness","ambient light","adaptive brightness"],"description":"Screen and keyboard light follow the room light","checked":"systemctl --user is-active --quiet m5pro-auto-brightness.service","action":"m5pro-auto-brightness toggle"},
+  "system.auto-brightness-reset": {"icon":"󰑓","label":"Reset learned brightness","description":"Forget your manual adjustments","action":"m5pro-auto-brightness reset"}

@@ -1,0 +1,393 @@
+#!/usr/bin/env python3
+"""m5pro-auto-brightness: macOS-style "Automatically adjust brightness" for the J716s.
+
+Panel backlight (apple-panel-bl) and keyboard backlight (kbd_backlight) follow the ambient light sensor
+(aop_als, IIO in_illuminance_input). A manual change (brightness keys, slider) is learned as a multiplier
+on the curve, so it shifts the curve instead of being fought. Paused while the panel is off or locked.
+
+  m5pro-auto-brightness on|off|toggle|status|reset|run [--dry-run]
+"""
+import glob, json, math, os, subprocess, sys, time, tomllib, signal
+
+HOME = os.path.expanduser("~")
+CONF = os.path.join(os.environ.get("XDG_CONFIG_HOME", HOME + "/.config"), "m5pro-auto-brightness/config.toml")
+STATE = os.path.join(os.environ.get("XDG_STATE_HOME", HOME + "/.local/state"), "m5pro-auto-brightness/state.json")
+RUNDIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "m5pro-auto-brightness")
+UNIT = "m5pro-auto-brightness.service"
+
+DEFAULTS = {
+    "poll_s": 0.5,             # loop period
+    "tau_up_s": 5.0,           # lux smoothing when it gets brighter
+    "tau_down_s": 12.0,        # ... when it gets darker (slower: passing shadows do nothing)
+    "deadband_pct": 3.0,       # ignore target changes smaller than this (panel percent points)
+    "ramp_pct_per_s": 3.0,     # panel ramp speed
+    "min_pct": 3.0,            # never below this (after learning)
+    "max_pct": 100.0,
+    "ratio_min": 0.15,         # learned multiplier limits
+    "ratio_max": 4.0,
+    "learn": True,             # false: never learn, manual changes are simply overwritten when lux moves
+    "settle_s": 2.0,           # a manual change counts after the value is still this long
+    "grace_s": 6.0,            # after wake/unlock: no learning, no writes (the shell restores levels itself)
+    # lux -> panel percent. Interpolated against log(lux+1). Conservative: bright enough for a lit room.
+    "curve": [[0, 22], [3, 28], [10, 34], [30, 44], [100, 60], [300, 75], [1000, 90], [3000, 100]],
+    "kbd_on_below_lux": 15.0,  # keyboard light turns on below this ...
+    "kbd_off_above_lux": 50.0, # ... and off above this (hysteresis)
+    "kbd_level_pct": 35.0,     # default level when on (learned from manual changes)
+    "kbd_fade_s": 1.5,
+}
+
+
+def log(*a):
+    print(*a, flush=True)
+
+
+def load_conf():
+    c = dict(DEFAULTS)
+    try:
+        with open(CONF, "rb") as f:
+            c.update(tomllib.load(f))
+    except FileNotFoundError:
+        pass
+    return c
+
+
+def rd(path):
+    with open(path) as f:
+        return f.read().strip()
+
+
+def find_als():
+    for d in sorted(glob.glob("/sys/bus/iio/devices/iio:device*")):
+        try:
+            if rd(d + "/name").endswith("als") and os.path.exists(d + "/in_illuminance_input"):
+                return d + "/in_illuminance_input"
+        except OSError:
+            pass
+    return None
+
+
+def hypr_env():
+    base = "/run/user/%d/hypr" % os.getuid()
+    try:
+        sigs = sorted(glob.glob(base + "/*"), key=os.path.getmtime)
+    except OSError:
+        sigs = []
+    env = dict(os.environ)
+    if sigs:
+        env["HYPRLAND_INSTANCE_SIGNATURE"] = os.path.basename(sigs[-1])
+    env.setdefault("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
+    return env
+
+
+def screen_awake():
+    """True when a panel is lit and the session is not locked. Unknown counts as awake."""
+    if os.environ.get("M5PRO_AB_NOPAUSE"):   # testing only
+        return True
+    env = hypr_env()
+    try:
+        out = subprocess.run(["hyprctl", "-j", "monitors"], env=env, capture_output=True, text=True, timeout=3)
+        mons = json.loads(out.stdout)
+    except Exception:
+        return True
+    lit = [m for m in mons if not m.get("disabled")]
+    if lit and not any(m.get("dpmsStatus", True) for m in lit):
+        return False
+    for m in lit:
+        if "LOCK" in (m.get("solitaryBlockedBy") or []):
+            return False
+    return True
+
+
+class Dev:
+    def __init__(self, cls, name):
+        self.p = "/sys/class/%s/%s" % (cls, name)
+        self.name = name
+        self.max = int(rd(self.p + "/max_brightness"))
+
+    def get(self):
+        return int(rd(self.p + "/brightness"))
+
+    def set(self, raw):
+        raw = max(0, min(self.max, int(round(raw))))
+        subprocess.run(["brightnessctl", "-q", "-d", self.name, "set", str(raw)], check=True, timeout=5,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return self.get()
+
+
+def curve_pct(curve, lux):
+    x = math.log(max(lux, 0.0) + 1.0)
+    pts = [(math.log(l + 1.0), p) for l, p in curve]
+    if x <= pts[0][0]:
+        return pts[0][1]
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        if x <= x1:
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+    return pts[-1][1]
+
+
+def load_state():
+    try:
+        with open(STATE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_state(st):
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(st, f)
+    os.replace(tmp, STATE)
+
+
+def run(dry):
+    c = load_conf()
+    als = find_als()
+    if not als:
+        log("no ambient light sensor (is aop_als loaded?)")
+        return 1
+    panel = Dev("backlight", "apple-panel-bl")
+    try:
+        kbd = Dev("leds", "kbd_backlight")
+    except OSError:
+        kbd = None
+    st = load_state()
+    ratio = float(st.get("ratio", 1.0))
+    kbd_pct = float(st.get("kbd_level_pct", c["kbd_level_pct"]))
+    os.makedirs(RUNDIR, exist_ok=True)
+    stop = []
+    signal.signal(signal.SIGTERM, lambda *a: stop.append(1))
+    signal.signal(signal.SIGINT, lambda *a: stop.append(1))
+
+    def read_lux():
+        try:
+            return float(rd(als))
+        except (OSError, ValueError):
+            return None
+
+    hist, ll = [], None           # raw history for the median, smoothed log-lux
+    paused, grace_until = False, 0.0
+    cur = exp_p = panel.get()     # what we believe the panel is at / last value we know
+    target = cur
+    manual_since, manual_val = None, None
+    k_exp = kbd.get() if kbd else 0
+    k_want = None                 # auto decision: True = light on
+    k_manual = False
+    k_manual_since, k_manual_val = None, None
+    k_ramp = None                 # (from, to, t0)
+    wfail_until = 0.0
+    last_t = time.monotonic()
+    last_awake_check, last_status = 0.0, 0.0
+    status = {}
+    log("start dry_run=%s ratio=%.3f kbd_level=%.0f%% sensor=%s" % (dry, ratio, kbd_pct, als))
+
+    def write_status(d):
+        try:
+            with open(RUNDIR + "/status.json.tmp", "w") as f:
+                json.dump(d, f)
+            os.replace(RUNDIR + "/status.json.tmp", RUNDIR + "/status.json")
+        except OSError:
+            pass
+
+    def pct(raw, dev):
+        return 100.0 * raw / dev.max
+
+    while not stop:
+        t = time.monotonic()
+        dt = t - last_t
+        last_t = t
+        if dt > 5 * c["poll_s"] + 2:     # suspend/resume or a stall
+            grace_until = t + c["grace_s"]
+            manual_since = k_manual_since = None
+            k_ramp = None
+        if t - last_awake_check >= 2.0:
+            last_awake_check = t
+            aw = screen_awake()
+            if not aw and not paused:
+                log("paused (screen off or locked)")
+                manual_since = k_manual_since = None
+                k_ramp = None
+            if aw and paused:
+                log("resumed")
+                grace_until = t + c["grace_s"]
+            paused = not aw
+
+        # --- ambient light, smoothed in log domain, median of 3 against single bad samples
+        v = read_lux()
+        if v is not None:
+            hist = (hist + [v])[-3:]
+            m = sorted(hist)[len(hist) // 2]
+            x = math.log(m + 1.0)
+            if ll is None:
+                ll = x
+            else:
+                tau = c["tau_up_s"] if x > ll else c["tau_down_s"]
+                ll += (x - ll) * (1 - math.exp(-dt / tau))
+        lux_s = math.exp(ll) - 1.0 if ll is not None else None
+
+        actual = panel.get()
+        k_act = kbd.get() if kbd else 0
+
+        in_grace = t < grace_until
+        if paused or in_grace or lux_s is None:
+            # follow whatever the shell/lock/wake logic does, learn nothing, write nothing
+            cur = exp_p = actual
+            target = actual if paused or in_grace else target
+            if kbd:
+                k_exp = k_act
+                k_ramp = None
+            if t - last_status >= 2.0:
+                last_status = t
+                write_status({"lux": None if lux_s is None else round(lux_s, 1), "panel_pct": round(pct(actual, panel), 1),
+                              "paused": paused, "grace": in_grace, "ratio": round(ratio, 3), "dry_run": dry,
+                              "ts": int(time.time())})
+            time.sleep(c["poll_s"])
+            continue
+
+        # --- panel: manual change detection (tolerance 4 raw units ~ 0.7%)
+        tol = 4
+        if dry:
+            cur = exp_p = actual
+        elif manual_since is None and abs(actual - exp_p) > tol:
+            manual_since, manual_val = t, actual
+            log("manual panel change detected: %d -> %d raw" % (exp_p, actual))
+        if manual_since is not None:
+            if actual != manual_val:
+                manual_since, manual_val = t, actual      # still being adjusted (key repeat)
+            elif t - manual_since >= c["settle_s"]:
+                p = pct(actual, panel)
+                base = curve_pct(c["curve"], lux_s)
+                if c["learn"] and base > 0:
+                    ratio = min(c["ratio_max"], max(c["ratio_min"], p / base))
+                    st["ratio"] = ratio
+                    save_state(st)
+                log("learned ratio %.3f (panel %.0f%% at %.1f lux, curve %.0f%%)" % (ratio, p, lux_s, base))
+                cur = exp_p = target = actual
+                manual_since = None
+        if manual_since is None:
+            pref = min(c["max_pct"], max(c["min_pct"], curve_pct(c["curve"], lux_s) * ratio))
+            tp = pct(target, panel)
+            if abs(pref - tp) >= c["deadband_pct"] or (pref in (c["max_pct"], c["min_pct"]) and abs(pref - tp) > 0.5):
+                target = pref / 100.0 * panel.max
+                if dry:
+                    log("dry-run: lux %.1f -> target %.0f%% (panel now %.0f%%)" % (lux_s, pref, pct(actual, panel)))
+            if not dry and abs(cur - target) > 1:
+                step = c["ramp_pct_per_s"] / 100.0 * panel.max * max(dt, c["poll_s"])
+                step = max(step, 1.0)
+                nxt = cur + max(-step, min(step, target - cur))
+                if t >= wfail_until:
+                    try:
+                        exp_p = panel.set(nxt)
+                        cur = exp_p
+                    except Exception as e:
+                        wfail_until = t + 10
+                        log("panel write failed (retry in 10 s):", e)
+
+        # --- keyboard backlight
+        if kbd:
+            if k_want is None:
+                k_want = lux_s < c["kbd_off_above_lux"] and lux_s < c["kbd_on_below_lux"]
+            new_want = k_want
+            if lux_s < c["kbd_on_below_lux"]:
+                new_want = True
+            elif lux_s > c["kbd_off_above_lux"]:
+                new_want = False
+            if new_want != k_want:
+                k_want = new_want
+                if k_manual:
+                    log("keyboard: automatic again (light crossed the threshold)")
+                k_manual = False
+                log("keyboard auto: %s at %.1f lux" % ("on" if k_want else "off", lux_s))
+            goal = round(kbd.max * kbd_pct / 100.0) if k_want else 0
+            if dry:
+                k_exp = k_act
+            elif k_manual_since is None and k_ramp is None and abs(k_act - k_exp) > 2:
+                k_manual_since, k_manual_val = t, k_act
+            if k_manual_since is not None:
+                if k_act != k_manual_val:
+                    k_manual_since, k_manual_val = t, k_act
+                elif t - k_manual_since >= c["settle_s"]:
+                    k_manual = True
+                    if c["learn"] and k_act > 0:
+                        kbd_pct = 100.0 * k_act / kbd.max
+                        st["kbd_level_pct"] = kbd_pct
+                        save_state(st)
+                    log("keyboard manual: %d/%d, held until the light crosses a threshold" % (k_act, kbd.max))
+                    k_exp = k_act
+                    k_manual_since = None
+            elif not k_manual and not dry:
+                if k_ramp is None and abs(k_act - goal) > 1 and abs(k_act - k_exp) <= 2:
+                    k_ramp = (k_act, goal, t)
+                if k_ramp:
+                    f, g, t0 = k_ramp
+                    frac = min(1.0, (t - t0) / max(c["kbd_fade_s"], 0.1))
+                    try:
+                        if t >= wfail_until:
+                            k_exp = kbd.set(f + (g - f) * frac)
+                    except Exception as e:
+                        wfail_until = t + 10
+                        log("keyboard write failed (retry in 10 s):", e)
+                    if frac >= 1.0:
+                        k_ramp = None
+                        k_exp = kbd.get()
+
+        if t - last_status >= 2.0:
+            last_status = t
+            status = {"lux": round(lux_s, 1), "panel_pct": round(pct(actual, panel), 1),
+                      "target_pct": round(pct(target, panel), 1), "ratio": round(ratio, 3),
+                      "kbd": k_act, "kbd_auto_on": bool(k_want), "kbd_manual": k_manual,
+                      "paused": paused, "dry_run": dry, "ts": int(time.time())}
+            write_status(status)
+        time.sleep(c["poll_s"])
+    log("stop")
+    return 0
+
+
+def sc(*a):
+    return subprocess.run(["systemctl", "--user", *a], capture_output=True, text=True)
+
+
+def notify(msg):
+    subprocess.run(["notify-send", "-a", "Auto brightness", "-t", "2500", "Auto brightness", msg],
+                   capture_output=True)
+
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
+    if cmd == "run":
+        sys.exit(run("--dry-run" in sys.argv))
+    active = sc("is-active", UNIT).stdout.strip() == "active"
+    if cmd == "toggle":
+        cmd = "off" if active else "on"
+    if cmd == "on":
+        r = sc("enable", "--now", UNIT)
+        if r.returncode:
+            print(r.stderr, file=sys.stderr); sys.exit(1)
+        notify("On")
+        print("on")
+    elif cmd == "off":
+        sc("disable", "--now", UNIT)
+        notify("Off")
+        print("off")
+    elif cmd == "reset":
+        try:
+            os.remove(STATE)
+        except FileNotFoundError:
+            pass
+        if active:
+            sc("restart", UNIT)
+        print("learned preference cleared")
+    elif cmd == "status":
+        print("service:", "on" if active else "off", "| enabled:", sc("is-enabled", UNIT).stdout.strip())
+        try:
+            print(rd(RUNDIR + "/status.json"))
+        except OSError:
+            pass
+        print("state:", json.dumps(load_state()))
+    else:
+        print(__doc__); sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

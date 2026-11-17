@@ -1,0 +1,12 @@
+# Auto brightness tuning. Every key is optional; defaults are in ~/.local/bin/m5pro-auto-brightness.
+# After editing: systemctl --user restart m5pro-auto-brightness
+# Lux -> panel percent, interpolated on a log scale. Raise a number to make that light level brighter.
+curve = [[0, 22], [3, 28], [10, 34], [30, 44], [100, 60], [300, 75], [1000, 90], [3000, 100]]
+# deadband_pct = 3.0       # ignore changes smaller than this (bigger = fewer, calmer steps)
+# ramp_pct_per_s = 3.0     # how fast the panel moves
+# tau_up_s = 5.0           # lux smoothing, brighter
+# tau_down_s = 12.0        # lux smoothing, darker
+# learn = true             # false: do not learn from manual changes
+# kbd_on_below_lux = 15.0  # keyboard light on below ...
+# kbd_off_above_lux = 50.0 # ... off above
+# kbd_level_pct = 35.0     # default keyboard level (manual changes update it)
