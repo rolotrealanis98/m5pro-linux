@@ -1,0 +1,33 @@
+#!/bin/bash
+# omarchy-startup-disk: Omarchy menu front end for /usr/local/sbin/m5pro-startup-disk (no terminal, no password).
+#
+#   omarchy-startup-disk reboot-macos     restart into macOS once (the default stays Omarchy)
+#   omarchy-startup-disk next-macos       next restart goes to macOS once, no restart now
+#   omarchy-startup-disk next NAME        next restart goes to NAME once (see `list`)
+#   omarchy-startup-disk clear-next       cancel a pending one-time boot
+#   omarchy-startup-disk status           show default and next boot (notification)
+#   omarchy-startup-disk list             print the bootable volumes
+#
+# The polkit action org.m5pro.startup-disk lets the active local session run the root helper without a prompt.
+set -uo pipefail
+H=/usr/local/sbin/m5pro-startup-disk
+note() { notify-send -a "Startup Disk" -i drive-harddisk "$@" 2>/dev/null || echo "$*"; }
+run() { out=$(pkexec "$H" "$@" 2>&1); rc=$?; return $rc; }
+
+case ${1:-status} in
+    reboot-macos)
+        note "Restarting into macOS" "One time only; the next restart comes back to Omarchy."
+        if ! run reboot macos; then note -u critical "Couldn’t set macOS for the next boot" "${out##*$'\n'}"; exit 1; fi ;;
+    next-macos)
+        if run next macos; then note "Next restart: macOS (once)" "${out##*$'\n'}"; else note -u critical "Couldn’t set the next boot" "${out##*$'\n'}"; exit 1; fi ;;
+    next)
+        [ -n "${2:-}" ] || { echo "usage: omarchy-startup-disk next NAME_OR_INDEX"; exit 2; }
+        if run next "$2"; then note "Next restart: $2 (once)" "${out##*$'\n'}"; else note -u critical "Couldn’t set the next boot" "${out##*$'\n'}"; exit 1; fi ;;
+    clear-next)
+        if run clear; then note "One-time boot cancelled" "The next restart uses the default."; else note -u critical "Couldn’t cancel" "${out##*$'\n'}"; exit 1; fi ;;
+    status)
+        if run status; then note "Startup Disk" "$out"; echo "$out"; else note -u critical "Couldn’t read the startup disk" "${out##*$'\n'}"; exit 1; fi ;;
+    list)
+        run list && echo "$out" || { echo "$out" >&2; exit 1; } ;;
+    *) echo "usage: omarchy-startup-disk reboot-macos | next-macos | next NAME | clear-next | status | list"; exit 2 ;;
+esac

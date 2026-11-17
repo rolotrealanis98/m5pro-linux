@@ -1,0 +1,6 @@
+  // Startup Disk (m5pro-linux contrib/omarchy-mac/startup-disk): no terminal, no password; one-time targets only.
+  "system.reboot-macos": {"icon":"󰀵","label":"Reboot into macOS","description":"Once; the next restart comes back to Omarchy","aliases":["reboot to macos","reboot into macos","macos","boot macos"],"action":"omarchy-startup-disk reboot-macos"},
+  "system.startup-disk": {"icon":"󰋊","label":"Startup Disk","aliases":["startup disk","boot disk"],"description":"Choose the next startup volume"},
+  "system.startup-disk.macos-next": {"icon":"󰀵","label":"macOS at next restart","description":"Once, without restarting now","action":"omarchy-startup-disk next-macos"},
+  "system.startup-disk.omarchy": {"icon":"󰣇","label":"Omarchy (cancel one-time boot)","description":"The next restart uses the default","action":"omarchy-startup-disk clear-next"},
+  "system.startup-disk.status": {"icon":"󰋽","label":"Show startup disk","description":"Default and next boot","action":"omarchy-startup-disk status"}

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- The owner chose a frictionless "Reboot into macOS" / Startup Disk (2026-11-17): the active local session may
+     set or clear the one-time boot target without a prompt. Remote (SSH) and inactive sessions still need admin.
+     The helper only ever writes the one-shot alt-boot-volume, never the default. -->
+<policyconfig>
+  <action id="org.m5pro.startup-disk">
+    <description>Choose the next startup volume (once)</description>
+    <message>Choosing the next startup volume requires authentication</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/sbin/m5pro-startup-disk</annotate>
+  </action>
+</policyconfig>

@@ -1,0 +1,84 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# m5pro-startup-disk: choose the next boot (once) from Linux on the J716s, without a password prompt.
+#
+#   m5pro-startup-disk status                 default and next-boot volume, one per line
+#   m5pro-startup-disk list                   bootable volumes (asahi-bless --list-volumes)
+#   m5pro-startup-disk next NAME_OR_INDEX     boot that volume once at the next restart (the default is unchanged)
+#   m5pro-startup-disk next macos             the same, for the macOS volume asahi-bless picks
+#   m5pro-startup-disk clear                  cancel a pending one-time boot
+#   m5pro-startup-disk reboot NAME|macos      next + restart now
+#
+# Runs as root (pkexec, polkit action org.m5pro.startup-disk: allowed without a prompt for the active local
+# session). It never writes the default (boot-volume): only the one-shot alt-boot-volume, through
+# nvram-next-boot.sh, which keeps every safety check (read-only driver except for the one asahi-bless call,
+# partition unchanged since the probe, read-back showing exactly one added/removed variable as an in-place,
+# bit-clear-only program). macOS and iBoot rewrite NVRAM on their boots, so the read-only probe is rerun first.
+# Installed copies of the tools live in /usr/local/lib/m5pro/nvram (root-owned; never a user-writable checkout).
+set -euo pipefail
+T=/usr/local/lib/m5pro/nvram
+NEXT=$T/nvram-next-boot.sh
+PROBE=$T/nvram-probe.sh
+STATE=/var/lib/nvram-t6050
+LOCK=/run/m5pro-startup-disk.lock
+
+die() { echo "m5pro-startup-disk: $*" >&2; logger -t m5pro-startup-disk "FAILED: $*"; exit 1; }
+[ "$(id -u)" = 0 ] || die "run as root (pkexec $0 ...)"
+exec 9>"$LOCK"; flock -w 30 9 || die "another startup-disk change is running"
+
+dev() { sed -n 's/^dev=//p' "$STATE/probe.pass" 2>/dev/null | head -n1; }
+
+probe() {
+    # Read-only. Keep the newest 5 dump folders (they hold NVRAM values; root-only, never copied off the Mac).
+    out=$(bash "$PROBE" 2>&1) || { echo "$out" | grep -E 'FAIL|NOT READY' >&2; die "the read-only NVRAM check failed"; }
+    ls -1dt "$STATE"/probe-* 2>/dev/null | tail -n +6 | xargs -r rm -rf --
+    ls -1dt "$STATE"/run-* 2>/dev/null | tail -n +11 | xargs -r rm -rf --
+    [ -r "$STATE/probe.pass" ] || die "no probe marker after a passing probe"
+}
+
+pending() { bash "$NEXT" status 2>/dev/null | grep -q '^alt-boot-volume is SET'; }
+
+status() {
+    local d; d=$(dev); [ -n "$d" ] || probe; d=$(dev)
+    echo "default: $(asahi-bless -d "$d" --get-boot 2>/dev/null)"
+    echo "next:    $(asahi-bless -d "$d" --get-boot --next 2>/dev/null)"
+    pending && echo "pending: yes (one time)" || echo "pending: no"
+}
+
+clear_next() {
+    pending || { echo "nothing pending"; return 0; }
+    bash "$NEXT" clear-next --yes >/tmp/m5pro-startup-disk.$$ 2>&1 || { cat /tmp/m5pro-startup-disk.$$ >&2; rm -f /tmp/m5pro-startup-disk.$$; die "clearing the one-time boot failed"; }
+    rm -f /tmp/m5pro-startup-disk.$$
+    probe   # the partition changed: refresh the marker for the next call
+    logger -t m5pro-startup-disk "one-time boot cleared"
+}
+
+set_next() {  # set_next macos|NAME|INDEX
+    local target=$1 d default args=()
+    d=$(dev)
+    default=$(asahi-bless -d "$d" --get-boot 2>/dev/null)
+    if [ "$target" != macos ] && [ "$target" = "$default" ]; then
+        clear_next; echo "next boot: $default (the default)"; return 0
+    fi
+    pending && clear_next
+    [ "$target" = macos ] || args=(--volume "$target")
+    bash "$NEXT" to-macos "${args[@]}" --yes >/tmp/m5pro-startup-disk.$$ 2>&1 || { cat /tmp/m5pro-startup-disk.$$ >&2; rm -f /tmp/m5pro-startup-disk.$$; die "setting the one-time boot failed (nothing to reboot into)"; }
+    rm -f /tmp/m5pro-startup-disk.$$
+    probe
+    logger -t m5pro-startup-disk "next boot (once): $(asahi-bless -d "$(dev)" --get-boot --next 2>/dev/null)"
+    echo "next boot (once): $(asahi-bless -d "$(dev)" --get-boot --next 2>/dev/null)"
+}
+
+cmd=${1:-status}; arg=${2:-}
+case $cmd in
+    status) probe; status ;;
+    list) probe; asahi-bless -d "$(dev)" --list-volumes ;;
+    clear) probe; clear_next ;;
+    next) [ -n "$arg" ] || die "usage: next NAME_OR_INDEX|macos"; probe; set_next "$arg" ;;
+    reboot)
+        [ -n "$arg" ] || die "usage: reboot NAME_OR_INDEX|macos"
+        probe; set_next "$arg"
+        logger -t m5pro-startup-disk "restarting into the one-time target"
+        sync; systemctl reboot ;;
+    *) die "usage: status | list | next NAME|macos | clear | reboot NAME|macos" ;;
+esac
