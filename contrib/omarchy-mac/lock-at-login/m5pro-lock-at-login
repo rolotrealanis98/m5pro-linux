@@ -1,0 +1,13 @@
+#!/bin/bash
+# m5pro-lock-at-login: lock the desktop as soon as the session starts (this Mac logs in automatically on tty2, so the
+# lock screen is the only gate at boot, like macOS's login window). Started from ~/.config/hypr/autostart.lua.
+# Waits for the Omarchy shell to answer before locking, then, once the owner has unlocked, asks the 1Password Touch ID
+# helper to unlock 1Password if it started locked behind the lock screen (its own launch prompt can't show over it).
+set -u
+for _ in $(seq 1 60); do pgrep -u "$(id -u)" -f "quickshell.*omarchy/shell" >/dev/null && break; sleep 0.5; done
+sleep 2   # let the shell finish loading its plugins (the lock screen is one)
+omarchy-system-lock
+sleep 3
+# Wait until the lock is gone (owner unlocked with Touch ID or password), up to 12 h.
+for _ in $(seq 1 43200); do omarchy-hyprland-session-locked >/dev/null 2>&1 || break; sleep 1; done
+command -v m5pro-1p-touchid >/dev/null && m5pro-1p-touchid unlock >/dev/null 2>&1 || true
