@@ -1,5 +1,17 @@
 # J716s camera (T6050 ISP): test plan
 
+**Superseded 2026-11-17 by `/Volumes/m5pro/bench/requests/camera-1.md`.** The upstream T6050 camera series is merged and
+already in the everyday kernel (j716s-next7):
+- the driver (aurora-silicon/linux #1253);
+- the DART that keeps the secure roots (#1252);
+- `t6050-j716c-isp.dtsi`, which `t6050-j716s.dts` includes (#1254);
+- the ISP watchdog bus range (#1854).
+
+That series streams 1080p30 on the J714s, the same die as ours (#1306). The only J716s gap is aura's T6050 camera table,
+which has no J716s row (branch `j716s-camera-1`). The patches in `patches/` (driver 0001/0003, DT 0004/0005, m1n1
+0029) and the static-DTB stages below are kept for history only. `tools/extract-isp-setfile.py` is current: it
+extracts the IMX958 tuning file from macOS `appleh16camerad`. Keep its output off the repo.
+
 Nothing here has run on the M5. Every stage after I0 needs the MacBook.
 
 ## Safety rules
