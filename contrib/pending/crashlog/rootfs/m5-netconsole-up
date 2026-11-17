@@ -23,6 +23,16 @@ case "$STUDIO_IP" in ''|*@*) log "STUDIO_IP not set in $C"; exit 0 ;; esac
 mountpoint -q /sys/kernel/config || mount -t configfs configfs /sys/kernel/config
 [ -d "$NC" ] || { log "kernel has no netconsole configfs (CONFIG_NETCONSOLE_DYNAMIC)"; exit 0; }
 
+# No USB Ethernet adapter plugged in (the usual case away from the desk): nothing to do, and no
+# 60 s wait or failed unit at every boot. 90-m5-netconsole.rules runs this again when one appears.
+usbeth=''
+for n in /sys/class/net/*; do
+    [ "$(cat "$n/type" 2>/dev/null)" = 1 ] || continue
+    case "$(readlink -f "$n/device" 2>/dev/null)" in */usb*) usbeth=${n##*/}; break ;; esac
+done
+if [ -n "$DEV" ]; then [ -e "/sys/class/net/$DEV" ] && usbeth=$DEV || usbeth=''; fi
+[ -n "$usbeth" ] || { log "no USB Ethernet adapter${DEV:+ $DEV}: skipped (re-armed on plug-in)"; exit 0; }
+
 # Wait up to 60 s for a route over an Ethernet device (type 1). tailscale0 is type 65534 (none).
 i=0; dev='' src='' via=''
 while [ $i -lt 60 ]; do
@@ -36,8 +46,8 @@ while [ $i -lt 60 ]; do
     [ -n "$dev" ] && [ -n "$src" ] && [ "$(cat /sys/class/net/"$dev"/type 2>/dev/null)" = 1 ] && break
     i=$((i + 1)); sleep 1
 done
-[ -n "$dev" ] && [ -n "$src" ] || { log "no Ethernet route to the Studio after 60 s"; exit 1; }
-[ "$(cat /sys/class/net/"$dev"/type 2>/dev/null)" = 1 ] || { log "route uses $dev, not Ethernet"; exit 1; }
+[ -n "$dev" ] && [ -n "$src" ] || { log "no Ethernet route to the Studio after 60 s (adapter on another network?): skipped"; exit 0; }
+[ "$(cat /sys/class/net/"$dev"/type 2>/dev/null)" = 1 ] || { log "route uses $dev, not Ethernet: skipped"; exit 0; }
 
 nh=${via:-$STUDIO_IP}
 ping -c 1 -W 1 -I "$dev" "$nh" >/dev/null 2>&1
