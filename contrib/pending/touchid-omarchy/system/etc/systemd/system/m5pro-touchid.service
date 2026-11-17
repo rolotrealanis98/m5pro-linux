@@ -1,0 +1,17 @@
+[Unit]
+Description=Touch ID: load the Secure Enclave driver and restore the enrolled fingers
+DefaultDependencies=no
+After=local-fs.target sysinit.target
+RequiresMountsFor=/var/lib
+Before=fprintd.service shutdown.target
+Conflicts=shutdown.target
+ConditionPathExists=/dev/disk/by-partlabel/iBootSystemContainer
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/m5pro/touchid-up
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

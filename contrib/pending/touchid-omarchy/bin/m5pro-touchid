@@ -1,0 +1,423 @@
+#!/usr/bin/python3
+"""Touch ID fingerprints for the Omarchy shell's Touch ID panel (m5pro.touchid).
+
+    m5pro-touchid status              reader, enrolled fingers and their labels
+    m5pro-touchid enroll FINGER       add a fingerprint (asks who you are first)
+    m5pro-touchid verify FINGER       test one fingerprint
+    m5pro-touchid delete FINGER       delete a fingerprint (asks who you are first)
+    m5pro-touchid label FINGER [TEXT] name a fingerprint (empty TEXT clears it)
+
+Runs as the desktop user and talks to fprintd over D-Bus (net.reactivated.Fprint),
+so the enclave work stays in fprintd and libfprint-aurora. Every line on stdout is
+one JSON object; the panel reads them as they come. FINGER is an fprintd finger
+name such as right-index-finger.
+
+Adding or deleting a fingerprint needs fprintd's enroll permission
+(auth_self_keep). It is asked for with pkcheck before the reader is claimed, so
+Omarchy's polkit dialog can take a touch of an enrolled finger: once fprintd holds
+the reader for the enrolment, pam_fprintd could no longer use it and the dialog
+would fall back to the password.
+
+Labels are the owner's own names, kept in ~/.config/m5pro-touchid/labels.json.
+fprintd and the enclave know a print only by its finger slot.
+"""
+import ctypes
+import json
+import os
+import signal
+import subprocess
+import sys
+
+import gi
+
+gi.require_version('Gio', '2.0')
+from gi.repository import Gio, GLib  # noqa: E402
+
+BUS = 'net.reactivated.Fprint'
+MANAGER = '/net/reactivated/Fprint/Manager'
+DEVICE_IFACE = 'net.reactivated.Fprint.Device'
+ENROLL_ACTION = 'net.reactivated.fprint.device.enroll'
+# The aurora driver's full_name; fprintd runs a duplicate check before enrolling on
+# this reader and reports it as a first enroll-stage-passed that is not a capture.
+AURORA_NAME = 'Apple secure enclave fingerprint sensor'
+# The enclave keeps at most three prints per user (SEP_USER_CAPACITY in apple_sep).
+CAPACITY = 3
+ENROLL_TIMEOUT_S = 240
+VERIFY_TIMEOUT_S = 30
+LABEL_MAX = 40
+
+FINGERS = [
+    ('right-index-finger', 'Right index finger'),
+    ('right-thumb', 'Right thumb'),
+    ('right-middle-finger', 'Right middle finger'),
+    ('right-ring-finger', 'Right ring finger'),
+    ('right-little-finger', 'Right little finger'),
+    ('left-index-finger', 'Left index finger'),
+    ('left-thumb', 'Left thumb'),
+    ('left-middle-finger', 'Left middle finger'),
+    ('left-ring-finger', 'Left ring finger'),
+    ('left-little-finger', 'Left little finger'),
+]
+FINGER_NAMES = dict(FINGERS)
+
+GUARD_HOOK = '/etc/pacman.d/hooks/50-m5pro-touchid-guard.hook'
+REARM_MODULES = ('/usr/lib/security/pam_aurora_touchid.so', '/usr/lib64/security/pam_aurora_touchid.so')
+
+
+def emit(**fields):
+    sys.stdout.write(json.dumps(fields) + '\n')
+    sys.stdout.flush()
+
+
+def labels_path():
+    base = os.environ.get('XDG_CONFIG_HOME') or os.path.join(os.path.expanduser('~'), '.config')
+    return os.path.join(base, 'm5pro-touchid', 'labels.json')
+
+
+def load_labels():
+    try:
+        with open(labels_path()) as f:
+            data = json.load(f)
+        return {k: str(v) for k, v in data.items() if k in FINGER_NAMES and isinstance(v, str)}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def save_labels(labels):
+    path = labels_path()
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    tmp = path + '.new'
+    with open(tmp, 'w') as f:
+        json.dump(labels, f, indent=2, sort_keys=True)
+        f.write('\n')
+    os.replace(tmp, path)
+
+
+def clean_label(text):
+    text = ''.join(ch for ch in text if ch.isprintable()).strip()
+    return text[:LABEL_MAX]
+
+
+def lid_closed():
+    try:
+        return subprocess.run(['/usr/bin/omarchy-hw-laptop-closed'], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, timeout=5).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def dbus_error_name(error):
+    name = Gio.DBusError.get_remote_error(error) if Gio.DBusError.is_remote_error(error) else None
+    return name or ''
+
+
+def short_error(error):
+    message = getattr(error, 'message', None) or str(error)
+    if message.startswith('GDBus.Error:'):
+        message = message.split(' ', 1)[-1]
+    return message
+
+
+class Reader:
+    def __init__(self):
+        self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+        manager = Gio.DBusProxy.new_sync(self.bus, Gio.DBusProxyFlags.NONE, None, BUS, MANAGER,
+                                         'net.reactivated.Fprint.Manager', None)
+        path = manager.call_sync('GetDefaultDevice', None, Gio.DBusCallFlags.NONE, 10000, None).unpack()[0]
+        self.device = Gio.DBusProxy.new_sync(self.bus, Gio.DBusProxyFlags.NONE, None, BUS, path, DEVICE_IFACE, None)
+        self.claimed = False
+
+    def prop(self, name, default=None):
+        value = self.device.get_cached_property(name)
+        return value.unpack() if value is not None else default
+
+    def call(self, method, args=None, timeout_ms=30000):
+        return self.device.call_sync(method, args, Gio.DBusCallFlags.NONE, timeout_ms, None)
+
+    def enrolled(self):
+        try:
+            return list(self.call('ListEnrolledFingers', GLib.Variant('(s)', ('',))).unpack()[0])
+        except GLib.Error as error:
+            if dbus_error_name(error).endswith('NoEnrolledPrints'):
+                return []
+            raise
+
+    def claim(self):
+        self.call('Claim', GLib.Variant('(s)', ('',)))
+        self.claimed = True
+
+    def release(self):
+        if self.claimed:
+            self.claimed = False
+            try:
+                self.call('Release', None, 10000)
+            except GLib.Error:
+                pass
+
+
+def open_reader():
+    try:
+        return Reader(), None
+    except GLib.Error as error:
+        name = dbus_error_name(error)
+        if name.endswith('NoSuchDevice'):
+            reason = 'lid-closed' if lid_closed() else 'no-reader'
+        elif 'ServiceUnknown' in name or 'NameHasNoOwner' in name:
+            reason = 'no-fprintd'
+        else:
+            reason = 'error'
+        return None, (reason, short_error(error))
+
+
+def finger_rows(enrolled, labels):
+    order = [f for f, _ in FINGERS]
+    rows = []
+    for finger in sorted(enrolled, key=lambda f: order.index(f) if f in order else 99):
+        rows.append({'id': finger, 'name': FINGER_NAMES.get(finger, finger), 'label': labels.get(finger, '')})
+    return rows
+
+
+def cmd_status():
+    labels = load_labels()
+    reader, problem = open_reader()
+    common = {
+        'user': os.environ.get('USER') or '',
+        'capacity': CAPACITY,
+        'guard': os.path.exists(GUARD_HOOK),
+        'rearm': any(os.path.exists(p) for p in REARM_MODULES),
+        'fingerNames': [{'id': f, 'name': n} for f, n in FINGERS],
+    }
+    if reader is None:
+        emit(event='status', reader=False, reason=problem[0], error=problem[1], fingers=[], **common)
+        return 0
+    try:
+        enrolled = reader.enrolled()
+    except GLib.Error as error:
+        emit(event='status', reader=False, reason='error', error=short_error(error), fingers=[], **common)
+        return 0
+    emit(event='status', reader=True, name=reader.prop('name', ''), scanType=reader.prop('scan-type', ''),
+         stages=reader.prop('num-enroll-stages', 0), fingers=finger_rows(enrolled, labels), **common)
+    return 0
+
+
+def process_subject():
+    """pid,start-time,uid for pkcheck, so the authorization can't pass to a reused pid."""
+    with open('/proc/self/stat') as f:
+        fields = f.read().rsplit(')', 1)[1].split()
+    return f'{os.getpid()},{fields[19]},{os.getuid()}'
+
+
+def authorize(reason):
+    """Ask polkit for fprintd's enroll permission for this process (auth_self_keep)."""
+    emit(event='auth', reason=reason)
+    try:
+        result = subprocess.run(['pkcheck', '--action-id', ENROLL_ACTION, '--process', process_subject(),
+                                 '--allow-user-interaction'], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, timeout=180)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        emit(event='authorized', ok=False, error=str(error))
+        return False
+    ok = result.returncode == 0
+    emit(event='authorized', ok=ok, code=result.returncode,
+         error='' if ok else (result.stderr.strip() or 'not authorized'))
+    return ok
+
+
+def die_with_parent():
+    try:
+        ctypes.CDLL('libc.so.6', use_errno=True).prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+    except OSError:
+        pass
+
+
+class Session:
+    """One claimed operation (enroll or verify) driven by fprintd's signals."""
+
+    def __init__(self, reader, kind, finger, timeout_s):
+        self.reader = reader
+        self.kind = kind  # 'Enroll' or 'Verify'
+        self.finger = finger
+        self.loop = GLib.MainLoop()
+        self.started = False
+        self.result = None
+        self.ok = False
+        self.steps = 0
+        self.dup_check = kind == 'Enroll' and reader.prop('name', '') == AURORA_NAME
+        self.timeout_s = timeout_s
+        reader.device.connect('g-signal', self.on_signal)
+        for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            GLib.unix_signal_add(GLib.PRIORITY_HIGH, signum, self.on_unix_signal, signum)
+
+    def stop(self):
+        if self.started:
+            self.started = False
+            try:
+                self.reader.call(self.kind + 'Stop', None, 10000)
+            except GLib.Error:
+                pass
+        self.reader.release()
+
+    def finish(self, ok, result):
+        self.ok, self.result = ok, result
+        self.stop()
+        self.loop.quit()
+        return False
+
+    def on_unix_signal(self, signum):
+        self.finish(False, 'cancelled')
+        return False
+
+    def on_timeout(self):
+        if self.result is None:
+            self.finish(False, 'timeout')
+        return False
+
+    def on_signal(self, proxy, sender, name, params):
+        args = params.unpack()
+        if name == 'VerifyFingerSelected':
+            emit(event='finger', finger=args[0])
+            return
+        if name not in ('EnrollStatus', 'VerifyStatus'):
+            return
+        result, done = args
+        if name == 'EnrollStatus' and result == 'enroll-stage-passed':
+            if self.dup_check:
+                self.dup_check = False
+                emit(event='status', result='duplicate-check-passed', done=False, step=0)
+                return
+            self.steps += 1
+        emit(event='status', result=result, done=bool(done), step=self.steps)
+        if done:
+            self.finish(result in ('enroll-completed', 'verify-match'), result)
+
+    def run(self):
+        try:
+            self.reader.claim()
+        except GLib.Error as error:
+            name = dbus_error_name(error)
+            reason = 'busy' if name.endswith('AlreadyInUse') else 'claim-failed'
+            emit(event='finished', ok=False, result=reason, error=short_error(error))
+            return 1
+        try:
+            self.reader.call(self.kind + 'Start', GLib.Variant('(s)', (self.finger,)), 60000)
+            self.started = True
+        except GLib.Error as error:
+            self.reader.release()
+            name = dbus_error_name(error)
+            reason = {'PermissionDenied': 'denied', 'NoEnrolledPrints': 'not-enrolled',
+                      'AlreadyInUse': 'busy'}.get(name.rsplit('.', 1)[-1], 'start-failed')
+            emit(event='finished', ok=False, result=reason, error=short_error(error))
+            return 1
+        emit(event='started', finger=self.finger)
+        GLib.timeout_add_seconds(self.timeout_s, self.on_timeout)
+        self.loop.run()
+        emit(event='finished', ok=self.ok, result=self.result, steps=self.steps)
+        return 0 if self.ok else 1
+
+
+def need_finger(argv):
+    if len(argv) < 1 or argv[0] not in FINGER_NAMES:
+        emit(event='finished', ok=False, result='bad-finger', error='unknown finger name')
+        sys.exit(2)
+    return argv[0]
+
+
+def cmd_enroll(argv):
+    finger = need_finger(argv)
+    die_with_parent()
+    reader, problem = open_reader()
+    if reader is None:
+        emit(event='finished', ok=False, result=problem[0], error=problem[1])
+        return 1
+    enrolled = reader.enrolled()
+    if finger in enrolled:
+        emit(event='finished', ok=False, result='already-enrolled', error='that finger is already enrolled')
+        return 1
+    if len(enrolled) >= CAPACITY:
+        emit(event='finished', ok=False, result='full', error='Touch ID holds three fingerprints')
+        return 1
+    if not authorize('enroll'):
+        emit(event='finished', ok=False, result='denied')
+        return 1
+    return Session(reader, 'Enroll', finger, ENROLL_TIMEOUT_S).run()
+
+
+def cmd_verify(argv):
+    finger = need_finger(argv)
+    die_with_parent()
+    reader, problem = open_reader()
+    if reader is None:
+        emit(event='finished', ok=False, result=problem[0], error=problem[1])
+        return 1
+    if finger not in reader.enrolled():
+        emit(event='finished', ok=False, result='not-enrolled', error='that finger is not enrolled')
+        return 1
+    return Session(reader, 'Verify', finger, VERIFY_TIMEOUT_S).run()
+
+
+def cmd_delete(argv):
+    finger = need_finger(argv)
+    die_with_parent()
+    reader, problem = open_reader()
+    if reader is None:
+        emit(event='finished', ok=False, result=problem[0], error=problem[1])
+        return 1
+    if finger not in reader.enrolled():
+        emit(event='finished', ok=False, result='not-enrolled', error='that finger is not enrolled')
+        return 1
+    if not authorize('delete'):
+        emit(event='finished', ok=False, result='denied')
+        return 1
+    try:
+        reader.claim()
+    except GLib.Error as error:
+        reason = 'busy' if dbus_error_name(error).endswith('AlreadyInUse') else 'claim-failed'
+        emit(event='finished', ok=False, result=reason, error=short_error(error))
+        return 1
+    try:
+        reader.call('DeleteEnrolledFinger', GLib.Variant('(s)', (finger,)), 60000)
+    except GLib.Error as error:
+        reader.release()
+        emit(event='finished', ok=False, result='delete-failed', error=short_error(error))
+        return 1
+    reader.release()
+    labels = load_labels()
+    if labels.pop(finger, None) is not None:
+        save_labels(labels)
+    emit(event='finished', ok=True, result='deleted')
+    return 0
+
+
+def cmd_label(argv):
+    finger = need_finger(argv)
+    text = clean_label(' '.join(argv[1:]))
+    labels = load_labels()
+    if text:
+        labels[finger] = text
+    else:
+        labels.pop(finger, None)
+    save_labels(labels)
+    emit(event='finished', ok=True, result='labelled', label=text)
+    return 0
+
+
+def main(argv):
+    if not argv or argv[0] in ('-h', '--help'):
+        print(__doc__.strip())
+        return 0
+    command, rest = argv[0], argv[1:]
+    handlers = {'status': lambda: cmd_status(), 'enroll': lambda: cmd_enroll(rest),
+                'verify': lambda: cmd_verify(rest), 'delete': lambda: cmd_delete(rest),
+                'label': lambda: cmd_label(rest)}
+    if command not in handlers:
+        print(f'unknown command: {command}', file=sys.stderr)
+        return 2
+    try:
+        return handlers[command]()
+    except GLib.Error as error:
+        emit(event='finished', ok=False, result='error', error=short_error(error))
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

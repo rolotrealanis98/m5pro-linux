@@ -1,0 +1,17 @@
+#!/bin/sh
+# PreTransaction pacman hook (50-m5pro-touchid-guard.hook): refuse to replace or remove the Touch ID
+# libfprint or fprintd unless /run/m5pro-touchid-allow-libfprint exists. Targets arrive on stdin.
+allow=/run/m5pro-touchid-allow-libfprint
+targets=$(tr '\n' ' ')
+if [ -e "$allow" ]; then
+  echo "m5pro-touchid-guard: $allow is present, allowing: $targets"
+  exit 0
+fi
+cat >&2 <<MSG
+m5pro-touchid-guard: refusing this transaction ($targets).
+  Touch ID on this MacBook needs the Aurora build of libfprint (installed as libfprint-git
+  2:1.94.100.aurora.*) and fprintd. Omarchy's libfprint-git speaks only sep-bio v4, and removing
+  fprintd ends fingerprint unlock. Manage fingerprints in Setup > Security > Touch ID instead.
+  To change the package on purpose:  sudo touch $allow  (cleared at the next boot), then retry.
+MSG
+exit 1

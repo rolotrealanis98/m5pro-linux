@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "m5pro.touchid",
+  "name": "Touch ID",
+  "version": "1.0.0",
+  "author": "m5pro-linux",
+  "description": "Add, test, name and delete Touch ID fingerprints (fprintd + the Aurora Secure Enclave driver)",
+  "kinds": [
+    "overlay"
+  ],
+  "entryPoints": {
+    "overlay": "TouchId.qml"
+  }
+}

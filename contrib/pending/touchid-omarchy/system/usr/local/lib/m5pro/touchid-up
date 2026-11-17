@@ -1,0 +1,12 @@
+#!/bin/sh
+# Touch ID bring-up on the J716s: the SEP node stays disabled until apple_sep enables it, so nothing autoloads the
+# driver. Load it (options in /etc/modprobe.d/apple-sep.conf), wait for the key store, then open /dev/sep-bio once so the
+# enclave restores the enrolled fingers before fprintd asks.
+set -u
+modprobe apple_sep || exit 1
+d=; for i in $(seq 1 100); do for x in /sys/bus/platform/devices/*.sep/diag; do [ -d "$x" ] && d=$x; done; [ -n "$d" ] && break; sleep 0.1; done
+[ -n "$d" ] || { echo "touchid-up: no SEP diag"; exit 1; }
+for i in $(seq 1 1200); do [ "$(cat $d/keystore 2>/dev/null)" = unknown ] || break; sleep 0.1; done
+echo "touchid-up: keystore $(cat $d/keystore), keybag $(cat $d/keybag)"
+/usr/local/lib/m5pro/touchid-sensor-present && echo "touchid-up: sensor present" || echo "touchid-up: sensor not reported"
+sleep 1; echo "touchid-up: touchid $(cat $d/touchid), restore $(cat $d/restore), matching $(cat $d/matching)"

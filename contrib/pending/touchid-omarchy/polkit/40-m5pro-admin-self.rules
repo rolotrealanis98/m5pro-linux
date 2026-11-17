@@ -1,0 +1,12 @@
+// m5pro-linux touchid-omarchy: an administrator prompt asks the person at the keyboard.
+//
+// Arch's default admin rule names every wheel member, and Omarchy's polkit dialog
+// authenticates the first one: on this MacBook that is the image's leftover "alarm"
+// account, so mounting a disk asked for alarm's password and pam_fprintd looked for
+// alarm's fingerprints (2026-11-17, udisks2 filesystem-mount-system). A wheel member
+// is asked for their own password or Touch ID instead; everyone else keeps the default.
+polkit.addAdminRule(function(action, subject) {
+    if (subject.isInGroup("wheel")) {
+        return ["unix-user:" + subject.user];
+    }
+});

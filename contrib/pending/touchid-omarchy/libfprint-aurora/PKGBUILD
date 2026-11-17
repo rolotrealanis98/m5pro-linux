@@ -1,0 +1,61 @@
+# libfprint 1.94.100 with aurora-silicon/aurora-sep-userspace's Touch ID patch set at a227a350d7ba
+# (sep-bio interface v4 and v5), packaged under Omarchy's own name.
+#
+# Why pkgname=libfprint-git: Omarchy's fingerprint setup (omarchy-setup-security-fingerprint, also
+# Setup > Security > Fingerprint) runs `pacman -S --needed --ask 4 libfprint-git fprintd usbutils`
+# whenever `pacman -Q libfprint-git` fails. With the build named libfprint-aurora that swapped in
+# Omarchy's libfprint-git, whose aurora driver speaks only sep-bio v4, and Touch ID stopped
+# (2026-11-17 11:12). Named libfprint-git, with usbutils installed, that check passes and the step is
+# skipped. epoch=2 keeps a -Syu from ever taking Omarchy's (epoch-less) libfprint-git as an upgrade;
+# the touchid guard hook (guard/) refuses any other transaction on it, and IgnorePkg keeps -Syu quiet.
+pkgname=libfprint-git
+epoch=2
+pkgver=1.94.100.aurora.a227a35
+pkgrel=1
+pkgdesc="libfprint 1.94.100 with the Aurora Touch ID driver (sep-bio v4/v5); m5pro build, not Omarchy's"
+url="https://github.com/aurora-silicon/aurora-sep-userspace"
+arch=(aarch64)
+license=(LGPL-2.1-or-later)
+depends=(gcc-libs glib2 glibc libgudev libgusb openssl pixman)
+makedepends=(git glib2-devel gobject-introspection meson systemd)
+provides=("libfprint=1.94.100" libfprint-2.so)
+conflicts=(libfprint libfprint-aurora)
+replaces=(libfprint-aurora)
+_patches=(
+  libfprint-1.94.100-apple-sep.patch
+  0002-aurora-report-unusable-captures-as-retries.patch
+  0003-hide-lid-covered-readers-while-the-lid-is-closed.patch
+  0004-aurora-refuse-unbound-enrollment.patch
+  0005-aurora-support-v4-and-v5.patch
+  0006-aurora-report-finger-lift-and-lockout.patch
+  0007-aurora-name-retry-causes-and-keep-waiting.patch
+  0008-aurora-report-the-touch-id-lockout-as-locked-out.patch
+  0009-aurora-say-why-touch-id-needs-the-password.patch
+  0010-let-a-front-end-ask-whether-the-reader-needs-the-password.patch
+  0011-aurora-name-a-touch-of-another-enrolled-finger.patch
+)
+source=("libfprint::git+https://gitlab.freedesktop.org/libfprint/libfprint.git#tag=v1.94.100"
+        "${_patches[@]}" apple-sep.h fprintd-aurora-touchid.conf)
+b2sums=(SKIP $(for p in "${_patches[@]}"; do echo SKIP; done) SKIP SKIP)
+
+prepare() {
+  cd libfprint
+  local p
+  for p in "${_patches[@]}"; do
+    echo "applying $p"
+    git apply --whitespace=nowarn "$srcdir/$p" || patch -p1 --forward < "$srcdir/$p"
+  done
+  install -Dm644 "$srcdir/apple-sep.h" "$srcdir/aurora-uapi/linux/apple-sep.h"
+}
+
+build() {
+  export CFLAGS="$CFLAGS -I$srcdir/aurora-uapi"
+  arch-meson libfprint build -D drivers=all -D installed-tests=false -D doc=false
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir "$pkgdir"
+  install -Dm644 "$srcdir/fprintd-aurora-touchid.conf" \
+    "$pkgdir/usr/lib/systemd/system/fprintd.service.d/50-libfprint-aurora-touchid.conf"
+}

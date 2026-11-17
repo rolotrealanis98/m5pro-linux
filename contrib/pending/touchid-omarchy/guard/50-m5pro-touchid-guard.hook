@@ -1,0 +1,25 @@
+# m5pro-linux touchid-omarchy: keep the Touch ID libfprint (libfprint-git 2:1.94.100.aurora.*) and fprintd.
+# Omarchy's fingerprint setup swaps in its own libfprint-git (sep-bio v4 only) and its fingerprint
+# removal drops fprintd and libfprint-git; either stops Touch ID. This refuses those transactions.
+# To change the Touch ID libfprint on purpose: touch /run/m5pro-touchid-allow-libfprint first
+# (it is gone at the next boot), or remove this file.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = libfprint
+Target = libfprint-git
+Target = libfprint-aurora
+
+[Trigger]
+Operation = Remove
+Type = Package
+Target = libfprint-git
+Target = fprintd
+
+[Action]
+Description = Keeping the Touch ID libfprint and fprintd (m5pro-touchid-guard)...
+When = PreTransaction
+Exec = /usr/local/lib/m5pro/touchid-pacman-guard
+NeedsTargets
+AbortOnFail

@@ -1,0 +1,6 @@
+  // Touch ID (m5pro-linux touchid-omarchy). Setup > Security > Fingerprint opens the Touch ID panel
+  // (plugin m5pro.touchid) instead of omarchy-setup-security-fingerprint, which swaps in Omarchy's
+  // libfprint-git (sep-bio v4 only). Remove > Security > Fingerprint is hidden: it would delete every
+  // print and drop fprintd; delete fingerprints one by one in the panel instead.
+  "setup.security.fingerprint": {"icon":"󰈷","label":"Touch ID","description":"Add, test, name or delete fingerprints","aliases":["touchid"],"when":"omarchy-hw-fingerprint","action":"omarchy-shell shell summon m5pro.touchid"},
+  "remove.security.fingerprint": {"when":"false"}
