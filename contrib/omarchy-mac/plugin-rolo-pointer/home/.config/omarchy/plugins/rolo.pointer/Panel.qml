@@ -17,6 +17,7 @@ Panel {
 
   property string activeTab: "trackpad"
   property var cfg: ({
+    profile: "custom",
     trackpad_scroll_factor: 1.0,
     trackpad_scroll_accel: 1.0,
     trackpad_tracking: 0.6875,
@@ -26,6 +27,7 @@ Panel {
     trackpad_disable_while_typing: true,
     trackpad_three_finger_drag: false,
     mouse_sensitivity: 0.0,
+    mouse_tracking: 2.0,
     mouse_scroll_factor: 1.0,
     mouse_accel_profile: "adaptive",
     mouse_natural_scroll: false,
@@ -63,6 +65,17 @@ Panel {
     if (!resetProc.running) resetProc.running = true
   }
 
+  // Profiles: "macos" (the owner's macOS settings through Apple's curves) and "custom" (hand-tuned).
+  // Each keeps its own values; the sliders edit the active one.
+  function setProfile(name) {
+    if (name === cfg.profile) return
+    applyDebounce.stop()
+    profileProc.command = ["python3", scriptPath, "--profile", name]
+    if (!profileProc.running) profileProc.running = true
+  }
+  readonly property bool macos: cfg.profile === "macos"
+  readonly property bool mouseMacCurve: cfg.mouse_accel_profile === "macos"
+
   Component.onCompleted: readConfig()
   onOpenedChanged: if (opened) readConfig()
 
@@ -99,6 +112,18 @@ Panel {
   }
 
   Process {
+    id: profileProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        try {
+          var parsed = JSON.parse(text.trim())
+          if (parsed && typeof parsed === "object") root.cfg = parsed
+        } catch (e) {}
+      }
+    }
+  }
+
+  Process {
     id: resetProc
     command: ["python3", root.scriptPath, "--reset"]
     stdout: StdioCollector {
@@ -119,7 +144,7 @@ Panel {
     anchors.fill: parent
     bar: root.bar
     text: "󰍽"
-    tooltipText: "Pointer & Trackpad\nTrackpad scroll: " + Number(root.cfg.trackpad_scroll_factor).toFixed(2) + "× · Mouse scroll: " + Number(root.cfg.mouse_scroll_factor).toFixed(1) + "×"
+    tooltipText: "Pointer & Trackpad (" + (root.macos ? "macOS" : "Custom") + ")\nTrackpad scroll: " + Number(root.cfg.trackpad_scroll_factor).toFixed(2) + "× · Mouse scroll: " + Number(root.cfg.mouse_scroll_factor).toFixed(1) + "×"
     onPressed: function(b) {
       if (b === Qt.LeftButton) root.toggle()
     }
@@ -167,7 +192,7 @@ Panel {
 
             Text {
               textFormat: Text.PlainText
-              text: root.activeTab === "trackpad" ? "Apple MTP Trackpad" : "Mouse & Cursor"
+              text: (root.macos ? "macOS profile · " : "Custom profile · ") + (root.activeTab === "trackpad" ? "Apple MTP Trackpad" : "Mouse & Cursor")
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -189,6 +214,52 @@ Panel {
           }
         }
 
+        // Profile switcher
+        Row {
+          width: parent.width
+          spacing: Style.space(10)
+
+          Column {
+            width: parent.width - profileGroup.implicitWidth - parent.spacing
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(2)
+
+            Text {
+              textFormat: Text.PlainText
+              text: "Profile"
+              color: root.fg
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              wrapMode: Text.WordWrap
+              text: root.macos
+                ? "macOS 27.3 values through Apple's own curves, sized for macOS's 2246-wide \"looks like\" (x0.77 at scale 2)"
+                : "Your hand-tuned settings"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
+
+          ButtonGroup {
+            id: profileGroup
+            anchors.verticalCenter: parent.verticalCenter
+            foreground: root.fg
+            background: root.bg
+            fontFamily: root.fontFamily
+            options: [
+              { value: "macos", label: "macOS" },
+              { value: "custom", label: "Custom" }
+            ]
+            value: root.cfg.profile || "custom"
+            onChanged: function(v) { root.setProfile(v) }
+          }
+        }
+
         PanelSeparator { width: parent.width; foreground: root.fg }
 
         // ======================================================== TRACKPAD TAB
@@ -206,7 +277,7 @@ Panel {
               width: parent.width
               Text {
                 textFormat: Text.PlainText
-                text: "Scroll speed"
+                text: root.macos ? "Scroll speed (at rest)" : "Scroll speed"
                 color: root.fg
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
@@ -338,7 +409,7 @@ Panel {
               width: parent.width
               Text {
                 textFormat: Text.PlainText
-                text: "Pointer gain multiplier"
+                text: root.macos ? "Pointer gain (on top of macOS)" : "Pointer gain multiplier"
                 color: root.fg
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
@@ -430,10 +501,56 @@ Panel {
           spacing: Style.space(10)
           visible: root.activeTab === "mouse"
 
+          // Mouse tracking speed (macOS curve)
+          Column {
+            width: parent.width
+            spacing: Style.space(2)
+            visible: root.mouseMacCurve
+
+            Row {
+              width: parent.width
+              Text {
+                textFormat: Text.PlainText
+                text: "Tracking speed (macOS)"
+                color: root.fg
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                width: parent.width - mTrackVal.implicitWidth
+              }
+              Text {
+                id: mTrackVal
+                textFormat: Text.PlainText
+                text: Number(root.cfg.mouse_tracking).toFixed(2)
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+              }
+            }
+
+            PanelSlider {
+              width: parent.width
+              bar: root.bar
+              minimum: 0.0
+              maximum: 3.0
+              step: 0.0625
+              value: Number(root.cfg.mouse_tracking)
+              onMoved: function(v) {
+                root.updateField("mouse_tracking", Math.round(v * 10000) / 10000)
+                root.scheduleApply()
+              }
+              onReleased: function(v) {
+                applyDebounce.stop()
+                root.updateField("mouse_tracking", Math.round(v * 10000) / 10000)
+                root.applyConfig()
+              }
+            }
+          }
+
           // Mouse Sensitivity
           Column {
             width: parent.width
             spacing: Style.space(2)
+            visible: !root.mouseMacCurve
 
             Row {
               width: parent.width
@@ -483,7 +600,7 @@ Panel {
               width: parent.width
               Text {
                 textFormat: Text.PlainText
-                text: "Scroll wheel speed"
+                text: root.mouseMacCurve ? "Scroll wheel size (x macOS)" : "Scroll wheel speed"
                 color: root.fg
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
@@ -540,6 +657,7 @@ Panel {
               background: root.bg
               fontFamily: root.fontFamily
               options: [
+                { value: "macos", label: "macOS" },
                 { value: "adaptive", label: "Adaptive" },
                 { value: "flat", label: "Flat" }
               ]
@@ -572,7 +690,7 @@ Panel {
               foreground: root.fg
               background: root.bg
               fontFamily: root.fontFamily
-              options: ["18", "24", "32", "40", "48"]
+              options: ["18", "19", "24", "32", "40", "48"]
               value: String(root.cfg.cursor_size || 24)
               onChanged: function(v) {
                 root.updateField("cursor_size", parseInt(v, 10) || 24)
@@ -603,7 +721,7 @@ Panel {
           layoutDirection: Qt.RightToLeft
 
           Button {
-            text: "Reset to defaults"
+            text: root.macos ? "Reset to macOS values" : "Reset to defaults"
             foreground: root.fg
             background: root.bg
             fontFamily: root.fontFamily

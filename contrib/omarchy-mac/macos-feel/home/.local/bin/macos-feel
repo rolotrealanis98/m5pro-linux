@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""macos-feel: the desktop half of the "macos-exact" trackpad preset.
+"""macos-feel: the desktop half of the rolo.pointer panel's "macOS" profile.
 
-  macos-feel desktop on      text size, cursor size and browser wheel animation as on macOS
+  macos-feel desktop on      text size and browser wheel animation as on macOS
   macos-feel desktop off     put back what "on" changed (saved in ~/.local/state/macos-feel/)
-  macos-feel status          what is set now and what macos-exact wants
+  macos-feel status          what is set now and what the macOS profile wants
   macos-feel measure         side-by-side helper: pointer travel between two Enter presses
 
-The Hyprland half (pointer, scroll, wheel, gestures, scale) is ~/.config/hypr/trackpad/macos-exact.lua;
-switch-preset.sh runs "desktop on/off" when entering or leaving that preset.
+Pointer, scroll, wheel, gestures and cursor size live in the Pointer panel (rolo.pointer plugin,
+~/.config/hypr/pointer-tuning.json); it runs "desktop on/off" when its profile changes.
 Mapping and derivations: contrib/omarchy-mac/macos-feel/README.md (m5pro-linux repo).
 """
 
@@ -18,7 +18,7 @@ import subprocess
 import sys
 
 HOME = os.path.expanduser("~")
-PRESET = os.path.join(HOME, ".config/hypr/trackpad/macos-exact.lua")
+POINTER_JSON = os.path.join(HOME, ".config/hypr/pointer-tuning.json")
 STATE_DIR = os.path.join(os.environ.get("XDG_STATE_HOME", os.path.join(HOME, ".local/state")), "macos-feel")
 STATE = os.path.join(STATE_DIR, "before.json")
 IFACE = "org.gnome.desktop.interface"
@@ -29,16 +29,17 @@ FLAG_FILES = ["chrome-flags.conf", "chromium-flags.conf", "electron-flags.conf"]
 FLAG = "--disable-smooth-scrolling"
 
 MACOS_SYSTEM_FONT_PT = 13      # NSFont.systemFontSize; FontSizeCategory "L" is the default size
-MACOS_CURSOR_PT = 17           # NSCursor.arrow, opaque arrow height at size 1.0 (measured)
-MACOS_CURSOR_SIZE = 1.26       # com.apple.universalaccess mouseDriverCursorSize
-ADWAITA_ARROW_RATIO = 0.85     # Adwaita left_ptr: opaque arrow height / nominal size (measured)
 
 
 def knobs():
-    text = open(PRESET, encoding="utf-8").read()
-    m = re.search(r"^local SCALE = ([0-9.]+)(?:\s*/\s*([0-9.]+))?", text, re.M)
-    scale = float(m.group(1)) / (float(m.group(2)) if m.group(2) else 1.0)
-    looks = float(re.search(r"^local LOOKS_LIKE_W = ([0-9.]+)", text, re.M).group(1))
+    """Display scale and macOS "looks like" width from the Pointer panel's macOS profile."""
+    fixed = {}
+    try:
+        fixed = json.load(open(POINTER_JSON, encoding="utf-8")).get("macos_fixed", {})
+    except Exception:
+        pass
+    scale = float(fixed.get("display_scale", 2))
+    looks = float(fixed.get("looks_like_width", 2246))
     scale = 2.0 if scale == 2 else round(scale * 120) / 120
     k = (PANEL_W / scale) / looks
     return scale, looks, k
@@ -64,9 +65,8 @@ def targets():
     # linux_pt = 13 * k * 72/96. GTK applies text-scaling-factor to its base font.
     linux_pt = MACOS_SYSTEM_FONT_PT * k * 72 / 96
     tsf = round(linux_pt / base_font_pt(), 4)
-    cursor = int(MACOS_CURSOR_PT * MACOS_CURSOR_SIZE * k / ADWAITA_ARROW_RATIO + 0.5)
     return {"scale": scale, "looks_like_w": looks, "k": round(k, 4), "linux_ui_pt": round(linux_pt, 2),
-            "text-scaling-factor": tsf, "cursor-size": cursor}
+            "text-scaling-factor": tsf}
 
 
 def flag_path(name):
@@ -84,13 +84,11 @@ def desktop_on():
     if not os.path.exists(STATE):
         before = {
             "text-scaling-factor": gget("text-scaling-factor"),
-            "cursor-size": gget("cursor-size"),
             "flags_added": [],
         }
         json.dump(before, open(STATE, "w"), indent=2)
     before = json.load(open(STATE))
     gset("text-scaling-factor", t["text-scaling-factor"])
-    gset("cursor-size", t["cursor-size"])
     for name in FLAG_FILES:
         if not flag_present(name):
             if not os.path.exists(flag_path(name)):
@@ -101,7 +99,7 @@ def desktop_on():
                 before["flags_added"].append(name)
     json.dump(before, open(STATE, "w"), indent=2)
     print(f"macos-feel desktop: on (text x{t['text-scaling-factor']} = {t['linux_ui_pt']} pt UI font, "
-          f"cursor {t['cursor-size']}; browsers pick up {FLAG} at their next start)")
+          f"browsers pick up {FLAG} at their next start)")
 
 
 def desktop_off():
@@ -110,7 +108,6 @@ def desktop_off():
         return
     before = json.load(open(STATE))
     gset("text-scaling-factor", before["text-scaling-factor"])
-    gset("cursor-size", before["cursor-size"])
     for name in before.get("flags_added", []):
         p = flag_path(name)
         if os.path.exists(p):
@@ -122,7 +119,7 @@ def desktop_off():
             with open(p, "w", encoding="utf-8") as f:
                 f.write("\n".join(kept) + ("\n" if kept else ""))
     os.remove(STATE)
-    print("macos-feel desktop: off (previous text size, cursor size and browser flags restored)")
+    print("macos-feel desktop: off (previous text size and browser flags restored)")
 
 
 def status():

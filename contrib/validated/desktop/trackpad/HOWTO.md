@@ -10,7 +10,6 @@ Files (repo path → MacBook path):
 | `hypr/trackpad/macos.lua` | `~/.config/hypr/trackpad/macos.lua` | preset: macOS curve, macOS click/tap/scroll behaviour |
 | `hypr/trackpad/between.lua` | `~/.config/hypr/trackpad/between.lua` | preset: halfway between macOS and libinput |
 | `hypr/trackpad/linux-default.lua` | `~/.config/hypr/trackpad/linux-default.lua` | preset: libinput default (what the machine did before) |
-| `hypr/trackpad/macos-exact.lua` | `~/.config/hypr/trackpad/macos-exact.lua` | preset: the owner's macOS settings, trackpad + mouse + sizes (`contrib/omarchy-mac/macos-feel/`) |
 | `hypr/trackpad/select.lua` | `~/.config/hypr/trackpad/select.lua` | which preset is active |
 | `hypr/trackpad/switch-preset.sh` | `~/.config/hypr/trackpad/switch-preset.sh` | switch presets and reload |
 | `device-inventory.txt` | — | what the device and libinput report |
@@ -36,7 +35,7 @@ anything (all three presets pass it, with and without the line above).
 ## Switch presets
 
 ```sh
-~/.config/hypr/trackpad/switch-preset.sh macos          # or between, linux-default, macos-exact
+~/.config/hypr/trackpad/switch-preset.sh macos          # or between, linux-default
 ~/.config/hypr/trackpad/switch-preset.sh                # show the active one
 ```
 
@@ -44,13 +43,14 @@ It edits `select.lua` and runs `hyprctl reload`. Knobs (tracking speed, gain, sc
 tap to click, three-finger drag) sit at the top of each preset file; edit, then `hyprctl reload`.
 `lua ~/.config/hypr/trackpad/curves.lua 1.0` prints the curves for a given tracking speed.
 
-## macos-exact
+## The Pointer panel and the macOS profile
 
-`macos-exact.lua` is the owner's own macOS settings (trackpad 0.875 and scroll 0.4412, the Logitech mouse at 2.0 with
-its wheel at 0.75, natural scrolling, no tap to click), plus the "looks like" size, text, cursor and per-app scroll
-normalisation. It needs a hook line after `pointer-tuning.lua` in `hyprland.lua`. Install, the mapping table and the
-derivations are in `contrib/omarchy-mac/macos-feel/README.md`. `lua curves.lua mouse [dpi] [k]` and `lua curves.lua wheel`
-print its mouse and wheel curves.
+On the MacBook the effective trackpad and mouse settings come from the rolo.pointer panel
+(`contrib/omarchy-mac/plugin-rolo-pointer/`), which writes `~/.config/hypr/pointer-tuning.lua` after these
+presets and uses `curves.lua`. Its "macOS" profile is the owner's own macOS settings (trackpad 0.875 / scroll
+0.4412, Logitech mouse 2.0 / wheel 0.75 through IOHIDFamily's mouse table). Mapping and derivations:
+`contrib/omarchy-mac/macos-feel/README.md`. `lua curves.lua mouse [dpi] [k]` and `lua curves.lua wheel` print the
+mouse and wheel curves.
 
 ## What the presets do
 

@@ -1,7 +1,7 @@
 -- Pointer and scroll curves for the J716s trackpad ("Apple MTP multi-touch"), as libinput "custom"
 -- acceleration points for Hyprland's accel_profile / scroll_points.
 --
--- Loaded by the preset files with dofile(). Run it on its own to print the curves:
+-- Loaded with dofile() by the preset files and by pointer-tuning.lua (rolo.pointer panel). Run it alone to print the curves:
 --   lua ~/.config/hypr/trackpad/curves.lua [tracking]      (tracking defaults to 0.6875)
 --
 -- Units (libinput 1.32, filter-custom.c and evdev-mt-touchpad.c tp_filter_motion):
@@ -344,7 +344,7 @@ end
 -- scroll_points for the mouse wheel. libinput 1.32 runs wheel events through the custom profile's
 -- scroll curve (evdev-fallback.c, FILTER_SCROLL_TYPE_WHEEL) in v120 units: one notch = 120, speed =
 -- 120 / ms since the previous notch. Output = v * base * gain(speed), gain = macOS point delta per
--- notch (1 for a slow notch). opts.base: Linux notches for one macOS point delta (the preset
+-- notch (1 for a slow notch). opts.base: Linux notches for one macOS point delta (the panel
 -- derives it from Chrome on both systems).
 -- libinput treats the first notch after a 1 s pause as 7 ms after the previous one (120/7 = 17.1
 -- v120/ms, filter-custom.c FIRST_MOTION_TIME_INTERVAL), so the curve drops back to the slow gain
