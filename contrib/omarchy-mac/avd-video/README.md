@@ -43,11 +43,31 @@ the #330 driver); mpv windowed 8 s per clip with `hwdec=vaapi` and `hwdec=no` (C
 Chrome in a test profile playing `play.html` muted (decoder in the log, GPU-process CPU, `/dev/media` open in the GPU process).
 Result: `/home/rolo/gpu-ab/avd/run-*/summary.txt`.
 
-If Chrome AV1 falls back and the #330 build passes: install the package (it `replaces` Omarchy's
-`libva-v4l2_request-avd`): `sudo pacman -U /home/rolo/gpu-ab/avd/libva-v4l2-request-avd-1.3.r11-2-aarch64.pkg.tar.xz`,
-then `rm /usr/lib/dri/aurora_drv_video.so` first if pacman reports the file conflict (the package ships the same alias).
-Until #114 is merged, an Omarchy update can bring the old package back (it would not remove the alias; AV1 in Chrome would
-go back to software).
+### Result (first boot with the firmware, 2026-11-17)
+
+AVD up (`booting hw version: 40020`, open-queue transport, 7 frames in flight, `/dev/video13` + `/dev/media0`), vainfo by
+automatic discovery: H.264 CB/Main/High, HEVC Main/Main10, VP9 0/2, AV1 0. ffmpeg VA-API output pixel-identical to software
+for every clip with both drivers; mpv `hwdec=vaapi` (and the default auto-safe) uses the AVD at ~1/10 the CPU. Chrome
+(`chrome-gpu-ab/video-ab.sh`, test profile, workspace 5): H.264/HEVC/VP9 on the AVD with the packaged driver (2-3% of a
+core); AV1 falls back (`vaEndPicture failed`, 84% of a core). With the #330 driver: AV1 on the AVD (2%), H.264/HEVC/VP9
+unchanged, 0 dropped frames.
+
+### Making the #330 driver Chrome's (recommended; owner's call, not done)
+
+Install the package: it `replaces` Omarchy's `libva-v4l2_request-avd` and ships the same `aurora_` alias, so remove the hand
+alias first (pacman would report a file conflict):
+
+    sudo rm /usr/lib/dri/aurora_drv_video.so
+    sudo pacman -U /home/rolo/gpu-ab/avd/libva-v4l2-request-avd-1.3.r11-2-aarch64.pkg.tar.xz
+    # then restart Chrome; check chrome://media-internals on a muted YouTube AV1 video: VaapiVideoDecoder
+    # undo: sudo pacman -S libva-v4l2_request-avd && sudo ln -s v4l2_request_drv_video.so /usr/lib/dri/aurora_drv_video.so
+
+System-wide (mpv/ffmpeg get it too; ffmpeg is pixel-identical on all codecs with it). It stays installed across updates
+(local package; `provides` covers anything depending on the Omarchy name). Chrome-only alternative without a package change:
+a `~/.local/share/applications/google-chrome.desktop` copy whose `Exec=` starts with
+`env LIBVA_DRIVERS_PATH=/opt/libva-avd-av1/dri LIBVA_DRIVER_NAME=v4l2_request` (works only for launches through the
+desktop file; chrome-flags.conf cannot set environment). When omacom/libva-v4l2_request#114 merges and Omarchy ships it,
+go back to Omarchy's package.
 
 ## Build
 

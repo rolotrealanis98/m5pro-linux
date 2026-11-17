@@ -2,6 +2,6 @@
 --ozone-platform-hint=wayland
 --password-store=gnome-libsecret
 --use-angle=vulkan
---enable-features=TouchpadOverscrollHistoryNavigation,OverlayScrollbar,Vulkan,DefaultANGLEVulkan,VulkanFromANGLE
+--enable-features=TouchpadOverscrollHistoryNavigation,OverlayScrollbar,Vulkan,DefaultANGLEVulkan,VulkanFromANGLE,VaapiIgnoreDriverChecks,AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL
 --load-extension=/usr/share/omarchy/default/chromium/extensions/copy-url,/usr/share/omarchy/default/chromium/extensions/yt-dlp,/usr/share/omarchy/default/chromium/extensions/whatsapp-slim
 --no-default-browser-check

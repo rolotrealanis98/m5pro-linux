@@ -28,6 +28,8 @@ flags() {
     gl-graphite)  echo "--enable-features=TouchpadOverscrollHistoryNavigation,OverlayScrollbar,SkiaGraphite" ;;
     vk-graphite-sw) echo "--use-angle=vulkan --enable-skia-graphite --enable-features=TouchpadOverscrollHistoryNavigation,OverlayScrollbar,Vulkan,DefaultANGLEVulkan,VulkanFromANGLE,SkiaGraphite" ;;
     gl-graphite-sw) echo "--enable-skia-graphite --enable-features=TouchpadOverscrollHistoryNavigation,OverlayScrollbar,SkiaGraphite" ;;
+    vk-forced)    echo "--use-angle=vulkan --enable-features=TouchpadOverscrollHistoryNavigation,OverlayScrollbar,Vulkan,DefaultANGLEVulkan,VulkanFromANGLE,VaapiIgnoreDriverChecks,AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL" ;;
+    angle-vk)     echo "--use-angle=vulkan --enable-features=TouchpadOverscrollHistoryNavigation,OverlayScrollbar" ;;
     vk-only)    echo "--enable-features=TouchpadOverscrollHistoryNavigation,OverlayScrollbar,Vulkan" ;;
     *) echo "unknown config $1" >&2; exit 2 ;;
   esac

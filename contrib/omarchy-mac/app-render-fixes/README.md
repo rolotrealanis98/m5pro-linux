@@ -20,7 +20,11 @@ Scope: generic (Omarchy on Apple Silicon with the native Gallium GL session). St
 - `obsidian-native-gl/`: repro tools. `run-ws5.sh` launches one throwaway window on workspace 5 silently and captures that
   toplevel only (`grim -T`). `cdpshot.py` is a stdlib DevTools screenshot. `blkpng.py`/`blk.py` measure pure-black area.
   `glcaps.py` is a headless GL limits query. Hidden-workspace windows do not repaint, so the presentation bug itself needs
-  an on-screen run with the owner's OK.
+  an on-screen run with the owner's OK. That run is `attended-visible.sh` (on the Mac: `sudo bash
+  /home/rolo/gpu-ab/obs/attended-visible.sh [N]`): N launches each of default, `ASAHI_MESA_DEBUG=sync`, `nocompress`,
+  `noshadow`, `--ui-disable-partial-swap`, plus N/2 zink controls, interleaved; windows open on workspace 5 and the owner
+  switches there himself (the script pauses while workspace 5 is not visible, never switches). ~15 s per launch, ~14 min at
+  N=10. Clean `sync` = early fence; clean `nocompress`/`noshadow`/partial-swap-off = stale contents on partial redraw.
 - `~/.config/obsidian/user-flags.conf` (`-disable-gpu`, `--enable-wayland-ime`) has no effect. This Obsidian package
   (`/usr/bin/obsidian` → `/opt/obsidian/obsidian`, bundled Electron) has no wrapper that reads it.
 

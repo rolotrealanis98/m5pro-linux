@@ -20,6 +20,26 @@ const codecs = { 'avc1.640028': 'H.264 High', 'hvc1.1.6.L120.90': 'HEVC Main', '
     } catch (e) { log(`webcodecs ${n} error ${e}`); }
   }
 })();
+// Picture check: pause at t=2.0 s, draw the frame to a small canvas and log the mean RGB of a 4x4 grid (a broken
+// hardware import shows up as green/black cells; compare against a run with --disable-accelerated-video-decode).
+let sampled = false;
+v.addEventListener('timeupdate', () => {
+  if (sampled || v.currentTime < 2.0) return;
+  sampled = true; v.pause();
+  v.addEventListener('seeked', () => {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 36; const x = c.getContext('2d');
+    let d; try { x.drawImage(v, 0, 0, 64, 36); d = x.getImageData(0, 0, 64, 36).data; }
+    catch (e) { log(`picture error ${e} (file:// needs --allow-file-access-from-files)`); v.play(); return; }
+    const cells = [];
+    for (let gy = 0; gy < 4; gy++) for (let gx = 0; gx < 4; gx++) {
+      let r = 0, g = 0, b = 0, n = 0;
+      for (let y = gy * 9; y < gy * 9 + 9; y++) for (let xx = gx * 16; xx < gx * 16 + 16; xx++) { const i = (y * 64 + xx) * 4; r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
+      cells.push([r / n, g / n, b / n].map(Math.round).join('/'));
+    }
+    log(`picture t=${v.currentTime.toFixed(3)} ${cells.join(' ')}`); v.play();
+  }, { once: true });
+  v.currentTime = 2.0;
+});
 setInterval(() => {
   const q = v.getVideoPlaybackQuality();
   log(`${clip} t=${v.currentTime.toFixed(1)} frames=${q.totalVideoFrames} dropped=${q.droppedVideoFrames}`);

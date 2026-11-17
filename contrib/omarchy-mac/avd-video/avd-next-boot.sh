@@ -62,10 +62,10 @@ fi
 # ffmpeg: hardware (VA-API -> v4l2_request -> AVD) vs software, frame by frame. NV12 on both sides.
 hw_vs_sw() { # clip [extra env...]
   local c=$1; shift; local n=${c%.*}
-  asuser env "$@" "${TIMED[@]}" timeout 120 ffmpeg -hide_banner -nostdin -loglevel error \
+  asuser env "$@" "${TIMED[@]}" timeout 120 ffmpeg -hide_banner -nostdin -y -loglevel error \
     -hwaccel vaapi -hwaccel_device $RN -hwaccel_output_format vaapi -i "$CLIPS/$c" -an -vf hwdownload,format=nv12 \
     -f framemd5 "$RUN/$n.hw.md5" 2> "$RUN/$n.hw.log"
-  asuser "${TIMED[@]}" timeout 120 ffmpeg -hide_banner -nostdin -loglevel error \
+  asuser "${TIMED[@]}" timeout 120 ffmpeg -hide_banner -nostdin -y -loglevel error \
     -i "$CLIPS/$c" -an -vf format=nv12 -f framemd5 "$RUN/$n.sw.md5" 2> "$RUN/$n.sw.log"
   local nh ns same
   nh=$(grep -vc '^#' "$RUN/$n.hw.md5" 2>/dev/null); ns=$(grep -vc '^#' "$RUN/$n.sw.md5" 2>/dev/null)
