@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>AVD decode test</title>
+<style>body{margin:0;background:#111;color:#ddd;font:14px monospace}video{width:100%;max-height:85vh}</style>
+<pre id="o"></pre>
+<video id="v" muted autoplay loop playsinline></video>
+<script>
+// Muted loop of clips/<name> (from the URL hash) + WebCodecs hardware-support probe, logged to the console
+// (visible on stderr with --enable-logging=stderr) with an AVDTEST prefix.
+const o = document.getElementById('o'), v = document.getElementById('v');
+const log = s => { o.textContent += s + '\n'; console.log('AVDTEST ' + s); };
+const clip = location.hash.slice(1) || 'h264-1080p.mp4';
+v.src = 'clips/' + clip;
+const codecs = { 'avc1.640028': 'H.264 High', 'hvc1.1.6.L120.90': 'HEVC Main', 'vp09.00.40.08': 'VP9 p0', 'av01.0.08M.08': 'AV1 Main' };
+(async () => {
+  for (const [c, n] of Object.entries(codecs)) {
+    try {
+      const r = await VideoDecoder.isConfigSupported({ codec: c, codedWidth: 1920, codedHeight: 1080, hardwareAcceleration: 'prefer-hardware' });
+      log(`webcodecs ${n} prefer-hardware supported=${r.supported}`);
+    } catch (e) { log(`webcodecs ${n} error ${e}`); }
+  }
+})();
+setInterval(() => {
+  const q = v.getVideoPlaybackQuality();
+  log(`${clip} t=${v.currentTime.toFixed(1)} frames=${q.totalVideoFrames} dropped=${q.droppedVideoFrames}`);
+}, 4000);
+</script>
