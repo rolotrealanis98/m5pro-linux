@@ -17,7 +17,7 @@
 # there (it survives the reboot). This script also copies them to the Studio every step.
 set -uo pipefail
 
-SEQ=149 EXT="" REL="" COLLECT="" HERE=$(cd "$(dirname "$0")/.." && pwd)
+SEQ=149 EXT="" REL="" COLLECT="" HERE=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 while (($#)); do
   case "$1" in
   --collect) COLLECT="$2"; shift 2 ;;   # after a reboot: fetch /root/airdrop-m1c-STAMP and decode
