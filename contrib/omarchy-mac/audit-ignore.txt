@@ -74,6 +74,8 @@
 
 # --- third-party software the owner uses (not Mac customizations) ---
 ~/.local/bin/superwhisper
+~/.local/bin/claude-url-router    # the owner's own Claude launchers: personal
+~/.local/bin/claude-work
 ~/.config/omarchy/hooks/theme-set.d/10-owe-sync
 ~/.config/omarchy/plugins/hazem.battery.display/
 ~/.config/omarchy/plugins/superwhisper-panel

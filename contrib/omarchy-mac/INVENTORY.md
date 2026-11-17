@@ -5,7 +5,7 @@ below counts as tracked; a trailing `/` covers a whole directory. Scope, status 
 Dated 2026-11-17, kernel `7.3.0-gec5f49f167be`, Omarchy 4.5.0-3. Rows owned by another agent say so and are not edited here.
 
 Short forms in "Install" / "Undo": `item X` = `sudo contrib/omarchy-mac/install-item.sh [--user NAME] [--remove] X` (see `README.md`);
-"apply.sh" = `contrib/pending/desktop-defaults/apply.sh` (idempotent; it has no undo, so Undo lists the manual reverse).
+"apply.sh" = `contrib/pending/desktop-defaults/apply.sh` (idempotent; picks the logged-in desktop user since commit 7481e52; it has no undo, so Undo lists the manual reverse).
 
 ## A. Packages and package manager
 
@@ -74,6 +74,8 @@ Short forms in "Install" / "Undo": `item X` = `sudo contrib/omarchy-mac/install-
 |---|---|---|---|---|---|---|---|---|
 | Omarchy lock-screen PAM | The lock screen needs `omarchy-lock-password` (the bring-up skipped the installer step that writes it) | generic | installed | `contrib/pending/desktop-defaults/apply.sh` (writes it when missing) | `/etc/pam.d/omarchy-lock-password`, `/etc/pam.d/omarchy-lock-fingerprint` | apply.sh | delete the file | none: only needed because the installer step was skipped |
 | Touch ID stack | m5pro-touchid helper, service, fprintd drop-ins, resume hook, SEP driver options, PAM lines in sudo and polkit, 1Password polkit/browser-support tweaks. Not edited here | t6050 | installed | `contrib/pending/touchid-omarchy/` (in progress), `contrib/pending/platform/touchid-sep/` | `/usr/local/bin/m5pro-touchid`, `/usr/local/lib/m5pro/touchid-up`, `/usr/local/lib/m5pro/touchid-sensor-present`, `/etc/systemd/system/m5pro-touchid.service`, `unit:m5pro-touchid.service`, `/etc/systemd/system/fprintd.service.d/60-m5pro-touchid.conf`, `/etc/systemd/system/fprintd.service.d/10-stop-timeout.conf`, `/usr/lib/systemd/system-sleep/fprintd-resume`, `/etc/modprobe.d/apple-sep.conf`, `/etc/pam.d/sudo`, `/etc/pam.d/polkit-1`, `/usr/share/polkit-1/actions/com.1password.1Password.policy`, `/opt/1Password/1Password-BrowserSupport`, `~/.config/omarchy/plugins/m5pro.touchid/` (Omarchy shell panel) | `contrib/pending/touchid-omarchy/install.sh` | Touch ID agent | aurora-silicon: alarm-aurora `aurora-touchid-rearm`, `fprintd-aurora`, `libfprint-aurora`, `aurora-sep`; aurora-silicon/aurora-xart for the guard list; the Omarchy fingerprint offer is an omacom/omarchy-mac-pkgs concern (`enable-fingerprint`) |
+| Login accounts: no image account | The leftover Arch Linux ARM `alarm` account (uid 1000, wheel) was removed with `userdel -r alarm` on 2026-11-17 at the owner's request; only the desktop user (uid 1001) remains as a login account. Root's password is locked (`passwd -l root`); SSH by key still works | generic | installed | none (account state, no file) | `/etc/passwd`, `/etc/shadow` (machine state, not tracked) | `userdel -r alarm; passwd -l root` | `passwd -u root` (the `alarm` account is not restored) | Omarchy-on-Mac installer (omacom/omarchy-mac-installer): do not ship the image's `alarm` account |
+| Admin-self polkit rule | `40-m5pro-admin-self.rules`: admin authentication as the user themself; exists because the `alarm` account is gone (owner: touchid-omarchy item) | generic | installed | `contrib/pending/touchid-omarchy/` (owner: Touch ID agent) | `/etc/polkit-1/rules.d/40-m5pro-admin-self.rules` | Touch ID agent | Touch ID agent | Omarchy-on-Mac installer, with the account change above |
 
 ## E. User config: Hyprland, Omarchy shell, menu, plugins (desktop user)
 
