@@ -1,0 +1,46 @@
+#!/bin/sh
+# m5pro-wifi7-check: read-only Wi-Fi 7 report for the N1 (centauri) on the J716s.
+# Prints what the kernel, the firmware and the scan cache say about EHT, 6 GHz and MLO,
+# with SSIDs, BSSIDs and MAC addresses left out. Run as root (debugfs).
+#   m5pro-wifi7-check            report
+#   m5pro-wifi7-check SERVER     report, then iperf3 to SERVER (4 streams, 20 s, both directions)
+# Changes nothing: no scan is started, no connection is touched.
+set -u
+DEV=${WIFI_DEV:-wlan0}
+PHY=$(iw dev "$DEV" info 2>/dev/null | awk '/wiphy/ {print "phy" $2}')
+DBG=/sys/kernel/debug/ieee80211/${PHY:-phy0}
+redact() { sed -E 's/([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}/<mac>/g; s/(SSID:).*/\1 <ssid>/'; }
+
+echo "== kernel"; uname -r
+echo "== driver log (capabilities, link)"
+dmesg 2>/dev/null | grep -E 'Wi-Fi (firmware capabilities|firmware channels|link:|join|connect)|6 GHz join' | redact | tail -n 12
+
+echo "== regulatory (6 GHz rule)"
+iw reg get 2>/dev/null | grep -E '^country|5925'
+
+echo "== wiphy capabilities"
+iw phy "${PHY:-phy0}" info 2>/dev/null | grep -E '^\s+Band [0-9]:|HE Iftypes|VHT Capabilities|EHT Iftypes|EHT MAC|HE160|HE40/HE80' | sed 's/^\s*/  /'
+printf '  6 GHz channels enabled: '
+iw phy "${PHY:-phy0}" info 2>/dev/null | grep -E '^\s+\* (59[0-9][0-9]|6[0-9]{3}|7[01][0-9]{2})\.0 MHz' | grep -vc disabled
+
+echo "== link"
+iw dev "$DEV" link 2>/dev/null | grep -v -i -E '^\s*SSID' | redact
+echo "== firmware link info (debugfs link_info)"
+if [ -r "$DBG/link_info" ]; then cat "$DBG/link_info"; else echo "  missing: kernel without the wifi7 change, or debugfs not mounted"; fi
+
+echo "== scan cache (no new scan)"
+iw dev "$DEV" scan dump 2>/dev/null | awk '
+	/^BSS / { n++ }
+	/^\s*freq:/ { f = $2 + 0; if (f >= 5925) six++; else if (f >= 5000) five++; else two++ }
+	/EHT capabilities|EHT operation|EHT Operation/ { eht++ }
+	/Multi-Link|multi-link|Basic ML/ { ml++ }
+	/Reduced Neighbor Report|RNR/ { rnr++ }
+	END { printf "  BSSes %d: 2.4 GHz %d, 5 GHz %d, 6 GHz %d; EHT elements %d, multi-link %d, RNR %d\n", n, two, five, six, eht, ml, rnr }'
+
+if [ $# -ge 1 ]; then
+	echo "== iperf3 to $1 (upload, then download)"
+	timeout 40 iperf3 -c "$1" -t 20 -P 4 2>&1 | grep -E 'SUM.*(sender|receiver)'
+	timeout 40 iperf3 -c "$1" -t 20 -P 4 -R 2>&1 | grep -E 'SUM.*(sender|receiver)'
+	echo "== firmware link info after the transfer"
+	[ -r "$DBG/link_info" ] && cat "$DBG/link_info"
+fi
