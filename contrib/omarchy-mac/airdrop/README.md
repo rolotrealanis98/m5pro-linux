@@ -16,3 +16,9 @@ AirDrop on the J716s, using the N1's own firmware AWDL. The research, ranked opt
   function down until a reboot, so run the write commands (`configure`, `start`, `stop`, `send`) only with a second way into the machine
   (USB Ethernet).
 - Undo: none needed. To stop, run `aci-probe.py stop` and then `aci-probe.py disable`.
+- `fallback/taildrop-receive.sh --user NAME [--dry-run|--remove]` (root) gives iPhone <-> Mac sharing that works today on any network.
+  It runs the two steps of Omarchy's own Tailscale install that a hand-installed Tailscale skipped: `tailscale set --operator=NAME`
+  and enabling the stock user unit `omarchy-tailscale-receive.service`, which saves Taildrop files to `~/Downloads` and notifies.
+  After that, the iPhone shares through the share sheet > Tailscale, and the Mac sends with `omarchy tailscale send`. LocalSend is
+  already wired into Omarchy's menu (Trigger > Share). Staged, not applied (the dry run was checked on the Mac). Findings and the
+  awdl0 design are in `/Volumes/m5pro/bench/requests/airdrop-2.md`.
