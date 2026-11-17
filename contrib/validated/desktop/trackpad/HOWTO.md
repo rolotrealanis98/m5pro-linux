@@ -5,6 +5,7 @@ Files (repo path → MacBook path):
 | Repo | MacBook | What |
 |---|---|---|
 | `local-overrides.quirks` | `/etc/libinput/local-overrides.quirks` | libinput size/palm thresholds for this pad, with the measured ranges |
+| `local-overrides.trackpad-kernel.quirks` | `/etc/libinput/local-overrides.quirks` | the same, for the `j716s-trackpad` kernel (hover filter + MT_TOOL_PALM): touch size 40:30 instead of 150:130. Install one or the other, never both |
 | `hypr/trackpad/curves.lua` | `~/.config/hypr/trackpad/curves.lua` | Apple's trackpad curves and the maths that turns them into libinput points |
 | `hypr/trackpad/macos.lua` | `~/.config/hypr/trackpad/macos.lua` | preset: macOS curve, macOS click/tap/scroll behaviour |
 | `hypr/trackpad/between.lua` | `~/.config/hypr/trackpad/between.lua` | preset: halfway between macOS and libinput |
@@ -13,7 +14,9 @@ Files (repo path → MacBook path):
 | `hypr/trackpad/switch-preset.sh` | `~/.config/hypr/trackpad/switch-preset.sh` | switch presets and reload |
 | `device-inventory.txt` | — | what the device and libinput report |
 
-Kernel-side limits and draft patches: `contrib/pending/platform/trackpad-feel/`.
+Kernel side, palm rejection and the attended palm test: `contrib/pending/platform/trackpad-feel/`
+(`PALM-REJECTION.md`, `attended-test.sh`). With the trackpad kernel, `libinput debug-events --verbose`
+also prints `palm detected (tool-palm)` for the controller's palms.
 
 ## Enable (once)
 
@@ -152,10 +155,12 @@ resting palm. Write down the major/minor of each. Then, in `/etc/libinput/local-
 - `AttrPalmSizeThreshold`: between the flat-finger maximum and the palm minimum
 - `AttrThumbSizeThreshold`: between the moving-finger and resting-thumb majors. A thumb counts
   only if major > T and minor < 0.6 T, so check the thumb's minor too.
+  Measured 2026-11-17: resting thumbs (182-694) and fingers (36-776) overlap, so leave it unset.
 
 Run `libinput quirks validate`, then log out and back in. For the controller's own classes (thumb,
 finger, palm) use `contrib/pending/platform/trackpad-feel/tp-contacts.py`. It prints the same
-sizes, plus the class byte.
+sizes, plus the state and class bytes and what the trackpad kernel reports for each contact.
+`attended-test.sh` there runs the whole measurement in about 12 minutes.
 
 ## Symptom → what to try
 

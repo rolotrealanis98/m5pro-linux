@@ -1,0 +1,129 @@
+From dcfb75404e1d8ef18bf46663290005543acd11af Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 05:44:44 -0500
+Subject: [PATCH 1/3] HID: magicmouse: name the MTP contact record's ID, state
+ and class bytes
+
+The first four bytes of an MTP contact record were two unknown words; the
+palm code read the contact ID and the controller's class out of their low
+bytes. Name the bytes: contact ID, the controller's contact state (first
+seen, hovering, touch down, touching, lifting, after lift, gone) and its
+class (unclassified, thumb, fingers, palms).
+
+The names and the state values follow Yicong Hui's Asahi Linux commit
+d4f767712c8b ("HID: magicmouse: ignore hovering touchpad contacts and
+report palm contacts"), recorded on an M2 Max. The J716s (M5 Pro) records
+use the same bytes: states 0 to 7 in that order, and classes 1 (a thumb
+resting at the bottom edge), 2 to 4 (moving fingers) and 6 and 7 (hands
+resting at the side edges while typing), plus 10 and 12 at the edges.
+
+No functional change.
+
+Link: https://github.com/AsahiLinux/linux/commit/d4f767712c8b0097e0996f951d3c9cea2648ee97
+Signed-off-by: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TYoPBXdNYTj12jEVptd1y7
+---
+ drivers/hid/hid-magicmouse.c | 48 +++++++++++++++++++++++++-----------
+ 1 file changed, 33 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/hid/hid-magicmouse.c b/drivers/hid/hid-magicmouse.c
+index cc079c42c580..edb6459495a7 100644
+--- a/drivers/hid/hid-magicmouse.c
++++ b/drivers/hid/hid-magicmouse.c
+@@ -858,11 +858,32 @@ static int magicmouse_raw_event_usb(struct hid_device *hdev,
+ 	return __magicmouse_raw_event_usb(hdev, report, data, size, false);
+ }
+ 
++/*
++ * The controller's view of a contact, in the second byte of its record.
++ * Contacts are announced while they hover above the pad (FIRST_SEEN,
++ * HOVERING) and kept for a few frames after they leave it (AFTER_LIFT), with
++ * a touch area that can already be non-zero.
++ */
++enum tp_contact_state {
++	TP_CONTACT_NOT_TRACKED = 0,
++	TP_CONTACT_FIRST_SEEN = 1,
++	TP_CONTACT_HOVERING = 2,
++	TP_CONTACT_TOUCH_DOWN = 3,
++	TP_CONTACT_TOUCHING = 4,
++	TP_CONTACT_LIFTING = 5,
++	TP_CONTACT_AFTER_LIFT = 6,
++	TP_CONTACT_GONE = 7,
++};
++
+ /**
+  * struct tp_finger - single trackpad finger structure, le16-aligned
+  *
+- * @unknown1:		unknown
+- * @unknown2:		unknown
++ * @contact_id:		contact ID, constant while the controller tracks it
++ * @state:		see enum tp_contact_state
++ * @contact_class:	the controller's classification: 0 not yet classified,
++ *			1 thumb, 2 to 5 fingers, 6 and 7 palms; 10 and 12 are
++ *			also seen, at the edges of the pad
++ * @unknown:		unknown, seen as 0, 1 or 0xff
+  * @abs_x:		absolute x coordinate
+  * @abs_y:		absolute y coordinate
+  * @rel_x:		relative x coordinate
+@@ -877,8 +898,10 @@ static int magicmouse_raw_event_usb(struct hid_device *hdev,
+  * @multi:		one finger: varies, more fingers: constant
+  */
+ struct tp_finger {
+-	__le16 unknown1;
+-	__le16 unknown2;
++	u8 contact_id;
++	u8 state;
++	u8 contact_class;
++	u8 unknown;
+ 	__le16 abs_x;
+ 	__le16 abs_y;
+ 	__le16 rel_x;
+@@ -983,9 +1006,9 @@ static bool magicmouse_haptic_click(struct magicmouse_sc *msc, u32 pressure,
+ 				    bool firmware_button);
+ 
+ /*
+- * The T6041 (M4 Max) MTP trackpad's records carry the contact ID and state in
+- * the first word and the controller's class in the low byte of the second: 1
+- * for a thumb, 2 and 3 for fingers, 6 and above for palms. Recorded on a J616C:
++ * The T6041 (M4 Max) MTP trackpad's records carry the contact ID, its state
++ * and the controller's class in their first three bytes; the class is 1 for a
++ * thumb, 2 and 3 for fingers, 6 and above for palms. Recorded on a J616C:
+  * moving fingers had a tool area of 830-1010 and class 2 or 3, a resting thumb
+  * ~1750 and class 1, a resting palm ~2040 and class 7; palms dragged across the
+  * pad reached 5100. The class flickers while a hand lands, so a contact counts
+@@ -997,11 +1020,6 @@ static bool magicmouse_haptic_click(struct magicmouse_sc *msc, u32 pressure,
+ #define MAGICMOUSE_MTP_CLASSED_PALM_TOOL_MAJOR	1400
+ #define MAGICMOUSE_MTP_PALM_TOOL_MAJOR		2200
+ 
+-static u8 magicmouse_mtp_contact_id(const struct tp_finger *f)
+-{
+-	return le16_to_cpu(f->unknown1) & 0xff;
+-}
+-
+ static void magicmouse_mtp_update_palms(struct magicmouse_sc *msc,
+ 					const u8 *records, int count)
+ {
+@@ -1013,8 +1031,8 @@ static void magicmouse_mtp_update_palms(struct magicmouse_sc *msc,
+ 	bitmap_zero(palms, U8_MAX + 1);
+ 	for (i = 0; i < count; i++) {
+ 		f = (const struct tp_finger *)(records + i * sizeof(*f));
+-		id = magicmouse_mtp_contact_id(f);
+-		class = le16_to_cpu(f->unknown2) & 0xff;
++		id = f->contact_id;
++		class = f->contact_class;
+ 		tool = le16_to_int(f->tool_major);
+ 		if ((msc->mtp_palm_size && tool > MAGICMOUSE_MTP_PALM_TOOL_MAJOR) ||
+ 		    (class >= MAGICMOUSE_MTP_PALM_CLASS_MIN &&
+@@ -1335,7 +1353,7 @@ static int magicmouse_raw_event_mtp(struct hid_device *hdev,
+ 			int tool = MT_TOOL_FINGER;
+ 
+ 			if (msc->mtp_palms &&
+-			    test_bit(magicmouse_mtp_contact_id(f), msc->mtp_palm_ids))
++			    test_bit(f->contact_id, msc->mtp_palm_ids))
+ 				tool = MT_TOOL_PALM;
+ 			report_finger_data(input, msc->tracking_ids[i], &msc->pos[i],
+ 					   f, tool);
+-- 
+2.56.0
+

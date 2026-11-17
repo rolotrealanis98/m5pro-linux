@@ -1,0 +1,197 @@
+From 43ee66d4572507a6631af9a2e2568d956b8cb271 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 05:49:55 -0500
+Subject: [PATCH 3/3] HID: magicmouse: report the J716s trackpad's palms
+
+The J716s (MacBook Pro 16-inch, M5 Pro) trackpad sends the standard MTP
+report and classes its contacts in the same byte as the T6041 and J616s
+ones, but the driver reported no palms there. With INPUT_PROP_PRESSUREPAD
+turning off libinput's pressure checks and libinput's edge palm zones off
+for Apple touchpads, contact size and disable-while-typing were the only
+palm signals, and its palms rarely reach libinput's size threshold.
+
+Read from hidraw in normal use (MTP firmware 6320.86.1): the edge of a
+hand resting on the side of the pad while typing is classed 6 or 7, with
+a tool area of 870-1650 and a touch area of up to 1632 once scaled.
+Fingers (classes 2-4) reach a tool area of 1350 and resting thumbs
+(class 1) 1360, so the T6041/J616s rule, a palm class with a tool area
+over 1400, misses most of these palms; the ones that touched down moved
+the pointer by up to 12 mm. The controller classes them before or as
+they touch down, though, and no finger or thumb was classed 6 or above
+then: a thumb resting at the bottom edge was reclassed 1, 12, 7 only
+after it had been touching for a second, with a tool area of 1160.
+
+On the J716s, report a contact as MT_TOOL_PALM, until it lifts, once the
+controller classes it as a palm before it has touched down as anything
+else. A contact reclassed after touching down as a finger or thumb still
+needs the tool-area floor, so the thumb above stays a touch. The T6041
+and J616s keep their rules.
+
+Three parameters let one kernel compare settings:
+ - mtp_palm_class (boot only): -1 the recorded machines, 0 off (today's
+   behaviour before this change), 1 every standard-report MTP trackpad,
+   to try an unrecorded one.
+ - mtp_palm_early (runtime): -1 machine default, 0 off, 1 on.
+ - mtp_palm_tool_min (runtime): the floor, -1 for the default 1400.
+
+Asahi Linux reports class 7 as a palm on every MTP trackpad, frame by
+frame (Yicong Hui, d4f767712c8b). Class 6 is a palm too here, and
+libinput stops treating a contact as a palm as soon as its tool type
+goes back to finger, so the stickiness above is kept.
+
+Link: https://github.com/AsahiLinux/linux/commit/d4f767712c8b0097e0996f951d3c9cea2648ee97
+Signed-off-by: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TYoPBXdNYTj12jEVptd1y7
+---
+ drivers/hid/hid-magicmouse.c | 78 +++++++++++++++++++++++++++++++-----
+ 1 file changed, 67 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/hid/hid-magicmouse.c b/drivers/hid/hid-magicmouse.c
+index 4060197f69f3..bbbbc66c471b 100644
+--- a/drivers/hid/hid-magicmouse.c
++++ b/drivers/hid/hid-magicmouse.c
+@@ -70,6 +70,25 @@ static bool mtp_hover_filter = true;
+ module_param(mtp_hover_filter, bool, 0644);
+ MODULE_PARM_DESC(mtp_hover_filter, "Report only MTP contacts the controller says are touching the pad (default Y)");
+ 
++/*
++ * Palm reporting on the standard MTP report. mtp_palm_class is read at probe
++ * (it decides whether ABS_MT_TOOL_TYPE exists): -1 for the machines whose
++ * classes were recorded (T6041, J616s, J716s), 0 for none, 1 for every MTP
++ * trackpad with the standard report. The other two are read on every report;
++ * -1 picks the machine's default.
++ */
++static int mtp_palm_class = -1;
++module_param(mtp_palm_class, int, 0444);
++MODULE_PARM_DESC(mtp_palm_class, "Report the MTP controller's palm class as MT_TOOL_PALM: -1 recorded machines (default), 0 never, 1 every standard-report MTP trackpad");
++
++static int mtp_palm_early = -1;
++module_param(mtp_palm_early, int, 0644);
++MODULE_PARM_DESC(mtp_palm_early, "A contact classed as a palm before it touches down as anything else is a palm at any size: -1 machine default (J716s on), 0 off, 1 on");
++
++static int mtp_palm_tool_min = -1;
++module_param(mtp_palm_tool_min, int, 0644);
++MODULE_PARM_DESC(mtp_palm_tool_min, "Raw tool area above which a contact classed as a palm is one: -1 default (1400)");
++
+ /*
+  * Waveform shaping, writable at runtime and applied on the next effect
+  * upload. Zero means "use the per-transport default": the MTP machines keep
+@@ -281,9 +300,14 @@ struct effect_job {
+  * @tp26_button: Button state of the last Trackpad26 frame.
+  * @mtp_c1fe: Whether the MTP trackpad sends the J700 C1FE report layout.
+  * @mtp_palms: Whether the controller's contact classes are trusted for palms
+- *             on the standard MTP report (T6041, J616s).
++ *             on the standard MTP report (T6041, J616s, J716s).
+  * @mtp_palm_size: Whether a tool area alone marks an MTP contact as a palm.
++ * @mtp_palm_early: Default of mtp_palm_early: whether a contact classed as a
++ *                  palm before it touched down as anything else is a palm at
++ *                  any size.
+  * @mtp_palm_ids: MTP contact IDs reported as palms until they lift.
++ * @mtp_finger_ids: MTP contact IDs that touched down as something other than
++ *                  a palm, until they lift.
+  * @ntouches: Number of touches in most recent touch report.
+  * @scroll_accel: Number of consecutive scroll motions.
+  * @scroll_jiffies: Time of last scroll motion.
+@@ -315,7 +339,9 @@ struct magicmouse_sc {
+ 	bool mtp_c1fe;
+ 	bool mtp_palms;
+ 	bool mtp_palm_size;
++	bool mtp_palm_early;
+ 	DECLARE_BITMAP(mtp_palm_ids, U8_MAX + 1);
++	DECLARE_BITMAP(mtp_finger_ids, U8_MAX + 1);
+ 
+ 	int ntouches;
+ 	int scroll_accel;
+@@ -1037,6 +1063,18 @@ static bool magicmouse_mtp_touching(const struct tp_finger *f)
+  * as a palm once the controller classes it as one with a tool area no finger
+  * reaches, or once its tool area passes palm size, and stays a palm until it
+  * lifts. Thumbs stay touches.
++ *
++ * The J716s (M5 Pro) trackpad's palms are smaller. The edge of a hand resting
++ * on the side of the pad while typing has a tool area of 870-1650, inside the
++ * range of its fingers (710-1350) and thumbs (1000-1360), so the floor above
++ * misses most of them, and those that touch down slide up to 12 mm. But the
++ * controller classes them 6 or 7 while they still hover or as they touch
++ * down, and in eight minutes of recordings no finger or thumb was classed
++ * that way then; a thumb resting at the bottom edge was only reclassed (1,
++ * then 12, then 7) after it had been touching for a second.
++ * There, a contact classed as a palm before it touches down as anything else
++ * is a palm whatever its size; one reclassed after that still needs the
++ * floor.
+  */
+ #define MAGICMOUSE_MTP_PALM_CLASS_MIN		6
+ #define MAGICMOUSE_MTP_CLASSED_PALM_TOOL_MAJOR	1400
+@@ -1046,23 +1084,33 @@ static void magicmouse_mtp_update_palms(struct magicmouse_sc *msc,
+ 					const u8 *records, int count)
+ {
+ 	DECLARE_BITMAP(palms, U8_MAX + 1);
++	DECLARE_BITMAP(fingers, U8_MAX + 1);
++	int tool_min = mtp_palm_tool_min >= 0 ? mtp_palm_tool_min :
++		       MAGICMOUSE_MTP_CLASSED_PALM_TOOL_MAJOR;
++	bool early = mtp_palm_early >= 0 ? mtp_palm_early : msc->mtp_palm_early;
+ 	const struct tp_finger *f;
++	bool classed;
+ 	int i, tool;
+-	u8 id, class;
++	u8 id;
+ 
+ 	bitmap_zero(palms, U8_MAX + 1);
++	bitmap_zero(fingers, U8_MAX + 1);
+ 	for (i = 0; i < count; i++) {
+ 		f = (const struct tp_finger *)(records + i * sizeof(*f));
+ 		id = f->contact_id;
+-		class = f->contact_class;
+ 		tool = le16_to_int(f->tool_major);
+-		if ((msc->mtp_palm_size && tool > MAGICMOUSE_MTP_PALM_TOOL_MAJOR) ||
+-		    (class >= MAGICMOUSE_MTP_PALM_CLASS_MIN &&
+-		     tool > MAGICMOUSE_MTP_CLASSED_PALM_TOOL_MAJOR) ||
+-		    test_bit(id, msc->mtp_palm_ids))
++		classed = f->contact_class >= MAGICMOUSE_MTP_PALM_CLASS_MIN;
++		if (test_bit(id, msc->mtp_palm_ids) ||
++		    (msc->mtp_palm_size && tool > MAGICMOUSE_MTP_PALM_TOOL_MAJOR) ||
++		    (classed && tool > tool_min) ||
++		    (classed && early && !test_bit(id, msc->mtp_finger_ids)))
+ 			__set_bit(id, palms);
++		else if (test_bit(id, msc->mtp_finger_ids) ||
++			 magicmouse_mtp_touching(f))
++			__set_bit(id, fingers);
+ 	}
+ 	bitmap_copy(msc->mtp_palm_ids, palms, U8_MAX + 1);
++	bitmap_copy(msc->mtp_finger_ids, fingers, U8_MAX + 1);
+ }
+ 
+ static void report_finger_data(struct input_dev *input, int slot,
+@@ -1687,7 +1735,7 @@ static int magicmouse_setup_input_mtp(struct input_dev *input,
+ 				     J314_TP_MAX_FINGER_ORIENTATION, 0, 0);
+ 	}
+ 
+-	/* The T6041, J616s and Trackpad26 controllers classify palms. */
++	/* The T6041, J616s, J716s and Trackpad26 controllers classify palms. */
+ 	if (msc->mtp_palms || msc->mtp_tp26)
+ 		input_set_abs_params(input, ABS_MT_TOOL_TYPE, 0, MT_TOOL_MAX,
+ 				     0, 0);
+@@ -2707,9 +2755,17 @@ static int magicmouse_probe(struct hid_device *hdev,
+ 		 * fingers reach a tool area of 2475, so only the class marks its
+ 		 * palms there.
+ 		 */
+-		msc->mtp_palms = msc->mtp_palm_size ||
+-				 (!msc->mtp_c1fe &&
+-				  of_machine_is_compatible("apple,j616s"));
++		/* The J716s classes its palms before they touch down. */
++		msc->mtp_palm_early = !msc->mtp_c1fe &&
++				      of_machine_is_compatible("apple,j716s");
++		if (msc->mtp_c1fe || !mtp_palm_class)
++			msc->mtp_palms = false;
++		else if (mtp_palm_class > 0)
++			msc->mtp_palms = true;
++		else
++			msc->mtp_palms = msc->mtp_palm_size ||
++					 msc->mtp_palm_early ||
++					 of_machine_is_compatible("apple,j616s");
+ 		of_node_put(np);
+ 
+ 		/*
+-- 
+2.56.0
+

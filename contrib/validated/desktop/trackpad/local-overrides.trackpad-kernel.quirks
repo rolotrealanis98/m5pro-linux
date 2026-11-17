@@ -1,0 +1,36 @@
+# libinput quirks for the J716s built-in trackpad, for kernels WITH the j716s-trackpad patches:
+#   hid_magicmouse.mtp_hover_filter=Y (default)  - only contacts the controller says touch the pad
+#   ABS_MT_TOOL_TYPE / MT_TOOL_PALM               - the controller's palm class (mtp_palm_*)
+# Check the kernel first:  cat /sys/module/hid_magicmouse/parameters/mtp_hover_filter   -> Y
+# Install: /etc/libinput/local-overrides.quirks (root:root 0644), then log out and back in.
+# On a kernel without the patches, use local-overrides.quirks: this file would turn hovering
+# hands into touches there.
+#
+# What changes against local-overrides.quirks, and why (PALM-REJECTION.md has the recordings):
+#   AttrTouchSizeRange 150:130 -> 40:30
+#     libinput's size thresholds exist to guess touch begin/end from contact size. With the hover
+#     filter the kernel already reports only contacts the controller says are touching, and the
+#     thresholds only cut those short: in two minutes of normal use 321 of 8626 finger frames
+#     (about 4 %) the controller called touching had one axis under 130, which ends the touch
+#     (a light drag or tap drops out). The lightest touching finger frames measured 42 x 54, so
+#     40:30 lets libinput begin every reported touch and never end one early. If light taps still
+#     drop, run the attended test and lower to the "smallest axis while touching" it prints.
+#   AttrPalmSizeThreshold stays 1600
+#     The kernel's MT_TOOL_PALM is the palm signal now (libinput checks it before size). Size is
+#     the backstop for palms the controller does not class; fingers and thumbs measured up to 776
+#     but flat-finger and pressed-thumb maxima are not measured yet. The attended test prints
+#     them; set this to about 1.25x the larger one.
+#   AttrThumbSizeThreshold stays unset
+#     Resting thumbs (182-694) and fingers (42-776) overlap, so a size rule would hide fingers.
+#     The kernel keeps thumbs as touches; libinput's position/speed thumb rules still apply.
+
+[J716s Apple MTP trackpad]
+MatchUdevType=touchpad
+MatchName=Apple MTP multi-touch
+MatchVendor=0x05AC
+MatchProduct=0x035A
+MatchDeviceTree=apple,j716s
+ModelAppleTouchpad=1
+AttrSizeHint=157x96
+AttrTouchSizeRange=40:30
+AttrPalmSizeThreshold=1600

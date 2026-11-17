@@ -1,0 +1,86 @@
+From d2be301dddba80acf4ca5316673f3a9d52bf5397 Mon Sep 17 00:00:00 2001
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 05:45:14 -0500
+Subject: [PATCH 2/3] HID: magicmouse: drop hovering MTP contacts
+
+The MTP controller lists a contact from the moment it sees it above the
+pad until a few frames after it lifts, and says which in the contact's
+state byte. The driver dropped only records with a zero touch area, so
+hovering, first-seen and after-lift records reached user space as
+touches. Report only contacts in the touch down, touching and lifting
+states, as Asahi Linux does since Yicong Hui's commit d4f767712c8b.
+
+Read from hidraw on a J716s (M5 Pro, MTP firmware 6320.86.1) in normal
+use: in 90 s, 46 of 142 contacts never reached touch down (mostly the
+edge of a hand above the side of the pad while typing); in another two
+minutes, 142 hovering or after-lift records had a touch area past
+libinput's 150:130 begin threshold for Apple MTP trackpads, so libinput
+began a touch on them.
+
+mtp_hover_filter (default on, writable at runtime) turns the filter off
+to compare. The C1FE (J700) records' first bytes have not been decoded,
+so its report is left alone; the Trackpad26 (K116s) frames already filter
+on their own contact state.
+
+Link: https://github.com/AsahiLinux/linux/commit/d4f767712c8b0097e0996f951d3c9cea2648ee97
+Signed-off-by: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TYoPBXdNYTj12jEVptd1y7
+---
+ drivers/hid/hid-magicmouse.c | 26 ++++++++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/drivers/hid/hid-magicmouse.c b/drivers/hid/hid-magicmouse.c
+index edb6459495a7..4060197f69f3 100644
+--- a/drivers/hid/hid-magicmouse.c
++++ b/drivers/hid/hid-magicmouse.c
+@@ -61,6 +61,15 @@ static bool report_undeciphered;
+ module_param(report_undeciphered, bool, 0644);
+ MODULE_PARM_DESC(report_undeciphered, "Report undeciphered multi-touch state field using a MSC_RAW event");
+ 
++/*
++ * MTP trackpads announce contacts while they hover above the pad and keep
++ * them for a few frames after they lift, often with a touch area already
++ * large enough for user space to take them for touches. Read on every report.
++ */
++static bool mtp_hover_filter = true;
++module_param(mtp_hover_filter, bool, 0644);
++MODULE_PARM_DESC(mtp_hover_filter, "Report only MTP contacts the controller says are touching the pad (default Y)");
++
+ /*
+  * Waveform shaping, writable at runtime and applied on the next effect
+  * upload. Zero means "use the per-transport default": the MTP machines keep
+@@ -1005,6 +1014,19 @@ static void report_c1fe_finger_data(struct input_dev *input, int slot,
+ static bool magicmouse_haptic_click(struct magicmouse_sc *msc, u32 pressure,
+ 				    bool firmware_button);
+ 
++/*
++ * Whether the controller has the contact on the pad. On a J716s in normal use,
++ * a third of the contacts the controller announced never touched down (mostly
++ * hands hovering at the side edges while typing), and 142 hovering or
++ * after-lift records in two minutes had a touch area past the one at which
++ * libinput begins a touch on this pad.
++ */
++static bool magicmouse_mtp_touching(const struct tp_finger *f)
++{
++	return f->state >= TP_CONTACT_TOUCH_DOWN &&
++	       f->state <= TP_CONTACT_LIFTING;
++}
++
+ /*
+  * The T6041 (M4 Max) MTP trackpad's records carry the contact ID, its state
+  * and the controller's class in their first three bytes; the class is 1 for a
+@@ -1333,6 +1355,10 @@ static int magicmouse_raw_event_mtp(struct hid_device *hdev,
+ 		f = (struct tp_finger *)(data + hdr_sz + i * touch_sz);
+ 		if (!msc->mtp_c1fe && le16_to_int(f->touch_major) == 0)
+ 			continue;
++		/* The C1FE records' first bytes have not been decoded. */
++		if (!msc->mtp_c1fe && mtp_hover_filter &&
++		    !magicmouse_mtp_touching(f))
++			continue;
+ 
+ 		hid_dbg(hdev, "ev x:%04x y:%04x\n", le16_to_int(f->abs_x),
+ 			le16_to_int(f->abs_y));
+-- 
+2.56.0
+
