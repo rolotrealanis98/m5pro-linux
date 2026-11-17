@@ -1,0 +1,13 @@
+#!/bin/bash
+# m5pro: Omarchy's System > Log out runs `uwsm stop`. On this Mac the desktop is not a uwsm session: tty2 autologin starts it
+# from ~/.local/bin/hypr-session, so uwsm answers "Compositor is not running" and nothing happens. When uwsm has no compositor,
+# end the user's seat0 session instead: tty2 autologin then starts a fresh desktop (the login picks up new session settings).
+# Everything else goes to the real uwsm unchanged. Installed as /usr/local/bin/uwsm (ahead of /usr/bin in PATH).
+if [ "${1:-}" = stop ] && ! /usr/bin/uwsm check is-active >/dev/null 2>&1; then
+  s=$(loginctl list-sessions --no-legend | awk -v u="$(id -un)" '$3 == u && $4 == "seat0" {print $1; exit}')
+  if [ -n "$s" ]; then
+    [ -n "${M5PRO_UWSM_DRYRUN:-}" ] && { echo "would terminate session $s"; exit 0; }
+    exec loginctl terminate-session "$s"
+  fi
+fi
+exec /usr/bin/uwsm "$@"
