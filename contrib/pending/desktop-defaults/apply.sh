@@ -36,7 +36,7 @@ say "packages (wireless-regdb: Wi-Fi regulatory database; zram-generator: compre
 pacman -S --needed --noconfirm wireless-regdb zram-generator
 
 say "sysctl, journald, zram"
-sysctl --system >/dev/null 2>&1 || echo "   some sysctl keys are not in this kernel (fq/bbr: next6 and later); the rest are set"
+sysctl --system >/dev/null 2>&1 || echo "   some sysctl keys are not in this kernel (Omarchy's fq/bbr: kernel options on j716s-config-omarchy); the rest are set"
 systemctl restart systemd-journald
 systemctl daemon-reload
 systemctl start systemd-zram-setup@zram0.service || echo "   zram setup failed (see journalctl -u systemd-zram-setup@zram0)"
