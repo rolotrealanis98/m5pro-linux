@@ -17,3 +17,8 @@ On the MacBook the scripts live in `/home/rolo/gpu-ab/` (owner rolo), results in
 Run as the desktop user: `runuser -u rolo -- bash -c 'cd /home/rolo/gpu-ab; ./run-ab.sh LABEL /opt/mesa-aurora-20261117 native'`.
 
 Undo: `rm -rf /opt/mesa-aurora-20261117 /home/rolo/gpu-ab`.
+
+## Session switched to native GL (2026-11-17)
+`session.env.native-20261117` is installed as `/etc/mesa-aurora/session.env` on the J716s (owner's request): GL/GLES on the
+native Gallium driver and Vulkan from `/opt/mesa-aurora-20261117` (aurora-wip db928e79933d). Takes effect at the next login.
+Undo: `cp /etc/mesa-aurora/session.env.zink-20261117 /etc/mesa-aurora/session.env`, then log out and in.
