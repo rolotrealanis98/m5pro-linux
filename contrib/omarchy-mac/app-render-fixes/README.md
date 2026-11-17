@@ -8,6 +8,13 @@ Scope: generic (Omarchy on Apple Silicon with the native Gallium GL session). St
 - `50-libreoffice-wayland.conf` -> `~/.config/environment.d/`: LibreOffice on Hyprland otherwise uses its X11 backend, which
   is blurry/tiny with Omarchy's `xwayland.force_zero_scaling`; `SAL_USE_VCLPLUGIN=gtk3` runs it natively on Wayland at the
   output scale. Undo: delete the file and `systemctl --user unset-environment SAL_USE_VCLPLUGIN`.
+- `monologue.desktop` -> `~/.local/share/applications/`: Monologue (Qt6 Quick + qt6-multimedia FFmpeg) showed a blank camera preview
+  while recording worked. Cause: the session sets `QT_QUICK_BACKEND=software` (`~/.config/environment.d/90-m5pro-quickshell.conf`,
+  for quickshell), so every Qt Quick app uses the software scenegraph, which cannot draw QtMultimedia `VideoOutput` frames (the
+  recorder reads the QVideoSink, not the screen). The launcher overrides it with `QT_QUICK_BACKEND=rhi QSG_RHI_BACKEND=opengl`
+  (log shows `createTexturesFromMemory ... Format_NV12` only then; Vulkan works too). Do not change the session variable.
+  Undo: `rm ~/.local/share/applications/monologue.desktop`. Applies to any Qt Quick app with video (`monologue` on the command
+  line directly still needs `QT_QUICK_BACKEND=rhi`).
 
 ## Obsidian on native GL: what goes wrong (2026-11-17)
 - Symptom: a large pure-black rectangle in the window, typically after a resize. It stays black until that area repaints.
