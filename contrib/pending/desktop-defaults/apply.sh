@@ -1,11 +1,13 @@
 #!/bin/bash
 # Install the m5pro desktop defaults on the J716s (staged 2026-11-16, not yet run). Idempotent; prints each step.
 # Run as root on the MacBook from a copy of this folder:  bash apply.sh [USER]
-#   USER: the desktop user whose hypridle.conf is replaced (default: the owner of /home's first directory).
+#   USER: the desktop user (default: the logged-in desktop session's user; never the leftover "alarm" account).
 # Leaves logind's new lid setting for the next boot (restarting logind would end the desktop session).
 set -euo pipefail
 cd "$(dirname "$0")"
-U=${1:-$(stat -c %U /home/* 2>/dev/null | head -1)}
+# The logged-in desktop user, not the first /home entry: this machine still has the image's leftover "alarm" account.
+U=${1:-$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3 != "root" && $3 != "" {print $3; exit}')}
+[ -n "$U" ] && [ "$U" != alarm ] || { echo "pass the desktop user: bash apply.sh USER"; exit 1; }
 say() { echo "== $*"; }
 
 say "system drop-ins and tools"
