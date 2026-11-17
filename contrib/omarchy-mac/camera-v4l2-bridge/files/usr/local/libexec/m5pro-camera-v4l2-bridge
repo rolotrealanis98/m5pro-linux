@@ -1,0 +1,33 @@
+#!/bin/bash
+# camera-v4l2-bridge: run v4l2-relayd from the PipeWire clean camera into the v4l2loopback device.
+# v4l2-relayd keeps the loopback writer open and subscribes to the module's client-usage event (a reader did STREAMON). Its
+# pipewiresrc pipeline is NULL (no PipeWire stream, so the camera filter keeps /dev/video0 closed and the light off) until
+# then; while idle it shows a black placeholder frame. Needs v4l2-relayd, jq, pw-dump, gst pipewiresrc, v4l2loopback.
+set -euo pipefail
+CARD_LABEL="FaceTime HD Camera (Clean)"; SOURCE_DESCRIPTION="FaceTime HD Camera"
+FORMAT=YUY2; WIDTH=1920; HEIGHT=1080; FRAMERATE=30/1; KEEP_FORMAT=0; EXTRA_OPTS=""
+# shellcheck disable=SC1091
+[ -r /etc/m5pro-camera-v4l2-bridge.conf ] && . /etc/m5pro-camera-v4l2-bridge.conf
+
+wait_for() { # wait_for SECONDS COMMAND...: print the command's output once it is non-empty
+  local n=$1 out; shift
+  for ((i = 0; i < n; i++)); do out=$("$@" 2>/dev/null || true); [ -n "$out" ] && { echo "$out"; return 0; }; sleep 1; done
+  return 1
+}
+find_dev() { grep -l -x -m1 -F -- "$CARD_LABEL" /sys/devices/virtual/video4linux/*/name 2>/dev/null | head -1 | cut -d/ -f6; }
+find_node() {
+  pw-dump | jq -r --arg d "$SOURCE_DESCRIPTION" '[.[] | select(.type == "PipeWire:Interface:Node") | .info.props
+    | select(.["media.class"] == "Video/Source" and .["node.description"] == $d
+             and ((.["node.name"] // "") | startswith("v4l2_") | not)) | .["node.name"]] | first // empty'
+}
+DEV=$(wait_for 30 find_dev) || { echo "no v4l2loopback device labelled '$CARD_LABEL' (is the module loaded?)" >&2; exit 1; }
+NODE=$(wait_for 60 find_node) || { echo "no PipeWire camera '$SOURCE_DESCRIPTION' (is aurora-camera-denoise running?)" >&2; exit 1; }
+echo "bridge: PipeWire node $NODE -> /dev/$DEV (${WIDTH}x${HEIGHT} $FORMAT $FRAMERATE)"
+if [ "$KEEP_FORMAT" = 1 ] && command -v v4l2-ctl >/dev/null; then v4l2-ctl -d "/dev/$DEV" -c keep_format=1 || true; fi
+
+# shellcheck disable=SC2086
+exec v4l2-relayd \
+  -i "pipewiresrc target-object=$NODE ! videoconvert ! videoscale ! videorate" \
+  -s "videotestsrc pattern=black num-buffers=2 ! videoconvert ! videoscale" \
+  -o "appsrc name=appsrc caps=video/x-raw,format=$FORMAT,width=$WIDTH,height=$HEIGHT,framerate=$FRAMERATE ! videoconvert ! v4l2sink name=v4l2sink device=/dev/$DEV" \
+  $EXTRA_OPTS

@@ -1,0 +1,18 @@
+[Unit]
+Description=Clean camera for apps that open /dev/videoN (v4l2loopback fed from PipeWire on demand)
+Documentation=https://github.com/aurora-silicon/camera-denoise
+After=pipewire.service wireplumber.service aurora-camera-denoise.service
+Wants=pipewire.service wireplumber.service aurora-camera-denoise.service
+# the bridge targets the filter's node: follow its restarts
+PartOf=aurora-camera-denoise.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/libexec/m5pro-camera-v4l2-bridge
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=default.target

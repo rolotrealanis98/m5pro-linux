@@ -1,0 +1,37 @@
+# v4l2-relayd for aarch64 (Arch Linux ARM). Copy of the AUR PKGBUILD (https://aur.archlinux.org/packages/v4l2-relayd,
+# 0.2.0-1, same tarball sha256) with arch=aarch64, the PipeWire GStreamer plugin, and no hard v4l2loopback-dkms dependency:
+# the Mac's kernel has no headers package, see ../README.md. Not built yet (written offline, 2026-11-17).
+pkgname=v4l2-relayd
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Plays GStreamer sources into v4l2loopback devices, only while a reader streams"
+arch=('aarch64' 'x86_64')
+url="https://gitlab.com/vicamo/v4l2-relayd"
+license=('GPL')
+depends=('glib2' 'gstreamer' 'gst-plugins-base-libs' 'gst-plugins-base' 'gst-plugins-good' 'gst-plugin-pipewire')
+makedepends=('git' 'autoconf' 'automake' 'libtool' 'pkgconf')
+optdepends=('v4l2loopback-dkms: the loopback module, if the kernel has headers'
+            'v4l2loopback-utils: v4l2loopback-ctl')
+source=("https://gitlab.com/vicamo/v4l2-relayd/-/archive/upstream/${pkgver}/v4l2-relayd-upstream-${pkgver}.tar.gz")
+sha256sums=('0c063edf18dcc6edcdef46e695128cfc2b2d60964ea8538c7e79a2454310c53d')
+
+build() {
+  cd "$srcdir/${pkgname}-upstream-${pkgver}"
+  ./autogen.sh
+  ./configure --prefix=/usr --sysconfdir=/etc
+  make
+}
+
+check() {
+  cd "$srcdir/${pkgname}-upstream-${pkgver}"
+  make -k check
+}
+
+package() {
+  cd "$srcdir/${pkgname}-upstream-${pkgver}"
+  make DESTDIR="$pkgdir/" install
+  # The bridge ships its own module options (../files/etc/modprobe.d) and a per-user unit; the system template units
+  # and the "Virtual Camera" options of the package are not used.
+  rm -f "$pkgdir/etc/modprobe.d/v4l2-relayd.conf"
+  rmdir "$pkgdir/etc/modprobe.d/" 2>/dev/null || true
+}
