@@ -34,6 +34,11 @@ AirDrop on the J716s, using the N1's own firmware AWDL. The research, ranked opt
     into "ASSERT file.c-line" lines.
   - `aci-probe.py start --full --seq 149|6+149|default` sends all nine start blocks as macOS does; `frames`, `halt` and `save DIR`
     are new.
+  - Status 347 (`AciWifiTlvsParsingFailed`, airdrop-6): the firmware's sync-parameters TLV (ff04) takes only channel-sequence
+    encodings 0/1, flags without 0x800/0x200, and fixed AW/extension values; our ff04 carried encoding 3 (and, in "air" form, flags
+    0x1800). `start --full` now sends macOS's fresh-start blocks by default (the firmware's own 71-byte ff04, no ff12), checks every
+    payload against the firmware's TLV rules first (`fw_check`) and refuses to send one it predicts 347 for. `--caps FILE --dry-run`
+    runs the check offline.
   - `retest/m1c-retest.sh` runs the retest from the Studio. A watchdog reboots only when Wi-Fi *and* the wired link are both down
     for 90 s. A mirror unit saves events, frames and any halt to `/root` every 2 s. `--collect STAMP` fetches and decodes after a
     reboot.

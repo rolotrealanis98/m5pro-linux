@@ -15,19 +15,27 @@ kernel refuses every command on interface 0 except read-only queries.
   aci-probe.py configure MAC          AciConfigureInterface on interface 1 (AWDL) with MAC
   aci-probe.py start                  AciStartInterface on interface 1 with the firmware's own
                                       defaults echoed back (macOS's layout: 5-byte prefix + TLVs)
-  aci-probe.py start --full [--seq default|149|6+149] [--mac MAC] [--ff04 fw|fwraw|air|none]
-                       [--skip TAG,TAG] [--ext]
+  aci-probe.py start --full [--seq none|default|149|6+149] [--mac MAC]
+                       [--ff04 fw|fwraw|air|none] [--skip TAG,TAG] [--ext]
+                       [--caps FILE] [--dry-run] [--force]
                                       the blocks macOS's startAwdlInterface sends, in its order:
                                       fe08/ff05/fe00/fe01 from the defaults, fe02/fe03 (the
                                       defaults' extra PSF/MIF TLVs, empty when the firmware gives
-                                      none, as on macOS), ff04, ff12. ff04 = 33-byte header + the
-                                      38-byte channel sequence: "fw" (default) takes the header
-                                      from the firmware's own ff04 like macOS's
-                                      getAwdlDefaultValuesFromDevice; "air" builds it from OWL's
-                                      values; "fwraw" sends the firmware's own 55-byte ff04 back
-                                      unchanged; "none" leaves it out. macOS adds ff20 only for a non-empty extended
-                                      sequence, so it is left out unless --ext (11 zero bytes).
-                                      --skip leaves out the listed tags (e.g. --skip fe02,fe03).
+                                      none, as on macOS), ff04, then ff12 only with a --seq.
+                                      "--seq none" (default) sends no ff12, as macOS on a fresh
+                                      start; the others add ff12 in encoding 3 (channel, op class).
+                                      ff04: "fw" (default) is the firmware's own ff04 value, 71
+                                      bytes from the reply, exactly what macOS copies; "fwraw" is
+                                      the same value without the trailing bytes; "air" is OWL's
+                                      values (the firmware refuses it: flag 0x800, encoding 3);
+                                      "none" leaves it out. --ext adds an 11-byte ff20 of zeros
+                                      (the firmware then ignores ff12). --skip leaves out tags.
+                                      Before sending, the payload is checked against the
+                                      firmware's TLV rules (fw_check); a payload the firmware
+                                      would refuse with status 347 is not sent unless --force.
+                                      --caps FILE builds from a saved GetSystemCaps reply (e.g.
+                                      debugfs system_caps) instead of asking the firmware;
+                                      --dry-run prints the payload and the check, sends nothing.
   aci-probe.py ifstatus | ifconfig    AciGetInterfaceStatus / AciGetInterfaceConfiguration on 1
   aci-probe.py stop                   AciStopInterface on interface 1
   aci-probe.py events                 the last 32 firmware events (aci_events)
@@ -109,7 +117,10 @@ def chanseq(slots):
 
 
 def sync_params(mac, seq, slots):
-    """AWDL sync parameters TLV body in air format (OWL awdl_sync_params_tlv): 33 + 38 bytes."""
+    """AWDL sync parameters TLV body in air format (OWL awdl_sync_params_tlv): 33 + 38 bytes.
+
+    The firmware refuses this form (see fw_check): flags 0x1800 has bit 0x800, and its sequence
+    is in encoding 3. Kept to reproduce the 10:50 runs."""
     used = [ch for ch, _ in slots if ch]
     master = 6 if 6 in used else (used[0] if used else 6)
     head = struct.pack("<BHBBHHHHHHBBBB6sBBHH",
@@ -125,6 +136,99 @@ def sync_params(mac, seq, slots):
                        0, 0)                    # next AW seq, AP alignment
     assert len(head) == 33
     return head + seq
+
+
+# The N1 firmware's rules for the AWDL TLVs of AciStartInterface and AciSetInterfaceConfiguration,
+# read from the UMAC code in the ftab's "aciw" entry (UMAC addresses; airdrop-6.md has the table).
+# The start handler (in NETIF_AWDL_HandleEvent) passes everything after the 24-byte header and the
+# 5-byte prefix to the TLV parser at 0x530f80 (awdl_cb.c AwdlTlvsSet); when that returns false the
+# command fails with 347, AciWifiTlvsParsingFailed. TLVs are packed back to back, no padding.
+FW_LEN = {0xFE00: (43, 44), 0xFE01: (20, 20), 0xFE02: (0, 0x180), 0xFE03: (0, 0x500),
+          0xFE08: (3, 4), 0xFE0B: (2, 4), 0xFF04: (39, 0xFFFF), 0xFF05: (19, 20)}
+FW_TAGS = set(FW_LEN) | {0xFE0A, 0xFF12, 0xFF13, 0xFF20, 0x0106, 0x0185, 0xF709}
+
+
+def ff04_problems(v):
+    """Why the firmware's ff04 handler (0x5316cc, with 0x5307a0) would refuse this value."""
+    u16 = lambda o: struct.unpack_from("<H", v, o)[0]  # noqa: E731
+    if len(v) < 39:
+        return [f"length {len(v)}, at least 39"]
+    p, enc = [], v[34]
+    if not 1 <= v[3] <= 184:
+        p.append(f"master channel {v[3]}")
+    if u16(9) & 0x0A00:
+        p.append(f"flags {u16(9):#06x} have bit 0x0800 or 0x0200")
+    for name, got, want in (("AW period", u16(5), 16), ("extension length", u16(11), 16),
+                            ("common AW length", u16(13), 16), ("max unicast extensions", v[19], 3),
+                            ("presence mode", v[27], 4), ("sequence count", v[33], 15),
+                            ("duplicate count", v[35], 0), ("step count", v[36], 3),
+                            ("fill channel", u16(37), 0xFFFF)):
+        if got != want:
+            p.append(f"{name} {got:#x}, must be {want:#x}")
+    if enc > 1:
+        p.append(f"channel sequence encoding {enc}: ff04 takes only 0 (channel) or 1 (legacy "
+                 "2-byte); encoding 3 belongs in ff12")
+    elif len(v) < 39 + 16 * (enc + 1):
+        p.append(f"length {len(v)} too short for 16 slots in encoding {enc}")
+    else:
+        for i in range(16):
+            ch = v[39 + i] if enc == 0 else v[39 + 2 * i + 1]
+            if ch > 184:
+                p.append(f"slot {i}: channel {ch}")
+    return p
+
+
+def fw_check(area):
+    """Problems the firmware's TLV parser finds in a start TLV area (the bytes after the prefix).
+    Lines starting "note:" do not fail the command."""
+    out, pos, seen = [], 0, {}
+    while pos + 4 <= len(area):
+        tag, n = struct.unpack_from("<HH", area, pos)
+        v = area[pos + 4:pos + 4 + n]
+        pos += 4 + n
+        if len(v) < n:
+            out.append(f"{tag:#06x}: length {n} runs past the end")
+            break
+        seen[tag] = v
+        if tag not in FW_TAGS:
+            out.append(f"{tag:#06x}: a tag the parser does not take")
+        elif tag in FW_LEN and not FW_LEN[tag][0] <= n <= FW_LEN[tag][1]:
+            out.append(f"{tag:#06x}: length {n}, the parser takes {FW_LEN[tag][0]}..{FW_LEN[tag][1]}")
+        elif tag == 0xFE01:
+            u16 = struct.unpack_from("<HH", v, 12)
+            if v[0] > 1 or v[1] > 1 or max(u16) > 0x400 or v[16:20] == bytes(4):
+                out.append("0xfe01: bytes 0/1 must be 0 or 1, the u16s at 12/14 at most 0x400, "
+                           "the u32 at 16 non-zero")
+        elif tag == 0xFE0B:
+            w = struct.unpack_from("<H", v)[0]
+            if not w or bin(w).count("1") >= 6:
+                out.append(f"0xfe0b: slot mask {w:#06x} (non-zero, fewer than 6 bits)")
+        elif tag == 0xFF04:
+            out += [f"0xff04: {p}" for p in ff04_problems(v)]
+    if pos < len(area) and pos + 4 > len(area):
+        out.append(f"note: {len(area) - pos} trailing bytes ignored")
+    s = seen.get(0xFF12)
+    if s is not None:
+        if len(s) < 38 or s[1] != 3:
+            out.append("note: ff12 is not 38 bytes in encoding 3; the firmware ignores it")
+        elif 0xFF20 in seen and (len(seen[0xFF20]) < 9 or
+                                 (struct.unpack_from("<H", seen[0xFF20], 6)[0] & 0x804) != 0x804 or
+                                 seen[0xFF20][8] != 2):
+            out.append("note: ff20 lacks bits 0x804 at 6 or 2 at 8; the firmware ignores ff12")
+        elif s[0] > 15 or not any(s[6 + 2 * i] for i in range(s[0] + 1)):
+            out.append("0xff12: more than 16 slots, or no slot with a channel")
+    return out
+
+
+def value_at(reply, tag):
+    """Offset of a TLV's value in a reply, or None."""
+    pos = 0
+    while pos + 4 <= len(reply):
+        t, n = struct.unpack_from("<HH", reply, pos)
+        if t == tag:
+            return pos + 4
+        pos += 4 + n
+    return None
 
 
 def die(msg):
@@ -216,26 +320,37 @@ def main(argv):
         def opt(name, default):
             return args[args.index(name) + 1] if name in args else default
         mac = bytes.fromhex(opt("--mac", "02:00:00:00:00:01").replace(":", ""))
-        ret, status, reply = defaults(IF_AWDL)
-        if ret:
-            die(f"cannot read the defaults first: {ret} status {status}")
+        if "--caps" in args:
+            with open(opt("--caps", ""), "rb") as f:
+                reply = f.read()
+        else:
+            ret, status, reply = defaults(IF_AWDL)
+            if ret:
+                die(f"cannot read the defaults first: {ret} status {status}")
         have = dict(tlvs(reply)[0])
-        mode = opt("--seq", "default")
-        if mode == "default":
-            seq = have[0xFF12][:38]
+        mode = opt("--seq", "none")
+        fwseq = have[0xFF12][:38]
+        if mode == "none":     # macOS on a fresh start: its sequence state is still empty, no ff12
+            seq, slots = None, []
+        elif mode == "default":
+            seq = fwseq
             slots = [(seq[6 + 2 * i], seq[7 + 2 * i]) for i in range(16)]
         elif mode in SEQUENCES:
             slots = SEQUENCES[mode]
             seq = chanseq(slots)
         else:
-            die("--seq default|149|6+149")
+            die("--seq none|default|149|6+149")
         ff04 = opt("--ff04", "fw")
         if ff04 == "fw":
-            sync = have[0xFF04][:33] + seq
+            # getAwdlDefaultValuesFromDevice copies 0x47 bytes from the firmware's ff04 value
+            # (whatever follows it in the reply included) and startAwdlInterface sends them back.
+            at = value_at(reply, 0xFF04)
+            sync = reply[at:at + 71].ljust(71, b"\0")
         elif ff04 == "fwraw":
             sync = have[0xFF04][:55]   # the firmware's own ff04 as it reports it (encoding-0 sequence)
         elif ff04 == "air":
-            sync = sync_params(mac, seq, slots)
+            sync = sync_params(mac, seq or fwseq, slots or
+                               [(fwseq[6 + 2 * i], fwseq[7 + 2 * i]) for i in range(16)])
         elif ff04 == "none":
             sync = None
         else:
@@ -246,7 +361,8 @@ def main(argv):
                   (0xFE02, have.get(0xFE02, b"")), (0xFE03, have.get(0xFE03, b""))]
         if sync is not None:
             blocks.append((0xFF04, sync))
-        blocks.append((0xFF12, seq))
+        if seq is not None:
+            blocks.append((0xFF12, seq))
         if "--ext" in args:
             blocks.append((0xFF20, bytes(11)))
         blocks = [(t, v) for t, v in blocks if t not in skip]
@@ -254,7 +370,20 @@ def main(argv):
         for tag, val in blocks:
             payload += struct.pack("<HH", tag, len(val)) + val
         print("start --full: " + ", ".join(f"{t:#06x}/{len(v)}" for t, v in blocks)
-              + f"; ff04 {ff04}; sequence {mode}: " + " ".join(str(c) for c, _ in slots))
+              + f"; ff04 {ff04}; sequence {mode}"
+              + (": " + " ".join(str(c) for c, _ in slots) if slots else ""))
+        problems = fw_check(bytes(payload[len(START_PREFIX):]))
+        refused = [p for p in problems if not p.startswith("note:")]
+        for p in problems:
+            print(f"fw_check: {p}")
+        print("fw_check: " + ("the firmware would refuse this with status 347" if refused
+                              else "the firmware's TLV parser takes this"))
+        if "--dry-run" in args:
+            for i in range(0, len(payload), 32):
+                print(f"  {i:04x}: {payload[i:i + 32].hex()}")
+            return
+        if refused and "--force" not in args:
+            die("not sent: fw_check predicts status 347 (--force sends it anyway)")
         show(*aci(IF_AWDL, CMD["StartInterface"], bytes(payload)))
     elif op == "start":
         ret, status, reply = defaults(IF_AWDL)

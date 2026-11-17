@@ -3,7 +3,7 @@
 # airdrop M1c retest, run from the Studio: start the N1 firmware's AWDL with all nine blocks, watch for
 # AWDL frames from a nearby iPhone, and if the firmware halts, save its crash log before anything else.
 #
-#   MBP="ssh -i ... root@HOST" m1c-retest.sh [--seq 149|6+149|default] [--start "ARGS"] [--release REL]
+#   MBP="ssh -i ... root@HOST" m1c-retest.sh [--seq none|default|149|6+149] [--start "ARGS"] [--release REL]
 #     --start passes extra arguments to `aci-probe.py start --full` (e.g. "--ff04 air --skip fe02,fe03")
 #   MBP=... m1c-retest.sh --collect STAMP      after a halt/reboot: fetch the Mac's copy and decode it
 #
@@ -18,7 +18,7 @@
 # there (it survives the reboot). This script also copies them to the Studio every step.
 set -uo pipefail
 
-SEQ=149 EXT="" REL="" COLLECT="" HERE=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+SEQ=none EXT="" REL="" COLLECT="" HERE=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 while (($#)); do
   case "$1" in
   --collect) COLLECT="$2"; shift 2 ;;   # after a reboot: fetch /root/airdrop-m1c-STAMP and decode
@@ -26,7 +26,7 @@ while (($#)); do
   --no-ext) shift ;;                    # ff20 is now off unless --start "--ext"
   --start) EXT="$2"; shift 2 ;;
   --release) REL="$2"; shift 2 ;;
-  *) echo "usage: $0 [--seq 149|6+149|default] [--start ARGS] [--release REL]" >&2; exit 2 ;;
+  *) echo "usage: $0 [--seq none|default|149|6+149] [--start ARGS] [--release REL]" >&2; exit 2 ;;
   esac
 done
 : "${MBP:?set MBP to the ssh command for the MacBook (root)}"
