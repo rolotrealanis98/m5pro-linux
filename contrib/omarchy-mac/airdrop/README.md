@@ -27,3 +27,13 @@ AirDrop on the J716s, using the N1's own firmware AWDL. The research, ranked opt
   the run's watchdog rebooted the Mac. The cause is not captured yet. Results and the next step (capture the crash log, then start
   with all nine TLVs as macOS sends them) are in `/Volumes/m5pro/bench/requests/airdrop-3.md`. Do not run `start` outside an
   attended session with a Wi-Fi watchdog.
+- M1c (kernel branch `j716s-airdrop-m1c` = j716s-next7b + `a31f0f6495ce`; built, not booted). With `aci_debug`, the kernel saves
+  the firmware crash log on a halt: the crash-log tables named in the control function's config space, plus the Wi-Fi segments
+  read through BAR4. It also keeps AWDL/NAN management frames in debugfs `aci_frames`.
+  - `n1-crashlog.py DIR [FTAB]` decodes a saved halt against the firmware's assert database (the ftab `_wfa` entry, read in place)
+    into "ASSERT file.c-line" lines.
+  - `aci-probe.py start --full --seq 149|6+149|default` sends all nine start blocks as macOS does; `frames`, `halt` and `save DIR`
+    are new.
+  - `retest/m1c-retest.sh` runs the retest from the Studio. A watchdog reboots only when Wi-Fi *and* the wired link are both down
+    for 90 s. A mirror unit saves events, frames and any halt to `/root` every 2 s. `--collect STAMP` fetches and decodes after a
+    reboot.

@@ -15,9 +15,18 @@ kernel refuses every command on interface 0 except read-only queries.
   aci-probe.py configure MAC          AciConfigureInterface on interface 1 (AWDL) with MAC
   aci-probe.py start                  AciStartInterface on interface 1 with the firmware's own
                                       defaults echoed back (macOS's layout: 5-byte prefix + TLVs)
+  aci-probe.py start --full [--seq default|149|6+149] [--mac MAC] [--no-ext]
+                                      all nine blocks in macOS's order: the defaults plus empty
+                                      fe02/fe03, a 71-byte ff04 sync TLV in AWDL air format (OWL
+                                      layout) carrying the chosen channel sequence, ff12 with the
+                                      same sequence, and an 11-byte ff20 of zeros (--no-ext: none)
   aci-probe.py ifstatus | ifconfig    AciGetInterfaceStatus / AciGetInterfaceConfiguration on 1
   aci-probe.py stop                   AciStopInterface on interface 1
   aci-probe.py events                 the last 32 firmware events (aci_events)
+  aci-probe.py frames                 management-ring packets for interfaces 1/2 (M1c kernel)
+  aci-probe.py halt                   check the alpha stage now (captures a halt) and print halt_info
+  aci-probe.py save DIR               copy halt_info, halt_crashlog, halt_scratch, aci_events and
+                                      aci_frames to DIR (M1c kernel)
   aci-probe.py send IF CMD [HEX]      any allowed command, e.g. send 1 0x50002
 
 Command ids are (group << 16) | opcode, from the name table in macOS 27.3's
@@ -31,7 +40,8 @@ import sys
 
 PHY = os.environ.get("ACI_PHY", "phy0")
 ACI = f"/sys/kernel/debug/ieee80211/{PHY}/aci"
-EVENTS = f"/sys/kernel/debug/ieee80211/{PHY}/aci_events"
+DBG = f"/sys/kernel/debug/ieee80211/{PHY}"
+EVENTS = f"{DBG}/aci_events"
 PARAM = "/sys/module/apple_centauri_t6050/parameters/aci_debug"
 
 IF_STATION, IF_AWDL, IF_NAN = 0, 1, 2
@@ -72,6 +82,41 @@ START_TLVS = [(0xFE08, 3), (0xFF05, 19), (0xFE00, 43), (0xFE01, 20), (0xFE02, No
 HOST_BUILT = {0xFF04, 0xFF20}
 START_PREFIX = bytes([0x02, 0x06, 0x00, 0x00, 0x00])  # station: 00 0b 00 00 00
 STOP_PAYLOAD = bytes(5)
+
+
+# AWDL channel encoding 3: (channel, operating class), OWL's values.
+CH6, CH44, CH149, IDLE = (6, 0x51), (44, 0x80), (149, 0x80), (0, 0)
+SEQUENCES = {
+    "149": [CH149] * 16,
+    "6+149": ([CH6] * 4 + [CH149] * 4) * 2,
+}
+
+
+def chanseq(slots):
+    """AWDL channel sequence in air format: 38 bytes for 16 two-byte slots."""
+    out = bytearray([len(slots) - 1, 3, 0, 3]) + struct.pack("<H", 0xFFFF)
+    for ch, opclass in slots:
+        out += bytes([ch, opclass])
+    return bytes(out)
+
+
+def sync_params(mac, seq, slots):
+    """AWDL sync parameters TLV body in air format (OWL awdl_sync_params_tlv): 33 + 38 bytes."""
+    used = [ch for ch, _ in slots if ch]
+    master = 6 if 6 in used else (used[0] if used else 6)
+    head = struct.pack("<BHBBHHHHHHBBBB6sBBHH",
+                       used[0] if used else 6,  # next AW channel
+                       0,                       # TX down counter
+                       master,                  # master channel
+                       0,                       # guard time
+                       16, 110,                 # AW period, AF (PSF) period, TU
+                       0x1800,                  # flags (OWL's value)
+                       16, 16, 0,               # ext / common / remaining AW length
+                       3, 3, 3, 3,              # min ext, max ext mcast/ucast/af
+                       mac, 4, 0,               # master address = ours, presence mode 4
+                       0, 0)                    # next AW seq, AP alignment
+    assert len(head) == 33
+    return head + seq
 
 
 def die(msg):
@@ -159,6 +204,35 @@ def main(argv):
         if len(mac) != 6 or not mac[0] & 2:
             die("use a locally administered MAC (second-lowest bit of the first byte set)")
         show(*aci(IF_AWDL, CMD["ConfigureInterface"], mac))
+    elif op == "start" and "--full" in args:
+        def opt(name, default):
+            return args[args.index(name) + 1] if name in args else default
+        mac = bytes.fromhex(opt("--mac", "02:00:00:00:00:01").replace(":", ""))
+        ret, status, reply = defaults(IF_AWDL)
+        if ret:
+            die(f"cannot read the defaults first: {ret} status {status}")
+        have = dict(tlvs(reply)[0])
+        mode = opt("--seq", "default")
+        if mode == "default":
+            seq = have[0xFF12][:38]
+            slots = [(seq[6 + 2 * i], seq[7 + 2 * i]) for i in range(16)]
+        elif mode in SEQUENCES:
+            slots = SEQUENCES[mode]
+            seq = chanseq(slots)
+        else:
+            die("--seq default|149|6+149")
+        blocks = [(0xFE08, have[0xFE08][:3]), (0xFF05, have[0xFF05][:19]),
+                  (0xFE00, have[0xFE00][:43]), (0xFE01, have[0xFE01][:20]),
+                  (0xFE02, b""), (0xFE03, b""), (0xFF04, sync_params(mac, seq, slots)),
+                  (0xFF12, seq)]
+        if "--no-ext" not in args:
+            blocks.append((0xFF20, bytes(11)))
+        payload = bytearray(START_PREFIX)
+        for tag, val in blocks:
+            payload += struct.pack("<HH", tag, len(val)) + val
+        print("start --full: " + ", ".join(f"{t:#06x}/{len(v)}" for t, v in blocks)
+              + f"; sequence {mode}: " + " ".join(str(c) for c, _ in slots))
+        show(*aci(IF_AWDL, CMD["StartInterface"], bytes(payload)))
     elif op == "start":
         ret, status, reply = defaults(IF_AWDL)
         if ret:
@@ -184,6 +258,24 @@ def main(argv):
         show(*aci(IF_AWDL, CMD["GetInterfaceConfiguration"]))
     elif op == "events":
         print(open(EVENTS).read(), end="")
+    elif op == "frames":
+        print(open(f"{DBG}/aci_frames").read(), end="")
+    elif op == "halt":
+        print(open(f"{DBG}/halt_check").read(), end="")
+        print(open(f"{DBG}/halt_info").read(), end="")
+    elif op == "save":
+        if not args:
+            die("save DIR")
+        os.makedirs(args[0], exist_ok=True)
+        for name in ("halt_info", "halt_crashlog", "halt_scratch", "aci_events", "aci_frames"):
+            try:
+                data = open(f"{DBG}/{name}", "rb").read()
+            except OSError as e:
+                print(f"{name}: {e.strerror}")
+                continue
+            with open(os.path.join(args[0], name), "wb") as f:
+                f.write(data)
+            print(f"{name}: {len(data)} bytes")
     elif op == "send":
         if len(args) < 2:
             die("send IF CMD [HEX]")
