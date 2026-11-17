@@ -38,6 +38,8 @@ STATE_DIR = '/var/lib/m5pro-1p-touchid'
 APP = '1Password Touch ID'
 SECRET_MAX = 254
 WINDOW_WAIT_S = 20
+TYPE_ATTEMPTS = 3      # typing tries per Touch ID confirmation
+RETYPE_AFTER_S = 3.0   # still locked this long after Enter: type again
 UNLOCK_CONFIRM_S = 10
 # The watcher does not ask again for this long after an attempt (or a dismissed dialog).
 WATCH_QUIET_S = 120
@@ -393,39 +395,48 @@ def _unlock(reason):
         else:
             notify('Couldn’t open the saved 1Password password', why, urgent=True)
         return 1
-    try:
+    def type_once():
+        """Type the password into 1Password's field and press Enter. Returns None, or why nothing (more) was typed."""
         # Everything must still hold right before typing: same 1Password, locked, its window in front.
         pid2, _ = op_main()
-        if pid2 != pid or not op_locked(start) or op_window(pid) is None:
-            notify('1Password changed while you confirmed', 'Nothing was typed.')
-            return 1
+        if pid2 != pid or op_window(pid) is None:
+            return ('1Password changed while you confirmed', 'Nothing was typed.')
         if not focus(addr, pid):
-            notify('1Password wasn’t in front', 'Nothing was typed. Click its window and try again.')
-            return 1
+            return ('1Password wasn’t in front', 'Nothing was typed. Click its window and try again.')
         # Select whatever is in the field, then type over it.
         if not in_front(addr, pid) or not wtype(['-M', 'ctrl', 'a', '-m', 'ctrl']):
-            notify('Couldn’t type into 1Password', 'Nothing was typed.')
-            return 1
+            return ('Couldn’t type into 1Password', 'Nothing was typed.')
         if not in_front(addr, pid):
-            notify('1Password lost focus', 'Nothing was typed.')
-            return 1
+            return ('1Password lost focus', 'Nothing was typed.')
         if not wtype(['-'], data=secret):
-            notify('Couldn’t type into 1Password', urgent=True)
-            return 1
+            return ('Couldn’t type into 1Password', '')
         if not in_front(addr, pid):
-            notify('1Password lost focus while typing', 'Enter was not pressed.', urgent=True)
-            return 1
+            return ('1Password lost focus while typing', 'Enter was not pressed.')
         wtype(['-k', 'Return'])
+        return None
+
+    # A fresh 1Password maps its window before the lock screen can take input (on the J716s the field was ready
+    # about 3 s after the window; a password typed earlier is lost). Keep the unsealed password for a few seconds
+    # and type it again while 1Password is still locked, instead of asking for Touch ID twice.
+    try:
+        if not op_locked(start):
+            return 0
+        for attempt_no in range(TYPE_ATTEMPTS):
+            why = type_once()
+            if why is not None:
+                notify(*why, urgent=attempt_no > 0)
+                return 1
+            wait = UNLOCK_CONFIRM_S if attempt_no == TYPE_ATTEMPTS - 1 else RETYPE_AFTER_S
+            deadline = time.time() + wait
+            while time.time() < deadline:
+                time.sleep(0.3)
+                if not op_locked(start):
+                    log(f'unlocked ({reason}, typed {attempt_no + 1}x)')
+                    return 0
+            log(f'still locked after typing ({attempt_no + 1}/{TYPE_ATTEMPTS}); retrying')
     finally:
         wipe(secret)
         del secret
-
-    deadline = time.time() + UNLOCK_CONFIRM_S
-    while time.time() < deadline:
-        time.sleep(0.4)
-        if not op_locked(start):
-            log(f'unlocked ({reason})')
-            return 0
     notify('1Password stayed locked',
            'If you changed your 1Password account password, run Setup again.', urgent=True)
     return 1
