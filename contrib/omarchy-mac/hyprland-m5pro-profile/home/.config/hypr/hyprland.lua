@@ -63,5 +63,3 @@ do
     dofile(pt)
   end
 end
--- A trackpad preset that must win over pointer-tuning.lua (macos-exact) registers this in select.lua.
-if M5PRO_TRACKPAD_LATE then M5PRO_TRACKPAD_LATE() end

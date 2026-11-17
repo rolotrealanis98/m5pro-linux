@@ -22,3 +22,8 @@ AirDrop on the J716s, using the N1's own firmware AWDL. The research, ranked opt
   After that, the iPhone shares through the share sheet > Tailscale, and the Mac sends with `omarchy tailscale send`. LocalSend is
   already wired into Omarchy's menu (Trigger > Share). Staged, not applied (the dry run was checked on the Mac). Findings and the
   awdl0 design are in `/Volumes/m5pro/bench/requests/airdrop-2.md`.
+- M1b (2026-11-17, next7 kernel). The firmware accepted AWDL on interface 1: GetSystemCaps, configure and start all returned 0, and
+  availability-window events ran on channel 6 next to the station. About 11 s later the firmware halted (stage 3), wlan0 dropped, and
+  the run's watchdog rebooted the Mac. The cause is not captured yet. Results and the next step (capture the crash log, then start
+  with all nine TLVs as macOS sends them) are in `/Volumes/m5pro/bench/requests/airdrop-3.md`. Do not run `start` outside an
+  attended session with a Wi-Fi watchdog.
