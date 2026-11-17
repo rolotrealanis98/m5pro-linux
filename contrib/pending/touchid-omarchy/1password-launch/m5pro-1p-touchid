@@ -1,0 +1,629 @@
+#!/usr/bin/python3
+"""Touch ID for 1Password's account password, from a fresh launch on.
+
+    m5pro-1p-touchid setup     save the 1Password account password, sealed to this Mac's Secure Enclave
+    m5pro-1p-touchid unlock    unlock 1Password now: Touch ID, then the password is typed into its lock screen
+    m5pro-1p-touchid status    what is set up, and 1Password's state
+    m5pro-1p-touchid forget    destroy the saved password
+    m5pro-1p-touchid watch     (user service) unlock when 1Password starts, or opens locked
+
+1Password on Linux asks for the account password after every start; only then does its own
+"Unlock using system authentication" (Touch ID through polkit) work, until it quits. This fills
+that gap: the password is sealed by the Secure Enclave (m5pro-1p-seal, root, through pkexec) and
+released only after Omarchy's polkit dialog accepts Touch ID or the login password. It is then
+typed into 1Password's own lock screen with wtype, and only when that window is in front and
+1Password's log says it is locked. Once 1Password has the password, its own Touch ID unlock is
+armed for the rest of the session and this tool stays out of the way.
+
+The password never goes into argv, the environment, a file or a log: it travels by pipes
+(terminal -> pkexec helper at setup; helper -> this process -> wtype at unlock) and buffers are
+zeroed after use.
+"""
+import fcntl
+import json
+import os
+import re
+import select
+import signal
+import socket
+import subprocess
+import sys
+import termios
+import time
+from datetime import datetime, timezone
+
+OP_BIN = '/opt/1Password/1password'
+SEAL = '/usr/local/libexec/m5pro-1p-touchid/m5pro-1p-seal'
+STATE_DIR = '/var/lib/m5pro-1p-touchid'
+APP = '1Password Touch ID'
+SECRET_MAX = 254
+WINDOW_WAIT_S = 20
+UNLOCK_CONFIRM_S = 10
+# The watcher does not ask again for this long after an attempt (or a dismissed dialog).
+WATCH_QUIET_S = 120
+LOG_TAIL_BYTES = 2 * 1024 * 1024
+
+LOCK_RE = re.compile(r'^\S+\s+(\S+) .*Lock state changed: (Locked|Unlocked)')
+SYSAUTH_RE = re.compile(r'^\S+\s+(\S+) .*Sys auth status (\w+)')
+
+
+# ---------------------------------------------------------------- small helpers
+
+def say(msg):
+    print(msg, flush=True)
+
+
+def log(msg):
+    sys.stderr.write(f'm5pro-1p-touchid: {msg}\n')
+    sys.stderr.flush()
+
+
+def notify(summary, body='', urgent=False):
+    args = ['notify-send', '-a', APP, '-i', '1password']
+    if urgent:
+        args += ['-u', 'critical']
+    try:
+        subprocess.run(args + [summary, body], timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    log(f'{summary} {body}'.strip())
+
+
+def wipe(buf):
+    if buf is not None:
+        for i in range(len(buf)):
+            buf[i] = 0
+
+
+def runtime_dir():
+    return os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}'
+
+
+def record_exists():
+    return os.path.exists(f'{STATE_DIR}/{os.getuid()}.record')
+
+
+def config():
+    path = os.path.join(os.environ.get('XDG_CONFIG_HOME') or os.path.expanduser('~/.config'),
+                        'm5pro-1p-touchid', 'config')
+    cfg = {'at_launch': 'yes', 'on_window': 'yes'}
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.split('#', 1)[0].strip()
+                if '=' in line:
+                    k, v = (x.strip() for x in line.split('=', 1))
+                    cfg[k] = v.lower()
+    except OSError:
+        pass
+    return cfg
+
+
+# ---------------------------------------------------------------- Hyprland
+
+def hypr_signature():
+    base = os.path.join(runtime_dir(), 'hypr')
+    sig = os.environ.get('HYPRLAND_INSTANCE_SIGNATURE')
+    if sig and os.path.exists(os.path.join(base, sig, '.socket.sock')):
+        return sig
+    try:
+        dirs = [d for d in os.listdir(base) if os.path.exists(os.path.join(base, d, '.socket.sock'))]
+    except OSError:
+        return None
+    dirs.sort(key=lambda d: os.path.getmtime(os.path.join(base, d)), reverse=True)
+    return dirs[0] if dirs else None
+
+
+def hypr(request):
+    """One request on Hyprland's command socket (as hyprctl does). Returns text."""
+    sig = hypr_signature()
+    if not sig:
+        return None
+    path = os.path.join(runtime_dir(), 'hypr', sig, '.socket.sock')
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(3)
+        s.connect(path)
+        s.sendall(request.encode())
+        chunks = []
+        while True:
+            data = s.recv(65536)
+            if not data:
+                break
+            chunks.append(data)
+    return b''.join(chunks).decode(errors='replace')
+
+
+def hypr_json(what):
+    try:
+        return json.loads(hypr(f'j/{what}') or 'null')
+    except (OSError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------- 1Password process and state
+
+def boot_time():
+    with open('/proc/stat') as f:
+        for line in f:
+            if line.startswith('btime '):
+                return int(line.split()[1])
+    return 0
+
+
+def op_argv(pid):
+    """argv of a process of this user that runs 1Password's binary, else None.
+
+    1Password makes its main process non-dumpable, so /proc/PID/exe is root-only there and
+    its /proc entries belong to root; argv[0] and the real uid in status stay readable."""
+    try:
+        # Not st_uid: a non-dumpable process's /proc entries belong to root.
+        with open(f'/proc/{pid}/status') as f:
+            uid = next((int(line.split()[1]) for line in f if line.startswith('Uid:')), -1)
+        if uid != os.getuid():
+            return None
+        with open(f'/proc/{pid}/cmdline', 'rb') as f:
+            # Chromium rewrites its argv into one space-separated string.
+            argv = f.read().replace(b'\0', b' ').split()
+    except OSError:
+        return None
+    return argv if argv and argv[0] == OP_BIN.encode() else None
+
+
+def op_main():
+    """(pid, start epoch) of 1Password's main process, or (None, None)."""
+    best = None
+    hz = os.sysconf('SC_CLK_TCK')
+    for entry in os.listdir('/proc'):
+        if not entry.isdigit():
+            continue
+        argv = op_argv(entry)
+        if argv is None or any(a.startswith(b'--type=') for a in argv):
+            continue
+        try:
+            with open(f'/proc/{entry}/stat') as f:
+                start = int(f.read().rsplit(')', 1)[1].split()[19]) / hz + boot_time()
+        except (OSError, ValueError, IndexError):
+            continue
+        if best is None or start < best[1]:
+            best = (int(entry), start)
+    return best if best else (None, None)
+
+
+def op_log_path():
+    return os.path.expanduser('~/.config/1Password/logs/1Password_rCURRENT.log')
+
+
+def op_state(since):
+    """1Password's lock state and system-auth status logged since `since` (epoch seconds)."""
+    lock, sysauth = None, None
+    try:
+        with open(op_log_path(), 'rb') as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - LOG_TAIL_BYTES))
+            data = f.read().decode(errors='replace')
+    except OSError:
+        return None, None
+    for line in data.splitlines():
+        m = LOCK_RE.match(line) or SYSAUTH_RE.match(line)
+        if not m:
+            continue
+        try:
+            ts = datetime.fromisoformat(m.group(1)).timestamp()
+        except ValueError:
+            continue
+        if ts < since - 1:
+            continue
+        if 'Lock state changed' in line:
+            lock = m.group(2)
+        else:
+            sysauth = m.group(2)
+    return lock, sysauth
+
+
+def op_locked(start):
+    """True when 1Password is locked. A fresh start logs no change before the first unlock."""
+    lock, _ = op_state(start)
+    return lock != 'Unlocked'
+
+
+def is_op_pid(pid):
+    """A process of this user running 1Password's binary (its window may belong to any of them)."""
+    return isinstance(pid, int) and pid > 0 and op_argv(pid) is not None
+
+
+def op_window(pid=None):
+    clients = hypr_json('clients') or []
+    for c in clients:
+        cls = (c.get('class') or c.get('initialClass') or '').lower()
+        if '1password' in cls and is_op_pid(c.get('pid')) and c.get('mapped', True) and not c.get('hidden', False):
+            return c
+    return None
+
+
+def op_show():
+    # A second launch hands over to the running app, which shows its window.
+    subprocess.Popen([OP_BIN], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+# ---------------------------------------------------------------- unlock
+
+def single_instance():
+    path = os.path.join(runtime_dir(), 'm5pro-1p-touchid.lock')
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return None
+    return fd
+
+
+def unseal():
+    """Ask polkit (Touch ID or password) and return the secret as a bytearray, or (None, why)."""
+    proc = subprocess.Popen(['pkexec', SEAL, 'unseal'], stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+    buf = bytearray(SECRET_MAX + 1)
+    got = 0
+    view = memoryview(buf)
+    while got < len(buf):
+        n = proc.stdout.readinto(view[got:])
+        if not n:
+            break
+        got += n
+    rest = proc.stdout.read()
+    err = proc.stderr.read().decode(errors='replace').strip()
+    rc = proc.wait()
+    view.release()
+    if rc != 0 or got == 0 or got > SECRET_MAX or rest:
+        wipe(buf)
+        if rc in (126, 127):
+            return None, 'cancelled'
+        if rc == 3:
+            return None, 'not-set-up'
+        if rc == 4:
+            return None, 'rate-limited'
+        return None, err.splitlines()[-1] if err else f'helper exit {rc}'
+    secret = bytearray(buf[:got])
+    wipe(buf)
+    return secret, ''
+
+
+def in_front(addr, pid=None):
+    active = hypr_json('activewindow') or {}
+    return active.get('address') == addr and is_op_pid(active.get('pid'))
+
+
+def focus(addr, pid=None):
+    for _ in range(3):
+        hypr(f'dispatch focuswindow address:{addr}')
+        time.sleep(0.25)
+        if in_front(addr):
+            return True
+    return False
+
+
+def wayland_env():
+    env = dict(os.environ)
+    sock = env.get('WAYLAND_DISPLAY', '')
+    if not sock or not os.path.exists(sock if sock.startswith('/') else os.path.join(runtime_dir(), sock)):
+        try:
+            names = [n for n in os.listdir(runtime_dir()) if re.fullmatch(r'wayland-\d+', n)]
+        except OSError:
+            names = []
+        names.sort(key=lambda n: os.path.getmtime(os.path.join(runtime_dir(), n)), reverse=True)
+        if names:
+            env['WAYLAND_DISPLAY'] = names[0]
+    return env
+
+
+def wtype(args, data=None):
+    return subprocess.run(['wtype'] + args, input=data, stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL, timeout=15, env=wayland_env()).returncode == 0
+
+
+def unlock(reason='manual'):
+    lock_fd = single_instance()
+    if lock_fd is None:
+        log('another unlock is running')
+        return 0
+    try:
+        return _unlock(reason)
+    finally:
+        os.close(lock_fd)
+
+
+def _unlock(reason):
+    if not record_exists():
+        if reason == 'manual':
+            notify('1Password Touch ID is not set up', 'Run Setup from the Omarchy menu first.')
+        return 3
+    pid, start = op_main()
+    if pid is None:
+        if reason != 'manual':
+            return 0
+        op_show()
+        for _ in range(WINDOW_WAIT_S * 2):
+            time.sleep(0.5)
+            pid, start = op_main()
+            if pid:
+                break
+        if pid is None:
+            notify('1Password did not start', urgent=True)
+            return 1
+    # Give a fresh start a moment to log its state.
+    for _ in range(20):
+        if op_state(start) != (None, None) or time.time() - start > 15:
+            break
+        time.sleep(0.5)
+    if not op_locked(start):
+        if reason == 'manual':
+            notify('1Password is already unlocked')
+        return 0
+    _, sysauth = op_state(start)
+    if sysauth == 'Ready':
+        # 1Password's own Touch ID unlock is armed: let it ask.
+        op_show()
+        return 0
+
+    window = op_window(pid)
+    if not window:
+        op_show()
+        for _ in range(WINDOW_WAIT_S * 4):
+            time.sleep(0.25)
+            window = op_window(pid)
+            if window:
+                break
+    if not window:
+        notify('1Password’s window did not appear', 'Nothing was typed.', urgent=True)
+        return 1
+    addr = window['address']
+    time.sleep(0.6)  # let the lock screen draw and focus its field
+
+    secret, why = unseal()
+    if secret is None:
+        if why == 'cancelled':
+            log('Touch ID dialog cancelled or not authorized')
+            return 2
+        if why == 'not-set-up':
+            notify('1Password Touch ID is not set up', 'Run Setup from the Omarchy menu.')
+        elif why == 'rate-limited':
+            notify('Too many 1Password unlocks', 'Wait a minute, or type the password.')
+        else:
+            notify('Couldn’t open the saved 1Password password', why, urgent=True)
+        return 1
+    try:
+        # Everything must still hold right before typing: same 1Password, locked, its window in front.
+        pid2, _ = op_main()
+        if pid2 != pid or not op_locked(start) or op_window(pid) is None:
+            notify('1Password changed while you confirmed', 'Nothing was typed.')
+            return 1
+        if not focus(addr, pid):
+            notify('1Password wasn’t in front', 'Nothing was typed. Click its window and try again.')
+            return 1
+        # Select whatever is in the field, then type over it.
+        if not in_front(addr, pid) or not wtype(['-M', 'ctrl', 'a', '-m', 'ctrl']):
+            notify('Couldn’t type into 1Password', 'Nothing was typed.')
+            return 1
+        if not in_front(addr, pid):
+            notify('1Password lost focus', 'Nothing was typed.')
+            return 1
+        if not wtype(['-'], data=secret):
+            notify('Couldn’t type into 1Password', urgent=True)
+            return 1
+        if not in_front(addr, pid):
+            notify('1Password lost focus while typing', 'Enter was not pressed.', urgent=True)
+            return 1
+        wtype(['-k', 'Return'])
+    finally:
+        wipe(secret)
+        del secret
+
+    deadline = time.time() + UNLOCK_CONFIRM_S
+    while time.time() < deadline:
+        time.sleep(0.4)
+        if not op_locked(start):
+            log(f'unlocked ({reason})')
+            return 0
+    notify('1Password stayed locked',
+           'If you changed your 1Password account password, run Setup again.', urgent=True)
+    return 1
+
+
+# ---------------------------------------------------------------- watcher
+
+def watch():
+    """Unlock when 1Password starts (a new main process) or opens a locked window."""
+    seen_pid, last_try = None, 0.0
+    cfg = config()
+    # A 1Password already running when the watcher starts is not a fresh launch,
+    # unless it started moments ago (the login autostart races the watcher).
+    pid, start = op_main()
+    if pid and time.time() - start > 60:
+        seen_pid = pid
+    sock, buf = None, b''
+
+    def attempt(reason):
+        nonlocal last_try
+        if time.time() - last_try < WATCH_QUIET_S or not record_exists():
+            return
+        last_try = time.time()
+        unlock(reason)
+        last_try = time.time()
+
+    while True:
+        pid, start = op_main()
+        if pid and pid != seen_pid:
+            seen_pid = pid
+            if cfg.get('at_launch') == 'yes':
+                attempt('launch')
+        if sock is None:
+            sig = hypr_signature()
+            if sig:
+                try:
+                    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    sock.connect(os.path.join(runtime_dir(), 'hypr', sig, '.socket2.sock'))
+                    buf = b''
+                except OSError:
+                    sock = None
+        ready = []
+        if sock is not None:
+            ready, _, _ = select.select([sock], [], [], 2.0)
+        else:
+            time.sleep(2.0)
+        if ready:
+            data = sock.recv(65536)
+            if not data:
+                sock.close()
+                sock = None
+                continue
+            buf += data
+            while b'\n' in buf:
+                line, buf = buf.split(b'\n', 1)
+                if not line.startswith(b'openwindow>>'):
+                    continue
+                parts = line[len(b'openwindow>>'):].decode(errors='replace').split(',', 3)
+                if len(parts) >= 3 and '1password' in parts[2].lower() and cfg.get('on_window') == 'yes':
+                    pid, start = op_main()
+                    if pid and op_locked(start) and op_state(start)[1] != 'Ready':
+                        attempt('window')
+
+
+# ---------------------------------------------------------------- setup, forget, status
+
+def read_secret(prompt, tty):
+    """Read a line from the terminal without echo into a bytearray."""
+    out = bytearray()
+    fd = tty.fileno()
+    old = termios.tcgetattr(fd)
+    new = termios.tcgetattr(fd)
+    new[3] &= ~(termios.ECHO | termios.ICANON)
+    new[6][termios.VMIN] = 1
+    new[6][termios.VTIME] = 0
+    os.write(fd, prompt.encode())
+    try:
+        termios.tcsetattr(fd, termios.TCSAFLUSH, new)
+        while True:
+            ch = os.read(fd, 1)
+            if not ch or ch in (b'\n', b'\r'):
+                break
+            if ch == b'\x03':
+                raise KeyboardInterrupt
+            if ch in (b'\x7f', b'\x08'):
+                if out:
+                    # Drop the last UTF-8 character.
+                    del out[-1]
+                    while out and (out[-1] & 0xC0) == 0x80:
+                        del out[-1]
+                continue
+            if ch == b'\x15':  # Ctrl-U
+                wipe(out)
+                out.clear()
+                continue
+            if len(out) > SECRET_MAX:
+                continue
+            out += ch
+            os.write(fd, b'\xe2\x80\xa2')  # a bullet per byte; lengths are not secret here
+    finally:
+        termios.tcsetattr(fd, termios.TCSAFLUSH, old)
+        os.write(fd, b'\n')
+    return out
+
+
+def setup():
+    try:
+        tty = open('/dev/tty', 'r+b', buffering=0)
+    except OSError:
+        print('setup needs a terminal: run it from the Omarchy menu (Setup) or a terminal', file=sys.stderr)
+        return 2
+    say('1Password Touch ID setup\n')
+    say('Your 1Password account password is sealed by this Mac’s Secure Enclave and stored as')
+    say(f'{STATE_DIR}/{os.getuid()}.record (root-only). It opens only on this Mac, with this Linux')
+    say('install, after Touch ID or your login password. Root on this Mac could open it too.\n')
+    first = second = payload = None
+    try:
+        first = read_secret('1Password account password: ', tty)
+        if not first:
+            say('Nothing entered; nothing saved.')
+            return 1
+        if len(first) > SECRET_MAX:
+            say(f'Longer than {SECRET_MAX} bytes; nothing saved.')
+            return 1
+        second = read_secret('Again, to check: ', tty)
+        if first != second:
+            say('They differ; nothing saved.')
+            return 1
+        say('\nConfirm in the dialog (Touch ID or your login password)...')
+        payload = bytearray(first)
+        payload += b'\n'
+        proc = subprocess.Popen(['pkexec', SEAL, 'seal'], stdin=subprocess.PIPE,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        _, err = proc.communicate(payload, timeout=180)
+    except KeyboardInterrupt:
+        say('\nCancelled; nothing saved.')
+        return 1
+    finally:
+        wipe(first)
+        wipe(second)
+        wipe(payload)
+    if proc.returncode in (126, 127):
+        say('Not confirmed; nothing saved.')
+        return 1
+    if proc.returncode != 0:
+        say('Sealing failed: ' + err.decode(errors='replace').strip())
+        return 1
+    say('Saved. From now on 1Password unlocks with Touch ID when it starts:')
+    say('  - quit 1Password (tray icon > Quit), start it again, touch Touch ID in the dialog;')
+    say('  - or Omarchy menu > Setup > Security > 1Password Touch ID > Unlock now.')
+    say('Changed your 1Password account password? Run Setup again.')
+    return 0
+
+
+def forget():
+    rc = subprocess.run(['pkexec', SEAL, 'forget']).returncode
+    if rc == 0:
+        notify('Saved 1Password password removed')
+    return rc
+
+
+def status():
+    pid, start = op_main()
+    lock, sysauth = op_state(start) if pid else (None, None)
+    try:
+        watcher = subprocess.run(['systemctl', '--user', 'is-active', 'm5pro-1p-touchid-watch.service'],
+                                 capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        watcher = 'unknown'
+    say(f'saved password : {"yes" if record_exists() else "no (run setup)"}')
+    say(f'1Password      : {"running since " + time.strftime("%H:%M:%S", time.localtime(start)) if pid else "not running"}')
+    if pid:
+        say(f'  lock state   : {"locked" if lock != "Unlocked" else "unlocked"}')
+        say(f'  own Touch ID : {sysauth or "unknown"} (Ready = 1Password unlocks by itself)')
+    say(f'watcher        : {watcher}')
+    say(f'config         : {config()}')
+    return 0
+
+
+def main(argv):
+    if not argv or argv[0] in ('-h', '--help'):
+        print(__doc__.strip())
+        return 0
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    cmd = argv[0]
+    if cmd == 'setup':
+        return setup()
+    if cmd == 'unlock':
+        return unlock('manual')
+    if cmd == 'forget':
+        return forget()
+    if cmd == 'status':
+        return status()
+    if cmd == 'watch':
+        return watch()
+    print(f'unknown command: {cmd}', file=sys.stderr)
+    return 2
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

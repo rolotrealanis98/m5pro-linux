@@ -1,0 +1,13 @@
+[Unit]
+Description=Touch ID unlock for 1Password when it starts (m5pro-1p-touchid)
+Documentation=file:///usr/local/share/doc/m5pro-1p-touchid/README.md
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/local/bin/m5pro-1p-touchid watch
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

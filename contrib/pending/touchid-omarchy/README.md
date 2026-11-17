@@ -15,6 +15,7 @@ lock screen, polkit prompts and 1Password. Installed on the J716s 2026-11-17.
 | `bin/m5pro-touchid` | `/usr/local/bin/` | Backend for the panel: fprintd over D-Bus, JSON lines out. `status`, `enroll`, `verify`, `delete`, `label`. |
 | `plugin/m5pro.touchid/` | `~/.config/omarchy/plugins/m5pro.touchid/` (enabled) | The Touch ID panel, an overlay plugin in Omarchy's Quickshell shell built from its own UI kit. |
 | `menu/menu-touchid-rows.jsonc` | merged into `~/.config/omarchy/extensions/omarchy-menu.jsonc` | Setup > Security > Fingerprint becomes **Touch ID** and opens the panel; Remove > Security > Fingerprint is hidden. |
+| `1password-launch/` | `/usr/local/bin/m5pro-1p-touchid`, `/usr/local/libexec/m5pro-1p-touchid/`, polkit `org.m5pro.1p-touchid.*`, user unit `m5pro-1p-touchid-watch` | 1Password from a fresh start with Touch ID: the account password sealed by the SEP, typed into 1Password's lock screen after a touch. Own README and installer. |
 | `rearm/install-rearm.sh` | opt-in | aurora-sep-userspace `touchid-rearm`: a password ends a Touch ID lockout. Not installed. |
 | `install.sh` | | Idempotent installer for all of the above (`--with-rearm`, `--uninstall`, `--user`). |
 

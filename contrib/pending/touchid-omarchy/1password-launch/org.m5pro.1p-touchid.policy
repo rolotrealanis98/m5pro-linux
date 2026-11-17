@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<!-- m5pro-linux touchid-omarchy/1password-launch. pkexec of m5pro-1p-seal: Touch ID (or the login
+     password) every time, only in the active local session. The helper itself only ever touches
+     the record of the user pkexec names (PKEXEC_UID). -->
+<policyconfig>
+  <action id="org.m5pro.1p-touchid.unlock">
+    <description>Unlock 1Password with Touch ID</description>
+    <message>Unlock 1Password</message>
+    <icon_name>1password</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/m5pro-1p-touchid/m5pro-1p-seal</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">unseal</annotate>
+  </action>
+  <action id="org.m5pro.1p-touchid.setup">
+    <description>Set up 1Password unlock with Touch ID</description>
+    <message>Save your 1Password password for Touch ID unlock</message>
+    <icon_name>1password</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/m5pro-1p-touchid/m5pro-1p-seal</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">seal</annotate>
+  </action>
+  <action id="org.m5pro.1p-touchid.forget">
+    <description>Remove 1Password unlock with Touch ID</description>
+    <message>Remove the saved 1Password password</message>
+    <icon_name>1password</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/m5pro-1p-touchid/m5pro-1p-seal</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">forget</annotate>
+  </action>
+</policyconfig>
