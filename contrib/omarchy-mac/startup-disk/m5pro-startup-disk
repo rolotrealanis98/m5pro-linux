@@ -24,6 +24,8 @@
 # bit-clear-only program). macOS and iBoot rewrite NVRAM on their boots, so the read-only probe is rerun first.
 # Installed copies of the tools live in /usr/local/lib/m5pro/nvram (root-owned; never a user-writable checkout).
 set -euo pipefail
+# pkexec runs this with a minimal PATH (no /usr/local); asahi-bless and asahi-nvram live in /usr/local/bin.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 T=/usr/local/lib/m5pro/nvram
 NEXT=$T/nvram-next-boot.sh
 DEFAULT=$T/nvram-default-boot.sh
