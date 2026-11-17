@@ -36,7 +36,8 @@ ADWAITA_ARROW_RATIO = 0.85     # Adwaita left_ptr: opaque arrow height / nominal
 
 def knobs():
     text = open(PRESET, encoding="utf-8").read()
-    scale = float(re.search(r"^local SCALE = ([0-9.]+)", text, re.M).group(1))
+    m = re.search(r"^local SCALE = ([0-9.]+)(?:\s*/\s*([0-9.]+))?", text, re.M)
+    scale = float(m.group(1)) / (float(m.group(2)) if m.group(2) else 1.0)
     looks = float(re.search(r"^local LOOKS_LIKE_W = ([0-9.]+)", text, re.M).group(1))
     scale = 2.0 if scale == 2 else round(scale * 120) / 120
     k = (PANEL_W / scale) / looks
