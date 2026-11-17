@@ -3,6 +3,27 @@
 Prepared 2026-11-16 on the Studio only; nothing has run on the MacBook. Attended request:
 `/Volumes/m5pro/bench/requests/hv-gpu-initdata-1.md` (private bench; hashes, ssh steps, abort table).
 
+## 2026-11-17: retargeted to macOS 27.2 (26B123)
+
+The maintainers asked #1173 to drop the 27.3 beta and keep the 27.2 (26B123) graph; the owner answered that the
+capture will be done under macOS 27.2. Current request: `bench/requests/hv-gpu-initdata-2.md` (supersedes -1).
+
+- Sites that stay in the 27.2 slice: version word, allocation sizes (spacings), policy bands, policy controller
+  words (what macOS writes on this part), status-config bands and inserted words, the `V26B123_M5` aggregate, plus
+  a check that 27.2's HW data has no word at 0x2720. The three 26C5035 HW data items leave with the 27.3 split; the
+  G17D controller words cannot be observed on a G17S part and no 27.2 G17D build is admitted, so they should go.
+- Nobody upstream has published observed G17S 27.2 InitData (checked 2026-11-17): the K116s runs the 27.2 graph on
+  26B8125 (#1650) but that is a functional result; J813/J873 27.2 bands (#1683, #1652) are kext-derived.
+- Path A (no stub change): the 26B123 guest (Mac17,8 public IPSW: SPTM, TXM, cL4, exclave trust cache and catalog,
+  kernelcache) under the same hv27 proxy on today's 27.3 stub, DCP RTKit nubs hidden. The graph is the 27.2 kernel's
+  own, captured before the firmware reads it; the 27.3 firmware's acknowledgement does not count.
+- Path B: the same run on a 27.2 stub (aura#274), where the firmware is 26B123 as well.
+- Kit changes: `run-hv27-gpu.sh gpu 26B123|26C5035r`, restore target taken from the current everyday by hash,
+  `initdata-compare.py --build 26B123`. Offline: preflight passes for both guests; the synthetic 27.2 layout gives
+  9/9 CONFIRMED/CONSISTENT, the 27.3 layout contradicts the 27.2 HW data check, the 27.0 layout contradicts all.
+- New risk for A: the 27.2 GPU firmware kext writes per-build offsets into the iBoot-loaded 27.3 image; if the
+  firmware never reaches INITDATA, only B remains.
+
 ## Why
 
 #1173 ("drm/asahi: M5: InitData for the macOS 27.2 and 27.3 firmware", head d8ca53c82e52) marks 11 items on 12
