@@ -51,13 +51,20 @@ step() {
   if [[ $* == *aci-probe.py* && $* != *" frames"* ]] && ! tail -40 "$LOG" | sed -n "/\[$label\]/,\$p" | grep -q -E '^result |^start --full'; then
     say "[$label] no result line from aci-probe.py: stopping"
     finish
+    disarm
     exit 1
   fi
   if ((rc != 0)) || tail -4 "$LOG" | grep -q -E '^rc=[1-9]|result -[0-9]|firmware status [1-9]'; then
     say "[$label] FAILED (ssh rc=$rc): stopping. Saved state: $REMOTE (Mac), $LOCAL (Studio)"
     finish
+    disarm
     exit 1
   fi
+}
+
+# Probe off, both units stopped; the failure paths and the normal end both call it.
+disarm() {
+  mbp "python3 /root/aci-probe.py disable; systemctl stop airdrop-m1c-mirror airdrop-m1c-watchdog 2>/dev/null; echo aci_debug=\$(cat /sys/module/apple_centauri_t6050/parameters/aci_debug) watchdog=\$(systemctl is-active airdrop-m1c-watchdog)" < /dev/null 2>&1 | tee -a "$LOG"
 }
 
 finish() {
@@ -155,5 +162,5 @@ step links       python3 aci-probe.py send 1 0x50002
 step wlan0       /root/m1c-peek.sh "$REMOTE" wlan0
 step stop        python3 aci-probe.py stop
 finish
-mbp "python3 /root/aci-probe.py disable; systemctl stop airdrop-m1c-mirror airdrop-m1c-watchdog; systemctl is-active airdrop-m1c-watchdog" 2>&1 | tee -a "$LOG"
+disarm
 say "done: frames from interface 1 in $LOCAL/airdrop-m1c-$STAMP/aci_frames.all"
