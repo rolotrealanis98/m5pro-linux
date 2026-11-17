@@ -1,0 +1,18 @@
+# m5pro-safe-update migration policy. Columns (tab separated): SEVERITY  TAG  EXTENDED-REGEX  WHY
+# The regex runs over the migration with comment lines removed. Highest severity wins: DEFER > REVIEW > INFO.
+# DEFER   not run: recorded in /var/lib/m5pro-safe-update/deferred.tsv with a copy of the script, and marked done so
+#         omarchy-migrate stops nagging. 'm5pro-safe-update --undefer NAME' puts it back, 'omarchy-migrate' then runs it.
+# REVIEW  run, then every tracked file it changed is reported (system files we own are restored automatically).
+# INFO    run; the tag is only shown.
+# Anything matching nothing is SAFE and runs.
+DEFER	BOOT	limine-update|limine-mkinitcpio|limine-snapper|mkinitcpio[[:space:]]+-|update-m1n1|omarchy-mac-boot|omarchy-apple-silicon-boot|omarchy-update-boot|omarchy-kernel|efibootmgr|asahi-bless|aurora-bless|/boot/|/boot[[:space:]"]|/etc/default/(limine|update-m1n1)|limine-entry-tool	Writes the ESP, initramfs or boot menu. The boot chain on this Mac is hand-built (m1n1/aura payload, A/B).
+DEFER	PACCONF	/etc/pacman\.conf|IgnorePkg|omarchy-apply-pacman|omarchy-refresh-pacman|pacman\.d/mirrorlist|pacman-key	Rewrites pacman.conf or the keyring: loses IgnorePkg and the [m5pro]/[aur] sections.
+DEFER	FULL-UPGRADE	omarchy-update-system-pkgs|omarchy-update-pacman|pacman[[:space:]]+-[A-Za-z]*S[A-Za-z]*u|omarchy-reinstall|omarchy-update-aur	Starts its own full upgrade outside this wrapper (only pacman.conf IgnorePkg applies, not the extra holds).
+DEFER	PAM	/etc/pam\.d/|pam_fprintd|pam_exec|omarchy-setup-security|omarchy-apply-lock|enable-fingerprint|disable-fingerprint	Edits the PAM stack that Touch ID sits in (sudo, polkit-1, lock screen): a bad edit locks sudo out.
+DEFER	LOGIN-NET	omarchy-refresh-(sddm|plymouth|limine)|systemctl[[:space:]]+(--now[[:space:]]+)?(enable|disable|mask|stop)[^|;&]*(sddm|NetworkManager|systemd-networkd|wpa_supplicant|iwd|getty|autovt)	Changes the login manager or network stack; this Mac uses tty2 autologin and its own network setup.
+DEFER	OUR-PKGS	speakersafetyd|speakerguard|asahi-audio|alsa-ucm-conf|mesa-aurora|/opt/mesa|libva-v4l2|aurora-camera|libfprint|fprintd|hyprland-m5pro|m1n1|j716|t6050|/etc/mesa-aurora|99-asahi	Names a package or file that this Mac carries its own build of.
+REVIEW	USER-CONFIG	\.config/hypr/|shell\.(json|toml)|omarchy-menu\.jsonc|\.config/omarchy/(plugins|extensions|branding)|omarchy-refresh-(config|hyprland|shell|applications|hyprsunset|tmux|chromium|herdr)|chromium-flags|\.config/wireplumber|\.config/environment\.d	Edits user config that the Hyprland/Omarchy-shell profile, plugins or macOS-feel items own.
+REVIEW	SYSTEM-CONFIG	/etc/(modprobe|modules-load|sysctl|udev|systemd|mkinitcpio|security|sudoers|libinput|ufw|polkit-1|wireplumber|pipewire|conf\.d)|/usr/lib/(firmware|systemd|udev)|/usr/share/(wireplumber|alsa|polkit-1)	Writes system config; tracked files it changes are restored automatically when we own them.
+REVIEW	POWER	power-profiles|powerprofilesctl|platform_profile|cpufreq|energy_performance	Touches power profiles (omarchy-power-profiles-daemon 0.30-9 is ours).
+REVIEW	PKG-REMOVE	pacman[[:space:]]+-R|omarchy-pkg-(drop|remove)	Removes packages. Escalates to DEFER when it names a protected package.
+INFO	PKG-ADD	omarchy-pkg-(add|install|aur)|pacman[[:space:]]+-S[[:space:]]|yay[[:space:]]	Installs packages (honours pacman.conf IgnorePkg).

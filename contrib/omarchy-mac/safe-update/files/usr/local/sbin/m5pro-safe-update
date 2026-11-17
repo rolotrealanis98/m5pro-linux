@@ -1,0 +1,899 @@
+#!/usr/bin/env bash
+# m5pro-safe-update: update an Omarchy MacBook (J716s, hand-built kernel/Mesa/Touch ID) without clobbering it.
+# Replaces `omarchy update` on this Mac. Scope t6050/j716s, status staged. README.md next to this tree says what and why.
+#
+#   m5pro-safe-update --dry-run [--deep]   read-only report of what an update would change and what it would clobber
+#   m5pro-safe-update --run [--yes]        snapshot, upgrade with holds, migrations with policy, re-validate, report
+#   m5pro-safe-update --check              validate the Mac against its tracked state (and the last snapshot), change nothing
+#   m5pro-safe-update --restore [PATH...]  put tracked files back from the last snapshot (no PATH: every changed one)
+#   m5pro-safe-update --undefer NAME       release a deferred Omarchy migration so omarchy-migrate runs it
+#   m5pro-safe-update --classify DIR [NAME...]   classify Omarchy migrations (works anywhere, no Mac needed)
+#   m5pro-safe-update --gen-tracked INVENTORY.md > tracked-paths.txt
+# Options: --repo DIR (m5pro-linux checkout for item checks), --user NAME, --with-mise, --allow-boot-change, --force-hazards.
+# Exit: 0 clean, 1 warnings, 2 failures, 3 refused (nothing changed).
+set -uo pipefail
+export LC_ALL=C
+
+SELF=$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")
+SELF_DIR=$(dirname "$SELF")
+CONF_DIR=${M5PRO_SU_CONF:-}
+if [[ -z $CONF_DIR ]]; then
+  for d in /etc/m5pro/safe-update "$SELF_DIR/../../../etc/m5pro/safe-update"; do
+    [[ -f $d/holds.conf ]] && { CONF_DIR=$d; break; }
+  done
+fi
+STATE_DIR=${M5PRO_SU_STATE:-/var/lib/m5pro-safe-update}
+OMARCHY_SHARE=${M5PRO_SU_OMARCHY:-/usr/share/omarchy}
+PACMAN_CACHE=${M5PRO_SU_CACHE:-/var/cache/pacman/pkg}
+
+KEEP_PID=""
+trap 'sim_cleanup; [[ -n $KEEP_PID ]] && kill "$KEEP_PID" 2>/dev/null' EXIT
+MODE="" DEEP=0 ASSUME_YES=0 WITH_MISE=0 ALLOW_BOOT=0 FORCE_HAZ=0 REPO=${M5PRO_REPO:-} TARGET_USER=${M5PRO_SU_USER:-}
+ARGS=()
+usage() { sed -n '2,15p' "$SELF" | sed 's/^# \{0,1\}//'; }
+while (($#)); do
+  case $1 in
+    --dry-run | --plan) MODE=dry ;;
+    --run) MODE=run ;;
+    --check) MODE=check ;;
+    --restore) MODE=restore ;;
+    --undefer) MODE=undefer ;;
+    --classify) MODE=classify ;;
+    --gen-tracked) MODE=gen ;;
+    --deep) DEEP=1 ;;
+    --yes | -y) ASSUME_YES=1 ;;
+    --with-mise) WITH_MISE=1 ;;
+    --allow-boot-change) ALLOW_BOOT=1 ;;
+    --force-hazards) FORCE_HAZ=1 ;;
+    --repo) REPO=${2:?--repo DIR}; shift ;;
+    --user) TARGET_USER=${2:?--user NAME}; shift ;;
+    -h | --help) usage; exit 0 ;;
+    -*) echo "unknown option $1" >&2; usage >&2; exit 3 ;;
+    *) ARGS+=("$1") ;;
+  esac
+  shift
+done
+[[ -n $MODE ]] || { usage >&2; exit 3; }
+
+# ---------------------------------------------------------------- output
+if [[ -t 1 ]]; then C_R=$'\e[31m' C_Y=$'\e[33m' C_G=$'\e[32m' C_B=$'\e[1m' C_0=$'\e[0m'; else C_R="" C_Y="" C_G="" C_B="" C_0=""; fi
+NWARN=0 NFAIL=0
+declare -a REPORT=()
+head1() { printf '\n%s== %s%s\n' "$C_B" "$*" "$C_0"; }
+say() { printf '%s\n' "$*"; }
+# note LEVEL AREA TEXT: OK INFO WARN FAIL
+note() {
+  local lvl=$1 area=$2 col=""
+  shift 2
+  case $lvl in WARN) NWARN=$((NWARN + 1)); col=$C_Y ;; FAIL) NFAIL=$((NFAIL + 1)); col=$C_R ;; OK) col=$C_G ;; esac
+  printf '  %s%-4s%s %-12s %s\n' "$col" "$lvl" "$C_0" "$area" "$*"
+  REPORT+=("$lvl|$area|$*")
+}
+die() { printf '%s%s%s\n' "$C_R" "$*" "$C_0" >&2; exit 3; }
+sudo_() { if ((EUID == 0)); then "$@"; else sudo "$@"; fi; }
+have() { command -v "$1" >/dev/null 2>&1; }
+lines() { local n; n=$(wc -l <"$1" 2>/dev/null) || n=0; echo $((n)); }
+
+# ---------------------------------------------------------------- config
+# cfg KEY: the rest of every holds.conf line that starts with KEY
+cfg() { [[ -f ${CONF_DIR:-/nonexistent}/holds.conf ]] || return 0; awk -v k="$1" '$1 == k { $1 = ""; sub(/^ /, ""); print }' "$CONF_DIR/holds.conf"; }
+cfg_words() { cfg "$1" | tr ' ' '\n' | sed '/^$/d'; }
+
+resolve_user() {
+  [[ -n $TARGET_USER ]] || TARGET_USER=${SUDO_USER:-${USER:-$(id -un)}}
+  TARGET_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6)
+  [[ -n $TARGET_HOME ]] || die "no such user: $TARGET_USER"
+}
+
+# ---------------------------------------------------------------- migration classifier (no Mac needed)
+# classify_file FILE -> "SEVERITY|TAG,TAG|why; why"
+classify_file() {
+  local file=$1 pol=${CONF_DIR:-}/migration-policy.tsv body sev tag re why best=SAFE tags="" whys="" rank=0 r
+  [[ -f $pol ]] || { echo "SAFE||no policy file"; return; }
+  body=$(grep -vE '^[[:space:]]*#' "$file" 2>/dev/null)
+  while IFS=$'\t' read -r sev tag re why; do
+    [[ -z $sev || $sev == \#* ]] && continue
+    if grep -Eq -- "$re" <<<"$body"; then
+      tags+="${tags:+,}$tag"
+      whys+="${whys:+; }$why"
+      case $sev in DEFER) r=3 ;; REVIEW) r=2 ;; INFO) r=1 ;; *) r=0 ;; esac
+      if ((r > rank)); then rank=$r best=$sev; fi
+    fi
+  done <"$pol"
+  # a removal that names a protected package is never run
+  if [[ $tags == *PKG-REMOVE* && $best != DEFER ]]; then
+    local p
+    while IFS= read -r p; do
+      [[ -n $p ]] && grep -Eqw -- "$(sed 's/[][\.*^$+?(){}|/]/\\&/g' <<<"$p")" <<<"$body" && { best=DEFER tags+=",PROTECTED:$p" whys+="; removes protected package $p"; break; }
+    done < <(protected_names)
+  fi
+  echo "$best|$tags|$whys"
+}
+
+protected_names() {
+  { cfg_words protect; cfg pin | awk '{ print $1 }'; tracked_pkgs; } | sort -u
+}
+TRACKED=${M5PRO_SU_TRACKED:-}
+find_tracked() {
+  [[ -n $TRACKED ]] && return 0
+  for d in "${CONF_DIR:-/nonexistent}" "$SELF_DIR/../../../etc/m5pro/safe-update"; do
+    [[ -f $d/tracked-paths.txt ]] && { TRACKED=$d/tracked-paths.txt; return 0; }
+  done
+  return 1
+}
+tracked_pkgs() { find_tracked && sed -n 's/^pkg://p' "$TRACKED"; }
+tracked_units() { find_tracked && sed -n 's/^unit://p' "$TRACKED"; }
+
+do_classify() {
+  local dir=${ARGS[0]:-} f n
+  [[ -d $dir ]] || die "usage: --classify DIR [NAME...]"
+  local names=("${ARGS[@]:1}")
+  if ((${#names[@]} == 0)); then for f in "$dir"/*.sh; do names+=("$(basename "$f")"); done; fi
+  for n in "${names[@]}"; do
+    [[ $n == *.sh ]] || n=$n.sh
+    [[ -f $dir/$n ]] || continue
+    IFS='|' read -r sev tags why < <(classify_file "$dir/$n")
+    printf '%-7s %-24s %s :: %s\n' "$sev" "${tags:--}" "$n" "$(grep -m1 -E '^echo' "$dir/$n" | cut -c1-90)"
+  done
+}
+
+# ---------------------------------------------------------------- tracked paths from INVENTORY.md
+do_gen() {
+  local inv=${ARGS[0]:-}
+  [[ -f $inv ]] || die "usage: --gen-tracked INVENTORY.md"
+  {
+    echo "# Generated by: m5pro-safe-update --gen-tracked contrib/omarchy-mac/INVENTORY.md  (regenerate when INVENTORY.md changes)"
+    echo "# Paths the update must not clobber. ~ is the desktop user's home. A trailing / means every file below it."
+    echo "# Left out on purpose: PRIVATE data (INVENTORY H), big trees (/opt, /boot, gpu-ab), /etc/fstab, stale leftovers, personal data."
+    grep -oE '`[^`]+`' "$inv" | tr -d '`' | grep -E '^(/|~/|pkg:|unit:)' |
+      grep -vE '[[:space:]]|\.\.\.|\*|\$|^~/?$|^/$' |
+      grep -vE '^(/dev/|/Volumes/|/opt/|/boot|/home/|/proc|/sys|/run|/usr/lib/modules|/usr/local/?$|/etc/(passwd|shadow|fstab|cups)|/etc/m5-netconsole\.conf|/var/lib/m5pro-1p-touchid|/usr/lib/firmware/apple/(mesacal|msrk|aop-als|tpmtfw|centauri)|/usr/lib/dri|/usr/share/alsa/?$|/usr/share/wireplumber/?$)' |
+      grep -vE '(\.bak|\.pre-[a-z0-9-]+|\.native-[0-9]+|\.zink|\.j716-ab-orig|\.before-[a-z-]+|-[0-9]{8}[a-z0-9-]*)$' |
+      grep -vE '^~/(\.agents|\.codex|\.gemini|\.ssh|\.gnupg|\.config/(chromium|google-chrome)/WidevineCdm|\.local/share/m5pro-widevine|km-link-omarchy|\.cache|\.local/state)' |
+      sort -u
+  }
+}
+
+# ---------------------------------------------------------------- pacman view
+IGN_EXTRA="" SIMDB="" SIM_ERR="" SIM_OK=0
+declare -a UPD_LINES=() SIM_TARGETS=()
+declare -A UPD_OLD=() UPD_NEW=() SIM_VER=()
+
+IGN_CACHE=""
+ignore_list() {
+  [[ -n $IGN_CACHE ]] || IGN_CACHE=$({ cfg_words hold; pacman-conf IgnorePkg 2>/dev/null; } | sort -u)
+  printf '%s\n' "$IGN_CACHE"
+}
+is_held() { # name -> 0 when IgnorePkg or extra hold matches
+  local pat n=$1
+  while IFS= read -r pat; do
+    # shellcheck disable=SC2254
+    case $n in $pat) return 0 ;; esac
+  done < <(ignore_list)
+  return 1
+}
+
+sim_cleanup() { [[ -n $SIMDB && -d $SIMDB ]] && sudo_ rm -rf "$SIMDB"; SIMDB=""; }
+sim_sync() {
+  have pacman || die "no pacman here: run this on the Mac"
+  SIMDB=$(mktemp -d /tmp/m5pro-su-db.XXXXXX) || die "mktemp failed"
+  mkdir -p "$SIMDB/sync"
+  ln -s /var/lib/pacman/local "$SIMDB/local"
+  cp /var/lib/pacman/sync/*.db "$SIMDB/sync/" 2>/dev/null || true
+  say "  refreshing a private copy of the sync databases (the real ones are not touched)"
+  if ! sudo_ pacman -Sy --dbpath "$SIMDB" --logfile /dev/null >"$SIMDB/sy.out" 2>&1; then
+    cat "$SIMDB/sy.out" >&2
+    die "could not refresh the sync databases (network?)"
+  fi
+}
+
+sim_updates() {
+  local line name old new re='^([^[:space:]]+) (.+) -> ([^[:space:]]+)'
+  UPD_LINES=()
+  while IFS= read -r line; do
+    [[ $line =~ $re ]] || continue
+    name=${BASH_REMATCH[1]} old=${BASH_REMATCH[2]} new=${BASH_REMATCH[3]}
+    UPD_LINES+=("$name")
+    UPD_OLD[$name]=$old UPD_NEW[$name]=$new
+  done < <(pacman -Qu --dbpath "$SIMDB" 2>/dev/null)
+}
+
+sim_transaction() {
+  local ign out
+  ign=$(ignore_list | paste -sd, -)
+  IGN_EXTRA=$ign
+  SIM_TARGETS=() SIM_VER=()
+  out=$(sudo_ pacman -Su --print --print-format '%n %v' --dbpath "$SIMDB" --ignore "$ign" 2>"$SIMDB/su.err")
+  local rc=$?
+  SIM_ERR=$(cat "$SIMDB/su.err" 2>/dev/null)
+  if ((rc == 0)); then
+    SIM_OK=1
+    local n v
+    while read -r n v; do
+      [[ $n =~ ^[a-zA-Z0-9@._+-]+$ && -n $v ]] || continue
+      SIM_TARGETS+=("$n") SIM_VER[$n]=$v
+    done <<<"$out"
+  else
+    SIM_OK=0
+  fi
+}
+
+# hazards: Replaces/Conflicts/Provides of an incoming package that name something we carry
+hazard_scan() {
+  ((${#SIM_TARGETS[@]})) || return 0
+  local pf
+  pf=$(mktemp)
+  { protected_names; pacman -Qmq 2>/dev/null; } | sort -u >"$pf"
+  pacman -Si --dbpath "$SIMDB" "${SIM_TARGETS[@]}" 2>/dev/null | awk -v pf="$pf" '
+    BEGIN { while ((getline l < pf) > 0) P[l] = 1 }
+    function names(s,   k, t, out, j) { out = ""; k = split(s, t, /[ ]+/); for (j = 1; j <= k; j++) { sub(/[<>=].*/, "", t[j]); if (t[j] != "" && t[j] != "None") out = out " " t[j] } return out }
+    /^Name/ { name = $3 }
+    /^Repository/ { repo = $3 }
+    /^Replaces/ { sub(/^Replaces *: /, ""); r = $0 }
+    /^Conflicts With/ { sub(/^Conflicts With *: /, ""); c = $0 }
+    /^Provides/ { sub(/^Provides *: /, ""); pv = $0 }
+    /^$/ {
+      if (name != "") {
+        k = split(names(r), ra, " "); for (i = 1; i <= k; i++) if (P[ra[i]] && ra[i] != name) print "REPLACES " name " (" repo ") replaces protected " ra[i]
+        k = split(names(c), ca, " "); for (i = 1; i <= k; i++) if (P[ca[i]] && ca[i] != name) print "CONFLICTS " name " (" repo ") conflicts with protected " ca[i] " (pacman would offer to remove it)"
+        k = split(names(pv), pa, " "); for (i = 1; i <= k; i++) if (P[pa[i]] && pa[i] != name && !(name in P)) print "PROVIDES " name " (" repo ") provides protected " pa[i]
+      }
+      name = ""; repo = ""; r = ""; c = ""; pv = ""
+    }' | sort -u
+  rm -f "$pf"
+}
+
+# ---------------------------------------------------------------- tracked files: hash, owner, snapshot
+expand_tracked() { # prints absolute entries (dirs keep trailing /)
+  find_tracked || { echo "no tracked-paths.txt" >&2; return 1; }
+  local p
+  while IFS= read -r p; do
+    case $p in '' | \#* | pkg:* | unit:*) continue ;; esac
+    printf '%s\n' "${p/#\~/$TARGET_HOME}"
+  done <"$TRACKED"
+}
+
+HASHER='while IFS= read -r p; do
+  case "$p" in
+    */) if [ -d "$p" ]; then find "$p" -type f -size -64M 2>/dev/null | sort | while IFS= read -r f; do printf "%s\t%s\n" "$(sha256sum -- "$f" 2>/dev/null | cut -d" " -f1)" "$f"; done; else printf "MISSING\t%s\n" "$p"; fi ;;
+    *) if [ -f "$p" ]; then printf "%s\t%s\n" "$(sha256sum -- "$p" 2>/dev/null | cut -d" " -f1)" "$p"; elif [ -e "$p" ] || [ -L "$p" ]; then :; else printf "MISSING\t%s\n" "$p"; fi ;;
+  esac
+done'
+hash_tracked() { expand_tracked | sudo_ bash -c "$HASHER" | sort -t$'\t' -k2; }
+
+owners_of() { # stdin: paths -> "path<TAB>pkg"
+  local f
+  while IFS= read -r f; do printf '%s\0' "$f"; done | xargs -0 -r -n 100 pacman -Qo -- 2>/dev/null |
+    sed -n 's/^\(.*\) is owned by \([^ ]*\) .*$/\1\t\2/p'
+}
+
+ESP_CMD='if mountpoint -q /boot 2>/dev/null; then find /boot -xdev -type f -exec sha256sum {} + 2>/dev/null | sort -k2; else echo "NOT-MOUNTED"; fi'
+esp_manifest() { sudo_ bash -c "$ESP_CMD"; }
+
+mesa_ldd() { # lines "lib: unresolved-soname" for every unresolved dependency of /opt/mesa-aurora* libs
+  local lib
+  compgen -G '/opt/mesa-aurora*' >/dev/null || return 0
+  while IFS= read -r lib; do
+    ldd "$lib" 2>/dev/null | awk -v l="$lib" '/not found/ { print l ": " $1 }'
+  done < <(find /opt/mesa-aurora* -maxdepth 5 -type f \( -name '*.so' -o -name '*.so.*' \) 2>/dev/null | sort)
+}
+
+mesa_needed_map() { # "basename<TAB>owner-pkg" of every system lib the /opt/mesa-aurora* libs resolve to
+  local lib
+  compgen -G '/opt/mesa-aurora*' >/dev/null || return 0
+  while IFS= read -r lib; do ldd "$lib" 2>/dev/null; done < <(find /opt/mesa-aurora* -maxdepth 5 -type f -name '*.so*' 2>/dev/null | sort) |
+    awk '/=> \// && $3 !~ /^\/opt\// { print $3 }' | sort -u | owners_of | awk -F'\t' '{ n = split($1, p, "/"); print p[n] "\t" $2 }' | sort -u
+}
+
+unit_states() {
+  local u s
+  while IFS= read -r u; do
+    [[ -n $u ]] || continue
+    s=$(systemctl is-enabled "$u" 2>/dev/null) || s=$(systemctl --user is-enabled "$u" 2>/dev/null) || s=absent
+    printf '%s\t%s\n' "$u" "${s:-absent}"
+  done < <(tracked_units)
+}
+
+take_snapshot() { # DIR
+  local d=$1
+  sudo_ mkdir -p "$d/files" || die "cannot create $d"
+  sudo_ chown -R "$(id -u):$(id -g)" "$d" 2>/dev/null
+  pacman -Q >"$d/pkgs.txt" 2>/dev/null
+  pacman -Qqe >"$d/explicit.txt" 2>/dev/null
+  pacman -Qqm >"$d/foreign.txt" 2>/dev/null
+  pacman -Qtdq >"$d/orphans.txt" 2>/dev/null
+  pacman -Qii 2>/dev/null | awk '/^MODIFIED/ { print $2 }' | sort -u >"$d/etc-modified.txt"
+  cp -p /etc/pacman.conf "$d/pacman.conf" 2>/dev/null
+  pacman-conf IgnorePkg >"$d/ignorepkg.txt" 2>/dev/null
+  find /etc /usr/share/omarchy -xdev \( -name '*.pacnew' -o -name '*.pacsave' \) 2>/dev/null | sort >"$d/pacnew.txt"
+  systemctl --failed --no-legend 2>/dev/null | awk '{ print $1 }' | sort >"$d/failed-units.txt"
+  systemctl --user --failed --no-legend 2>/dev/null | awk '{ print $1 }' | sort >>"$d/failed-units.txt"
+  unit_states >"$d/units.tsv"
+  ls -1 "$TARGET_HOME/.local/state/omarchy/migrations" 2>/dev/null | sort >"$d/migrations-done.txt"
+  hash_tracked >"$d/hashes.tsv"
+  cut -f2 "$d/hashes.tsv" | owners_of >"$d/owners.tsv"
+  esp_manifest >"$d/esp.sha"
+  mesa_ldd >"$d/mesa-ldd.txt"
+  mesa_needed_map >"$d/mesa-needed.tsv"
+  item_drift >"$d/items.txt" 2>/dev/null
+  # copies of every tracked file (small ones) so a clobbered one can be put back
+  awk -F'\t' '$1 != "MISSING" { print $2 }' "$d/hashes.tsv" | sudo_ bash -c 'd=$1; while IFS= read -r f; do [ -f "$f" ] || continue; s=$(stat -c %s -- "$f"); [ "$s" -le 1048576 ] && cp --parents -p -- "$f" "$d"; done' _ "$d/files" 2>/dev/null
+  sudo_ chown -R "$(id -u):$(id -g)" "$d/files" 2>/dev/null
+  { echo "date $(date -Is)"; echo "kernel $(uname -r)"; pacman -Q omarchy omarchy-settings 2>/dev/null; } >"$d/meta.txt"
+}
+
+latest_snapshot() { [[ -L $STATE_DIR/latest ]] && readlink -f "$STATE_DIR/latest"; }
+
+# ---------------------------------------------------------------- item drift (repo copy vs live), optional
+repo_dir() {
+  [[ -n $REPO && -d $REPO/contrib/omarchy-mac ]] && { echo "$REPO"; return 0; }
+  local c
+  for c in "$(cat /etc/m5pro/safe-update/repo 2>/dev/null)" "$TARGET_HOME/m5pro-linux" "$TARGET_HOME/Documents/GitHub/m5pro/m5pro-linux" "$TARGET_HOME/src/m5pro-linux"; do
+    [[ -n $c && -d $c/contrib/omarchy-mac ]] && { echo "$c"; return 0; }
+  done
+  return 1
+}
+item_drift() { # lines "DIFF|MISSING<TAB>item<TAB>path" for every files/ or home/ file of an install-item item that differs from live
+  local repo item tree base src rel dst at=@  # the placeholder is spelled in pieces: install-item.sh would substitute it in this file
+  repo=$(repo_dir) || return 0
+  for item in "$repo"/contrib/omarchy-mac/*/; do
+    item=${item%/}
+    for tree in files home; do
+      [[ -d $item/$tree ]] || continue
+      base=/
+      [[ $tree == home ]] && base=$TARGET_HOME/
+      while IFS= read -r -d '' src; do
+        rel=${src#"$item/$tree/"} dst=$base$rel
+        if [[ ! -e $dst ]]; then printf 'MISSING\t%s\t%s\n' "${item##*/}" "$dst"
+        elif ! sed "s/${at}USER${at}/$TARGET_USER/g" "$src" | cmp -s - "$dst"; then printf 'DIFF\t%s\t%s\n' "${item##*/}" "$dst"; fi
+      done < <(find "$item/$tree" -type f -print0 | sort -z)
+    done
+  done
+  # uniform --check contract: scripts that declare "# m5pro-check: yes" are run read-only
+  local s
+  while IFS= read -r s; do
+    if ! bash "$s" --check >/dev/null 2>&1; then printf 'CHECKFAIL\t%s\t%s\n' "$(basename "$(dirname "$s")")" "$s --check"; fi
+  done < <(grep -rl --include='*.sh' '^# m5pro-check: yes' "$repo/contrib" 2>/dev/null | sort)
+}
+
+# ---------------------------------------------------------------- drop-in ordering lint
+lint_dropins() { # a later-sorted file in the same drop-in directory defines a key one of our files sets
+  local ours dir base dirs d f key
+  find_tracked || return 0
+  while IFS= read -r ours; do
+    [[ $ours == /etc/*.d/*m5pro*.conf || $ours == /etc/*.d/[0-9][0-9]-m5pro*.conf || $ours == /etc/*.d/m5pro-*.conf ]] || continue
+    [[ -f $ours ]] || continue
+    dir=$(dirname "$ours") base=$(basename "$ours")
+    dirs=("$dir" "/usr/lib${dir#/etc}" "/usr/local/lib${dir#/etc}")
+    for d in "${dirs[@]}"; do
+      [[ -d $d ]] || continue
+      for f in "$d"/*.conf; do
+        [[ -f $f ]] || continue
+        [[ $(basename "$f") > "$base" ]] || continue
+        while IFS= read -r key; do
+          [[ -n $key ]] || continue
+          grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "$f" && echo "$ours sets $key but $f sorts later and sets it too (it wins)"
+        done < <(sed -nE 's/^[[:space:]]*([A-Za-z0-9_.-]+)[[:space:]]*=.*/\1/p' "$ours" | sort -u)
+      done
+    done
+  done < <(expand_tracked 2>/dev/null)
+}
+
+# ---------------------------------------------------------------- validations
+check_conf() {
+  local w ign
+  if [[ -z ${CONF_DIR:-} ]]; then note FAIL config "no holds.conf found (install the safe-update item first)"; return; fi
+  ign=$(pacman-conf IgnorePkg 2>/dev/null)
+  while IFS= read -r w; do
+    if grep -Fxq -- "$w" <<<"$ign"; then :; else note FAIL pacman.conf "IgnorePkg is missing '$w' (a migration or 'omarchy refresh pacman' rewrote pacman.conf?)"; fi
+  done < <(cfg_words ignore-required)
+  grep -q '^\[m5pro\]\|^\[alarm\]\|^\[aur\]' /etc/pacman.conf 2>/dev/null || note WARN pacman.conf "no [m5pro], [alarm] or [aur] section: the Mac's extra repositories are gone"
+  local h
+  while IFS= read -r h; do [[ -e $h ]] || note FAIL hooks "required pacman hook/guard missing: $h"; done < <(cfg_words hook)
+}
+
+check_pins() { # LABEL
+  local pkg re have
+  while read -r pkg re; do
+    [[ -n $pkg ]] || continue
+    have=$(pacman -Q "$pkg" 2>/dev/null | awk '{ print $2 }')
+    if [[ -z $have ]]; then note FAIL pins "$pkg is not installed (pinned to /$re/)"
+    elif [[ $have =~ $re ]]; then note OK pins "$pkg $have"
+    else note FAIL pins "$pkg is $have, expected /$re/"; fi
+  done < <(cfg pin)
+}
+
+check_protected() { # SNAP
+  local snap=$1 p was now
+  while IFS= read -r p; do
+    [[ -n $p ]] || continue
+    now=$(pacman -Q "$p" 2>/dev/null | awk '{ print $2 }')
+    if [[ -n $snap && -f $snap/pkgs.txt ]]; then
+      was=$(awk -v p="$p" '$1 == p { print $2 }' "$snap/pkgs.txt")
+      [[ -z $was ]] && continue
+      if [[ -z $now ]]; then note FAIL packages "$p was installed ($was) and is gone"
+      elif [[ $now != "$was" ]]; then note WARN packages "$p changed $was -> $now"; fi
+    elif [[ -z $now ]] && grep -Fxq "$p" <(cfg_words protect); then
+      note WARN packages "$p (protected) is not installed"
+    fi
+  done < <(protected_names)
+}
+
+check_esp() { # SNAP
+  local snap=$1 now
+  [[ -f $snap/esp.sha ]] || { note INFO boot "no ESP baseline yet"; return; }
+  now=$(mktemp)
+  esp_manifest >"$now"
+  if [[ $(head -1 "$snap/esp.sha") == NOT-MOUNTED ]]; then note INFO boot "/boot was not mounted at snapshot time: ESP not compared"
+  elif cmp -s "$snap/esp.sha" "$now"; then note OK boot "/boot (ESP) files unchanged since the snapshot"
+  else
+    local lvl=FAIL
+    ((ALLOW_BOOT)) && lvl=WARN
+    note "$lvl" boot "/boot (ESP) changed: $(diff <(awk '{ print $2 }' "$snap/esp.sha") <(awk '{ print $2 }' "$now") | grep -c '^[<>]') path(s) added or removed, $(comm -13 <(sort "$snap/esp.sha") <(sort "$now") | wc -l) hash(es) differ; the hand-built boot chain may no longer boot"
+    diff "$snap/esp.sha" "$now" | head -10 | sed 's/^/        /'
+  fi
+  rm -f "$now"
+}
+
+check_mesa() { # SNAP
+  local snap=$1 now new
+  compgen -G '/opt/mesa-aurora*' >/dev/null || { note INFO mesa "no /opt/mesa-aurora tree on this machine"; return; }
+  now=$(mktemp)
+  mesa_ldd >"$now"
+  if [[ -f $snap/mesa-ldd.txt ]]; then new=$(comm -13 <(sort "$snap/mesa-ldd.txt") <(sort "$now")); else new=$(cat "$now"); fi
+  if [[ -z $new ]]; then note OK mesa "/opt/mesa-aurora* libraries resolve ($(find /opt/mesa-aurora* -maxdepth 5 -name '*.so*' -type f 2>/dev/null | wc -l) libs)"
+  else
+    note FAIL mesa "unresolved dependencies in /opt/mesa-aurora* (a system library it links changed): the GPU session falls back to software"
+    head -8 <<<"$new" | sed 's/^/        /'
+  fi
+  rm -f "$now"
+}
+
+check_units() { # SNAP
+  local snap=$1 u was now bad=0
+  [[ -f $snap/units.tsv ]] || return 0
+  while IFS=$'\t' read -r u was; do
+    now=$(systemctl is-enabled "$u" 2>/dev/null) || now=$(systemctl --user is-enabled "$u" 2>/dev/null) || now=absent
+    [[ -n $now ]] || now=absent
+    if [[ $was != "$now" ]]; then note WARN units "$u was $was, now $now"; bad=1; fi
+  done <"$snap/units.tsv"
+  ((bad)) || note OK units "tracked units keep their enable state"
+  while IFS= read -r u; do [[ -n $u ]] && note WARN units "newly failed: $u"; done < <(comm -13 "$snap/failed-units.txt" <(
+    { systemctl --failed --no-legend 2>/dev/null; systemctl --user --failed --no-legend 2>/dev/null; } | awk '{ print $1 }' | sort
+  ))
+}
+
+# compare tracked file hashes with the snapshot; restore ours when it is safe and say so
+check_files() { # SNAP AUTORESTORE(0|1)
+  local snap=$1 auto=$2 now path kind owner mod nchg=0 nrest=0
+  [[ -f $snap/hashes.tsv ]] || { note INFO files "no hash baseline yet"; return; }
+  now=$(mktemp)
+  hash_tracked >"$now"
+  while IFS=$'\t' read -r kind path _; do
+    [[ -n $path ]] || continue
+    nchg=$((nchg + 1))
+    owner=$(awk -F'\t' -v p="$path" '$1 == p { print $2 }' "$snap/owners.tsv")
+    mod=0
+    grep -Fxq -- "$path" "$snap/etc-modified.txt" 2>/dev/null && mod=1
+    if [[ -z $owner || $mod == 1 ]] && [[ $path != "$TARGET_HOME"/* ]] && [[ -f $snap/files$path ]]; then
+      if ((auto)); then
+        sudo_ install -D -m "$(stat -c %a "$snap/files$path")" -- "$snap/files$path" "$path" 2>/dev/null && { nrest=$((nrest + 1)); note WARN files "$kind $path: put back from the snapshot (${owner:+owned by $owner, locally modified}${owner:-not owned by any package})"; continue; }
+      fi
+      note WARN files "$kind $path: ${owner:+package $owner}${owner:-not packaged}; restore with: m5pro-safe-update --restore $path"
+    elif [[ -n $owner && $mod == 0 ]]; then
+      note INFO files "$kind $path: stock file of $owner, changed by the update (nothing of ours in it)"
+    elif [[ $path == "$TARGET_HOME"/* ]]; then
+      note WARN files "$kind $path: user file changed (migration?). Before: $snap/files$path   diff: diff $snap/files$path $path"
+    else
+      note WARN files "$kind $path: no snapshot copy (over 1 MiB?)"
+    fi
+  done < <(awk -F'\t' 'NR == FNR { b[$2] = $1; next } { a[$2] = $1 } END { for (p in b) { if (b[p] == "MISSING") continue; if (!(p in a)) print "MISSING\t" p "\t" b[p]; else if (a[p] == "MISSING") print "MISSING\t" p "\t" b[p]; else if (a[p] != b[p]) print "CHANGED\t" p "\t" b[p] } }' "$snap/hashes.tsv" "$now" | sort -t$'\t' -k2)
+  rm -f "$now"
+  ((nchg)) || note OK files "all $(lines "$snap/hashes.tsv") tracked files unchanged since the snapshot"
+}
+
+check_items() { # SNAP
+  local snap=$1 now new
+  repo_dir >/dev/null || { note INFO items "no m5pro-linux checkout found: item files not compared with the repo (use --repo DIR)"; return; }
+  now=$(mktemp)
+  item_drift >"$now"
+  if [[ -f $snap/items.txt ]]; then new=$(comm -13 <(sort "$snap/items.txt") <(sort "$now")); else new=$(cat "$now"); fi
+  if [[ -z $new ]]; then note OK items "no new drift between item files and the repo ($(lines "$now") known differences)"
+  else
+    note WARN items "$(wc -l <<<"$new" | tr -d ' ') item file(s) differ from the repo${snap:+ (new since the snapshot)}:"
+    head -15 <<<"$new" | sed 's/^/        /'
+  fi
+  rm -f "$now"
+}
+
+check_sysctl() {
+  local f k v want got
+  while IFS= read -r f; do
+    [[ -f $f ]] || continue
+    while IFS='=' read -r k v; do
+      k=${k//[[:space:]]/} v=${v#"${v%%[![:space:]]*}"}
+      [[ -n $k && $k != \#* ]] || continue
+      got=$(sysctl -n "$k" 2>/dev/null | tr '\t' ' ') || continue
+      want=$(tr -s ' ' <<<"$v")
+      [[ $got == "$want" ]] || note WARN sysctl "$k is '$got', $f says '$want' (a later drop-in or the kernel wins)"
+    done < <(grep -vE '^[[:space:]]*(#|;|$)' "$f")
+  done < <(expand_tracked 2>/dev/null | grep -E '^/etc/sysctl\.d/')
+}
+
+orphans_report() {
+  local o prot
+  o=$(pacman -Qtdq 2>/dev/null)
+  [[ -n $o ]] || { note OK orphans "no orphan packages (omarchy update -y would remove nothing)"; return; }
+  prot=$(grep -Fxf <(protected_names) <<<"$o")
+  if [[ -n $prot ]]; then note FAIL orphans "omarchy update -y removes orphans without asking, and these protected packages are orphans: $(paste -sd' ' <<<"$prot")"; fi
+  note INFO orphans "$(wc -l <<<"$o" | tr -d ' ') orphan(s) that 'omarchy update -y' would remove; this wrapper never removes them: $(head -12 <<<"$o" | paste -sd' ' -)"
+}
+
+check_all() { # SNAP AUTORESTORE
+  local snap=${1:-} auto=${2:-0}
+  head1 "Validation"
+  check_conf
+  check_pins
+  check_protected "$snap"
+  [[ -n $snap ]] && check_esp "$snap"
+  check_mesa "$snap"
+  [[ -n $snap ]] && check_files "$snap" "$auto"
+  [[ -n $snap ]] && check_units "$snap"
+  check_items "$snap"
+  check_sysctl
+  local l
+  while IFS= read -r l; do [[ -n $l ]] && note WARN dropins "$l"; done < <(lint_dropins)
+}
+
+# ---------------------------------------------------------------- dry run / plan
+migration_state_dir() { echo "$TARGET_HOME/.local/state/omarchy/migrations"; }
+
+print_migration_table() { # DIR-with-scripts (title)
+  local dir=$1 title=$2 f n sev tags why cnt=0 state
+  state=$(migration_state_dir)
+  for f in "$dir"/*.sh; do
+    [[ -f $f ]] || continue
+    n=$(basename "$f")
+    [[ -f $state/$n ]] && continue
+    cnt=$((cnt + 1))
+    IFS='|' read -r sev tags why < <(classify_file "$f")
+    printf '    %-7s %-26s %s  %s\n' "$sev" "${tags:--}" "$n" "$(grep -m1 -E '^echo' "$f" | cut -c1-70)"
+  done
+  ((cnt)) || say "    (none pending in $title)"
+  return 0
+}
+
+incoming_migrations() { # from cached omarchy package, deep mode only
+  local pkgfile n tmp sev tags why cnt=0 state
+  pkgfile=$(find_cached omarchy) || return 1
+  tmp=$(mktemp -d)
+  state=$(migration_state_dir)
+  bsdtar -xf "$pkgfile" -C "$tmp" 'usr/share/omarchy/migrations' 2>/dev/null || { rm -rf "$tmp"; return 1; }
+  for f in "$tmp"/usr/share/omarchy/migrations/*.sh; do
+    [[ -f $f ]] || continue
+    n=$(basename "$f")
+    [[ -f $state/$n ]] && continue
+    cnt=$((cnt + 1))
+    IFS='|' read -r sev tags why < <(classify_file "$f")
+    printf '    %-7s %-26s %s  %s\n' "$sev" "${tags:--}" "$n" "$(grep -m1 -E '^echo' "$f" | cut -c1-70)"
+  done
+  say "    ($cnt migration(s) would be pending after the upgrade; from $(basename "$pkgfile"))"
+  rm -rf "$tmp"
+}
+
+find_cached() { # name -> newest cached file at the simulated version
+  local n=$1 v=${SIM_VER[$1]:-} f
+  [[ -n $v ]] || return 1
+  for f in "$PACMAN_CACHE/$n-$v"-*.pkg.tar*; do [[ -f $f && $f != *.sig ]] && { echo "$f"; return 0; }; done
+  return 1
+}
+
+deep_scan() {
+  head1 "Deep scan (packages downloaded to the cache, nothing installed)"
+  local n f tracked_files dirs rc
+  say "  downloading ${#SIM_TARGETS[@]} package(s)..."
+  if ! sudo_ pacman -Suw --noconfirm --dbpath "$SIMDB" --ignore "$IGN_EXTRA" >"$SIMDB/w.out" 2>&1; then
+    tail -5 "$SIMDB/w.out" | sed 's/^/    /'
+    note WARN deep "download failed; the file-level scan is incomplete"
+    return
+  fi
+  tracked_files=$(mktemp) dirs=$(mktemp)
+  expand_tracked >"$tracked_files"
+  grep '/$' "$tracked_files" >"$dirs"
+  local hits=0 inc plist
+  for n in "${SIM_TARGETS[@]}"; do
+    f=$(find_cached "$n") || continue
+    plist=$(pacman -Qlp "$f" 2>/dev/null | awk '{ print $2 }' | grep -v '/$')
+    # 1. the package writes a path we track
+    inc=$(grep -Fxf <(grep -v '/$' "$tracked_files") <<<"$plist")
+    while IFS= read -r p; do [[ -n $p ]] && { note WARN clobber "$n ${SIM_VER[$n]} ships tracked file $p"; hits=1; }; done <<<"$inc"
+    # 2. it adds files inside a tracked directory
+    while IFS= read -r d; do
+      [[ -n $d ]] || continue
+      inc=$(grep -F -- "$d" <<<"$plist" | head -5)
+      [[ -n $inc ]] && { note WARN clobber "$n ${SIM_VER[$n]} adds files inside tracked dir $d: $(paste -sd' ' <<<"$inc")"; hits=1; }
+    done <"$dirs"
+    # 3. exists on disk, unowned (hand-copied): pacman would abort with 'exists in filesystem'
+    while IFS= read -r p; do
+      [[ -n $p && -e $p && ! -d $p ]] || continue
+      case $p in /etc/* | /usr/local/* | /usr/share/alsa/* | /usr/share/wireplumber/* | /usr/share/asahi-audio/* | /usr/share/polkit-1/* | /usr/lib/udev/* | /usr/lib/systemd/* | /usr/lib/firmware/apple/*) ;; *) continue ;; esac
+      pacman -Qo -- "$p" >/dev/null 2>&1 || { note FAIL clobber "$n ${SIM_VER[$n]} ships $p, which exists and no package owns it (pacman aborts with 'exists in filesystem')"; hits=1; }
+    done <<<"$plist"
+  done
+  ((hits)) || note OK clobber "no incoming package file lands on a tracked or hand-copied path"
+  # mesa soname check: a system library /opt/mesa-aurora needs must still be shipped by its owner
+  if compgen -G '/opt/mesa-aurora*' >/dev/null && { [[ -s ${SNAPDIR_FOR_PLAN:-/nonexistent}/mesa-needed.tsv ]] || mesa_needed_map >"$SIMDB/mesa-needed.tsv" 2>/dev/null; }; then
+    local mn=${SNAPDIR_FOR_PLAN:-}/mesa-needed.tsv
+    [[ -s $mn ]] || mn=$SIMDB/mesa-needed.tsv
+    local lib pkg bad=0
+    while IFS=$'\t' read -r lib pkg; do
+      [[ -n ${SIM_VER[$pkg]:-} ]] || continue
+      f=$(find_cached "$pkg") || continue
+      if ! pacman -Qlp "$f" 2>/dev/null | awk '{ print $2 }' | grep -q "/$lib\$"; then note FAIL mesa "$pkg ${SIM_VER[$pkg]} no longer ships $lib, which /opt/mesa-aurora links"; bad=1; fi
+    done <"$mn"
+    ((bad)) || note OK mesa "every system library /opt/mesa-aurora links is still shipped by its owner"
+  fi
+  rm -f "$tracked_files" "$dirs"
+  head1 "Migrations that would be pending after the upgrade"
+  incoming_migrations || say "    (omarchy is not in the upgrade, or its package could not be opened)"
+}
+
+do_dry() {
+  resolve_user
+  have pacman || die "no pacman here: --dry-run runs on the Mac"
+  head1 "m5pro-safe-update --dry-run $( ((DEEP)) && echo --deep)  ($(date '+%F %T'), kernel $(uname -r), user $TARGET_USER)"
+  say "  $(pacman -Q omarchy omarchy-settings 2>/dev/null | paste -sd' ' -)"
+  head1 "Pending package updates"
+  sim_sync
+  sim_updates
+  if ((${#UPD_LINES[@]} == 0)); then say "  none: the repositories offer nothing newer"; fi
+  local n held=() go=()
+  for n in "${UPD_LINES[@]}"; do if is_held "$n"; then held+=("$n"); else go+=("$n"); fi; done
+  say "  ${#UPD_LINES[@]} update(s): ${#go[@]} would install, ${#held[@]} held"
+  for n in "${held[@]}"; do printf '    HELD    %-34s %s -> %s\n' "$n" "${UPD_OLD[$n]}" "${UPD_NEW[$n]}"; done
+  local watch
+  watch=$(cfg_words watch)
+  for n in "${go[@]}"; do
+    local tag=""
+    grep -Fxq "$n" <<<"$watch" && tag="  <- /opt/mesa-aurora may link this"
+    case $n in omarchy | omarchy-settings | omarchy-*) tag+="  <- Omarchy: migrations + /etc/skel + etc-overrides" ;; esac
+    printf '    UPGRADE %-34s %s -> %s%s\n' "$n" "${UPD_OLD[$n]}" "${UPD_NEW[$n]}" "$tag"
+  done
+  head1 "Simulated transaction (pacman -Su --print with our holds)"
+  sim_transaction
+  if ((SIM_OK)); then
+    note OK simulate "pacman would install/upgrade ${#SIM_TARGETS[@]} package(s) with $(ignore_list | wc -l | tr -d ' ') hold pattern(s)"
+    if [[ -n $SIM_ERR ]]; then sed 's/^/        /' <<<"$SIM_ERR" | head -8; fi
+  else
+    note FAIL simulate "pacman cannot build this transaction with our holds. Nothing would be changed, but the update path is blocked:"
+    sed 's/^/        /' <<<"$SIM_ERR" | head -20
+  fi
+  local h
+  h=$(hazard_scan)
+  if [[ -n $h ]]; then while IFS= read -r l; do note FAIL hazard "$l"; done <<<"$h"; else note OK hazard "no incoming package replaces, conflicts with or provides something we carry"; fi
+
+  head1 "Tracked paths owned by an upgrading package (file-by-file, from the pacman database)"
+  if find_tracked; then
+    local owned=0 p o
+    while IFS=$'\t' read -r p o; do
+      [[ -n ${SIM_VER[$o]:-} ]] && { note WARN clobber "$p is owned by $o, which upgrades ${UPD_OLD[$o]:-?} -> ${SIM_VER[$o]}"; owned=1; }
+    done < <(expand_tracked | sed 's#/$##' | owners_of)
+    ((owned)) || note OK clobber "no tracked path is owned by an upgrading package"
+  else note INFO clobber "no tracked-paths.txt: file-level mapping skipped"; fi
+
+  head1 "Omarchy migrations pending today (local, $(migration_state_dir))"
+  print_migration_table "$OMARCHY_SHARE/migrations" "this Omarchy"
+  if ((DEEP)); then SNAPDIR_FOR_PLAN=$(latest_snapshot || true); deep_scan; else say "  (add --deep to download the packages, scan their files against every tracked path and list the migrations the upgrade brings)"; fi
+
+  head1 "What 'omarchy update' would do that this wrapper does not"
+  orphans_report
+  say "  omarchy update also: prunes the package cache (we keep it: it is the rollback), runs omarchy-update-boot (update-verify of omarchy-mac-boot: absent here), yay -Sua --noconfirm"
+  say "  on every foreign package (not run), mise update (not run without --with-mise), and restarts the shell (we only tell you)."
+  check_all "$(latest_snapshot || true)" 0
+
+  head1 "Verdict"
+  if ((NFAIL)); then
+    say "  ${C_R}DO NOT RUN${C_0}: $NFAIL failure(s) above. Fix them (or defer that package with a hold) and dry-run again."
+    return 2
+  elif ((NWARN)); then
+    say "  ${C_Y}RUN ATTENDED${C_0}: no blocker, $NWARN warning(s). Read them, then: m5pro-safe-update --run"
+    return 1
+  fi
+  say "  ${C_G}SAFE${C_0} by every check above. First time on a Mac: run it attended anyway."
+  return 0
+}
+
+# ---------------------------------------------------------------- real run
+run_migrations() {
+  local state f n sev tags why rc dstate ledger="$STATE_DIR/deferred.tsv" ran=0 deferred=0
+  state=$(migration_state_dir)
+  [[ -d $OMARCHY_SHARE/migrations ]] || { note INFO migrations "no migrations directory"; return 0; }
+  mkdir -p "$state"
+  [[ ${EUID} -eq 0 && $TARGET_USER != root ]] && chown "$TARGET_USER" "$state" 2>/dev/null
+  for f in "$OMARCHY_SHARE"/migrations/*.sh; do
+    [[ -f $f ]] || continue
+    n=$(basename "$f")
+    [[ -f $state/$n ]] && continue
+    IFS='|' read -r sev tags why < <(classify_file "$f")
+    if [[ $sev == DEFER ]]; then
+      sudo_ mkdir -p "$STATE_DIR/deferred"
+      sudo_ cp -p "$f" "$STATE_DIR/deferred/$n"
+      printf '%s\t%s\t%s\t%s\t%s\n' "$(date -Is)" "$n" "$sev" "$tags" "$why" | sudo_ tee -a "$ledger" >/dev/null
+      as_user touch "$state/$n"
+      deferred=$((deferred + 1))
+      note WARN migrations "DEFERRED $n [$tags] $(grep -m1 -E '^echo' "$f" | cut -c1-70) :: $why"
+      continue
+    fi
+    say "  running migration $n [$sev${tags:+ $tags}]"
+    as_user env OMARCHY_PATH="$OMARCHY_SHARE" PATH="$OMARCHY_SHARE/bin:/usr/local/bin:/usr/bin:/usr/sbin:/bin" bash -euo pipefail "$f"
+    rc=$?
+    if ((rc != 0)); then
+      note FAIL migrations "$n failed (exit $rc); stopped here. Fix, then re-run m5pro-safe-update --run (finished ones stay done)."
+      return 1
+    fi
+    as_user touch "$state/$n"
+    ran=$((ran + 1))
+  done
+  dstate=$([[ $deferred -gt 0 ]] && echo ", $deferred deferred (see $ledger)")
+  note OK migrations "$ran ran$dstate"
+  return 0
+}
+
+as_user() { if ((EUID == 0)) && [[ $TARGET_USER != root ]]; then sudo -u "$TARGET_USER" -H "$@"; else "$@"; fi; }
+
+do_run() {
+  resolve_user
+  have pacman || die "no pacman here: --run runs on the Mac"
+  [[ -t 0 || $ASSUME_YES -eq 1 ]] || die "run it from a terminal (or with --yes): it asks before it changes anything"
+  [[ $TARGET_USER != root ]] || die "run as your own user (it uses sudo), or sudo m5pro-safe-update, not as a root login"
+  local lock=${XDG_RUNTIME_DIR:-/tmp}/m5pro-safe-update.lock
+  exec 9>"$lock" || die "cannot open $lock"
+  flock -n 9 || die "another m5pro-safe-update is running"
+  head1 "m5pro-safe-update --run  ($(date '+%F %T'), user $TARGET_USER)"
+  sudo_ true || die "sudo needed"
+  # keep the sudo timestamp alive for the whole run (like omarchy update does)
+  ( while sleep 50; do sudo -n true 2>/dev/null || exit; kill -0 $$ 2>/dev/null || exit; done ) &
+  KEEP_PID=$!
+
+  head1 "1. Preconditions"
+  check_conf
+  check_pins
+  if ((NFAIL)); then die "preconditions failed (above). Nothing was changed. Repair pacman.conf/hooks first (see README: Undo and Repair)."; fi
+
+  head1 "2. Snapshot"
+  local ts snap
+  ts=$(date +%Y%m%d-%H%M%S)
+  snap=$STATE_DIR/$ts
+  sudo_ mkdir -p "$STATE_DIR"
+  take_snapshot "$snap"
+  sudo_ ln -sfn "$snap" "$STATE_DIR/latest"
+  say "  $snap: $(lines "$snap/pkgs.txt") packages, $(lines "$snap/hashes.tsv") tracked file hashes, $(find "$snap/files" -type f 2>/dev/null | wc -l | tr -d ' ') file copies, ESP manifest, pacman.conf, modified-backup list"
+  if have omarchy-snapshot; then
+    omarchy-snapshot create >/dev/null 2>&1 && say "  snapper snapshot created" || say "  (omarchy-snapshot: none created, continuing: the cache and $snap are the rollback)"
+  fi
+
+  head1 "3. Plan"
+  sim_sync
+  sim_updates
+  sim_transaction
+  if ((!SIM_OK)); then
+    note FAIL simulate "pacman cannot build the transaction with our holds; refusing (nothing changed):"
+    sed 's/^/        /' <<<"$SIM_ERR" | head -20
+    exit 3
+  fi
+  local h
+  h=$(hazard_scan)
+  if [[ -n $h ]]; then
+    local hl=FAIL
+    ((FORCE_HAZ)) && hl=WARN
+    while IFS= read -r l; do note "$hl" hazard "$l"; done <<<"$h"
+    ((FORCE_HAZ)) || { say "  refusing (nothing changed). Hold the package that carries it, or --force-hazards after reading it."; exit 3; }
+  fi
+  if ((${#SIM_TARGETS[@]} == 0)); then say "  nothing to upgrade"; else
+    local n
+    for n in "${SIM_TARGETS[@]}"; do printf '    %-34s %s -> %s\n' "$n" "${UPD_OLD[$n]:-new}" "${SIM_VER[$n]}"; done
+  fi
+  say "  held: $(ignore_list | paste -sd' ' - | cut -c1-300)"
+  if ((!ASSUME_YES)); then
+    read -r -p "  Upgrade now? [y/N] " ans
+    [[ $ans == y || $ans == Y ]] || { say "  stopped, nothing changed."; exit 3; }
+  fi
+
+  head1 "4. Keys and upgrade"
+  if have omarchy-update-keyring; then omarchy-update-keyring || { note FAIL keyring "omarchy-update-keyring failed; stopped before the upgrade"; exit 2; }; fi
+  local pargs=(-Syu --ignore "$IGN_EXTRA" --overwrite '/usr/share/omarchy/*')
+  ((ASSUME_YES)) && pargs+=(--noconfirm)
+  # OMARCHY_UPDATE_PACMAN=1 satisfies Omarchy's own 'use omarchy update' pacman hook; ours (boot guard, Touch ID guard) still run.
+  if ! sudo_ env OMARCHY_UPDATE_PACMAN=1 pacman "${pargs[@]}"; then
+    note FAIL pacman "the upgrade failed (see above). pacman is transactional: check 'pacman -Q' against $snap/pkgs.txt."
+    check_all "$snap" 0
+    exit 2
+  fi
+  note OK pacman "upgrade finished"
+
+  head1 "5. Migrations (policy: $CONF_DIR/migration-policy.tsv)"
+  run_migrations
+  as_user_hook
+
+  check_all "$snap" 1
+
+  head1 "6. After"
+  if [[ -n $(comm -13 "$snap/pacnew.txt" <(find /etc /usr/share/omarchy -xdev \( -name '*.pacnew' -o -name '*.pacsave' \) 2>/dev/null | sort)) ]]; then
+    while IFS= read -r p; do note WARN pacnew "new $p: a package wanted to change a file we modified; ours was kept. Merge by hand if you want the new default."; done < <(comm -13 "$snap/pacnew.txt" <(find /etc /usr/share/omarchy -xdev \( -name '*.pacnew' -o -name '*.pacsave' \) 2>/dev/null | sort))
+  fi
+  [[ -f $snap/pkgs.txt ]] && { say "  package changes:"; diff <(awk '{ print $1 " " $2 }' "$snap/pkgs.txt") <(pacman -Q | awk '{ print $1 " " $2 }') | grep '^[<>]' | head -60 | sed 's/^/    /'; }
+  if [[ -n $(pacman -Qq omarchy 2>/dev/null) && $(pacman -Q omarchy | awk '{ print $2 }') != "$(awk '$1 == "omarchy" { print $2 }' "$snap/pkgs.txt")" ]]; then
+    say "  Omarchy changed: log out and back in (or omarchy-restart-shell) to load the new shell."
+  fi
+  ((WITH_MISE)) && have omarchy-update-mise && { omarchy-update-mise || note WARN mise "mise update failed"; }
+  say "  Not rebooting: the kernel and boot chain are not part of this update."
+  say "  Snapshot: $snap   Undo/repair: see README (pacman -U from $PACMAN_CACHE, --restore)."
+  final_verdict
+}
+
+as_user_hook() { have omarchy-hook && as_user omarchy-hook post-update >/dev/null 2>&1; return 0; }
+
+final_verdict() {
+  head1 "Result"
+  say "  $NFAIL failure(s), $NWARN warning(s)"
+  if ((NFAIL)); then say "  ${C_R}NEEDS ATTENTION${C_0}: do not reboot until the FAIL lines are resolved."; exit 2; fi
+  if ((NWARN)); then say "  ${C_Y}DONE WITH WARNINGS${C_0}"; exit 1; fi
+  say "  ${C_G}DONE${C_0}"
+  exit 0
+}
+
+# ---------------------------------------------------------------- check / restore / undefer
+do_check() {
+  resolve_user
+  have pacman || die "no pacman here: --check runs on the Mac"
+  head1 "m5pro-safe-update --check  ($(date '+%F %T'), kernel $(uname -r))"
+  local snap
+  snap=$(latest_snapshot || true)
+  [[ -n $snap ]] && say "  baseline: $snap ($(sed -n 's/^date //p' "$snap/meta.txt" 2>/dev/null))" || say "  no snapshot yet: comparing against the repo and the tracked list only"
+  orphans_report
+  check_all "$snap" 0
+  head1 "Result"
+  say "  $NFAIL failure(s), $NWARN warning(s)"
+  ((NFAIL)) && exit 2
+  ((NWARN)) && exit 1
+  exit 0
+}
+
+do_restore() {
+  resolve_user
+  local snap p n=0
+  snap=$(latest_snapshot) || die "no snapshot in $STATE_DIR"
+  local paths=("${ARGS[@]}")
+  if ((${#paths[@]} == 0)); then
+    mapfile -t paths < <(
+      hash_tracked | awk -F'\t' 'NR == FNR { b[$2] = $1; next } ($2 in b) && b[$2] != "MISSING" && b[$2] != $1 { print $2 }' "$snap/hashes.tsv" -
+    )
+    # also the ones that vanished
+    mapfile -t -O "${#paths[@]}" paths < <(awk -F'\t' '{ print $2 }' "$snap/hashes.tsv" | while IFS= read -r p; do [[ -e $p ]] || echo "$p"; done)
+  fi
+  for p in "${paths[@]}"; do
+    [[ -f $snap/files$p ]] || { say "  no snapshot copy of $p"; continue; }
+    if [[ $p == "$TARGET_HOME"/* ]]; then install -D -m "$(stat -c %a "$snap/files$p")" -- "$snap/files$p" "$p"; else sudo_ install -D -m "$(stat -c %a "$snap/files$p")" -- "$snap/files$p" "$p"; fi && { say "  restored $p"; n=$((n + 1)); }
+  done
+  say "  $n file(s) restored from $snap. Services are not restarted: daemon-reload / restart them yourself if needed."
+}
+
+do_undefer() {
+  resolve_user
+  local n=${ARGS[0]:-}
+  [[ -n $n ]] || die "usage: --undefer NAME (see $STATE_DIR/deferred.tsv)"
+  [[ $n == *.sh ]] || n=$n.sh
+  grep -q "	$n	" "$STATE_DIR/deferred.tsv" 2>/dev/null || die "$n is not in $STATE_DIR/deferred.tsv"
+  rm -f "$(migration_state_dir)/$n"
+  say "  $n will run at the next 'omarchy-migrate' (or --run, which would defer it again: read $STATE_DIR/deferred/$n first)."
+}
+
+case $MODE in
+  gen) do_gen ;;
+  classify) do_classify ;;
+  dry) do_dry; exit $? ;;
+  run) do_run ;;
+  check) do_check ;;
+  restore) do_restore ;;
+  undefer) do_undefer ;;
+esac
