@@ -11,7 +11,7 @@
 pkgname=libfprint-git
 epoch=2
 pkgver=1.94.100.aurora.a227a35
-pkgrel=1
+pkgrel=2
 pkgdesc="libfprint 1.94.100 with the Aurora Touch ID driver (sep-bio v4/v5); m5pro build, not Omarchy's"
 url="https://github.com/aurora-silicon/aurora-sep-userspace"
 arch=(aarch64)
@@ -33,6 +33,8 @@ _patches=(
   0009-aurora-say-why-touch-id-needs-the-password.patch
   0010-let-a-front-end-ask-whether-the-reader-needs-the-password.patch
   0011-aurora-name-a-touch-of-another-enrolled-finger.patch
+  # m5pro: a second finger could not be added (PREPARE_ENROL EBUSY after fprintd's duplicate check).
+  0012-aurora-wait-for-the-duplicate-check-before-PREPARE_ENROL.patch
 )
 source=("libfprint::git+https://gitlab.freedesktop.org/libfprint/libfprint.git#tag=v1.94.100"
         "${_patches[@]}" apple-sep.h fprintd-aurora-touchid.conf)

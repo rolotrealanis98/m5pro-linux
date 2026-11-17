@@ -44,6 +44,10 @@ Item {
   property bool authWaiting: false
   property bool touchFlash: false
   property int missesInARow: 0
+  // Set after an enrolment: the new finger is tested once. fprintd's duplicate
+  // check before the enrolment was a no-match the enclave counts toward its
+  // five-miss lockout, and a match clears that count.
+  property var pendingTest: null
 
   readonly property var fingers: status && status.fingers ? status.fingers : []
   readonly property int capacity: status && status.capacity ? status.capacity : 3
@@ -169,7 +173,11 @@ Item {
   function saveLabel() {
     var text = labelField.text.trim()
     if (opProc.running) return
-    if (mode === "enroll" && !text.length) { back(); return }
+    if (mode === "enroll") {
+      var added = { id: activeFinger, name: activeName, label: text }
+      if (!text.length) { missesInARow = 0; startVerify(added); return }
+      pendingTest = added
+    }
     mode = "list"
     run(["label", activeFinger, text])
   }
@@ -213,10 +221,10 @@ Item {
     case "enroll-remove-and-retry": return ["Lift your finger", "Then rest it on the button again."]
     case "enroll-too-fast": return ["A little slower", "Hold each touch for a moment."]
     case "enroll-swipe-too-short": return ["That one didn't read", "Touch again."]
-    case "enroll-completed": return ["Fingerprint added", "Name it if you like, then press Enter."]
+    case "enroll-completed": return ["Fingerprint added", "Name it if you like, then press Enter to try it once."]
     case "enroll-duplicate": return ["Already enrolled", "That finger is already one of your fingerprints."]
     case "enroll-data-full": return ["No room left", "Touch ID holds " + capacity + " fingerprints. Delete one first."]
-    case "enroll-disconnected": return ["The reader went away", "Open the lid and try again."]
+    case "enroll-disconnected": return ["Touch ID stopped the enrolment", "Nothing was saved. Try again; if it happens again, the journal has the reason."]
     default: return ["Enrolment stopped", "Nothing was saved. Try again and keep going until it says added."]
     }
   }
@@ -294,6 +302,12 @@ Item {
       if (msg.result === "labelled") {
         notice = msg.label ? "Named it “" + msg.label + "”." : "Name cleared."
         refresh()
+        if (pendingTest) {
+          var added = pendingTest
+          pendingTest = null
+          missesInARow = 0
+          Qt.callLater(function() { root.startVerify(added) })
+        }
         return
       }
       if (msg.result === "deleted") {
@@ -742,11 +756,12 @@ Item {
             placeholderText: root.activeName
             Keys.onReturnPressed: root.saveLabel()
             Keys.onEnterPressed: root.saveLabel()
-            Keys.onEscapePressed: root.back()
+            Keys.onEscapePressed: root.mode === "enroll" ? root.saveLabel() : root.back()
           }
           Text {
             textFormat: Text.PlainText
-            text: "Enter to save · Esc to " + (root.mode === "rename" ? "cancel" : "skip") + ". Only this panel shows the name."
+            text: root.mode === "rename" ? "Enter to save · Esc to cancel. Only this panel shows the name."
+              : "Enter to save and try it · Esc to skip the name. Only this panel shows the name."
             color: Commons.Color.muted
             font.family: Style.font.family
             font.pixelSize: Style.font.caption

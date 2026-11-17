@@ -1,0 +1,124 @@
+From: rolotrealanis98 <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 12:00:00 +0000
+Subject: [PATCH] aurora: wait for the duplicate check's capture before PREPARE_ENROL
+
+fprintd identifies before every enrolment to refuse a duplicate print. Once a
+print is enrolled that identify takes a touch, and its no-match is reported
+as soon as the touch is finished, while the kernel's verify work item still
+saves the lockout record and collects the enclave's background result (about
+200 ms). ENROL_START waits for that work item; PREPARE_ENROL does not and
+refuses with EBUSY. fprintd starts the enrolment straight after the check, so
+adding a second finger always failed with "ioctl failed: Device or resource
+busy" (FP_DEVICE_ERROR_PROTO, shown as enroll-disconnected).
+
+fprintd holds the device exclusively, so EBUSY from PREPARE_ENROL can only be
+that work item: retry it every 50 ms for up to 6 s, the kernel's own wait for
+a finishing capture. The errno-to-GError mapping moves into
+aurora_ioctl_error() so the retry reports a final error exactly as before.
+
+Assisted-by: LLM
+---
+--- a/libfprint/drivers/aurora/aurora.c	2026-11-17 06:39:13
++++ b/libfprint/drivers/aurora/aurora.c	2026-11-17 06:39:13
+@@ -101,6 +101,8 @@
+   return version == 4 || version == 5;
+ }
+ 
++static void aurora_ioctl_error (gint err, GError **error);
++
+ static gboolean
+ aurora_ioctl (FpiDeviceAurora *self, unsigned long req, void *arg, GError **error)
+ {
+@@ -113,8 +115,16 @@
+ 
+   if (ioctl (self->fd, req, arg) < 0)
+     {
+-      gint err = errno;
++      aurora_ioctl_error (errno, error);
++      return FALSE;
++    }
++
++  return TRUE;
++}
+ 
++static void
++aurora_ioctl_error (gint err, GError **error)
++{
+       switch (err)
+         {
+         case ENODEV:
+@@ -164,10 +174,6 @@
+                        "ioctl failed: %s", g_strerror (err));
+           break;
+         }
+-      return FALSE;
+-    }
+-
+-  return TRUE;
+ }
+ 
+ static const gchar *
+@@ -762,6 +768,54 @@
+ };
+ 
+ #define AURORA_ENROL_START_V4 _IOW(SEP_BIO_IOC_MAGIC, 0x03, struct aurora_enrol_start_v4)
++
++/* The kernel's own wait for a finishing capture (WORKER_EXIT_WAIT_MS). */
++#define AURORA_PREPARE_BUSY_WAIT_US (6 * G_USEC_PER_SEC)
++#define AURORA_PREPARE_BUSY_STEP_US (50 * G_TIME_SPAN_MILLISECOND)
++
++/* fprintd identifies before every enrolment, to refuse a duplicate. A
++ * no-match is reported as soon as the touch is finished, while the kernel's
++ * verify work item still saves the lockout record and collects the
++ * enclave's background result (about 200 ms). ENROL_START waits for that
++ * work item, but PREPARE_ENROL refuses with EBUSY until it has stopped, so
++ * the enrolment fprintd starts straight after the duplicate check failed
++ * with "Device or resource busy" whenever a print was already enrolled.
++ * fprintd holds the device exclusively, so EBUSY here can only be that
++ * work item: wait for it, as ENROL_START does. */
++static gboolean
++aurora_prepare_enrol (FpiDeviceAurora            *self,
++                      struct sep_bio_enrol_start *start,
++                      GError                    **error)
++{
++  gint64 deadline = g_get_monotonic_time () + AURORA_PREPARE_BUSY_WAIT_US;
++  guint waits = 0;
++
++  if (self->fd < 0)
++    return aurora_ioctl (self, SEP_BIO_PREPARE_ENROL, start, error);
++
++  for (;;)
++    {
++      gint err;
++
++      if (ioctl (self->fd, SEP_BIO_PREPARE_ENROL, start) == 0)
++        {
++          if (waits > 0)
++            fp_dbg ("PREPARE_ENROL went through after %u busy wait(s)", waits);
++          return TRUE;
++        }
++      err = errno;
++      if (err != EBUSY || g_get_monotonic_time () >= deadline)
++        {
++          if (err == EBUSY)
++            g_message ("PREPARE_ENROL still busy after %u wait(s); the last capture has not stopped",
++                       waits);
++          aurora_ioctl_error (err, error);
++          return FALSE;
++        }
++      waits++;
++      g_usleep (AURORA_PREPARE_BUSY_STEP_US);
++    }
++}
+ 
+ static gboolean
+ aurora_start_enrol (FpiDeviceAurora *self,
+@@ -786,7 +840,7 @@
+ 
+   /* In particular, ENOTTY or a persistence refusal on v5 must not retry
+    * the legacy request: that would bypass the v5 admission contract. */
+-  if (!aurora_ioctl (self, SEP_BIO_PREPARE_ENROL, start, error))
++  if (!aurora_prepare_enrol (self, start, error))
+     return FALSE;
+   return aurora_ioctl (self, SEP_BIO_ENROL_START, start, error);
+ }

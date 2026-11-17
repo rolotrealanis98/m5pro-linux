@@ -9,7 +9,7 @@ lock screen, polkit prompts and 1Password. Installed on the J716s 2026-11-17.
 | Path | Installs to | What it does |
 | --- | --- | --- |
 | `system/` | `/etc/modprobe.d/apple-sep.conf`, `/etc/systemd/system/m5pro-touchid.service`, `fprintd.service.d/60-m5pro-touchid.conf`, `/usr/local/lib/m5pro/touchid-up`, `touchid-sensor-present`, `/usr/share/omarchy-platform/fingerprint-readers` | Loads `apple_sep` at boot (the SEP node stays disabled until the driver enables it, so nothing autoloads it), waits for the key store, restores the enrolled fingers before fprintd starts. The platform file makes `omarchy-hw-fingerprint` see Touch ID. |
-| `libfprint-aurora/` | package `libfprint-git 2:1.94.100.aurora.a227a35` | libfprint 1.94.100 + aurora-sep-userspace patches 0001-0011 (sep-bio v4/v5). Same files as the earlier `libfprint-aurora` package, renamed (see below). |
+| `libfprint-aurora/` | package `libfprint-git 2:1.94.100.aurora.a227a35-2` | libfprint 1.94.100 + aurora-sep-userspace patches 0001-0011 (sep-bio v4/v5) + our 0012 (below). pkgrel 1 was the earlier `libfprint-aurora` package's files, renamed. |
 | `guard/` | `/etc/pacman.d/hooks/50-m5pro-touchid-guard.hook`, `/usr/local/lib/m5pro/touchid-pacman-guard`, `IgnorePkg = libfprint-git` in `/etc/pacman.conf` | Refuses any transaction that installs, upgrades or downgrades `libfprint`/`libfprint-git`/`libfprint-aurora`, or removes `libfprint-git`/`fprintd`. |
 | `polkit/40-m5pro-admin-self.rules` | `/etc/polkit-1/rules.d/` | Admin prompts ask the wheel member at the keyboard instead of the first wheel member (`alarm`). |
 | `bin/m5pro-touchid` | `/usr/local/bin/` | Backend for the panel: fprintd over D-Bus, JSON lines out. `status`, `enroll`, `verify`, `delete`, `label`. |
@@ -57,7 +57,13 @@ Omarchy theme. It is summoned with `omarchy-shell shell summon m5pro.touchid` (a
   helper also ignores any signal that is not its own kind or arrives before its Start returned.
   Its diagnostics go to the shell's journal (`journalctl --user _COMM=quickshell | grep m5pro-touchid`).
   Touch ID's first `enroll-stage-passed` is fprintd's duplicate check and
-  is not counted. A ring fills per accepted touch (paced for ~14), retries say why
+  is not counted. Once a print is enrolled that check takes a touch, and its no-match left the
+  kernel's verify work item running for ~200 ms; `PREPARE_ENROL` refused with EBUSY and a second
+  finger could never be added (11:36, "ioctl failed: Device or resource busy"). Patch 0012 makes the
+  aurora driver wait for it (retry every 50 ms, up to the kernel's own 6 s), as `ENROL_START` already
+  does in the kernel; a kernel fix would make `PREPARE_ENROL` wait the same way. The check's no-match
+  counts toward the five-miss lockout and fprintd has no switch to skip it, so after an Add the
+  panel tests the new finger once: a match clears the count. A ring fills per accepted touch (paced for ~14), retries say why
   (not centered, too fast, lift). At the end the finger can be named.
 - *Test*: `VerifyStart(<finger>)`. Aurora's patch 0011 reports a touch of a different enrolled finger
   as a plain no match, so the copy says "That wasn't your …, or it didn't read". Every miss counts
