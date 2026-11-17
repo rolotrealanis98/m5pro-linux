@@ -1,0 +1,20 @@
+[Desktop Entry]
+Name=Claude (Work)
+Comment=Claude desktop with a separate profile for the work account
+GenericName=AI Assistant
+Keywords=AI;Chat;Assistant;Claude;Code;LLM;Work;
+Exec=~/.local/bin/claude-work %U
+Icon=claude-desktop
+Type=Application
+StartupNotify=true
+StartupWMClass=com.anthropic.Claude
+Categories=Utility;Development;
+Actions=NewChat;NewCode;
+
+[Desktop Action NewChat]
+Name=New Chat
+Exec=~/.local/bin/claude-work "claude://claude.ai/new?surface=chat&source=desktop_action"
+
+[Desktop Action NewCode]
+Name=New Claude Code Session
+Exec=~/.local/bin/claude-work "claude://code/new?source=desktop_action"

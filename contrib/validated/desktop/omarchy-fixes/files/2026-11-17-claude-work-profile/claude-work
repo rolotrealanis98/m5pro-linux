@@ -1,0 +1,5 @@
+#!/bin/bash
+# Second Claude desktop instance with its own profile (work account).
+# Separate --user-data-dir = separate sign-in, cookies, settings and instance lock.
+# --disable-gpu: GPU-fault stopgap for Electron apps on this machine (see m5pro brief).
+exec /usr/bin/claude-desktop --disable-gpu --user-data-dir="$HOME/.config/Claude-Work" "$@"

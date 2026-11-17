@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Claude link router
+Comment=Opens claude:// links in the most recently used Claude profile
+Exec=~/.local/bin/claude-url-router %u
+Type=Application
+NoDisplay=true
+MimeType=x-scheme-handler/claude;

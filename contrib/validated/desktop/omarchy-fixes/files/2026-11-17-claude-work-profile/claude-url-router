@@ -1,0 +1,11 @@
+#!/bin/bash
+# Route claude:// links (sign-in callbacks, deep links) to the Claude profile whose
+# window was focused most recently, so a sign-in started in the work app finishes there.
+work_dir="$HOME/.config/Claude-Work"
+pid=$(hyprctl clients -j 2>/dev/null |
+  jq -r '[.[] | select(.class == "com.anthropic.Claude")] | sort_by(.focusHistoryID) | .[0].pid // empty')
+if [[ -n "$pid" && -r "/proc/$pid/cmdline" ]] &&
+   tr '\0' ' ' <"/proc/$pid/cmdline" | grep -qE -- "--user-data-dir=$work_dir( |$)"; then
+  exec "$HOME/.local/bin/claude-work" "$@"
+fi
+exec /usr/bin/claude-desktop --disable-gpu "$@"

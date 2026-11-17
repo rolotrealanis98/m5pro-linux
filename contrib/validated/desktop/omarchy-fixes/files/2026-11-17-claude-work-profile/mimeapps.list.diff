@@ -1,0 +1,7 @@
+--- ~/.config/mimeapps.list.pre-claude-work	2026-11-16 02:21:13.886866706 +0000
++++ ~/.config/mimeapps.list	2026-11-17 11:33:31.894316433 +0000
+@@ -19,3 +19,4 @@
+ x-scheme-handler/claude-cli=claude-code-url-handler.desktop
+ x-scheme-handler/superwhisper=superwhisper-url.desktop
+ x-scheme-handler/codex=chatgpt.desktop
++x-scheme-handler/claude=claude-url-router.desktop
