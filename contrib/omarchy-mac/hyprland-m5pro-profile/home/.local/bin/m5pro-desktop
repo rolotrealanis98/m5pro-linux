@@ -1,0 +1,12 @@
+#!/bin/bash
+# Choose the desktop Hyprland loads at its next start on the M5 Pro:
+#   m5pro-desktop omarchy   Omarchy 4.5 (Quickshell shell)      [default]
+#   m5pro-desktop lite      pre-Quattro omarchy-lite (Waybar, Mako, swaybg)
+#   m5pro-desktop status
+flag=$HOME/.config/m5pro-desktop-lite
+case ${1:-status} in
+  omarchy) rm -f "$flag"; echo "Omarchy 4.5 at the next Hyprland start" ;;
+  lite)    touch "$flag"; echo "omarchy-lite at the next Hyprland start" ;;
+  status)  [ -e "$flag" ] && echo lite || echo omarchy ;;
+  *) echo "usage: m5pro-desktop omarchy|lite|status" >&2; exit 2 ;;
+esac

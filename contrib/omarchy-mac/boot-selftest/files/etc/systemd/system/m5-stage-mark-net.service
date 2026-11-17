@@ -1,0 +1,11 @@
+[Unit]
+Description=m5pro boot-stage mark (net)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/m5-stage-mark.sh net
+
+[Install]
+WantedBy=multi-user.target

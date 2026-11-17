@@ -1,0 +1,41 @@
+#!/bin/bash
+# Stand-in for omarchy-menu, built on fuzzel --dmenu.
+menu() { fuzzel --dmenu --prompt "$1 › " --width "${3:-32}" --lines "$2"; }
+term() { alacritty --class TUI.float -e "$@"; }
+go() {
+  case "$1" in
+    *Apps) fuzzel ;;
+    *Keybindings) omarchy-lite-keybindings ;;
+    *Capture) go "$(printf '%s\n' "󰹑  Screenshot region" "󰹑  Screenshot window" "󰹑  Screenshot screen" "󰈊  Color picker" | menu Capture 4)" ;;
+    *"Screenshot region") omarchy-lite-screenshot region ;;
+    *"Screenshot window") omarchy-lite-screenshot window ;;
+    *"Screenshot screen") omarchy-lite-screenshot output ;;
+    *"Color picker") hyprpicker -a ;;
+    *Clipboard) cliphist list | menu Clipboard 12 70 | cliphist decode | wl-copy ;;
+    *Emoji) grep -v '^#' /usr/share/unicode/emoji/emoji-test.txt 2>/dev/null | grep 'fully-qualified' | sed 's/.*# //' | menu Emoji 12 50 | cut -d' ' -f1 | tr -d '\n' | wl-copy ;;
+    *Toggle) go "$(printf '%s\n' "󰒲  Idle lock" "󰂛  Notification silencing" "󰍜  Top bar" | menu Toggle 3)" ;;
+    *"Idle lock") omarchy-lite-toggle idle ;;
+    *"Notification silencing") omarchy-lite-toggle dnd ;;
+    *"Top bar") pkill -SIGUSR1 -x waybar ;;
+    *Activity) term btop ;;
+    *Audio) term wiremix ;;
+    *Network) term sh -c 'networkctl status; read -n1' ;;
+    *About) term sh -c 'fastfetch; read -n1' ;;
+    *Setup) go "$(printf '%s\n' "󰈙  Hyprland config" "󰈙  Key bindings config" "󰈙  Waybar config" "󰑓  Restart waybar" | menu Setup 4)" ;;
+    *"Hyprland config") alacritty -e nvim ~/.config/hypr/hyprland.lua ;;
+    *"Key bindings config") alacritty -e nvim ~/.config/hypr/bindings.lua ;;
+    *"Waybar config") alacritty -e nvim ~/.config/waybar/config.jsonc ;;
+    *"Restart waybar") pkill -x waybar; setsid -f waybar >/dev/null 2>&1 ;;
+    *System) go "$(printf '%s\n' "󰌾  Lock" "󰍃  Log out (exit Hyprland)" | menu System 2)" ;;
+    *Lock) loginctl lock-session ;;
+    *"Log out"*) hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1 || hyprctl dispatch exit ;;
+  esac
+}
+case "${1:-root}" in
+  system)    go System ;;
+  capture)   go Capture ;;
+  toggle)    go Toggle ;;
+  clipboard) go Clipboard ;;
+  emoji)     go Emoji ;;
+  *) go "$(printf '%s\n' "󰀻  Apps" "󰌌  Keybindings" "󰄀  Capture" "󰅌  Clipboard" "󰔎  Toggle" "󰄨  Activity" "󰕾  Audio" "󰀂  Network" "󰒓  Setup" "󰋼  About" "󰐥  System" | menu Go 11)" ;;
+esac

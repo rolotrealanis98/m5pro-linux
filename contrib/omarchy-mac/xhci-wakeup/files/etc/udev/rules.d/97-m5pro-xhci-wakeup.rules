@@ -1,0 +1,2 @@
+# 2026-11-07: xhci-plat wakeup-source, done from userspace until the DT carries it (edimoldovan 9f8535b38fcb)
+ACTION=="add|change", SUBSYSTEM=="platform", DRIVER=="xhci-hcd", TEST=="power/wakeup", ATTR{power/wakeup}="enabled"

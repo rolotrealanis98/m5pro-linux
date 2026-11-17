@@ -1,0 +1,9 @@
+[Unit]
+Description=m5pro-linux self-reverting test boot
+ConditionKernelCommandLine=m5.selftest=1
+After=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/m5-selftest
+[Install]
+WantedBy=multi-user.target

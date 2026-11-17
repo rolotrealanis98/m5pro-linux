@@ -1,0 +1,20 @@
+#!/bin/bash
+# m5pro-linux self-revert: a payload booted with m5.selftest=1 must reach the network
+# within 90 s, or it is replaced by boot.bin.prev and the machine reboots.
+sleep 90
+if ip route get 1.1.1.1 >/dev/null 2>&1 && ping -c1 -W3 1.1.1.1 >/dev/null 2>&1; then
+    logger -t m5-selftest "network OK, keeping this payload"; exit 0
+fi
+mountpoint -q /boot || mount /dev/nvme0n1p4 /boot
+G=/boot/r1-logs/.reverted-once
+if [ -e "$G" ]; then
+    logger -t m5-selftest "network down again after a revert: NOT reverting a second time (guard $G); staying up for inspection"
+    D=/boot/r1-logs/selftest-$(date +%Y%m%d-%H%M)-noloop; mkdir -p "$D"; dmesg > "$D/dmesg.txt"; ip -br link > "$D/links.txt"; sync; exit 0
+fi
+touch "$G"
+D=/boot/r1-logs/selftest-$(date +%Y%m%d-%H%M); mkdir -p "$D"
+dmesg > "$D/dmesg.txt"; journalctl -b --no-pager > "$D/journal.txt" 2>&1; ip -br link > "$D/links.txt"
+ls /sys/bus/usb/devices > "$D/usb-devices.txt" 2>&1; cat /proc/cmdline > "$D/cmdline.txt"
+sha256sum /boot/m1n1/boot.bin > "$D/boot.bin.failed.sha256" 2>/dev/null
+cp /boot/m1n1/boot.bin.prev /boot/m1n1/boot.bin && sync && echo "reverted to boot.bin.prev" > "$D/REVERTED"
+sync; systemctl reboot

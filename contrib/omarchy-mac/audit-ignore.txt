@@ -1,0 +1,114 @@
+# audit-macbook.sh: findings that are NOT ours to track. One glob per line (a trailing / means "everything below").
+# Keep a reason on every line; an entry here is a decision, not a way to silence the audit.
+
+# --- machine state: users, groups, locale, timezone (changes by itself or by the installer) ---
+/etc/group
+/etc/gshadow
+/etc/passwd
+/etc/shadow
+/etc/subuid
+/etc/subgid
+/etc/shells
+/etc/nsswitch.conf
+/etc/locale.gen
+
+# --- written by Omarchy's own installer (usr/share/omarchy/install/config/*.sh) or by omarchy-settings; stock ---
+/etc/skel/.bashrc
+/etc/security/faillock.conf         # install/config/increase-lockout-limit.sh
+/etc/security/pam_env.conf          # install/config/ssh-command-path.sh
+/etc/pam.d/system-auth              # faillock deny=10 from the same step
+/etc/pam.d/sddm-autologin
+/etc/plymouth/plymouthd.conf        # Theme=omarchy
+/etc/systemd/resolved.conf
+/etc/tpm2-tss/fapi-profiles/
+/etc/ssh/ssh_config.d/20-omarchy-keepalive.conf
+/etc/sudoers.d/10-wheel
+/etc/sudoers.d/50-asdcontrol
+/etc/chromium/policies/
+/etc/opt/chrome/policies/
+/etc/printcap
+/etc/systemd/system/cups-browsed.service.d/10-omarchy.conf
+/etc/systemd/system/docker.service.d/no-block-boot.conf
+/etc/systemd/system/plocate-updatedb.service.d/ac-only.conf
+/etc/systemd/system/proc-sys-fs-binfmt_misc.mount.d/10-omarchy-conditions.conf
+/etc/systemd/system/systemd-binfmt.service.d/10-eager-mount.conf
+/etc/systemd/system/user@.service.d/10-faster-shutdown.conf
+/etc/systemd/user/wayland-wm@hyprland.desktop.service.d/10-keep-shell.conf
+/etc/modprobe.d/omarchy-usb-autosuspend.conf
+/etc/sysctl.d/90-omarchy-*
+/etc/sysctl.d/99-omarchy-sysctl.conf
+/etc/tmpfiles.d/omarchy-*
+/etc/sudoers.d/omarchy-*
+/etc/NetworkManager/conf.d/omarchy-*
+/etc/udev/rules.d/60-omarchy-io-scheduler.rules
+/usr/local/share/wayland-sessions/omarchy.desktop
+/usr/local/share/applications/mimeinfo.cache
+/usr/local/share/applications/intent.cache
+/usr/local/share/man
+~/.config/omarchy/defaults/
+~/.config/omarchy/hooks/
+~/.config/omarchy/backgrounds/
+~/.config/omarchy/branding/screensaver.txt
+~/.config/environment.d/90-gcr-ssh-agent.conf
+
+# --- symlinks and generated files from other tools ---
+/etc/fonts/conf.d/                  # fontconfig post-install links
+/etc/systemd/system/*.wants/*       # enablement links; what they enable is checked as unit:NAME
+/etc/systemd/user/*.wants/*
+/etc/systemd/system/dbus-org.*
+/etc/systemd/system/autovt@.service
+/etc/systemd/user/pipewire-session-manager.service
+/etc/cups/classes.conf              # cups permissions, stock behaviour
+/etc/cups/printers.conf
+~/.config/systemd/user/*.wants/*
+~/.config/systemd/user/pipewire-session-manager.service
+~/.config/wireplumber/wireplumber.conf.d/59-sgv2-raw.conf
+~/.config/wireplumber/wireplumber.conf.d/60-sgv2-j716.conf
+~/.config/pipewire/pipewire.conf.d/sgv2-j716.conf
+~/.local/bin/herdr-core
+~/.local/bin/hc
+
+# --- the owner's own app launchers and autostarts (Omarchy webapps, installed apps): personal, not Mac customizations ---
+~/.local/share/applications/
+~/.config/autostart/
+
+# --- third-party software the owner uses (not Mac customizations) ---
+~/.local/bin/superwhisper
+~/.config/omarchy/hooks/theme-set.d/10-owe-sync
+~/.config/omarchy/plugins/hazem.battery.display/
+~/.config/omarchy/plugins/superwhisper-panel
+unit:superwhisper.service
+unit:owed.service
+unit:bt-agent.service
+unit:omarchy-*
+unit:pipewire*
+unit:wireplumber.service
+unit:xdg-user-dirs.service
+unit:gcr-ssh-agent.socket
+unit:gnome-keyring-daemon.socket
+unit:p11-kit-server.socket
+unit:bluetooth.service
+unit:NetworkManager*
+unit:sshd.service
+unit:fstrim.timer
+unit:systemd-resolved-*
+unit:systemd-oomd.*
+
+# --- stale bring-up leftovers: deliberately NOT tracked; INVENTORY.md "Looks wrong" (section J) lists them for removal ---
+/etc/systemd/network/10-usb-gadget-*.network
+/etc/systemd/network/20-wired.network
+/etc/systemd/network/en.network
+/etc/systemd/network/eth.network
+/etc/pacman.conf.pre-quattro
+/etc/ufw/*ufw-docker~*
+/etc/mesa-aurora/session.env.*
+/usr/local/sbin/m5-selftest.bak
+/usr/local/bin/hypr-gpu-session.pre-dcp
+/usr/share/wireplumber/wireplumber.conf.d/99-asahi-j716.conf.j716-ab-orig
+/usr/share/alsa/ucm2/conf.d/macaudio/MacBook Pro J716.conf.orig
+~/.local/bin/hypr-session.pre-*
+~/.local/bin/omarchy-startup-disk.pre-*
+
+# --- per-machine data that must never be copied (PRIVATE; see INVENTORY.md section H) ---
+/etc/m5-netconsole.conf             # holds the Studio's LAN address; the repo has a placeholder version
+/usr/lib/firmware/apple/

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "m5w.reboot-windows",
+  "name": "Reboot to Windows",
+  "version": "1.0.0",
+  "author": "m5pro-windows",
+  "description": "Confirm dialog that restarts the MacBook into Windows once (the next boot after that is Linux again)",
+  "kinds": [
+    "overlay"
+  ],
+  "entryPoints": {
+    "overlay": "RebootWindows.qml"
+  }
+}

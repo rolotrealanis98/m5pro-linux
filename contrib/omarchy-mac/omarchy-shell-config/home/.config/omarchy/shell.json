@@ -1,0 +1,123 @@
+{
+  "bar": {
+    "background": "none",
+    "layout": {
+      "center": [
+        {
+          "format": "dddd HH:mm",
+          "formatAlt": "d MMMM 'W'ww yyyy",
+          "id": "omarchy.clock",
+          "verticalFormat": "HH\n—\nmm"
+        }
+      ],
+      "centerBegin": [
+        {
+          "id": "omarchy.indicators"
+        }
+      ],
+      "centerEnd": [
+        {
+          "cities": [
+            {
+              "name": "UTC",
+              "zone": "UTC"
+            },
+            {
+              "name": "Dubai",
+              "zone": "Asia/Dubai"
+            },
+            {
+              "name": "Tokyo",
+              "zone": "Asia/Tokyo"
+            },
+            {
+              "name": "Los Angeles",
+              "zone": "America/Los_Angeles"
+            },
+            {
+              "name": "New York",
+              "zone": "America/New_York"
+            }
+          ],
+          "id": "omarchy.elsewhen"
+        },
+        {
+          "id": "omarchy.weather"
+        },
+        {
+          "id": "omarchy.system-update"
+        }
+      ],
+      "left": [
+        {
+          "id": "omarchy.menu"
+        },
+        {
+          "id": "omarchy.workspaces"
+        }
+      ],
+      "right": [
+        {
+          "id": "rolo.tray"
+        },
+        {
+          "id": "rolo.pointer"
+        },
+        {
+          "id": "rolo.kmlink"
+        },
+        {
+          "id": "omarchy.keyboard-layout"
+        },
+        {
+          "id": "omarchy.agents"
+        },
+        {
+          "id": "omarchy.bluetooth"
+        },
+        {
+          "id": "omarchy.network"
+        },
+        {
+          "id": "omarchy.audio"
+        },
+        {
+          "id": "omarchy.monitor"
+        },
+        {
+          "id": "omarchy.power"
+        }
+      ],
+      "tray": []
+    },
+    "position": "top"
+  },
+  "cloneSourceRestores": [
+    "rolo.image-picker"
+  ],
+  "disabledPlugins": [
+    "omarchy.image-picker"
+  ],
+  "dock": {
+    "pinned": [
+      "org.gnome.Nautilus",
+      "omacalc",
+      "omawrite",
+      "YouTube"
+    ],
+    "position": "bottom"
+  },
+  "idle": {
+    "lock": 300,
+    "screensaver": 0
+  },
+  "plugins": [
+    {
+      "id": "m5w.reboot-windows"
+    },
+    {
+      "id": "rolo.image-picker"
+    }
+  ],
+  "version": 1
+}

@@ -1,0 +1,11 @@
+#!/bin/bash
+case "$1" in
+  idle)
+    if pgrep -x hypridle >/dev/null; then pkill -x hypridle; notify-send -u low "󰒲  Idle lock disabled"
+    else setsid -f hypridle >/dev/null 2>&1; notify-send -u low "󰒳  Idle lock enabled"; fi
+    pkill -RTMIN+9 -x waybar ;;
+  dnd)
+    if makoctl mode | grep -qx do-not-disturb; then makoctl mode -r do-not-disturb >/dev/null; notify-send -u low "󰂚  Notifications on"
+    else notify-send -u low "󰂛  Notifications silenced"; sleep 1; makoctl mode -a do-not-disturb >/dev/null; fi
+    pkill -RTMIN+10 -x waybar ;;
+esac

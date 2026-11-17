@@ -1,0 +1,3 @@
+# m5pro-windows: keep the desktop from prompting for / auto-mounting the Windows partition and loop views of it
+SUBSYSTEM=="block", KERNEL=="nvme0n1p7", ENV{UDISKS_IGNORE}="1"
+SUBSYSTEM=="block", KERNEL=="loop*", ENV{UDISKS_IGNORE}="1"

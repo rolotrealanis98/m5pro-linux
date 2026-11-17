@@ -1,0 +1,4 @@
+#!/bin/bash
+b=$(ls -d /sys/class/power_supply/*/ 2>/dev/null | while read d; do [ "$(cat $d/type)" = Battery ] && echo $d; done | head -1)
+if [ -n "$b" ]; then notify-send -u low "󰁹  Battery $(cat $b/capacity)% ($(cat $b/status))"
+else notify-send -u low "󰂑  No battery driver yet"; fi

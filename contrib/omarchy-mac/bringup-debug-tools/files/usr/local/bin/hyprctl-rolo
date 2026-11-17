@@ -1,0 +1,7 @@
+#!/bin/sh
+# Run a command inside the desktop user's Hyprland session environment (from root over SSH).
+# The user defaults to the first uid >= 1000; override with DESKTOP_USER.
+U=${DESKTOP_USER:-$(getent passwd | awk -F: '$3>=1000 && $3<60000 {print $1; exit}')}
+ID=$(id -u "$U") || exit 1
+S=$(ls -t /run/user/$ID/hypr/ 2>/dev/null | head -1)
+exec runuser -u "$U" -- env XDG_RUNTIME_DIR=/run/user/$ID WAYLAND_DISPLAY=wayland-1 HYPRLAND_INSTANCE_SIGNATURE=$S "$@"

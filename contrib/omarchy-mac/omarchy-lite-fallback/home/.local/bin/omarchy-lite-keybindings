@@ -1,0 +1,11 @@
+#!/bin/bash
+# Super+K: every described Hyprland bind, searchable (stand-in for omarchy-menu-keybindings)
+hyprctl binds -j | jq -r '
+  def m($b; $n): if ((.modmask / $b | floor) % 2) == 1 then $n + " + " else "" end;
+  def k: if (.key | startswith("code:")) or .key == "" then
+           ({"10":"1","11":"2","12":"3","13":"4","14":"5","15":"6","16":"7","17":"8","18":"9","19":"0","20":"-","21":"="}[(.keycode|tostring)] // .key)
+         else .key end;
+  .[] | select((.description // "") != "")
+      | "\(m(64;"SUPER"))\(m(4;"CTRL"))\(m(1;"SHIFT"))\(m(8;"ALT"))\(k)\t\(.description)"' |
+  awk -F'\t' '{ printf "%-34s %s\n", $1, $2 }' |
+  fuzzel --dmenu --prompt "Keys › " --width 80 --lines 25 >/dev/null

@@ -1,0 +1,47 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# m5w-windows - boot Windows ONCE on the next restart, then Linux again by itself. Runs on the MacBook's Linux, as root.
+#   m5w-windows              set the one-shot marker and restart now
+#   m5w-windows --no-reboot  set the marker only (the next restart boots Windows)
+#   m5w-windows --clear      remove a pending marker (next restart boots Linux)
+#   m5w-windows --status     show the scratchpad bytes and what the next boot will do
+# How it works: the marker is 0x57 in iBoot's boot_error_stage byte (PMU legacy scratchpad 0xf803). The altslot
+# daily (boot.bin) reads it after its USB window, clears it, and only then loads m1n1/windows.bin from this ESP.
+# Any end of the Windows boot (Windows restart or shut down, a hang -> watchdog, a power hold) leaves the marker
+# clear, so the boot after that is Linux. A clean restart (this script uses systemctl) keeps iBoot's failure
+# count at 0, which the daily requires. Same PMU nvmem device and write method as m5-stage-mark.sh (0xf801).
+# End of a tethered auto run over USB (review verdict (ii), tooling/run/ut1/go.sh M5W_UT_AUTO=1): today's daily never
+# clears the marker, so the runner pipes this script over ssh (sh -s -- --status, then --clear if +3 = 57) without installing it.
+set -eu
+ALT_DAILY=fa475ebe9d0e77c7d42bf50417f06dee45d15fa913049d1422d3ae9b9a40961c
+dev=
+for d in /sys/bus/nvmem/devices/*; do
+    of=$(readlink -f "$d/of_node" 2>/dev/null || true)
+    case "$of" in *spmi@28a014000/pmic@e*) dev=$d/nvmem; break;; esac
+done
+[ -n "$dev" ] || { echo "m5w-windows: PMU nvmem (spmi@28a014000/pmic@e) not found"; exit 1; }
+put() { printf "\\$(printf '%03o' "$1")" | dd of="$dev" bs=1 seek=$((0xf803)) conv=notrunc status=none; }
+get() { dd if="$dev" bs=1 skip=$((0xf803)) count=1 status=none | od -An -tu1 | tr -d ' '; }
+dump() { dd if="$dev" bs=1 skip=$((0xf800)) count=4 status=none | od -An -tx1; }
+esp_ok() {
+    # /boot may auto-mount read-write on access; only read here
+    [ -f /boot/m1n1/windows.bin ] || { echo "m5w-windows: /boot/m1n1/windows.bin is missing (the daily would boot Linux)"; return 1; }
+    s=$(sha256sum /boot/m1n1/boot.bin | cut -d' ' -f1)
+    [ "$s" = "$ALT_DAILY" ] || { echo "m5w-windows: boot.bin is ${s%"${s#????????}"}, not the altslot daily ${ALT_DAILY%"${ALT_DAILY#????????}"} (the marker would be ignored)"; return 1; }
+}
+case "${1:-}" in
+--status)
+    echo "scratchpad +0..+3: $(dump)"
+    [ "$(get)" = 87 ] && echo "next boot: Windows (marker set)" || echo "next boot: Linux"
+    exit 0 ;;
+--clear) put 0; echo "m5w-windows: marker cleared (+3 = $(get))"; exit 0 ;;
+''|--no-reboot) ;;
+*) sed -n '3,7p' "$0"; exit 2 ;;
+esac
+esp_ok
+put $((0x57))
+[ "$(get)" = 87 ] || { echo "m5w-windows: marker did not stick; nothing changed"; put 0; exit 1; }
+echo "m5w-windows: the next restart boots Windows once (scratchpad $(dump))"
+[ "${1:-}" = --no-reboot ] && exit 0
+sync
+systemctl reboot

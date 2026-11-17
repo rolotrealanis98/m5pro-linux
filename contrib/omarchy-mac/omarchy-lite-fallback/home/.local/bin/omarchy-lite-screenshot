@@ -1,0 +1,14 @@
+#!/bin/bash
+# omarchy-lite-screenshot [region|window|output]: grim (+slurp) -> ~/Pictures/Screenshots + clipboard.
+# Click the notification to annotate it in satty.
+mode=${1:-region}
+dir=$HOME/Pictures/Screenshots; mkdir -p "$dir"
+f="$dir/screenshot-$(date +%Y-%m-%d_%H-%M-%S).png"
+case $mode in
+  region) g=$(slurp -d -b 1a1b2680 -c 7aa2f7ff -w 2) || exit 1; grim -g "$g" "$f" ;;
+  window) g=$(hyprctl activewindow -j | jq -r '"\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"'); grim -g "$g" "$f" ;;
+  *)      grim "$f" ;;
+esac || exit 1
+wl-copy < "$f"
+( a=$(notify-send -i "$f" -A default=Edit "Screenshot copied & saved" "${f/#$HOME/\~}  ·  click to edit")
+  [ "$a" = default ] && satty --filename "$f" --output-filename "${f%.png}-edit.png" ) >/dev/null 2>&1 &

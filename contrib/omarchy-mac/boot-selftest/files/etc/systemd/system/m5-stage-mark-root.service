@@ -1,0 +1,11 @@
+[Unit]
+Description=m5pro boot-stage mark (root)
+After=local-fs.target
+Wants=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/m5-stage-mark.sh root
+
+[Install]
+WantedBy=multi-user.target

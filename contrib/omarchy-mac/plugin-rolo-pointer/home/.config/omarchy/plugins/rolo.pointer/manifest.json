@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "rolo.pointer",
+  "name": "Pointer & Trackpad",
+  "version": "1.0.0",
+  "author": "rolo",
+  "description": "Fine-tune scroll speed, pointer speed, acceleration, and cursor size for mouse and trackpad",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Pointer",
+    "description": "Fine-tune mouse and trackpad scroll speed, cursor speed, and gestures",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

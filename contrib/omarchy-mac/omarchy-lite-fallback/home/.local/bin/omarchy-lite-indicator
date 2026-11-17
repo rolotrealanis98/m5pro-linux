@@ -1,0 +1,6 @@
+#!/bin/bash
+# waybar indicators: show a red icon only when idle lock is off / notifications are silenced
+case "$1" in
+  idle) pgrep -x hypridle >/dev/null && echo '{"text":""}' || echo '{"text":"󰒲","class":"active","tooltip":"Idle lock disabled"}' ;;
+  dnd)  makoctl mode 2>/dev/null | grep -qx do-not-disturb && echo '{"text":"󰂛","class":"active","tooltip":"Notifications silenced"}' || echo '{"text":""}' ;;
+esac

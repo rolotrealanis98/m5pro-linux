@@ -1,0 +1,48 @@
+{
+  // Extend the Quickshell Omarchy menu with JSONC.
+  //
+  // IDs are object keys. The parent is inferred from the dotted id, so
+  // "personal.notes" appears under "personal", and "personal" appears on the
+  // root menu. Reuse an existing id to override/extend it.
+  //
+  // Fields:
+  //   icon        Nerd Font glyph shown in the icon column.
+  //   label       Visible row title.
+  //   action      Shell command to run. If omitted, the row is a submenu.
+  //   target      Existing submenu id to open. Use for links/aliases.
+  //   provider    Name of a shell-defined runtime row source (e.g. "fonts").
+  //   aliases     alternate `omarchy menu summon <name>` routes; also searchable.
+  //   description Optional subtitle and extra search text.
+  //   when        Shell condition; hide row when it fails.
+  //   checked     Shell condition; append ✓ when it succeeds.
+  //
+  // Examples:
+  // "personal": {"icon":"","label":"Personal"},
+  // "personal.notes": {"icon":"󰎞","label":"Notes","action":"omarchy-launch-editor ~/notes"},
+  // "personal.files": {"icon":"","label":"Files","action":"uwsm-app -- nautilus ~/Documents"},
+  //
+  // provider can only reference row sources the shell already defines (the
+  // providers map in Menu.qml). Static submenus only need dotted ids.
+  //
+  // Example: replace the default About action by reusing the same id. Existing
+  // fields are kept unless overridden.
+  // "about": {"icon":"","label":"About","action":"omarchy-launch-or-focus-tui \"zsh -c 'fastfetch; read -k 1'\""},
+
+  // Boot macOS once, from System. omarchy-startup-disk wraps nvram-next-boot.sh (m5pro-linux, tracker issue #4):
+  // it asks for the sudo password and for WRITE, and refuses until the NVRAM write path has been proven attended.
+  "system.reboot-macos": {"icon":"󰜉","label":"Reboot into macOS","description":"One time only, the default boot stays Omarchy","aliases":["macos","boot-macos"],"action":"omarchy-startup-disk reboot-macos"},
+  "system.startup-disk": {"icon":"󰋊","label":"Startup Disk","aliases":["startup-disk","boot-disk"],"description":"Pending one-time boot target"},
+  "system.startup-disk.status": {"icon":"󰋽","label":"Show boot target","description":"What the next boot will use","action":"omarchy-startup-disk status"},
+  "system.startup-disk.clear-next": {"icon":"󰜺","label":"Cancel pending macOS boot","description":"Remove the one-time target","action":"omarchy-startup-disk clear-next"},
+
+  // Reboot to Windows once (plugin m5w.reboot-windows: confirm dialog, then pkexec /usr/local/sbin/m5w-windows)
+  "system.reboot-windows": {"icon":"󰍲","label":"Reboot to Windows","description":"One time only, the next boot is Linux again","aliases":["windows","boot-windows"],"action":"omarchy-shell shell summon m5w.reboot-windows"}
+,
+  // Battery charge limit, from System. m5pro-charge-limit (m5pro-linux desktop-defaults) asks for the sudo password
+  // in a floating terminal; the limit is kept in the SMC and restored at boot and on unplug.
+  "system.battery-limit": {"icon":"󰂁","label":"Battery charge limit","aliases":["battery","charge-limit"],"description":"Keep the battery at 80 % to protect it"},
+  "system.battery-limit.80": {"icon":"󰂁","label":"Limit to 80 %","description":"Charging stops at 80 % and resumes at 75 %","action":"m5pro-charge-limit 80"},
+  "system.battery-limit.full": {"icon":"󰁹","label":"Charge to 100 % once","description":"Until you unplug or reboot, then back to the limit","action":"m5pro-charge-limit full"},
+  "system.battery-limit.off": {"icon":"󰁹","label":"No limit","description":"Always charge to 100 %","action":"m5pro-charge-limit 100"},
+  "system.battery-limit.status": {"icon":"󰋽","label":"Show charge limit","description":"Current limit and battery level","action":"omarchy-launch-floating-terminal-with-presentation m5pro-charge-limit"}
+}

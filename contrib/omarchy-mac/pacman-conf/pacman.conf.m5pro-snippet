@@ -1,0 +1,8 @@
+# Merge into /etc/pacman.conf by hand (it is not a whole file: mirrors and the stock sections stay as they are).
+# Why: Omarchy channel switches, `omarchy refresh pacman` and `omarchy reinstall` rewrite /etc/pacman.conf and then run a full
+# upgrade; without IgnorePkg that would put another repo's kernel, m1n1/aura, firmware or Mesa over the hand-built ones.
+# The boot guard (contrib/distro/pkg/m5pro-boot/) refuses such a transaction even when this line is lost.
+[options]
+IgnorePkg   = hyprland linux linux-aarch64* linux-asahi* linux-aurora* linux-omarchy* m1n1 m1n1-* uboot-* u-boot* limine limine-* mkinitcpio mkinitcpio-* dracut grub asahi-scripts asahi-meta asahi-fwextract asahi-configs omarchy-mac-boot omarchy-mac omarchy-aurora-firmware mesa-aurora vulkan-aurora linux-firmware linux-firmware-* kernel-modules-hook plymouth-theme-*
+
+# Sections present on the Mac besides core, extra and omarchy: [alarm] and [aur], both through /etc/pacman.d/mirrorlist.
