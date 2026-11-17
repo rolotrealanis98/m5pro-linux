@@ -64,12 +64,14 @@ During one tone (in the background with `&`, then the telemetry read), record wh
 
 ```
 timeout 5 pw-play --target sgv2.voicing.j716 ~/j716-listen/t1k.wav &
-sleep 1.5; sudo sgv2-telemetry /run/speakerguardd/$(id -u)/engine
+sleep 0.5; sudo sgv2-telemetry --watch 4 --log /root/sgv2-watch.log
 ```
 
-Write down: `P_meas`, `V2`, `I2`, `coil` per channel. Non-zero V2 and I2 mean current flowed. The old daemon read about 4x the
-electrical power on this machine; if v2 reads a power far above what a 1 kHz tone at that level should be (a few milliwatts per
-woofer at 5-10 %), note it, do not go higher.
+Read the `RESULT` lines (what they mean: `/Volumes/m5pro/bench/requests/speakers-5.md`). `sense-alive`, `model-fed`, `health`
+and `finite` must PASS before going higher. On this Mac's unit (spp3) `P_meas` is always 0 and the unit-wide meters are absent
+(not a fault), and `V2`/`I2` are the 43.9 Hz pilot-bin powers: below 30 mW of drive per channel they sit at the sense noise floor
+(about 1e-9 / 1e-10), which proves the sense arrives; exactly 0 while playing means it does not. If `P_mod` reads far above what
+a quiet 1 kHz tone should be (microwatts at 5 %, a few milliwatts per woofer at 20-30 %), note it, do not go higher.
 
 ## 3. What to listen for, quietest first (20 % or the lowest level you can hear; 3 s each)
 
@@ -89,7 +91,8 @@ for f in pinkL pinkR pinkC; do echo $f; timeout 8 pw-play --target sgv2.voicing.
 - any tas2764 / sn012776 / fault / over-temperature line appears in the log terminal;
 - distortion, buzz, crackle, a pop, sound from the wrong side, sound that does not stop at the end of the file;
 - speakerguardd-v2 restarts or the gate says another stack;
-- `sgv2-telemetry` shows a NaN or a coil temperature that keeps rising.
+- `sgv2-telemetry --watch` prints any `RESULT ... FAIL`, a NaN in a channel's P_mod, coil or gain, or a coil temperature that
+  keeps rising (the "global: absent" line is normal on spp3).
 
 ## Put it back to quiet
 
@@ -106,7 +109,7 @@ To leave the speakers at the kernel floor entirely: `systemctl disable aurora-sp
 |---|---|
 | `verify` result lines | |
 | lowest slider level you could hear 1 kHz | |
-| telemetry at that level: P_meas, V2, I2, coil | |
+| telemetry at that level: RESULT lines, P_mod, V2, I2, coil | |
 | bass / handover / highs | |
 | left, right, centre | |
 | pops on pause and seek | |

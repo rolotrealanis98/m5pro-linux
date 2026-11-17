@@ -34,7 +34,7 @@ stack, or none.
 | `speakersafetyd-hold.conf` | `/usr/lib/systemd/system/speakersafetyd.service.d/50-m5pro-j716-hold.conf`: speakersafetyd never starts on `apple,j716*`. Needed beside v2's own gate, which starts it on a dual-interface kernel whenever the Mac is not switched to v2 |
 | `install.sh` | installs the two drop-ins above and `sgv2-telemetry` into `/usr/local/bin`, enables the boot unit (`SGV2_NO_ENABLE=1`: not) |
 | `sgv2-silent-check.sh` | the silent bring-up: `pre`, `install DIR`, `check`, `switch`, `verify`, `undo` (reads only, nothing audible; see the header) |
-| `sgv2-telemetry.py` | read-only decoder of the engine page (coil and magnet temperatures, power, V/I mean squares, gain) |
+| `sgv2-telemetry.py` | read-only decoder of the engine page: header (health bits, sense proof and binding, amps word, delay estimator), per channel modeled power, coil temperatures, gain, the spp3 pilot-bin V/I powers and closed-loop state; `--watch SECONDS` prints `RESULT` verdicts for a listening test (rewritten 2026-11-17, speakers-5: the upstream decoder printed microwatts as 0.0000 W and lsm2-only meters as NaN) |
 | `../ucm/j716/HiFi.conf` | installed by `../install.sh`; offers no Speaker device while `/run/speakerguardd-graph/speakerguardd-owns-speakers` exists |
 | `../j716-profile/j716-audio-ab v2` | removes `99-asahi-j716.conf`: v2 builds its own voicing and owns `hw:AppleJ716,1`, so the staged J616s-derived graph (bring-up or profile) must not also filter that PCM |
 
