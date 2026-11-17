@@ -57,11 +57,12 @@ if [ -n "$sr1" ]; then
 else
     bad "could not parse sr1 from flash_status"
 fi
-nor=$(find "$SYS"/bus/spi/devices/ -maxdepth 2 -name spi-nor 2>/dev/null | head -n1)
+nor=$(find -L "$SYS"/bus/spi/devices/ -maxdepth 2 -name spi-nor 2>/dev/null | head -n1)
 if [ -n "$nor" ]; then
     nj=$(tr -d ':\n' < "$nor/jedec_id")
     info "spi-nor: jedec_id $nj, partname $(cat "$nor/partname" 2>/dev/null), manufacturer $(cat "$nor/manufacturer" 2>/dev/null)"
-    if [ "$nj" = "$EXPECT_JEDEC" ]; then ok "spi-nor identified the flash"; else bad "spi-nor jedec_id $nj differs from $EXPECT_JEDEC"; fi
+    # spi-nor may report the extended ID (6 bytes, e.g. c88317c88317 on the J716s); the first 3 bytes are the JEDEC ID.
+    if [ "${nj:0:6}" = "$EXPECT_JEDEC" ]; then ok "spi-nor identified the flash"; else bad "spi-nor jedec_id $nj differs from $EXPECT_JEDEC"; fi
 else
     bad "spi-nor did not bind to flash@0 (dmesg | grep -i -E 'spi-nor|qspi')"
 fi
