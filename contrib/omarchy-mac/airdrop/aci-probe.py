@@ -15,11 +15,19 @@ kernel refuses every command on interface 0 except read-only queries.
   aci-probe.py configure MAC          AciConfigureInterface on interface 1 (AWDL) with MAC
   aci-probe.py start                  AciStartInterface on interface 1 with the firmware's own
                                       defaults echoed back (macOS's layout: 5-byte prefix + TLVs)
-  aci-probe.py start --full [--seq default|149|6+149] [--mac MAC] [--no-ext]
-                                      all nine blocks in macOS's order: the defaults plus empty
-                                      fe02/fe03, a 71-byte ff04 sync TLV in AWDL air format (OWL
-                                      layout) carrying the chosen channel sequence, ff12 with the
-                                      same sequence, and an 11-byte ff20 of zeros (--no-ext: none)
+  aci-probe.py start --full [--seq default|149|6+149] [--mac MAC] [--ff04 fw|fwraw|air|none]
+                       [--skip TAG,TAG] [--ext]
+                                      the blocks macOS's startAwdlInterface sends, in its order:
+                                      fe08/ff05/fe00/fe01 from the defaults, fe02/fe03 (the
+                                      defaults' extra PSF/MIF TLVs, empty when the firmware gives
+                                      none, as on macOS), ff04, ff12. ff04 = 33-byte header + the
+                                      38-byte channel sequence: "fw" (default) takes the header
+                                      from the firmware's own ff04 like macOS's
+                                      getAwdlDefaultValuesFromDevice; "air" builds it from OWL's
+                                      values; "fwraw" sends the firmware's own 55-byte ff04 back
+                                      unchanged; "none" leaves it out. macOS adds ff20 only for a non-empty extended
+                                      sequence, so it is left out unless --ext (11 zero bytes).
+                                      --skip leaves out the listed tags (e.g. --skip fe02,fe03).
   aci-probe.py ifstatus | ifconfig    AciGetInterfaceStatus / AciGetInterfaceConfiguration on 1
   aci-probe.py stop                   AciStopInterface on interface 1
   aci-probe.py events                 the last 32 firmware events (aci_events)
@@ -221,17 +229,32 @@ def main(argv):
             seq = chanseq(slots)
         else:
             die("--seq default|149|6+149")
+        ff04 = opt("--ff04", "fw")
+        if ff04 == "fw":
+            sync = have[0xFF04][:33] + seq
+        elif ff04 == "fwraw":
+            sync = have[0xFF04][:55]   # the firmware's own ff04 as it reports it (encoding-0 sequence)
+        elif ff04 == "air":
+            sync = sync_params(mac, seq, slots)
+        elif ff04 == "none":
+            sync = None
+        else:
+            die("--ff04 fw|fwraw|air|none")
+        skip = {int(t, 16) for t in opt("--skip", "").split(",") if t}
         blocks = [(0xFE08, have[0xFE08][:3]), (0xFF05, have[0xFF05][:19]),
                   (0xFE00, have[0xFE00][:43]), (0xFE01, have[0xFE01][:20]),
-                  (0xFE02, b""), (0xFE03, b""), (0xFF04, sync_params(mac, seq, slots)),
-                  (0xFF12, seq)]
-        if "--no-ext" not in args:
+                  (0xFE02, have.get(0xFE02, b"")), (0xFE03, have.get(0xFE03, b""))]
+        if sync is not None:
+            blocks.append((0xFF04, sync))
+        blocks.append((0xFF12, seq))
+        if "--ext" in args:
             blocks.append((0xFF20, bytes(11)))
+        blocks = [(t, v) for t, v in blocks if t not in skip]
         payload = bytearray(START_PREFIX)
         for tag, val in blocks:
             payload += struct.pack("<HH", tag, len(val)) + val
         print("start --full: " + ", ".join(f"{t:#06x}/{len(v)}" for t, v in blocks)
-              + f"; sequence {mode}: " + " ".join(str(c) for c, _ in slots))
+              + f"; ff04 {ff04}; sequence {mode}: " + " ".join(str(c) for c, _ in slots))
         show(*aci(IF_AWDL, CMD["StartInterface"], bytes(payload)))
     elif op == "start":
         ret, status, reply = defaults(IF_AWDL)
