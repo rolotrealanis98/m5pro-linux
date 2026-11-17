@@ -45,6 +45,12 @@ step() {
   mbp "cd /root; { echo '### [$label] $*'; timeout 8 $*; echo \"rc=\$?\"; } 2>&1 | tee -a $REMOTE/run.log" 2>&1 | tee -a "$LOG"
   local rc=${PIPESTATUS[0]}
   pull
+  # A probe command must print its result line; no line means the tool did not run.
+  if [[ $* == *aci-probe.py* && $* != *" frames"* ]] && ! tail -40 "$LOG" | sed -n "/\[$label\]/,\$p" | grep -q -E '^result |^start --full'; then
+    say "[$label] no result line from aci-probe.py: stopping"
+    finish
+    exit 1
+  fi
   if ((rc != 0)) || tail -4 "$LOG" | grep -q -E '^rc=[1-9]|result -[0-9]|firmware status [1-9]'; then
     say "[$label] FAILED (ssh rc=$rc): stopping. Saved state: $REMOTE (Mac), $LOCAL (Studio)"
     finish
@@ -66,8 +72,19 @@ if [[ -n $COLLECT ]]; then finish; exit 0; fi
 say "M1c retest: seq=$SEQ ext=${EXT:-on}; Mac dir $REMOTE; Studio dir $LOCAL"
 mbp "uname -r; ip -br addr show enu1u2u2; ip -br link show wlan0" 2>&1 | tee -a "$LOG"
 if [[ -n $REL ]] && ! mbp "uname -r" | grep -qx "$REL"; then say "not on $REL: stop"; exit 1; fi
-mbp "mkdir -p $REMOTE" && cat "$HERE/aci-probe.py" | mbp "cat > /root/aci-probe.py"
-cat "$HERE/n1-crashlog.py" | mbp "cat > /root/n1-crashlog.py"
+# Upload by redirection and check the size: the 10:46 run piped them and the Mac got 0-byte files,
+# so every probe step was a silent no-op (python3 on an empty file exits 0).
+upload() {
+  local src=$1 dst=$2 want got
+  want=$(wc -c < "$src" | tr -d ' ')
+  mbp "cat > $dst" < "$src"
+  got=$(mbp "wc -c < $dst" < /dev/null | tr -d ' \r')
+  if [[ $got != "$want" ]]; then say "upload of $dst: $got bytes, expected $want: stop"; exit 1; fi
+  say "uploaded $dst ($got bytes)"
+}
+mbp "mkdir -p $REMOTE" < /dev/null
+upload "$HERE/aci-probe.py" /root/aci-probe.py
+upload "$HERE/n1-crashlog.py" /root/n1-crashlog.py
 mbp "test -e /sys/kernel/debug/ieee80211/phy0/halt_check" || { say "kernel has no halt capture (not M1c): stop"; exit 1; }
 
 # The watchdog and the mirror, as transient units (gone at the next boot).
@@ -119,7 +136,7 @@ EOF
 mbp "chmod +x /root/m1c-watchdog.sh /root/m1c-mirror.sh /root/m1c-peek.sh; touch $REMOTE/run.log
   systemctl stop airdrop-m1c-watchdog airdrop-m1c-mirror 2>/dev/null
   systemd-run --unit=airdrop-m1c-watchdog --description='airdrop M1c watchdog (reboot after 90 s without Wi-Fi and wire)' /root/m1c-watchdog.sh $REMOTE/watchdog.log
-  python3 /root/aci-probe.py enable
+  python3 /root/aci-probe.py enable; echo aci_debug=\$(cat /sys/module/apple_centauri_t6050/parameters/aci_debug)
   systemd-run --unit=airdrop-m1c-mirror --description='airdrop M1c event/crash mirror' /root/m1c-mirror.sh $REMOTE
   sleep 3; systemctl is-active airdrop-m1c-watchdog airdrop-m1c-mirror" 2>&1 | tee -a "$LOG"
 
