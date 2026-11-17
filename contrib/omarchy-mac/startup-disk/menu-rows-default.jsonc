@@ -1,0 +1,3 @@
+  // Startup Disk, permanent default (installed only with install.sh --with-default, after the attended first writes).
+  "system.startup-disk.always-macos": {"icon":"󰀵","label":"Always start: macOS","description":"Default startup volume (charger connected)","aliases":["default macos","startup disk macos"],"action":"omarchy-startup-disk always macos"},
+  "system.startup-disk.always-omarchy": {"icon":"󰣇","label":"Always start: Omarchy","description":"Default startup volume (charger connected)","aliases":["default omarchy","startup disk omarchy"],"action":"omarchy-startup-disk always omarchy"}

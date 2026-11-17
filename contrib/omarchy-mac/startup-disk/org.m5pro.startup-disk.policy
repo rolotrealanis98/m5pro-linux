@@ -3,11 +3,12 @@
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <!-- The owner chose a frictionless "Reboot into macOS" / Startup Disk (2026-11-17): the active local session may
      set or clear the one-time boot target without a prompt. Remote (SSH) and inactive sessions still need admin.
-     The helper only ever writes the one-shot alt-boot-volume, never the default. -->
+     The helper writes the one-shot alt-boot-volume, and (2026-11-17, owner's request) the default boot-volume through
+     nvram-default-boot.sh's checks; the menu rows for the default are installed only when install.sh is given its with-default flag. -->
 <policyconfig>
   <action id="org.m5pro.startup-disk">
-    <description>Choose the next startup volume (once)</description>
-    <message>Choosing the next startup volume requires authentication</message>
+    <description>Choose the startup volume</description>
+    <message>Choosing the startup volume requires authentication</message>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>

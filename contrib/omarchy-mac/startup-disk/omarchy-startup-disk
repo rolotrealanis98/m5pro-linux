@@ -7,6 +7,8 @@
 #   omarchy-startup-disk clear-next       cancel a pending one-time boot
 #   omarchy-startup-disk status           show default and next boot (notification)
 #   omarchy-startup-disk list             print the bootable volumes
+#   omarchy-startup-disk always NAME      make NAME (macos, omarchy, or a name from `list`) the default startup volume
+#   omarchy-startup-disk always-test NAME every check for that, nothing written (prints the plan)
 #
 # The polkit action org.m5pro.startup-disk lets the active local session run the root helper without a prompt.
 set -uo pipefail
@@ -27,7 +29,15 @@ case ${1:-status} in
         if run clear; then note "One-time boot cancelled" "The next restart uses the default."; else note -u critical "Couldn’t cancel" "${out##*$'\n'}"; exit 1; fi ;;
     status)
         if run status; then note "Startup Disk" "$out"; echo "$out"; else note -u critical "Couldn’t read the startup disk" "${out##*$'\n'}"; exit 1; fi ;;
+    always)
+        [ -n "${2:-}" ] || { echo "usage: omarchy-startup-disk always macos|omarchy|NAME"; exit 2; }
+        note "Changing the startup disk" "Checking the NVRAM, then writing; keep the charger connected."
+        if run default "$2"; then note "Startup disk: ${out##*default: }" "Every restart now starts this volume."; echo "$out"
+        else note -u critical "Couldn’t change the startup disk" "${out##*$'\n'}"; echo "$out" >&2; exit 1; fi ;;
+    always-test)
+        [ -n "${2:-}" ] || { echo "usage: omarchy-startup-disk always-test macos|omarchy|NAME"; exit 2; }
+        run default-test "$2"; rc=$?; echo "$out"; exit $rc ;;
     list)
         run list && echo "$out" || { echo "$out" >&2; exit 1; } ;;
-    *) echo "usage: omarchy-startup-disk reboot-macos | next-macos | next NAME | clear-next | status | list"; exit 2 ;;
+    *) echo "usage: omarchy-startup-disk reboot-macos | next-macos | next NAME | clear-next | status | list | always NAME | always-test NAME"; exit 2 ;;
 esac

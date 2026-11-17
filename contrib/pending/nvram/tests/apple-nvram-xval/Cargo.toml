@@ -1,0 +1,8 @@
+[package]
+name = "xval"
+version = "0.1.0"
+edition = "2021"
+# apple-nvram from the audited checkout (asahi-nvram 3df52c9) on the work volume
+[dependencies]
+apple-nvram = { path = "/Volumes/m5pro/bench/nvram/src/asahi-nvram/apple-nvram" }
+[workspace]

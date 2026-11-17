@@ -18,5 +18,9 @@ DTB built from base + 0001: `t6050-j716s-nvram.dtb` sha256 `a62ec79fc2a932ee5f93
 
 Tools (Linux, root, on the MacBook): `tools/nvram-probe.sh` (read-only checks, writes the `probe.pass` marker),
 `tools/nvram-next-boot.sh status|to-macos|clear-next` (refuses without the marker; arms the driver for one call; verifies the diff),
-`tools/v3-nvram.py` (read-only v3 NVRAM parser; names and sizes, never values). Dumps hold the user's NVRAM values:
+`tools/nvram-default-boot.sh status|set TARGET [--test] [--yes]` (the default, `boot-volume`: same checks plus AC/battery,
+backups, an in-place bit-clear plan that must agree with XNU's bank choice, a simulated write, and a read-back that must be
+the model's exact bytes; `--test` stops before arming), `tools/v3-nvram.py` (read-only v3 NVRAM parser and model of
+apple-nvram 3df52c9, byte-identical to it on synthetic dumps; names and sizes, never values). Offline tests:
+`tests/default-boot-tests.sh` (27 cases on `tests/synth-nvram.py` dumps, made-up values). Dumps hold the user's NVRAM values:
 keep them in `/var/lib/nvram-t6050` and off any repository.
