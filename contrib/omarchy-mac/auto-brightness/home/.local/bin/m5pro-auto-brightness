@@ -176,6 +176,16 @@ def run(dry):
     k_manual = False
     k_manual_since, k_manual_val = None, None
     k_ramp = None                 # (from, to, t0)
+    hold = st.get("kbd_hold")     # a manual keyboard level survives a restart until the light crosses a threshold
+    if kbd and isinstance(hold, dict) and "val" in hold and "want" in hold:
+        k_manual, k_want = True, bool(hold["want"])
+        try:
+            if not dry and kbd.get() != int(hold["val"]):
+                kbd.set(int(hold["val"]))
+            k_exp = int(hold["val"])
+        except Exception:
+            pass
+        log("keyboard manual restored: %d/%d" % (int(hold["val"]), kbd.max))
     wfail_until = 0.0
     last_t = time.monotonic()
     last_awake_check, last_status = 0.0, 0.0
@@ -297,6 +307,8 @@ def run(dry):
                 k_want = new_want
                 if k_manual:
                     log("keyboard: automatic again (light crossed the threshold)")
+                    st.pop("kbd_hold", None)
+                    save_state(st)
                 k_manual = False
                 log("keyboard auto: %s at %.1f lux" % ("on" if k_want else "off", lux_s))
             goal = round(kbd.max * kbd_pct / 100.0) if k_want else 0
@@ -309,6 +321,8 @@ def run(dry):
                     k_manual_since, k_manual_val = t, k_act
                 elif t - k_manual_since >= c["settle_s"]:
                     k_manual = True
+                    st["kbd_hold"] = {"val": int(k_act), "want": bool(k_want)}
+                    save_state(st)
                     if c["learn"] and k_act > 0:
                         kbd_pct = 100.0 * k_act / kbd.max
                         st["kbd_level_pct"] = kbd_pct
