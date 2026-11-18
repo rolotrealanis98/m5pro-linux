@@ -1,0 +1,3 @@
+# m5pro-linux contrib/omarchy-mac/xdr-brightness: let the video group switch the panel's XDR brightness range
+# (apple-dcp xdr_max_nits). "add" covers the coldplug of the built-in driver, "bind" a later bind.
+ACTION=="add|bind", SUBSYSTEM=="platform", DRIVER=="apple-dcp", TEST=="xdr_max_nits", RUN+="/usr/bin/chgrp video /sys%p/xdr_max_nits", RUN+="/usr/bin/chmod 0664 /sys%p/xdr_max_nits"

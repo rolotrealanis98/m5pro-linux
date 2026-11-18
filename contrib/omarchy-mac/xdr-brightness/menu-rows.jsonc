@@ -1,0 +1,3 @@
+  // XDR brightness (m5pro-linux contrib/omarchy-mac/xdr-brightness): the panel's range goes from 600 up to 1600 nits, as
+  // BetterDisplay's XDR mode on macOS. Row shows a check mark while it is on.
+  "system.xdr-brightness": {"icon":"󰖨","label":"XDR brightness","aliases":["xdr","super brightness","extra brightness","hdr brightness"],"description":"Let the screen go up to 1600 nits","checked":"m5pro-xdr is-on","action":"m5pro-xdr toggle"}

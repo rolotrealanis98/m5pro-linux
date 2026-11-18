@@ -112,6 +112,17 @@ class Dev:
         self.name = name
         self.max = int(rd(self.p + "/max_brightness"))
 
+    def refresh(self):
+        """The range can change at run time (m5pro-xdr widens the panel's); True when it did."""
+        try:
+            m = int(rd(self.p + "/max_brightness"))
+        except (OSError, ValueError):
+            return False
+        if m > 0 and m != self.max:
+            self.max = m
+            return True
+        return False
+
     def get(self):
         return int(rd(self.p + "/brightness"))
 
@@ -299,6 +310,14 @@ def run(dry):
 
         actual = panel.get()
         k_act = kbd.get() if kbd else 0
+        if panel.refresh():
+            # XDR range on/off: the same percentage means other nits now, and narrowing lowered the
+            # level. Neither is a manual change; carry on from where the panel is.
+            log("panel range now 0-%d" % panel.max)
+            cur = exp_p = target = actual
+            manual_since = None
+            if p_rest is not None:
+                p_rest, p_dim = min(p_rest, panel.max), min(p_dim, panel.max)
 
         # --- inactivity: 1 = keyboard light out, 2 = panel dimmed as well; any input = 0
         idle_child_check(t)

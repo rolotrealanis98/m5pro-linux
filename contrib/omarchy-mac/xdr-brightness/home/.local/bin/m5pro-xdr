@@ -1,0 +1,64 @@
+#!/bin/bash
+# XDR brightness on the MacBook Pro J716s panel: widen the backlight range from its 600-nit SDR maximum up to
+# its 1600-nit peak, as BetterDisplay's XDR mode does on macOS. The slider position (percentage) is kept, so
+# the screen gets brighter at once; the keys and auto brightness then cover the wider range.
+# Needs a kernel with the XDR range (j716s-xdr: /sys/class/backlight/apple-panel-bl/device/xdr_max_nits).
+#   m5pro-xdr status | on [NITS] | off | toggle | is-on
+# Optional lower XDR maximum: one number in ~/.config/m5pro-xdr/nits (for example 1000).
+set -euo pipefail
+BL=/sys/class/backlight/apple-panel-bl
+D=$BL/device
+A=$D/xdr_max_nits
+CONF=${XDG_CONFIG_HOME:-$HOME/.config}/m5pro-xdr/nits
+
+need() { [ -e "$A" ] || { echo "m5pro-xdr: this kernel has no XDR range ($A missing)" >&2; exit 2; }; }
+num() { [[ $1 =~ ^[0-9]+$ ]]; }
+cur() { cat "$A" 2>/dev/null || echo 0; }
+notify() { command -v notify-send >/dev/null && notify-send -a "XDR brightness" -t 1500 "$1" || true; }
+wr() {
+    printf '%s\n' "$1" 2>/dev/null > "$A" && return 0
+    sudo -n tee "$A" >/dev/null <<<"$1" 2>/dev/null && return 0
+    echo "m5pro-xdr: cannot write $A (install.sh gives the video group write access)" >&2
+    exit 1
+}
+level() { brightnessctl -q -d apple-panel-bl set "$1"; }
+
+on() {
+    need
+    local sdr peak n b old
+    sdr=$(cat "$D/sdr_max_nits"); peak=$(cat "$D/xdr_peak_nits")
+    [ "$peak" -gt "$sdr" ] || { echo "m5pro-xdr: no peak above $sdr nits reported for this panel" >&2; exit 2; }
+    n=${1:-$(cat "$CONF" 2>/dev/null || echo "$peak")}
+    num "$n" && [ "$n" -gt "$sdr" ] && [ "$n" -le "$peak" ] ||
+        { echo "m5pro-xdr: NITS must be above $sdr and at most $peak" >&2; exit 2; }
+    old=$(cat "$BL/max_brightness"); b=$(cat "$BL/brightness")
+    wr "$n"                                   # widen first, then raise the level within the new range
+    level $(( (b * n + old / 2) / old ))
+    notify "XDR brightness on (up to $n nits)"
+}
+
+off() {
+    need
+    local sdr old b
+    [ "$(cur)" -gt 0 ] || return 0
+    sdr=$(cat "$D/sdr_max_nits"); old=$(cat "$BL/max_brightness"); b=$(cat "$BL/brightness")
+    level $(( (b * sdr + old / 2) / old ))   # lower the level within the wide range first, then narrow
+    wr 0
+    notify "XDR brightness off"
+}
+
+case "${1:-status}" in
+on) on "${2:-}" ;;
+off) off ;;
+toggle) need; if [ "$(cur)" -gt 0 ]; then off; else on; fi ;;
+is-on) [ "$(cur)" -gt 0 ] ;;
+status)
+    if [ ! -e "$A" ]; then echo "xdr: not supported by this kernel"; exit 0; fi
+    x=$(cur)
+    echo "xdr: $([ "$x" -gt 0 ] && echo "on, up to $x nits" || echo off)"
+    echo "panel: $(cat "$BL/brightness")/$(cat "$BL/max_brightness") nits (SDR max $(cat "$D/sdr_max_nits"), peak $(cat "$D/xdr_peak_nits"))"
+    p=/sys/module/appledrm/parameters/fw27_3_edr
+    [ -e "$p" ] && echo "hdr (EDR on firmware 27.3): $(cat "$p")"
+    ;;
+*) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac
