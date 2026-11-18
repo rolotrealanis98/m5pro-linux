@@ -1,6 +1,6 @@
 {
   "bar": {
-    "background": "none",
+    "background": "glassy",
     "layout": {
       "center": [
         {
@@ -61,6 +61,9 @@
           "id": "rolo.tray"
         },
         {
+          "id": "rolo.cds"
+        },
+        {
           "id": "rolo.pointer"
         },
         {
@@ -101,9 +104,9 @@
   "dock": {
     "pinned": [
       "org.gnome.Nautilus",
-      "omacalc",
-      "omawrite",
-      "YouTube"
+      "YouTube",
+      "claude-work",
+      "com.anthropic.Claude"
     ],
     "position": "bottom"
   },
@@ -117,6 +120,9 @@
     },
     {
       "id": "rolo.image-picker"
+    },
+    {
+      "id": "m5pro.touchid"
     }
   ],
   "version": 1

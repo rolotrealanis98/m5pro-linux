@@ -28,13 +28,6 @@
   // fields are kept unless overridden.
   // "about": {"icon":"","label":"About","action":"omarchy-launch-or-focus-tui \"zsh -c 'fastfetch; read -k 1'\""},
 
-  // Boot macOS once, from System. omarchy-startup-disk wraps nvram-next-boot.sh (m5pro-linux, tracker issue #4):
-  // it asks for the sudo password and for WRITE, and refuses until the NVRAM write path has been proven attended.
-  "system.reboot-macos": {"icon":"󰜉","label":"Reboot into macOS","description":"One time only, the default boot stays Omarchy","aliases":["macos","boot-macos"],"action":"omarchy-startup-disk reboot-macos"},
-  "system.startup-disk": {"icon":"󰋊","label":"Startup Disk","aliases":["startup-disk","boot-disk"],"description":"Pending one-time boot target"},
-  "system.startup-disk.status": {"icon":"󰋽","label":"Show boot target","description":"What the next boot will use","action":"omarchy-startup-disk status"},
-  "system.startup-disk.clear-next": {"icon":"󰜺","label":"Cancel pending macOS boot","description":"Remove the one-time target","action":"omarchy-startup-disk clear-next"},
-
   // Reboot to Windows once (plugin m5w.reboot-windows: confirm dialog, then pkexec /usr/local/sbin/m5w-windows)
   "system.reboot-windows": {"icon":"󰍲","label":"Reboot to Windows","description":"One time only, the next boot is Linux again","aliases":["windows","boot-windows"],"action":"omarchy-shell shell summon m5w.reboot-windows"}
 ,
@@ -45,4 +38,30 @@
   "system.battery-limit.full": {"icon":"󰁹","label":"Charge to 100 % once","description":"Until you unplug or reboot, then back to the limit","action":"m5pro-charge-limit full"},
   "system.battery-limit.off": {"icon":"󰁹","label":"No limit","description":"Always charge to 100 %","action":"m5pro-charge-limit 100"},
   "system.battery-limit.status": {"icon":"󰋽","label":"Show charge limit","description":"Current limit and battery level","action":"omarchy-launch-floating-terminal-with-presentation m5pro-charge-limit"}
+,
+  // Touch ID (m5pro-linux touchid-omarchy). Setup > Security > Fingerprint opens the Touch ID panel
+  // (plugin m5pro.touchid) instead of omarchy-setup-security-fingerprint, which swaps in Omarchy's
+  // libfprint-git (sep-bio v4 only). Remove > Security > Fingerprint is hidden: it would delete every
+  // print and drop fprintd; delete fingerprints one by one in the panel instead.
+  "setup.security.fingerprint": {"icon":"󰈷","label":"Touch ID","description":"Add, test, name or delete fingerprints","aliases":["touchid"],"when":"omarchy-hw-fingerprint","action":"omarchy-shell shell summon m5pro.touchid"},
+  "remove.security.fingerprint": {"when":"false"}
+,
+  // 1Password Touch ID (m5pro-linux touchid-omarchy/1password-launch): unlock 1Password from a fresh start
+  // with Touch ID. The account password is sealed by the Secure Enclave (m5pro-1p-touchid setup).
+  "setup.security.1password": {"icon":"󰌋","label":"1Password Touch ID","aliases":["1password"],"description":"Unlock 1Password with Touch ID after it starts"},
+  "setup.security.1password.unlock": {"icon":"󰈷","label":"Unlock 1Password now","action":"m5pro-1p-touchid unlock"},
+  "setup.security.1password.setup": {"icon":"󰌋","label":"Set up (save the account password)","action":"omarchy-launch-floating-terminal-with-presentation m5pro-1p-touchid setup"},
+  "setup.security.1password.status": {"icon":"󰋽","label":"Status","action":"omarchy-launch-floating-terminal-with-presentation m5pro-1p-touchid status"},
+  "setup.security.1password.forget": {"icon":"󰆴","label":"Remove the saved password","action":"m5pro-1p-touchid forget"}
+,
+  // Startup Disk (m5pro-linux contrib/omarchy-mac/startup-disk): no terminal, no password; one-time targets only.
+  "system.reboot-macos": {"icon":"󰀵","label":"Reboot into macOS","description":"Once; the next restart comes back to Omarchy","aliases":["reboot to macos","reboot into macos","macos","boot macos"],"action":"omarchy-startup-disk reboot-macos"},
+  "system.startup-disk": {"icon":"󰋊","label":"Startup Disk","aliases":["startup disk","boot disk"],"description":"Choose the next startup volume"},
+  "system.startup-disk.macos-next": {"icon":"󰀵","label":"macOS at next restart","description":"Once, without restarting now","action":"omarchy-startup-disk next-macos"},
+  "system.startup-disk.omarchy": {"icon":"󰣇","label":"Omarchy (cancel one-time boot)","description":"The next restart uses the default","action":"omarchy-startup-disk clear-next"},
+  "system.startup-disk.status": {"icon":"󰋽","label":"Show startup disk","description":"Default and next boot","action":"omarchy-startup-disk status"},
+  // Automatically adjust brightness (m5pro-linux contrib/omarchy-mac/auto-brightness): panel and keyboard backlight follow the
+  // ambient light sensor; manual brightness keys are learned, not fought. Row shows a check mark while it is on.
+  "system.auto-brightness": {"icon":"󰃠","label":"Automatically adjust brightness","aliases":["auto brightness","ambient light","adaptive brightness"],"description":"Screen and keyboard light follow the room light","checked":"systemctl --user is-active --quiet m5pro-auto-brightness.service","action":"m5pro-auto-brightness toggle"},
+  "system.auto-brightness-reset": {"icon":"󰑓","label":"Reset learned brightness","description":"Forget your manual adjustments","action":"m5pro-auto-brightness reset"}
 }

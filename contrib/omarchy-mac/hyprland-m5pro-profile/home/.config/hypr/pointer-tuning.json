@@ -1,0 +1,46 @@
+{
+  "profile": "macos",
+  "profiles": {
+    "custom": {
+      "trackpad_scroll_factor": 0.54,
+      "trackpad_scroll_accel": 0.38,
+      "trackpad_tracking": 1.0,
+      "trackpad_gain": 0.93,
+      "trackpad_natural_scroll": true,
+      "trackpad_tap_to_click": false,
+      "trackpad_disable_while_typing": true,
+      "trackpad_three_finger_drag": false,
+      "mouse_sensitivity": -0.49,
+      "mouse_tracking": 2.0,
+      "mouse_scroll_factor": 1.2,
+      "mouse_accel_profile": "adaptive",
+      "mouse_natural_scroll": false,
+      "cursor_size": 18
+    },
+    "macos": {
+      "trackpad_scroll_factor": 0.55,
+      "trackpad_scroll_accel": 1.0,
+      "trackpad_tracking": 0.875,
+      "trackpad_gain": 0.87,
+      "trackpad_natural_scroll": true,
+      "trackpad_tap_to_click": false,
+      "trackpad_disable_while_typing": true,
+      "trackpad_three_finger_drag": false,
+      "mouse_sensitivity": 0.0,
+      "mouse_tracking": 2.0,
+      "mouse_scroll_factor": 1.0,
+      "mouse_accel_profile": "macos",
+      "mouse_natural_scroll": true,
+      "cursor_size": 19
+    }
+  },
+  "macos_fixed": {
+    "trackpad_scroll_index": 0.4412,
+    "mouse_wheel_scaling": 0.75,
+    "mouse_report_hz": 1000,
+    "looks_like_width": 2246,
+    "display_scale": 2,
+    "app_scroll_rules": true,
+    "macos_gestures": true
+  }
+}

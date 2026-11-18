@@ -52,7 +52,6 @@
 /etc/systemd/system/systemd-hybrid-sleep.service
 /etc/systemd/system/systemd-suspend-then-hibernate.service
 /etc/systemd/user/m5pro-camera-v4l2-bridge.service
-/etc/systemd/zram-generator.conf.d/50-m5pro.conf
 /etc/udev/macsmc-battery.conf
 /etc/udev/rules.d/70-m5pro-uinput.rules
 /etc/udev/rules.d/90-m5-netconsole.rules

@@ -27,10 +27,11 @@ OMARCHY_SHARE=${M5PRO_SU_OMARCHY:-/usr/share/omarchy}
 PACMAN_CACHE=${M5PRO_SU_CACHE:-/var/cache/pacman/pkg}
 
 KEEP_PID=""
-trap 'sim_cleanup; [[ -n $KEEP_PID ]] && kill "$KEEP_PID" 2>/dev/null' EXIT
+# the EXIT trap can fire before sim_cleanup is defined (usage, early refusals)
+trap 'declare -F sim_cleanup >/dev/null && sim_cleanup; [[ -n $KEEP_PID ]] && kill "$KEEP_PID" 2>/dev/null' EXIT
 MODE="" DEEP=0 ASSUME_YES=0 WITH_MISE=0 ALLOW_BOOT=0 FORCE_HAZ=0 REPO=${M5PRO_REPO:-} TARGET_USER=${M5PRO_SU_USER:-}
 ARGS=()
-usage() { sed -n '2,15p' "$SELF" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,/^[^#]/p' "$SELF" | sed '$d' | sed 's/^# \{0,1\}//'; }
 while (($#)); do
   case $1 in
     --dry-run | --plan) MODE=dry ;;
@@ -274,14 +275,15 @@ mesa_ldd() { # lines "lib: unresolved-soname" for every unresolved dependency of
   local lib
   compgen -G '/opt/mesa-aurora*' >/dev/null || return 0
   while IFS= read -r lib; do
-    ldd "$lib" 2>/dev/null | awk -v l="$lib" '/not found/ { print l ": " $1 }'
+    # each tree is used with LD_LIBRARY_PATH=<tree>/lib (Hyprland's environment), so resolve the way the session does
+    LD_LIBRARY_PATH="$(cut -d/ -f1-3 <<<"$lib")/lib" ldd "$lib" 2>/dev/null | awk -v l="$lib" '/not found/ { print l ": " $1 }'
   done < <(find /opt/mesa-aurora* -maxdepth 5 -type f \( -name '*.so' -o -name '*.so.*' \) 2>/dev/null | sort)
 }
 
 mesa_needed_map() { # "basename<TAB>owner-pkg" of every system lib the /opt/mesa-aurora* libs resolve to
   local lib
   compgen -G '/opt/mesa-aurora*' >/dev/null || return 0
-  while IFS= read -r lib; do ldd "$lib" 2>/dev/null; done < <(find /opt/mesa-aurora* -maxdepth 5 -type f -name '*.so*' 2>/dev/null | sort) |
+  while IFS= read -r lib; do LD_LIBRARY_PATH="$(cut -d/ -f1-3 <<<"$lib")/lib" ldd "$lib" 2>/dev/null; done < <(find /opt/mesa-aurora* -maxdepth 5 -type f -name '*.so*' 2>/dev/null | sort) |
     awk '/=> \// && $3 !~ /^\/opt\// { print $3 }' | sort -u | owners_of | awk -F'\t' '{ n = split($1, p, "/"); print p[n] "\t" $2 }' | sort -u
 }
 
@@ -370,6 +372,7 @@ lint_dropins() { # a later-sorted file in the same drop-in directory defines a k
       for f in "$d"/*.conf; do
         [[ -f $f ]] || continue
         [[ $(basename "$f") > "$base" ]] || continue
+        [[ $(basename "$f") == *m5pro* ]] && continue   # our own later layer (e.g. 10-m5pro-safe -> 20-m5pro-lid-sleep) is deliberate
         while IFS= read -r key; do
           [[ -n $key ]] || continue
           grep -Eq "^[[:space:]]*${key}[[:space:]]*=" "$f" && echo "$ours sets $key but $f sorts later and sets it too (it wins)"
