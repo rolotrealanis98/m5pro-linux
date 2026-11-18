@@ -10,3 +10,8 @@ curve = [[0, 22], [3, 28], [10, 34], [30, 44], [100, 60], [300, 75], [1000, 90],
 # kbd_on_below_lux = 15.0  # keyboard light on below ...
 # kbd_off_above_lux = 50.0 # ... off above
 # kbd_level_pct = 35.0     # default keyboard level (manual changes update it)
+# Inactivity (0 disables each; video and other idle inhibitors pause both):
+# kbd_idle_off_s = 30            # keyboard light fades out after this many seconds without input
+# panel_idle_dim_s = 120         # panel dims after this many seconds (Omarchy still locks at idle.lock)
+# panel_idle_dim_factor = 0.5    # dim to this fraction of the current level ...
+# panel_idle_dim_min_pct = 8.0   # ... but not below this

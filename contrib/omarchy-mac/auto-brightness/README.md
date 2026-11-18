@@ -15,6 +15,11 @@ a learned multiplier does the job here.
   Brighter room later -> brighter than before, relative to what you chose.
 - **Keyboard**: on (35 % or your last manual level) below 15 lux, off above 50 lux, 1.5 s fade. A manual keyboard change holds until
   the light crosses a threshold again; a non-zero manual level becomes the new "on" level.
+- **Inactivity** (macOS "turn keyboard backlight off after inactivity" plus the dim before sleep): the service runs its own
+  `hypridle` child with two listeners and no lock (Omarchy's shell keeps owning the lock). After 30 s without input the keyboard
+  light fades out; after 120 s the panel dims to half its level (not below 8 %). The next input brings both back within ~0.3 s.
+  Idle inhibitors (video playback) pause both, as they pause the lock. While dimmed or faded nothing is learned, so the dim
+  never becomes your preference; a keyboard level the lock's blank/restore would leave at 0 is put back for 5 s after the wake.
 - **Pause**: while the panel is off (DPMS) or the session is locked it neither writes nor learns; after wake/unlock and after suspend
   it waits 6 s (Omarchy restores the keyboard level itself), then resyncs.
 - Writes go through `brightnessctl` (logind), so it only works as a user service in the logged-in session.
@@ -26,7 +31,8 @@ a learned multiplier does the job here.
 - "Reset learned brightness" in the same menu (or `m5pro-auto-brightness reset`) forgets your adjustments.
 - Tune: `~/.config/m5pro-auto-brightness/config.toml`, then `systemctl --user restart m5pro-auto-brightness`. The
   main knob is `curve = [[lux, percent], ...]` (raise a number to make that light level brighter). Others: `deadband_pct`,
-  `ramp_pct_per_s`, `tau_up_s`, `tau_down_s`, `learn`, `kbd_on_below_lux`, `kbd_off_above_lux`, `kbd_level_pct`. All defaults are at
+  `ramp_pct_per_s`, `tau_up_s`, `tau_down_s`, `learn`, `kbd_on_below_lux`, `kbd_off_above_lux`, `kbd_level_pct`, `kbd_idle_off_s`, `panel_idle_dim_s`,
+  `panel_idle_dim_factor`, `panel_idle_dim_min_pct` (0 disables an inactivity step). All defaults are at
   the top of `~/.local/bin/m5pro-auto-brightness`.
 - Watch: `journalctl --user -u m5pro-auto-brightness -f`; `m5pro-auto-brightness status` (current lux, panel, target, ratio).
 - Safe test without writing: `M5PRO_AB_NOPAUSE=1 m5pro-auto-brightness run --dry-run` (stop the service first or just run it alongside; dry-run only logs).

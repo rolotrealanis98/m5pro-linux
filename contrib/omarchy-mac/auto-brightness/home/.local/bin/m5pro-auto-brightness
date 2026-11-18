@@ -4,10 +4,13 @@
 Panel backlight (apple-panel-bl) and keyboard backlight (kbd_backlight) follow the ambient light sensor
 (aop_als, IIO in_illuminance_input). A manual change (brightness keys, slider) is learned as a multiplier
 on the curve, so it shifts the curve instead of being fought. Paused while the panel is off or locked.
+Inactivity (a hypridle child, so video/idle inhibitors are honoured): the keyboard light fades out after
+kbd_idle_off_s, the panel dims after panel_idle_dim_s; both come back on the next input.
 
   m5pro-auto-brightness on|off|toggle|status|reset|run [--dry-run]
+  m5pro-auto-brightness idle 0|1|2     (called by the hypridle child: 0 active, 1 keyboard off, 2 also dim)
 """
-import glob, json, math, os, subprocess, sys, time, tomllib, signal
+import glob, json, math, os, subprocess, sys, time, tomllib, signal, threading
 
 HOME = os.path.expanduser("~")
 CONF = os.path.join(os.environ.get("XDG_CONFIG_HOME", HOME + "/.config"), "m5pro-auto-brightness/config.toml")
@@ -34,6 +37,11 @@ DEFAULTS = {
     "kbd_off_above_lux": 50.0, # ... and off above this (hysteresis)
     "kbd_level_pct": 35.0,     # default level when on (learned from manual changes)
     "kbd_fade_s": 1.5,
+    # inactivity (0 disables each): macOS "turn keyboard backlight off after inactivity" and the pre-sleep dim
+    "kbd_idle_off_s": 30,      # keyboard light fades out after this many seconds without input
+    "panel_idle_dim_s": 120,   # panel dims after this many seconds (Omarchy locks at idle.lock, default 300)
+    "panel_idle_dim_factor": 0.5,  # dim to this fraction of the current level ...
+    "panel_idle_dim_min_pct": 8.0, # ... but not below this
 }
 
 
@@ -141,6 +149,19 @@ def save_state(st):
     os.replace(tmp, STATE)
 
 
+SELF = os.path.realpath(__file__)
+
+
+def idle_conf(c):
+    """hypridle config with only our two listeners (no lock: Omarchy's shell owns locking)."""
+    out = ["general {", "    ignore_dbus_inhibit = false", "    ignore_systemd_inhibit = false", "}"]
+    for secs, lvl in ((c["kbd_idle_off_s"], 1), (c["panel_idle_dim_s"], 2)):
+        if secs and secs > 0:
+            out += ["listener {", "    timeout = %d" % int(secs),
+                    "    on-timeout = %s idle %d" % (SELF, lvl), "    on-resume = %s idle 0" % SELF, "}"]
+    return "\n".join(out) + "\n"
+
+
 def run(dry):
     c = load_conf()
     als = find_als()
@@ -157,8 +178,43 @@ def run(dry):
     kbd_pct = float(st.get("kbd_level_pct", c["kbd_level_pct"]))
     os.makedirs(RUNDIR, exist_ok=True)
     stop = []
-    signal.signal(signal.SIGTERM, lambda *a: stop.append(1))
-    signal.signal(signal.SIGINT, lambda *a: stop.append(1))
+    wake_ev = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *a: (stop.append(1), wake_ev.set()))
+    signal.signal(signal.SIGINT, lambda *a: (stop.append(1), wake_ev.set()))
+    signal.signal(signal.SIGUSR1, lambda *a: wake_ev.set())   # `idle N` pokes us so input wakes without delay
+    with open(RUNDIR + "/idle", "w") as f:
+        f.write("0\n")
+    with open(RUNDIR + "/pid", "w") as f:
+        f.write("%d\n" % os.getpid())
+
+    idle_child = [None, 0.0]      # hypridle Popen, earliest next start
+    idle_on = (c["kbd_idle_off_s"] or 0) > 0 or (c["panel_idle_dim_s"] or 0) > 0
+
+    def idle_child_check(t):
+        p = idle_child[0]
+        if not idle_on or (p is not None and p.poll() is None) or t < idle_child[1]:
+            return
+        if p is not None:
+            log("hypridle exited (rc %s), restarting in 10 s" % p.returncode)
+            idle_child[0], idle_child[1] = None, t + 10
+            return
+        conf = RUNDIR + "/hypridle.conf"
+        with open(conf, "w") as f:
+            f.write(idle_conf(c))
+        try:
+            idle_child[0] = subprocess.Popen(["hypridle", "-c", conf], env=hypr_env(),
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            log("inactivity: hypridle started (keyboard off after %ss, panel dim after %ss)"
+                % (c["kbd_idle_off_s"], c["panel_idle_dim_s"]))
+        except OSError as e:
+            log("inactivity disabled: cannot start hypridle:", e)
+        idle_child[1] = t + 10
+
+    def idle_level():
+        try:
+            return max(0, min(2, int(rd(RUNDIR + "/idle"))))
+        except (OSError, ValueError):
+            return 0
 
     def read_lux():
         try:
@@ -187,6 +243,11 @@ def run(dry):
             pass
         log("keyboard manual restored: %d/%d" % (int(hold["val"]), kbd.max))
     wfail_until = 0.0
+    idle_prev = 0
+    ramps = {}                    # "panel"/"kbd" -> (dev, from, to, t0, dur): inactivity fades, ours alone
+    p_rest = p_dim = None         # panel level before the dim / the dimmed level
+    k_rest = None                 # keyboard level before it faded out
+    k_watch = (0, 0.0)            # after a wake: keep the keyboard at this level until then (Omarchy's restore races us)
     last_t = time.monotonic()
     last_awake_check, last_status = 0.0, 0.0
     status = {}
@@ -239,6 +300,68 @@ def run(dry):
         actual = panel.get()
         k_act = kbd.get() if kbd else 0
 
+        # --- inactivity: 1 = keyboard light out, 2 = panel dimmed as well; any input = 0
+        idle_child_check(t)
+        lvl = idle_level()
+        if lvl != idle_prev:
+            log("inactivity: %s" % {0: "active", 1: "keyboard off", 2: "dim"}[lvl])
+            if lvl > 0 and k_rest is None and kbd and k_act > 0 and not paused:
+                k_rest = k_act
+                ramps["kbd"] = (kbd, k_act, 0, t, c["kbd_fade_s"])
+            if lvl == 2 and not paused and p_rest is None:
+                goal = max(c["panel_idle_dim_min_pct"] / 100.0 * panel.max, actual * c["panel_idle_dim_factor"])
+                if goal < actual - 1:
+                    p_rest, p_dim = actual, int(round(goal))
+                    ramps["panel"] = (panel, actual, p_dim, t, 1.0)
+            if lvl == 0:
+                if p_rest is not None:
+                    # restore unless something else moved the panel away from our dimmed level meanwhile
+                    if "panel" in ramps or abs(actual - p_dim) <= 4:
+                        ramps["panel"] = (panel, actual, p_rest, t, 0.25)
+                    p_rest = p_dim = None
+                if k_rest is not None:
+                    if k_act <= 2 or "kbd" in ramps:
+                        ramps["kbd"] = (kbd, k_act, k_rest, t, 0.3)
+                        k_watch = (k_rest, t + 5.0)
+                    k_rest = None
+            idle_prev = lvl
+        for key, (dev, f0, g, t0, dur) in list(ramps.items()):
+            frac = min(1.0, (t - t0) / max(dur, 0.05))
+            if not dry:
+                try:
+                    v = dev.set(f0 + (g - f0) * frac)
+                    if key == "panel":
+                        cur = exp_p = target = v
+                    else:
+                        k_exp = v
+                except Exception as e:
+                    log("inactivity write failed:", e)
+                    frac = 1.0
+            if frac >= 1.0:
+                del ramps[key]
+        if kbd and t < k_watch[1] and "kbd" not in ramps and kbd.get() == 0 and k_watch[0] > 0 and not dry:
+            try:
+                k_exp = kbd.set(k_watch[0])     # Omarchy's wake restored the 0 it saved when the lock blanked
+                log("keyboard restored again after the wake")
+            except Exception:
+                pass
+        if lvl > 0 or ramps or t < k_watch[1]:
+            # idle or fading: follow what is there, learn nothing, no lux writes
+            actual = panel.get()
+            cur = exp_p = target = actual
+            manual_since = k_manual_since = None
+            if kbd:
+                k_exp = kbd.get()
+                k_ramp = None
+            if t - last_status >= 2.0:
+                last_status = t
+                write_status({"lux": None if lux_s is None else round(lux_s, 1), "panel_pct": round(pct(actual, panel), 1),
+                              "idle": lvl, "paused": paused, "ratio": round(ratio, 3), "dry_run": dry,
+                              "ts": int(time.time())})
+            wake_ev.wait(0.04 if ramps else c["poll_s"])
+            wake_ev.clear()
+            continue
+
         in_grace = t < grace_until
         if paused or in_grace or lux_s is None:
             # follow whatever the shell/lock/wake logic does, learn nothing, write nothing
@@ -252,7 +375,8 @@ def run(dry):
                 write_status({"lux": None if lux_s is None else round(lux_s, 1), "panel_pct": round(pct(actual, panel), 1),
                               "paused": paused, "grace": in_grace, "ratio": round(ratio, 3), "dry_run": dry,
                               "ts": int(time.time())})
-            time.sleep(c["poll_s"])
+            wake_ev.wait(c["poll_s"])
+            wake_ev.clear()
             continue
 
         # --- panel: manual change detection (tolerance 4 raw units ~ 0.7%)
@@ -353,7 +477,14 @@ def run(dry):
                       "kbd": k_act, "kbd_auto_on": bool(k_want), "kbd_manual": k_manual,
                       "paused": paused, "dry_run": dry, "ts": int(time.time())}
             write_status(status)
-        time.sleep(c["poll_s"])
+        wake_ev.wait(c["poll_s"])
+        wake_ev.clear()
+    if idle_child[0] is not None and idle_child[0].poll() is None:
+        idle_child[0].terminate()
+        try:
+            idle_child[0].wait(3)
+        except subprocess.TimeoutExpired:
+            idle_child[0].kill()
     log("stop")
     return 0
 
@@ -371,6 +502,18 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
     if cmd == "run":
         sys.exit(run("--dry-run" in sys.argv))
+    if cmd == "idle":
+        lvl = sys.argv[2] if len(sys.argv) > 2 else ""
+        if lvl not in ("0", "1", "2"):
+            print(__doc__); sys.exit(2)
+        try:
+            with open(RUNDIR + "/idle.tmp", "w") as f:
+                f.write(lvl + "\n")
+            os.replace(RUNDIR + "/idle.tmp", RUNDIR + "/idle")
+            os.kill(int(rd(RUNDIR + "/pid")), signal.SIGUSR1)
+        except (OSError, ValueError):
+            pass
+        sys.exit(0)
     active = sc("is-active", UNIT).stdout.strip() == "active"
     if cmd == "toggle":
         cmd = "off" if active else "on"
