@@ -1,0 +1,3 @@
+# Tracked files whose package re-applies our change in its own install/upgrade hook: the clobber check reports INFO, not WARN.
+# path<TAB>package<TAB>why
+/usr/share/polkit-1/actions/com.1password.1Password.policy	1password	set_policy_owners() in .INSTALL writes the human accounts (uid 1000-9999) as policykit.owner, the same edit Touch ID needs

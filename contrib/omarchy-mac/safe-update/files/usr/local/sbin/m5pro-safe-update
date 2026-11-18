@@ -63,6 +63,11 @@ declare -a REPORT=()
 head1() { printf '\n%s== %s%s\n' "$C_B" "$*" "$C_0"; }
 say() { printf '%s\n' "$*"; }
 # note LEVEL AREA TEXT: OK INFO WARN FAIL
+# pkg-rewritten.txt: "path<TAB>package<TAB>why" for tracked files the package's own install hook re-applies on upgrade
+pkg_rewrites() { [[ -n $CONF_DIR && -f $CONF_DIR/pkg-rewritten.txt ]] || return 1; awk -F'\t' -v p="$1" -v n="$2" '$1 == p && $2 == n { print $3; f = 1 } END { exit !f }' "$CONF_DIR/pkg-rewritten.txt"; }
+clobber_note() { # path pkg message
+  local why; if why=$(pkg_rewrites "$1" "$2"); then note INFO clobber "$3 (its install hook re-applies our change: $why)"; else note WARN clobber "$3"; fi
+}
 note() {
   local lvl=$1 area=$2 col=""
   shift 2
@@ -179,8 +184,10 @@ sim_sync() {
   have pacman || die "no pacman here: run this on the Mac"
   SIMDB=$(mktemp -d /tmp/m5pro-su-db.XXXXXX) || die "mktemp failed"
   mkdir -p "$SIMDB/sync"
+  chmod 755 "$SIMDB" "$SIMDB/sync"   # pacman 7 downloads as DownloadUser (alpm): it must be able to enter the tree
   ln -s /var/lib/pacman/local "$SIMDB/local"
-  cp /var/lib/pacman/sync/*.db "$SIMDB/sync/" 2>/dev/null || true
+  # -p keeps the mtimes: pacman asks the mirror If-Modified-Since the file's mtime, so a fresh-stamped copy is never refreshed
+  cp -p /var/lib/pacman/sync/*.db "$SIMDB/sync/" 2>/dev/null || true
   say "  refreshing a private copy of the sync databases (the real ones are not touched)"
   if ! sudo_ pacman -Sy --dbpath "$SIMDB" --logfile /dev/null >"$SIMDB/sy.out" 2>&1; then
     cat "$SIMDB/sy.out" >&2
@@ -609,7 +616,7 @@ deep_scan() {
     plist=$(pacman -Qlp "$f" 2>/dev/null | awk '{ print $2 }' | grep -v '/$')
     # 1. the package writes a path we track
     inc=$(grep -Fxf <(grep -v '/$' "$tracked_files") <<<"$plist")
-    while IFS= read -r p; do [[ -n $p ]] && { note WARN clobber "$n ${SIM_VER[$n]} ships tracked file $p"; hits=1; }; done <<<"$inc"
+    while IFS= read -r p; do [[ -n $p ]] && { clobber_note "$p" "$n" "$n ${SIM_VER[$n]} ships tracked file $p"; hits=1; }; done <<<"$inc"
     # 2. it adds files inside a tracked directory
     while IFS= read -r d; do
       [[ -n $d ]] || continue
@@ -679,7 +686,7 @@ do_dry() {
   if find_tracked; then
     local owned=0 p o
     while IFS=$'\t' read -r p o; do
-      [[ -n ${SIM_VER[$o]:-} ]] && { note WARN clobber "$p is owned by $o, which upgrades ${UPD_OLD[$o]:-?} -> ${SIM_VER[$o]}"; owned=1; }
+      [[ -n ${SIM_VER[$o]:-} ]] && { clobber_note "$p" "$o" "$p is owned by $o, which upgrades ${UPD_OLD[$o]:-?} -> ${SIM_VER[$o]}"; owned=1; }
     done < <(expand_tracked | sed 's#/$##' | owners_of)
     ((owned)) || note OK clobber "no tracked path is owned by an upgrading package"
   else note INFO clobber "no tracked-paths.txt: file-level mapping skipped"; fi
