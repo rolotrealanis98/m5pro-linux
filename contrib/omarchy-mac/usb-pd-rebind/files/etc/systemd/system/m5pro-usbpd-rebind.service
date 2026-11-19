@@ -1,0 +1,11 @@
+[Unit]
+Description=Re-probe USB-C port controllers that failed at boot (J716s)
+After=systemd-udevd.service
+ConditionPathIsDirectory=/sys/bus/spmi/drivers/sn201202x
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/m5pro-usbpd-rebind
+
+[Install]
+WantedBy=multi-user.target

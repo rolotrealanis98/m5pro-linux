@@ -1,0 +1,20 @@
+#!/bin/bash
+# Re-probe USB-C port controllers (apple,sn201202x on SPMI) that failed at boot. An SPMI parity error during the
+# driver's probe (seen 2 of 25 boots, Nov 2026) fails it for the whole boot: that port then has no USB data
+# (no xHCI, no hotplug) until the driver is bound again. A bind only re-runs the probe of an unbound controller.
+set -u
+DRV=/sys/bus/spmi/drivers/sn201202x
+[ -d "$DRV" ] || exit 0
+rc=0
+for d in /sys/bus/spmi/devices/*-*; do
+    [ -e "$d/driver" ] && continue
+    tr '\0' '\n' < "$d/of_node/compatible" 2>/dev/null | grep -qx 'apple,sn201202x' || continue
+    n=$(basename "$d")
+    for t in 1 2 3; do
+        echo "$n" > "$DRV/bind" 2>/dev/null
+        [ -e "$d/driver" ] && break
+        sleep 2
+    done
+    if [ -e "$d/driver" ]; then echo "m5pro-usbpd-rebind: $n bound (attempt $t)"; else echo "m5pro-usbpd-rebind: $n still unbound" >&2; rc=1; fi
+done
+exit $rc
