@@ -1,0 +1,29 @@
+--- rolo.cds/Panel.qml.pre-quit	2026-11-17 06:58:12.242747565 -0600
++++ rolo.cds/Panel.qml	2026-11-19 06:35:19.569203598 -0600
+@@ -211,11 +211,24 @@
+       ? strings.t("tooltip.none")
+       : strings.t("tooltip.summary").arg(root.summaryText)
+     onPressed: function(b) {
+-      if (b === Qt.RightButton) root.launchDashboard()
+-      else root.toggle()
++      if (b === Qt.RightButton) { root.close(); quitMenu.toggle() }
++      else { quitMenu.close(); root.toggle() }
+     }
+   }
+ 
++  QuitMenu {
++    id: quitMenu
++    anchorItem: button
++    bar: root.bar
++    pluginId: "rolo.cds"
++    pluginName: "cds"
++    actions: [
++      { label: "Open Dashboard", icon: "󰆍", run: function() { root.launchDashboard() } },
++      { label: "Open Colony", icon: "󰡨", run: function() { root.launchColony() } },
++      { label: "Open Vault", icon: "󰌾", run: function() { root.launchVault() } }
++    ]
++  }
++
+   // ------------------------------------------------------------ panel
+   KeyboardPanel {
+     id: panel

@@ -1,0 +1,24 @@
+--- rolo.tray/Tray.qml.pre-quit	2026-11-17 04:35:03.111136370 -0600
++++ rolo.tray/Tray.qml	2026-11-19 06:35:36.337036975 -0600
+@@ -564,6 +564,21 @@
+           }
+         }
+       }
++
++      PanelSeparator { width: parent.width; foreground: root.foreground }
++
++      // Quit: disable this plugin so it leaves the bar (Omarchy menu → Plugins brings it back).
++      Button {
++        text: "Quit My System tray"
++        iconText: "󰈆"
++        foreground: root.foreground
++        fontFamily: root.fontFamily
++        fontSize: Style.font.bodySmall
++        onClicked: {
++          root.managePopupOpen = false
++          Quickshell.execDetached(["omarchy", "plugin", "disable", "rolo.tray"])
++        }
++      }
+     }
+   }
+ 

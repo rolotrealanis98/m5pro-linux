@@ -1,0 +1,34 @@
+--- rolo.kmlink/Panel.qml.pre-quit	2026-11-10 04:07:47.939908670 -0600
++++ rolo.kmlink/Panel.qml	2026-11-19 06:35:19.405205221 -0600
+@@ -84,11 +84,29 @@
+     dimmed: !root.reachable
+     tooltipText: root.peerName + ": " + root.statusLine + (root.status.detail ? "\n" + root.status.detail : "")
+     onPressed: function(b) {
+-      if (b === Qt.RightButton) root.toggleControl()
+-      else root.toggle()
++      if (b === Qt.RightButton) { root.close(); quitMenu.toggle() }
++      else { quitMenu.close(); root.toggle() }
+     }
+   }
+ 
++  // Plugin enabled means the controller runs: Quit disables both, and turning the plugin back
++  // on (Omarchy menu → Plugins) brings the service back with it.
++  Component.onCompleted: Quickshell.execDetached(["systemctl", "--user", "enable", "--now", "kmlink-controller.service"])
++
++  QuitMenu {
++    id: quitMenu
++    anchorItem: button
++    bar: root.bar
++    pluginId: "rolo.kmlink"
++    pluginName: "KM Link"
++    services: ["kmlink-controller.service"]
++    actions: [
++      { label: root.linkState === "remote" ? "Give control back" : "Take control of the Mac", icon: "󰌢",
++        enabled: root.controlling, run: function() { root.toggleControl() } },
++      { label: "KM Link settings", icon: "󰒓", run: function() { root.run("omarchy-launch-or-focus kmlink") } }
++    ]
++  }
++
+   // ------------------------------------------------------------ panel
+   KeyboardPanel {
+     id: panel

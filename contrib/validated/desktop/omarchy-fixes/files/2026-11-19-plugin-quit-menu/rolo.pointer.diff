@@ -1,0 +1,27 @@
+--- rolo.pointer/Panel.qml.pre-quit	2026-11-19 06:29:22.975664598 -0600
++++ rolo.pointer/Panel.qml	2026-11-19 06:35:19.641202885 -0600
+@@ -435,10 +435,23 @@
+       + "\nTrackpad scroll " + Number(root.cfg.trackpad_scroll_factor).toFixed(2) + "× · Mouse scroll " + Number(root.cfg.mouse_scroll_factor).toFixed(1) + "×"
+       + (root.g502Ready ? "\n" + (root.g502.name || "G502 X") + " · " + root.g502BatteryText + (root.g502.charging ? " charging" : "") + (root.g502.dpi ? " · " + root.g502.dpi + " DPI" : "") : "")
+     onPressed: function(b) {
+-      if (b === Qt.LeftButton) root.toggle()
++      if (b === Qt.RightButton) { root.close(); quitMenu.toggle() }
++      else { quitMenu.close(); root.toggle() }
+     }
+   }
+ 
++  QuitMenu {
++    id: quitMenu
++    anchorItem: button
++    bar: root.bar
++    pluginId: "rolo.pointer"
++    pluginName: "Pointer"
++    actions: [
++      { label: root.macos ? "Switch to Custom profile" : "Switch to macOS profile", icon: "󰒓",
++        run: function() { root.setProfile(root.macos ? "custom" : "macos") } }
++    ]
++  }
++
+   // --------------------------------------------------------------------- panel
+   KeyboardPanel {
+     id: panel
