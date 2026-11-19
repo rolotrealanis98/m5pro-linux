@@ -1,0 +1,1173 @@
+diff -ruN a/data/denoise.conf b/data/denoise.conf
+--- a/data/denoise.conf
++++ b/data/denoise.conf
+@@ -45,3 +45,26 @@
+ # framing-zoom-min = 1.0
+ # framing-zoom-max = 2.0
+ # framing-zoom-default = 1.0
++
++# The spatial post stage, after the temporal filter (on by default). Three steps:
++# a dark-impulse (black speck) remover, a luma denoise whose clip level rises
++# from the centre to the corners (lens-shading gain makes the corners noisier),
++# and a chroma denoise for coloured blotches. About 3 ms per 1080p frame, one core.
++# post = on
++# Luma levels below the neighbours that count as a speck; 0 = no speck removal
++# post-impulse = 24
++# Radial luma denoise: strength 0..1 (0 = off), clip level (how large a neighbour
++# difference still counts as noise) at the centre and at the corners, in luma levels.
++# Raise the corner level for a smoother edge, lower it to keep more detail.
++# post-luma = 1.0
++# post-luma-clip-center = 6
++# post-luma-clip-edge = 22
++# Chroma denoise: strength 0..1 (0 = off), clip levels in chroma levels
++# post-chroma = 1.0
++# post-chroma-clip-center = 8
++# post-chroma-clip-edge = 24
++
++# Camera anti-flicker, set before each stream: 50, 60, auto, or off (leave the
++# driver default, which is 50 Hz on apple-isp). The control then stays set for
++# apps that open /dev/video0 directly, until the driver reloads.
++# power-line = 60
+diff -ruN a/meson.build b/meson.build
+--- a/meson.build
++++ b/meson.build
+@@ -24,7 +24,7 @@
+   language : 'c')
+ 
+ core = static_library('cdn-core',
+-  'src/backend.c', 'src/cpu/denoise_cpu.c', 'src/trigger.c', 'src/config.c', 'src/gain.c', 'src/effects.c',
++  'src/backend.c', 'src/cpu/denoise_cpu.c', 'src/post/post.c', 'src/trigger.c', 'src/config.c', 'src/gain.c', 'src/effects.c',
+   dependencies : [threads, dl, m])
+ core_dep = declare_dependency(link_with : core, dependencies : [threads, dl, m])
+ 
+@@ -97,6 +97,8 @@
+ 
+ executable('aurora-camera-denoise-bench', 'tools/cdn-bench.c',
+   dependencies : core_dep, install : true)
++executable('aurora-camera-denoise-post-bench', 'tools/cdn-post-bench.c',
++  dependencies : core_dep, install : true)
+ executable('aurora-camera-denoise-compare', 'tools/cdn-compare.c',
+   dependencies : m, install : true)
+ executable('aurora-camera-denoise-metrics', 'tools/cdn-metrics.c',
+@@ -120,6 +122,7 @@
+ endif
+ 
+ test('cpu', executable('test_cpu', 'tests/test_cpu.c', dependencies : core_dep))
++test('post', executable('test_post', 'tests/test_post.c', dependencies : core_dep), timeout : 120)
+ test('trigger', executable('test_trigger', 'tests/test_trigger.c', dependencies : core_dep))
+ test('config', executable('test_config', 'tests/test_config.c', dependencies : core_dep),
+   args : [meson.current_build_dir()])
+diff -ruN a/src/config.c b/src/config.c
+--- a/src/config.c
++++ b/src/config.c
+@@ -15,6 +15,7 @@
+ 	c->framing.minimum = c->framing.maximum = c->framing.default_zoom = 1;
+ 	c->temporal = true;
+ 	c->low_light_frame_rate = true;
++	cdn_post_cfg_defaults(&c->post);
+ 	snprintf(c->temporal_backend, sizeof(c->temporal_backend), "auto");
+ 	snprintf(c->backend, sizeof(c->backend), "auto");
+ 	snprintf(c->prefer, sizeof(c->prefer), "ane");
+@@ -74,6 +75,25 @@
+ 			return -1;
+ 		snprintf(c->temporal_backend, sizeof(c->temporal_backend), "%s", v);
+ 	}
++	else if (settings && !strcmp(k, "post")) {
++		if (!strcmp(v, "on")) c->post.enabled = true;
++		else if (!strcmp(v, "off")) c->post.enabled = false;
++		else return -1;
++	}
++	else if (settings && !strcmp(k, "post-impulse") && num && d >= 0 && d <= 255) c->post.impulse = (int)d;
++	else if (settings && !strcmp(k, "post-luma") && num && d >= 0 && d <= 1) c->post.luma = (float)d;
++	else if (settings && !strcmp(k, "post-luma-clip-center") && num && d >= 1 && d <= 255) c->post.luma_clip_center = (int)d;
++	else if (settings && !strcmp(k, "post-luma-clip-edge") && num && d >= 1 && d <= 255) c->post.luma_clip_edge = (int)d;
++	else if (settings && !strcmp(k, "post-chroma") && num && d >= 0 && d <= 1) c->post.chroma = (float)d;
++	else if (settings && !strcmp(k, "post-chroma-clip-center") && num && d >= 1 && d <= 255) c->post.chroma_clip_center = (int)d;
++	else if (settings && !strcmp(k, "post-chroma-clip-edge") && num && d >= 1 && d <= 255) c->post.chroma_clip_edge = (int)d;
++	else if (settings && !strcmp(k, "power-line")) {
++		if (!strcmp(v, "off")) c->power_line = 0;
++		else if (!strcmp(v, "50")) c->power_line = 50;
++		else if (!strcmp(v, "60")) c->power_line = 60;
++		else if (!strcmp(v, "auto")) c->power_line = -1;
++		else return -1;
++	}
+ 	else if (settings && !strcmp(k, "backend")) snprintf(c->backend, sizeof(c->backend), "%s", v);
+ 	else if (settings && !strcmp(k, "prefer")) snprintf(c->prefer, sizeof(c->prefer), "%s", v);
+ 	else if (settings && !strcmp(k, "threads") && num) c->threads = (int)d;
+@@ -191,10 +211,13 @@
+ 	fprintf(stderr,
+ 		"camera-denoise: board %s, mode %s, temporal %s (%s), low-light frame rate %s, "
+ 		"backend %s (prefer %s), "
++		"post %s (impulse %d, luma %.2f %d-%d, chroma %.2f %d-%d), power line %d, "
+ 		"enter gain >= %u, exit < %u, noise %.2f/%.2f, fps <= %.0f, ramp %d/%d frames\n",
+ 		*c->board ? c->board : "(no board data)", cdn_mode_name(c->mode),
+ 		c->temporal ? "on" : "off", cdn_temporal_auto(c) ? "auto" : cdn_temporal_backend(c), c->low_light_frame_rate ? "on" : "off", c->backend,
+-		c->prefer, c->trig.enter_gain, c->trig.exit_gain, c->trig.enter_noise,
++		c->prefer, c->post.enabled ? "on" : "off", c->post.impulse, c->post.luma,
++		c->post.luma_clip_center, c->post.luma_clip_edge, c->post.chroma,
++		c->post.chroma_clip_center, c->post.chroma_clip_edge, c->power_line, c->trig.enter_gain, c->trig.exit_gain, c->trig.enter_noise,
+ 		c->trig.exit_noise, c->trig.fps_threshold, c->trig.ramp_up_frames,
+ 		c->trig.ramp_down_frames);
+ }
+diff -ruN a/src/config.h b/src/config.h
+--- a/src/config.h
++++ b/src/config.h
+@@ -5,6 +5,7 @@
+ #include <stdbool.h>
+ 
+ #include "trigger.h"
++#include "post/post.h"
+ 
+ struct cdn_framing_cfg {
+ 	bool supported;
+@@ -35,6 +36,16 @@
+ 	char backend[32];	/* auto, cpu or a plugin name */
+ 	char prefer[64];	/* plugins "auto" tries before cpu */
+ 	int threads;		/* 0: backend default */
++	/*
++	 * Spatial stage after the temporal one (impulse removal, radial luma and
++	 * chroma denoise, src/post/post.h). On by default.
++	 */
++	struct cdn_post_cfg post;
++	/*
++	 * Mains frequency for the camera's anti-flicker (V4L2_CID_POWER_LINE_FREQUENCY),
++	 * set before each stream: 0 leave the driver default, 50, 60, or -1 auto.
++	 */
++	int power_line;
+ 	char drivers[128];	/* V4L2 drivers whose sources get a filter */
+ 	char board[64];		/* matched compatible, "" if none */
+ };
+diff -ruN a/src/gain.c b/src/gain.c
+--- a/src/gain.c
++++ b/src/gain.c
+@@ -80,6 +80,36 @@
+ 	return err;
+ }
+ 
++int cdn_v4l2_set_power_line(const char *path, int hz)
++{
++	struct v4l2_queryctrl q = { .id = V4L2_CID_POWER_LINE_FREQUENCY };
++	struct v4l2_control c = { .id = V4L2_CID_POWER_LINE_FREQUENCY };
++	int fd, err = 0;
++
++	if (!path || !*path)
++		return -ENOENT;
++	if (hz == 50)
++		c.value = V4L2_CID_POWER_LINE_FREQUENCY_50HZ;
++	else if (hz == 60)
++		c.value = V4L2_CID_POWER_LINE_FREQUENCY_60HZ;
++	else if (hz == -1)
++		c.value = V4L2_CID_POWER_LINE_FREQUENCY_AUTO;
++	else
++		return -EINVAL;
++	fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
++	if (fd < 0)
++		return -errno;
++	if (ioctl(fd, VIDIOC_QUERYCTRL, &q) ||
++	    (q.flags & (V4L2_CTRL_FLAG_DISABLED | V4L2_CTRL_FLAG_READ_ONLY)))
++		err = -ENOTTY;
++	else if (c.value < q.minimum || c.value > q.maximum)
++		err = -ERANGE;
++	else if (ioctl(fd, VIDIOC_S_CTRL, &c))
++		err = -errno;
++	close(fd);
++	return err;
++}
++
+ #define NT_STEP 4
+ #define NT_BX 16
+ #define NT_BY 9
+diff -ruN a/src/gain.h b/src/gain.h
+--- a/src/gain.h
++++ b/src/gain.h
+@@ -29,6 +29,14 @@
+ int cdn_v4l2_set_exposure_priority(const char *path, bool on);
+ 
+ /*
++ * Anti-flicker for the mains frequency (V4L2_CID_POWER_LINE_FREQUENCY): 50, 60,
++ * or -1 for the driver's auto mode. The control keeps its value until the driver
++ * reloads, so direct-V4L2 apps get it too once the filter has set it. Returns 0,
++ * or -errno (no such control, device busy, no permission).
++ */
++int cdn_v4l2_set_power_line(const char *path, int hz);
++
++/*
+  * Luma noise from frame to frame, in 8-bit code values (a std-like scale):
+  * the median |difference| from the previous frame on a sparse grid, per
+  * block, then the median over blocks, so texture does not count (unlike a
+diff -ruN a/src/main.c b/src/main.c
+--- a/src/main.c
++++ b/src/main.c
+@@ -96,6 +96,8 @@
+ 	void *bstate;
+ 	struct cdn_effects *effects;
+ 	struct ce_config effect_cfg;
++	/* the spatial post stage, in place on the output frame; NULL when off */
++	struct cdn_post *post;
+ 	/* the low-light stage on top of the temporal one, if a plugin runs */
+ 	const struct cdn_backend_ops *ml_ops;
+ 	void *ml_state;
+@@ -115,7 +117,7 @@
+ 
+ 	/* stats */
+ 	uint64_t frames, denoised, boosted;
+-	double busy_ms, copy_ms;
++	double busy_ms, copy_ms, post_ms;
+ 	uint64_t last_pts;
+ 	float fps_meas;
+ 	time_t last_log;
+@@ -211,11 +213,12 @@
+ 	c->last_log = now;
+ 	fprintf(stderr,
+ 		"camera-denoise: %s: %llu frames, %llu denoised, %llu low-light, %.2f ms per "
+-		"denoised frame (%.2f ms of it copying), gain %u, noise %.2f, fps %.1f, "
++		"denoised frame (%.2f ms of it copying, %.2f ms post), gain %u, noise %.2f, fps %.1f, "
+ 		"low-light strength %.2f\n",
+ 		c->src_nick, (unsigned long long)c->frames, (unsigned long long)c->denoised,
+ 		(unsigned long long)c->boosted, c->denoised ? c->busy_ms / c->denoised : 0.0,
+-		c->denoised ? c->copy_ms / c->denoised : 0.0, gain, noise, c->fps_meas, strength);
++		c->denoised ? c->copy_ms / c->denoised : 0.0,
++		c->denoised ? c->post_ms / c->denoised : 0.0, gain, noise, c->fps_meas, strength);
+ }
+ 
+ static double mono_ms(void)
+@@ -462,6 +465,12 @@
+ 		}
+ 		if (!boost && c->ml_state && c->ml_ops->reset)
+ 			c->ml_ops->reset(c->ml_state);
++		if (c->post) {
++			/* spatial stage on the finished frame, in place */
++			double tp = mono_ms();
++			cdn_post_process(c->post, &fo);
++			c->post_ms += mono_ms() - tp;
++		}
+ 		c->busy_ms += mono_ms() - t0;
+ 		c->denoised++;
+ 	} else {
+@@ -643,6 +652,12 @@
+ 			fprintf(stderr, "camera-denoise: %s: low-light frame rate not set: %s\n",
+ 				c->src_nick, strerror(-err));
+ 	}
++	if (c->v4l2_path[0] && c->app->cfg.power_line) {
++		int err = cdn_v4l2_set_power_line(c->v4l2_path, c->app->cfg.power_line);
++		if (err && err != -ENOTTY)
++			fprintf(stderr, "camera-denoise: %s: power line frequency not set: %s\n",
++				c->src_nick, strerror(-err));
++	}
+ 	c->last_pts = 0;
+ 	c->fps_meas = 0;
+ 	return pw_stream_connect(c->in, PW_DIRECTION_INPUT, PW_ID_ANY,
+@@ -683,6 +698,9 @@
+ 		c->ml_ops->destroy(c->ml_state);
+ 	c->ml_state = NULL;
+ 	c->ml_ops = NULL;
++	cdn_post_destroy(c->post);
++	c->post = cdn_post_create(w, h, &cfg->post);
++	fprintf(stderr, "camera-denoise: %s: post stage %s\n", c->src_nick, c->post ? "on" : "off");
+ 
+ 	if (cfg->temporal) {
+ 		/* The configured temporal backend, else the CPU; auto keeps the
+@@ -970,6 +988,8 @@
+ 	if (c->retry)
+ 		pw_loop_destroy_source(pw_main_loop_get_loop(c->app->loop), c->retry);
+ 	cam_stop_input(c);
++	cdn_post_destroy(c->post);
++	c->post = NULL;
+ 	if (c->out) {
+ 		spa_hook_remove(&c->out_listener);
+ 		pw_stream_destroy(c->out);
+diff -ruN a/src/post/post.c b/src/post/post.c
+--- a/src/post/post.c
++++ b/src/post/post.c
+@@ -0,0 +1,361 @@
++// SPDX-License-Identifier: MIT
++/* Post stage: impulse removal, radial luma denoise, chroma denoise. See post.h. */
++#include <errno.h>
++#include <math.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "post.h"
++
++#if defined(__aarch64__) && !defined(CDN_NO_NEON)
++#include <arm_neon.h>
++#define CDN_NEON 1
++#else
++#define CDN_NEON 0
++#endif
++
++#define PAD 2		/* luma border for the 5-tap reach */
++#define CR 3		/* chroma box radius: 7x7 */
++#define CBOX 7
++#define LUMA_TAPS 13	/* 12 neighbours and the centre */
++
++void cdn_post_cfg_defaults(struct cdn_post_cfg *c)
++{
++	*c = (struct cdn_post_cfg){
++		.enabled = true,
++		.impulse = 24,
++		.luma = 1.0f,
++		.luma_clip_center = 6,
++		.luma_clip_edge = 22,
++		.chroma = 1.0f,
++		.chroma_clip_center = 8,
++		.chroma_clip_edge = 24,
++	};
++}
++
++struct cdn_post {
++	struct cdn_post_cfg cfg;
++	int w, h, cw, ch;
++	int ls;			/* padded luma stride */
++	int impulse;
++	int luma_mul;		/* strength / 13 in 16.16 */
++	int chroma_s8;		/* strength in 1/256 */
++	uint8_t *pa, *pb;	/* padded luma planes: input copy, impulse-cleaned */
++	uint8_t *tmap;		/* luma clip level per pixel */
++	uint8_t *ctmap;		/* chroma clip level per sample */
++	uint16_t *crmap;	/* 65536 / clip */
++	uint8_t *cp;		/* padded chroma plane, (cw + 2 CR) wide */
++	uint16_t *hsum;		/* horizontal 7-sums, cw x ch */
++	uint8_t *u, *v;		/* deinterleaved chroma, cw x ch */
++};
++
++static int clampi(int v, int lo, int hi)
++{
++	return v < lo ? lo : v > hi ? hi : v;
++}
++
++/* clip level at normalised radius r (0 centre, 1 corner): c + (e - c) r^3 */
++static void radial_map(uint8_t *t, uint16_t *recip, int w, int h, int c, int e)
++{
++	double cx = (w - 1) / 2.0, cy = (h - 1) / 2.0, R = sqrt(cx * cx + cy * cy);
++
++	for (int y = 0; y < h; y++)
++		for (int x = 0; x < w; x++) {
++			double r = sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) / R;
++			int v = clampi((int)(c + (e - c) * r * r * r + 0.5), 1, 255);
++			t[(size_t)y * w + x] = (uint8_t)v;
++			if (recip)
++				recip[(size_t)y * w + x] = (uint16_t)(65536 / v > 65535 ? 65535 : 65536 / v);
++		}
++}
++
++struct cdn_post *cdn_post_create(int width, int height, const struct cdn_post_cfg *cfg)
++{
++	struct cdn_post *p;
++	bool do_luma, do_chroma;
++
++	if (!cfg || !cfg->enabled || width < 16 || height < 16 || (width & 1) || (height & 1))
++		return NULL;
++	do_luma = cfg->luma > 0;
++	do_chroma = cfg->chroma > 0;
++	if (cfg->impulse <= 0 && !do_luma && !do_chroma)
++		return NULL;
++	p = calloc(1, sizeof(*p));
++	if (!p)
++		return NULL;
++	p->cfg = *cfg;
++	p->w = width;
++	p->h = height;
++	p->cw = width / 2;
++	p->ch = height / 2;
++	p->ls = width + 2 * PAD;
++	p->impulse = clampi(cfg->impulse, 0, 255);
++	p->luma_mul = (int)(clampi((int)(cfg->luma * 1000), 0, 1000) / 1000.0 * 65536.0 / LUMA_TAPS + 0.5);
++	p->chroma_s8 = (int)(clampi((int)(cfg->chroma * 1000), 0, 1000) * 256 / 1000);
++	size_t padded = (size_t)p->ls * (height + 2 * PAD);
++	p->pa = malloc(padded);
++	if (p->impulse)
++		p->pb = malloc(padded);
++	if (do_luma) {
++		p->tmap = malloc((size_t)width * height);
++		if (p->tmap)
++			radial_map(p->tmap, NULL, width, height,
++				   clampi(cfg->luma_clip_center, 1, 255), clampi(cfg->luma_clip_edge, 1, 255));
++	}
++	if (do_chroma) {
++		size_t n = (size_t)p->cw * p->ch;
++		p->ctmap = malloc(n);
++		p->crmap = malloc(n * sizeof(uint16_t));
++		p->cp = malloc((size_t)(p->cw + 2 * CR));
++		p->hsum = malloc(n * sizeof(uint16_t));
++		p->u = malloc(n);
++		p->v = malloc(n);
++		if (p->ctmap && p->crmap)
++			radial_map(p->ctmap, p->crmap, p->cw, p->ch,
++				   clampi(cfg->chroma_clip_center, 1, 255), clampi(cfg->chroma_clip_edge, 1, 255));
++	}
++	if (!p->pa || (p->impulse && !p->pb) || (do_luma && !p->tmap) ||
++	    (do_chroma && (!p->ctmap || !p->crmap || !p->cp || !p->hsum || !p->u || !p->v))) {
++		cdn_post_destroy(p);
++		return NULL;
++	}
++	return p;
++}
++
++void cdn_post_destroy(struct cdn_post *p)
++{
++	if (!p)
++		return;
++	free(p->pa); free(p->pb); free(p->tmap); free(p->ctmap); free(p->crmap);
++	free(p->cp); free(p->hsum); free(p->u); free(p->v);
++	free(p);
++}
++
++/* ---------------------------------------------------------------------- */
++/* luma */
++
++static void pad_borders(uint8_t *plane, int w, int h, int stride)
++{
++	for (int y = 0; y < h; y++) {
++		uint8_t *r = plane + (size_t)(y + PAD) * stride + PAD;
++		for (int k = 1; k <= PAD; k++) {
++			r[-k] = r[0];
++			r[w - 1 + k] = r[w - 1];
++		}
++	}
++	for (int k = 1; k <= PAD; k++) {
++		memcpy(plane + (size_t)(PAD - k) * stride, plane + (size_t)PAD * stride, stride);
++		memcpy(plane + (size_t)(PAD + h - 1 + k) * stride,
++		       plane + (size_t)(PAD + h - 1) * stride, stride);
++	}
++}
++
++static inline int min_i(int a, int b) { return a < b ? a : b; }
++static inline int max_i(int a, int b) { return a > b ? a : b; }
++
++static inline uint8_t impulse_px(const uint8_t *r, int S, int T)
++{
++	int a = r[-S - 1], b = r[-S], c = r[-S + 1], d = r[-1], e = r[1];
++	int f = r[S - 1], g = r[S], h = r[S + 1], p = r[0];
++	int lo1 = min_i(a, b), lo2 = max_i(a, b), n;
++
++	n = c; lo2 = min_i(lo2, max_i(lo1, n)); lo1 = min_i(lo1, n);
++	n = d; lo2 = min_i(lo2, max_i(lo1, n)); lo1 = min_i(lo1, n);
++	n = e; lo2 = min_i(lo2, max_i(lo1, n)); lo1 = min_i(lo1, n);
++	n = f; lo2 = min_i(lo2, max_i(lo1, n)); lo1 = min_i(lo1, n);
++	n = g; lo2 = min_i(lo2, max_i(lo1, n)); lo1 = min_i(lo1, n);
++	n = h; lo2 = min_i(lo2, max_i(lo1, n)); lo1 = min_i(lo1, n);
++	if (p + T < lo2) {
++		int m1 = max_i(min_i(b, g), min_i(d, e));
++		int m2 = min_i(max_i(b, g), max_i(d, e));
++		return (uint8_t)((m1 + m2 + 1) >> 1);
++	}
++	return (uint8_t)p;
++}
++
++static void impulse_rows(const struct cdn_post *s, bool neon)
++{
++	const int S = s->ls, w = s->w;
++	const int T = s->impulse;
++
++	for (int y = 0; y < s->h; y++) {
++		const uint8_t *r = s->pa + (size_t)(y + PAD) * S + PAD;
++		uint8_t *o = s->pb + (size_t)(y + PAD) * S + PAD;
++		int x = 0;
++#if CDN_NEON
++		if (neon) {
++			uint8x16_t tv = vdupq_n_u8((uint8_t)T);
++			for (; x + 16 <= w; x += 16) {
++				const uint8_t *q = r + x;
++				uint8x16_t a = vld1q_u8(q - S - 1), b = vld1q_u8(q - S), c = vld1q_u8(q - S + 1);
++				uint8x16_t d = vld1q_u8(q - 1), e = vld1q_u8(q + 1), p = vld1q_u8(q);
++				uint8x16_t f = vld1q_u8(q + S - 1), g = vld1q_u8(q + S), h = vld1q_u8(q + S + 1);
++				uint8x16_t lo1 = vminq_u8(a, b), lo2 = vmaxq_u8(a, b);
++#define STEP(n) lo2 = vminq_u8(lo2, vmaxq_u8(lo1, n)); lo1 = vminq_u8(lo1, n)
++				STEP(c); STEP(d); STEP(e); STEP(f); STEP(g); STEP(h);
++#undef STEP
++				uint8x16_t m1 = vmaxq_u8(vminq_u8(b, g), vminq_u8(d, e));
++				uint8x16_t m2 = vminq_u8(vmaxq_u8(b, g), vmaxq_u8(d, e));
++				uint8x16_t rep = vrhaddq_u8(m1, m2);
++				uint8x16_t mask = vcltq_u8(p, vqsubq_u8(lo2, tv));
++				vst1q_u8(o + x, vbslq_u8(mask, rep, p));
++			}
++		}
++#endif
++		(void)neon;
++		for (; x < w; x++)
++			o[x] = impulse_px(r + x, S, T);
++	}
++}
++
++static inline uint8_t clip_px(const uint8_t *r, int S, int t, int mul)
++{
++	static const int8_t off[12][2] = {
++		{-1,-1},{0,-1},{1,-1},{-1,0},{1,0},{-1,1},{0,1},{1,1},{0,-2},{0,2},{-2,0},{2,0},
++	};
++	int p = r[0], sum = 0;
++
++	for (int k = 0; k < 12; k++) {
++		int d = r[off[k][1] * S + off[k][0]] - p;
++		sum += d > t ? t : d < -t ? -t : d;
++	}
++	return (uint8_t)clampi(p + ((sum * mul + 32768) >> 16), 0, 255);
++}
++
++static void clip_rows(const struct cdn_post *s, const uint8_t *src, struct cdn_frame *f, bool neon)
++{
++	const int S = s->ls, w = s->w, mul = s->luma_mul;
++
++	for (int y = 0; y < s->h; y++) {
++		const uint8_t *r = src + (size_t)(y + PAD) * S + PAD;
++		const uint8_t *tm = s->tmap + (size_t)y * w;
++		uint8_t *o = f->y + (size_t)y * f->stride_y;
++		int x = 0;
++#if CDN_NEON
++		if (neon) {
++			int16x4_t mv = vdup_n_s16((int16_t)mul);
++			int32x4_t rnd = vdupq_n_s32(32768);
++			for (; x + 16 <= w; x += 16) {
++				const uint8_t *q = r + x;
++				uint8x16_t p = vld1q_u8(q), t = vld1q_u8(tm + x);
++				uint16x8_t pl = vdupq_n_u16(0), ph = pl, nl = pl, nh = pl;
++#define TAP(off) do { uint8x16_t n_ = vld1q_u8(q + (off)); \
++				uint8x16_t u_ = vminq_u8(vqsubq_u8(n_, p), t), d_ = vminq_u8(vqsubq_u8(p, n_), t); \
++				pl = vaddw_u8(pl, vget_low_u8(u_)); ph = vaddw_high_u8(ph, u_); \
++				nl = vaddw_u8(nl, vget_low_u8(d_)); nh = vaddw_high_u8(nh, d_); } while (0)
++				TAP(-S - 1); TAP(-S); TAP(-S + 1); TAP(-1); TAP(1); TAP(S - 1); TAP(S); TAP(S + 1);
++				TAP(-2 * S); TAP(2 * S); TAP(-2); TAP(2);
++#undef TAP
++				int16x8_t sl = vreinterpretq_s16_u16(vsubq_u16(pl, nl));
++				int16x8_t sh = vreinterpretq_s16_u16(vsubq_u16(ph, nh));
++				int16x4_t d0 = vshrn_n_s32(vaddq_s32(vmull_s16(vget_low_s16(sl), mv), rnd), 16);
++				int16x4_t d1 = vshrn_n_s32(vaddq_s32(vmull_s16(vget_high_s16(sl), mv), rnd), 16);
++				int16x4_t d2 = vshrn_n_s32(vaddq_s32(vmull_s16(vget_low_s16(sh), mv), rnd), 16);
++				int16x4_t d3 = vshrn_n_s32(vaddq_s32(vmull_s16(vget_high_s16(sh), mv), rnd), 16);
++				int16x8_t dl = vcombine_s16(d0, d1), dh = vcombine_s16(d2, d3);
++				int16x8_t p0 = vreinterpretq_s16_u16(vmovl_u8(vget_low_u8(p)));
++				int16x8_t p1 = vreinterpretq_s16_u16(vmovl_high_u8(p));
++				vst1q_u8(o + x, vcombine_u8(vqmovun_s16(vaddq_s16(p0, dl)),
++							    vqmovun_s16(vaddq_s16(p1, dh))));
++			}
++		}
++#endif
++		(void)neon;
++		for (; x < w; x++)
++			o[x] = clip_px(r + x, S, tm[x], mul);
++	}
++}
++
++/* ---------------------------------------------------------------------- */
++/* chroma */
++
++static void chroma_plane(const struct cdn_post *s, uint8_t *plane, uint8_t *dst, int dstride, int dstep)
++{
++	const int cw = s->cw, ch = s->ch;
++	const int s8 = s->chroma_s8;
++	uint16_t *hs = s->hsum;
++	uint8_t *cp = s->cp;
++
++	for (int y = 0; y < ch; y++) {
++		const uint8_t *src = plane + (size_t)y * cw;
++		uint16_t *h = hs + (size_t)y * cw;
++		memcpy(cp + CR, src, cw);
++		for (int k = 0; k < CR; k++) {
++			cp[k] = src[0];
++			cp[CR + cw + k] = src[cw - 1];
++		}
++		for (int x = 0; x < cw; x++)
++			h[x] = cp[x];
++		for (int k = 1; k < CBOX; k++)
++			for (int x = 0; x < cw; x++)
++				h[x] = (uint16_t)(h[x] + cp[x + k]);
++	}
++	for (int y = 0; y < ch; y++) {
++		const uint8_t *src = plane + (size_t)y * cw;
++		const uint8_t *tm = s->ctmap + (size_t)y * cw;
++		const uint16_t *rm = s->crmap + (size_t)y * cw;
++		uint8_t *d = dst + (size_t)y * dstride;
++		const uint16_t *rows[CBOX];
++
++		for (int k = 0; k < CBOX; k++)
++			rows[k] = hs + (size_t)clampi(y + k - CR, 0, ch - 1) * cw;
++		for (int x = 0; x < cw; x++) {
++			uint32_t sum = 0;
++			for (int k = 0; k < CBOX; k++)
++				sum += rows[k][x];
++			int b = (int)((sum * 1337u + 32768u) >> 16);
++			int p = src[x], diff = b - p, a = diff < 0 ? -diff : diff, t = tm[x];
++			int fade = a < t ? t - a : 0;
++			int delta = (int)(((int64_t)diff * fade * rm[x]) >> 16);
++			delta = (delta * s8 + 128) >> 8;
++			d[(size_t)x * dstep] = (uint8_t)clampi(p + delta, 0, 255);
++		}
++	}
++}
++
++static void chroma_stage(const struct cdn_post *s, struct cdn_frame *f)
++{
++	const int cw = s->cw, ch = s->ch;
++
++	for (int y = 0; y < ch; y++) {
++		const uint8_t *r = f->uv + (size_t)y * f->stride_uv;
++		uint8_t *u = s->u + (size_t)y * cw, *v = s->v + (size_t)y * cw;
++		for (int x = 0; x < cw; x++) {
++			u[x] = r[2 * x];
++			v[x] = r[2 * x + 1];
++		}
++	}
++	/* write back interleaved: U to even bytes, V to odd, per row */
++	chroma_plane(s, s->u, f->uv, f->stride_uv, 2);
++	chroma_plane(s, s->v, f->uv + 1, f->stride_uv, 2);
++}
++
++/* ---------------------------------------------------------------------- */
++
++int cdn_post_process_ex(struct cdn_post *p, struct cdn_frame *f, bool neon)
++{
++	if (!p)
++		return 0;
++	if (f->width != p->w || f->height != p->h)
++		return -EINVAL;
++	if (p->impulse || p->tmap) {
++		for (int y = 0; y < p->h; y++)
++			memcpy(p->pa + (size_t)(y + PAD) * p->ls + PAD, f->y + (size_t)y * f->stride_y, p->w);
++		pad_borders(p->pa, p->w, p->h, p->ls);
++		const uint8_t *src = p->pa;
++		if (p->impulse) {
++			impulse_rows(p, neon);
++			pad_borders(p->pb, p->w, p->h, p->ls);
++			src = p->pb;
++		}
++		if (p->tmap)
++			clip_rows(p, src, f, neon);
++		else
++			for (int y = 0; y < p->h; y++)
++				memcpy(f->y + (size_t)y * f->stride_y, src + (size_t)(y + PAD) * p->ls + PAD, p->w);
++	}
++	if (p->ctmap && p->chroma_s8)
++		chroma_stage(p, f);
++	return 0;
++}
+diff -ruN a/src/post/post.h b/src/post/post.h
+--- a/src/post/post.h
++++ b/src/post/post.h
+@@ -0,0 +1,52 @@
++/* SPDX-License-Identifier: MIT */
++/*
++ * Post stage: runs in place on the NV12 frame after the temporal stage.
++ *
++ *  1. Impulse removal on luma: a pixel that is more than `impulse` below the
++ *     2nd-darkest of its 8 neighbours is replaced by the mean of the two
++ *     middle values of its 4 direct neighbours. Thin dark lines survive (their
++ *     own neighbours are dark too).
++ *  2. Radial luma denoise: an edge-clipped mean over 13 taps (3x3 plus the
++ *     distance-2 cross), each tap's difference clipped at a level that grows
++ *     with the distance from the image centre: lens-shading gain makes the
++ *     corners about 4x noisier than the middle, so they get a wider clip.
++ *  3. Chroma denoise: the UV planes are blurred with a 7x7 box (blotchy,
++ *     low-frequency noise) and each sample moves towards the blur by an amount
++ *     that fades to zero where the difference approaches the local clip level,
++ *     so coloured edges stay.
++ *
++ * Integer arithmetic; the NEON and scalar luma paths give bit-identical
++ * results (tests/test_post.c). Chroma is one portable C path.
++ */
++#ifndef CDN_POST_H
++#define CDN_POST_H
++
++#include <stdbool.h>
++#include "../backend.h"
++
++struct cdn_post_cfg {
++	bool enabled;
++	int impulse;		/* dark-impulse threshold in luma levels, 0 = off */
++	float luma;		/* 0..1 strength of the radial luma stage, 0 = off */
++	int luma_clip_center;	/* clip level at the centre, luma levels */
++	int luma_clip_edge;	/* clip level at the corners */
++	float chroma;		/* 0..1 strength of the chroma stage, 0 = off */
++	int chroma_clip_center;
++	int chroma_clip_edge;
++};
++
++void cdn_post_cfg_defaults(struct cdn_post_cfg *c);
++
++struct cdn_post;
++
++/* NULL when disabled, nothing to do, or on odd/tiny sizes or allocation failure */
++struct cdn_post *cdn_post_create(int width, int height, const struct cdn_post_cfg *cfg);
++void cdn_post_destroy(struct cdn_post *p);
++/* In place. neon=false forces the scalar luma path (tests compare the two). */
++int cdn_post_process_ex(struct cdn_post *p, struct cdn_frame *f, bool neon);
++static inline int cdn_post_process(struct cdn_post *p, struct cdn_frame *f)
++{
++	return cdn_post_process_ex(p, f, true);
++}
++
++#endif
+diff -ruN a/tests/test_config.c b/tests/test_config.c
+--- a/tests/test_config.c
++++ b/tests/test_config.c
+@@ -39,6 +39,9 @@
+ 	CHECK(c.mode == CDN_MODE_AUTO && !strcmp(c.backend, "auto"));
+ 	CHECK(c.temporal);
+ 	CHECK(c.low_light_frame_rate);
++	/* the post stage is on by default; anti-flicker is left alone */
++	CHECK(c.post.enabled && c.post.impulse == 24 && c.post.luma == 1.0f && c.post.chroma == 1.0f);
++	CHECK(c.post.luma_clip_center < c.post.luma_clip_edge && c.power_line == 0);
+ 	/* auto tries the encoder's filter (kept only on its full hardware
+ 	 * path); the GPU costs more energy than the CPU, so it is opt-in */
+ 	CHECK(!strcmp(c.temporal_backend, "auto"));
+@@ -71,6 +74,23 @@
+ 	CHECK(cdn_config_load(&c, compat, boards, NULL, 0) == 0);
+ 	CHECK(!c.framing.supported);
+ 	f = fopen(user, "a"); fputs("framing-zoom-default = 7\n", f); fclose(f);
++	CHECK(cdn_config_load(&c, compat, boards, s1, 2) != 0);
++
++	f = fopen(user, "w");
++	fputs("[denoise]\npost = off\npost-impulse = 40\npost-luma = 0.5\npost-luma-clip-center = 4\n"
++	      "post-luma-clip-edge = 30\npost-chroma = 0\npost-chroma-clip-edge = 12\npower-line = 60\n", f);
++	fclose(f);
++	CHECK(cdn_config_load(&c, compat, boards, s1, 2) == 0);
++	CHECK(!c.post.enabled && c.post.impulse == 40 && c.post.luma == 0.5f && c.post.chroma == 0);
++	CHECK(c.post.luma_clip_center == 4 && c.post.luma_clip_edge == 30 && c.post.chroma_clip_edge == 12);
++	CHECK(c.power_line == 60);
++	f = fopen(user, "w"); fputs("[denoise]\npower-line = auto\n", f); fclose(f);
++	CHECK(cdn_config_load(&c, compat, boards, s1, 2) == 0 && c.power_line == -1);
++	f = fopen(user, "w"); fputs("[denoise]\npower-line = 55\n", f); fclose(f);
++	CHECK(cdn_config_load(&c, compat, boards, s1, 2) != 0);
++	f = fopen(user, "w"); fputs("[denoise]\npost-luma = 1.5\n", f); fclose(f);
++	CHECK(cdn_config_load(&c, compat, boards, s1, 2) != 0);
++	f = fopen(user, "w"); fputs("[denoise]\npost-chroma-clip-center = 0\n", f); fclose(f);
+ 	CHECK(cdn_config_load(&c, compat, boards, s1, 2) != 0);
+ 
+ 	f = fopen(user, "w");
+diff -ruN a/tests/test_post.c b/tests/test_post.c
+--- a/tests/test_post.c
++++ b/tests/test_post.c
+@@ -0,0 +1,346 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Post stage: dark impulses go, noise drops (more at the corners, where the
++ * lens-shading gain makes it larger), edges and thin lines stay, and the NEON
++ * and scalar luma paths agree bit for bit.
++ */
++#include <math.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "../src/post/post.h"
++
++static uint32_t rng = 987654321u;
++static uint32_t rnd(void)
++{
++	rng = rng * 1664525u + 1013904223u;
++	return rng >> 8;
++}
++static double gauss(void)
++{
++	double u = (rnd() + 1) / 16777217.0, v = (rnd() + 1) / 16777217.0;
++	return sqrt(-2 * log(u)) * cos(6.283185307179586 * v);
++}
++static int clamp8(double v) { return v < 0 ? 0 : v > 255 ? 255 : (int)(v + 0.5); }
++
++struct img {
++	int w, h, sy, suv;
++	uint8_t *y, *uv;
++};
++
++static struct img alloc_img(int w, int h)
++{
++	struct img i = { w, h, w + 64, w + 32, NULL, NULL };
++	i.y = calloc((size_t)i.sy, h);
++	i.uv = calloc((size_t)i.suv, h / 2);
++	return i;
++}
++static void free_img(struct img *i) { free(i->y); free(i->uv); }
++static struct cdn_frame fr(struct img *i)
++{
++	return (struct cdn_frame){ i->y, i->uv, i->w, i->h, i->sy, i->suv };
++}
++static void copy_img(struct img *d, const struct img *s)
++{
++	memcpy(d->y, s->y, (size_t)s->sy * s->h);
++	memcpy(d->uv, s->uv, (size_t)s->suv * s->h / 2);
++}
++
++#define EDGE_STEP 80
++#define LINE_DROP 50
++#define LINE_X 100
++#define UEDGE 50
++
++/* clean scene: gradient, one vertical step edge, one 1 px dark line, a chroma step */
++static void truth(struct img *t)
++{
++	int W = t->w, H = t->h;
++	for (int y = 0; y < H; y++)
++		for (int x = 0; x < W; x++) {
++			int v = 60 + x / 8 + (x >= W / 2 ? EDGE_STEP : 0);
++			if (x == LINE_X && y >= H / 4 && y < 3 * H / 4)
++				v -= LINE_DROP;
++			t->y[(size_t)y * t->sy + x] = (uint8_t)v;
++		}
++	for (int y = 0; y < H / 2; y++)
++		for (int x = 0; x < W / 2; x++) {
++			t->uv[(size_t)y * t->suv + 2 * x] = (uint8_t)(128 + (x >= W / 4 ? UEDGE : 0));
++			t->uv[(size_t)y * t->suv + 2 * x + 1] = (uint8_t)(120 + (y >= H / 4 ? 30 : 0));
++		}
++}
++
++static double radius(int x, int y, int W, int H)
++{
++	double cx = (W - 1) / 2.0, cy = (H - 1) / 2.0;
++	return sqrt(((x - cx) * (x - cx) + (y - cy) * (y - cy)) / (cx * cx + cy * cy));
++}
++
++/* radial luma noise, blotchy radial chroma noise, 1.3% dark impulses */
++static void add_noise(struct img *n, const struct img *t, double impulse_rate)
++{
++	int W = t->w, H = t->h;
++	copy_img(n, t);
++	for (int y = 0; y < H; y++)
++		for (int x = 0; x < W; x++) {
++			double r = radius(x, y, W, H), sd = 1.5 + 5.5 * r * r * r;
++			n->y[(size_t)y * n->sy + x] = (uint8_t)clamp8(t->y[(size_t)y * t->sy + x] + gauss() * sd);
++			if ((rnd() & 0xffff) < impulse_rate * 65536) {
++				int drop = 60 + (int)(rnd() % 50);
++				int v = n->y[(size_t)y * n->sy + x] - drop;
++				n->y[(size_t)y * n->sy + x] = (uint8_t)(v < 0 ? 0 : v);
++			}
++		}
++	/* chroma: a 4x4-sample blotch field plus fine noise */
++	int cw = W / 2, ch = H / 2, bw = (cw + 3) / 4, bh = (ch + 3) / 4;
++	double *blob = malloc(sizeof(double) * 2 * bw * bh);
++	for (int i = 0; i < 2 * bw * bh; i++)
++		blob[i] = gauss();
++	for (int y = 0; y < ch; y++)
++		for (int x = 0; x < cw; x++) {
++			double r = radius(x * 2, y * 2, W, H), sd = 1.0 + 3.5 * r * r * r;
++			for (int c = 0; c < 2; c++) {
++				double v = 0.8 * blob[c * bw * bh + (y / 4) * bw + x / 4] * sd + 0.6 * gauss() * sd;
++				uint8_t *p = n->uv + (size_t)y * n->suv + 2 * x + c;
++				*p = (uint8_t)clamp8(*p + v);
++			}
++		}
++	free(blob);
++}
++
++/* RMS error against truth in the flat part of an annulus (no edge, no line) */
++static double rms_y(const struct img *a, const struct img *t, double r0, double r1, int skip_impulse, const struct img *noisy)
++{
++	double e = 0;
++	long n = 0;
++	for (int y = 0; y < t->h; y++)
++		for (int x = 0; x < t->w; x++) {
++			double r = radius(x, y, t->w, t->h);
++			if (r < r0 || r >= r1 || abs(x - t->w / 2) < 6 || abs(x - LINE_X) < 6 || x < 3 || x >= t->w - 3 || y < 3 || y >= t->h - 3)
++				continue;
++			int tv = t->y[(size_t)y * t->sy + x];
++			/* the noisy frame's own impulses are compared separately */
++			if (skip_impulse && tv - noisy->y[(size_t)y * noisy->sy + x] > 30)
++				continue;
++			double d = a->y[(size_t)y * a->sy + x] - tv;
++			e += d * d;
++			n++;
++		}
++	return sqrt(e / n);
++}
++
++static double rms_uv(const struct img *a, const struct img *t, double r0, double r1)
++{
++	double e = 0;
++	long n = 0;
++	for (int y = 4; y < t->h / 2 - 4; y++)
++		for (int x = 4; x < t->w / 2 - 4; x++) {
++			double r = radius(x * 2, y * 2, t->w, t->h);
++			if (r < r0 || r >= r1 || abs(x - t->w / 4) < 5 || abs(y - t->h / 4) < 5)
++				continue;
++			for (int c = 0; c < 2; c++) {
++				double d = (double)a->uv[(size_t)y * a->suv + 2 * x + c] - t->uv[(size_t)y * t->suv + 2 * x + c];
++				e += d * d;
++				n++;
++			}
++		}
++	return sqrt(e / n);
++}
++
++static double impulse_frac(const struct img *a, const struct img *t)
++{
++	long n = 0, bad = 0;
++	for (int y = 3; y < t->h - 3; y++)
++		for (int x = 3; x < t->w - 3; x++) {
++			if (abs(x - t->w / 2) < 4 || abs(x - LINE_X) < 4)
++				continue;
++			n++;
++			if (t->y[(size_t)y * t->sy + x] - a->y[(size_t)y * a->sy + x] > 30)
++				bad++;
++		}
++	return (double)bad / n;
++}
++
++static int fails;
++#define CHECK(cond, ...) do { if (!(cond)) { fprintf(stderr, "FAIL: " __VA_ARGS__); fprintf(stderr, "\n"); fails++; } } while (0)
++
++static int same(const struct img *a, const struct img *b)
++{
++	for (int y = 0; y < a->h; y++)
++		if (memcmp(a->y + (size_t)y * a->sy, b->y + (size_t)y * b->sy, a->w) ||
++		    (y < a->h / 2 && memcmp(a->uv + (size_t)y * a->suv, b->uv + (size_t)y * b->suv, a->w)))
++			return 0;
++	return 1;
++}
++
++static void test_noise_and_edges(void)
++{
++	const int W = 640, H = 360;
++	struct img t = alloc_img(W, H), n = alloc_img(W, H), o = alloc_img(W, H);
++	struct cdn_post_cfg cfg;
++	cdn_post_cfg_defaults(&cfg);
++	truth(&t);
++	add_noise(&n, &t, 0.013);
++	copy_img(&o, &n);
++	struct cdn_post *p = cdn_post_create(W, H, &cfg);
++	struct cdn_frame f = fr(&o);
++	CHECK(p != NULL, "create with defaults");
++	CHECK(cdn_post_process(p, &f) == 0, "process");
++
++	double fi = impulse_frac(&n, &t), fo = impulse_frac(&o, &t);
++	printf("dark impulses (>30 below truth): %.2f%% -> %.3f%% of pixels\n", fi * 100, fo * 100);
++	CHECK(fi > 0.010, "test frame should hold >1%% impulses (has %.2f%%)", fi * 100);
++	CHECK(fo < 0.0015, "impulses left %.3f%% (want < 0.15%%)", fo * 100);
++
++	static const double r0[3] = { 0, 0.6, 0.9 }, r1[3] = { 0.3, 0.9, 1.01 };
++	static const double want_y[3] = { 1.3, 2.0, 2.5 };
++	for (int i = 0; i < 3; i++) {
++		double a = rms_y(&n, &t, r0[i], r1[i], 1, &n), b = rms_y(&o, &t, r0[i], r1[i], 1, &n);
++		printf("luma rms vs truth, r %.1f-%.1f: %.2f -> %.2f (x%.2f)\n", r0[i], r1[i], a, b, a / b);
++		CHECK(a / b >= want_y[i], "luma noise ratio %.2f < %.2f at r %.1f-%.1f", a / b, want_y[i], r0[i], r1[i]);
++	}
++	for (int i = 0; i < 3; i++) {
++		double a = rms_uv(&n, &t, r0[i], r1[i]), b = rms_uv(&o, &t, r0[i], r1[i]);
++		printf("chroma rms vs truth, r %.1f-%.1f: %.2f -> %.2f (x%.2f)\n", r0[i], r1[i], a, b, a / b);
++		CHECK(a / b >= (i ? 1.5 : 1.3), "chroma noise ratio %.2f too low at r %.1f-%.1f", a / b, r0[i], r1[i]);
++	}
++
++	/* edges: mean contrast across the step, the thin line, and the chroma step */
++	double hi = 0, lo = 0, line = 0, side = 0, u_hi = 0, u_lo = 0;
++	int rows = 0;
++	for (int y = 40; y < H - 40; y++, rows++) {
++		hi += o.y[(size_t)y * o.sy + W / 2];
++		lo += o.y[(size_t)y * o.sy + W / 2 - 1];
++		if (y >= H / 4 + 4 && y < 3 * H / 4 - 4) {
++			line += o.y[(size_t)y * o.sy + LINE_X];
++			side += (o.y[(size_t)y * o.sy + LINE_X - 2] + o.y[(size_t)y * o.sy + LINE_X + 2]) / 2.0;
++		}
++	}
++	double step = (hi - lo) / rows;
++	printf("step edge contrast kept: %.1f of %d\n", step, EDGE_STEP);
++	CHECK(step > 0.9 * EDGE_STEP, "step edge softened to %.1f of %d", step, EDGE_STEP);
++	int lrows = 3 * H / 4 - 4 - (H / 4 + 4);
++	double ldepth = (side - line) / lrows;
++	printf("1 px dark line depth kept: %.1f of %d\n", ldepth, LINE_DROP);
++	CHECK(ldepth > 0.75 * LINE_DROP, "thin line faded to %.1f of %d", ldepth, LINE_DROP);
++	int ucols = 0;
++	for (int y = 10; y < H / 2 - 10; y++, ucols++) {
++		u_hi += o.uv[(size_t)y * o.suv + 2 * (W / 4)];
++		u_lo += o.uv[(size_t)y * o.suv + 2 * (W / 4 - 1)];
++	}
++	double ustep = (u_hi - u_lo) / ucols;
++	printf("chroma step contrast kept: %.1f of %d\n", ustep, UEDGE);
++	CHECK(ustep > 0.85 * UEDGE, "chroma edge softened to %.1f of %d", ustep, UEDGE);
++
++	/* stateless: the same input gives the same output */
++	struct img o2 = alloc_img(W, H);
++	copy_img(&o2, &n);
++	struct cdn_frame f2 = fr(&o2);
++	cdn_post_process(p, &f2);
++	CHECK(same(&o, &o2), "second run differs");
++	cdn_post_destroy(p);
++	free_img(&t); free_img(&n); free_img(&o); free_img(&o2);
++}
++
++static void test_stages_alone(void)
++{
++	const int W = 640, H = 360;
++	struct img t = alloc_img(W, H), n = alloc_img(W, H), o = alloc_img(W, H);
++	truth(&t);
++	add_noise(&n, &t, 0.013);
++
++	/* impulse only: luma changes only where a pixel was a dark outlier; chroma and the line are untouched */
++	struct cdn_post_cfg c;
++	cdn_post_cfg_defaults(&c);
++	c.luma = 0; c.chroma = 0;
++	copy_img(&o, &n);
++	struct cdn_post *p = cdn_post_create(W, H, &c);
++	struct cdn_frame f = fr(&o);
++	cdn_post_process(p, &f);
++	cdn_post_destroy(p);
++	long changed = 0;
++	for (int y = 0; y < H; y++)
++		for (int x = 0; x < W; x++)
++			changed += o.y[(size_t)y * o.sy + x] != n.y[(size_t)y * n.sy + x];
++	CHECK(changed < (long)(W * H * 0.02), "impulse-only changed %ld pixels", changed);
++	CHECK(impulse_frac(&o, &t) < 0.0015, "impulse-only left impulses");
++	CHECK(!memcmp(o.uv, n.uv, (size_t)o.suv * (H / 2)), "impulse-only touched chroma");
++
++	/* a 1 px dark line with no noise is exactly preserved by the impulse stage */
++	struct img clean = alloc_img(W, H), co = alloc_img(W, H);
++	truth(&clean);
++	copy_img(&co, &clean);
++	p = cdn_post_create(W, H, &c);
++	struct cdn_frame fc = fr(&co);
++	cdn_post_process(p, &fc);
++	cdn_post_destroy(p);
++	/* only the two end pixels of the line may go (an end pixel has one dark neighbour) */
++	long moved = 0, stray = 0;
++	for (int y = 0; y < H; y++)
++		for (int x = 0; x < W; x++)
++			if (clean.y[(size_t)y * clean.sy + x] != co.y[(size_t)y * co.sy + x]) {
++				moved++;
++				stray += !(x == LINE_X && (y == H / 4 || y == 3 * H / 4 - 1));
++			}
++	CHECK(stray == 0 && moved <= 2, "impulse stage altered a clean frame: %ld pixels, %ld not at the line ends", moved, stray);
++	CHECK(!memcmp(clean.uv, co.uv, (size_t)co.suv * (H / 2)), "impulse stage touched clean chroma");
++
++	/* chroma only leaves luma alone; luma only leaves chroma alone */
++	cdn_post_cfg_defaults(&c);
++	c.impulse = 0; c.luma = 0;
++	copy_img(&o, &n);
++	p = cdn_post_create(W, H, &c);
++	f = fr(&o);
++	cdn_post_process(p, &f);
++	cdn_post_destroy(p);
++	CHECK(!memcmp(o.y, n.y, (size_t)o.sy * H), "chroma-only touched luma");
++	CHECK(memcmp(o.uv, n.uv, (size_t)o.suv * (H / 2)), "chroma-only did nothing");
++	cdn_post_cfg_defaults(&c);
++	c.impulse = 0; c.chroma = 0;
++	copy_img(&o, &n);
++	p = cdn_post_create(W, H, &c);
++	f = fr(&o);
++	cdn_post_process(p, &f);
++	cdn_post_destroy(p);
++	CHECK(!memcmp(o.uv, n.uv, (size_t)o.suv * (H / 2)), "luma-only touched chroma");
++
++	/* disabled or empty config makes no stage */
++	cdn_post_cfg_defaults(&c);
++	c.enabled = false;
++	CHECK(cdn_post_create(W, H, &c) == NULL, "disabled config made a stage");
++	cdn_post_cfg_defaults(&c);
++	c.impulse = 0; c.luma = 0; c.chroma = 0;
++	CHECK(cdn_post_create(W, H, &c) == NULL, "all stages off made a stage");
++	free_img(&t); free_img(&n); free_img(&o); free_img(&clean); free_img(&co);
++}
++
++static void test_neon_scalar(int W, int H)
++{
++	struct img t = alloc_img(W, H), n = alloc_img(W, H), a = alloc_img(W, H), b = alloc_img(W, H);
++	struct cdn_post_cfg c;
++	cdn_post_cfg_defaults(&c);
++	truth(&t);
++	add_noise(&n, &t, 0.013);
++	copy_img(&a, &n);
++	copy_img(&b, &n);
++	struct cdn_post *p = cdn_post_create(W, H, &c);
++	struct cdn_frame fa = fr(&a), fb = fr(&b);
++	cdn_post_process_ex(p, &fa, false);
++	cdn_post_process_ex(p, &fb, true);
++	CHECK(same(&a, &b), "scalar and NEON differ at %dx%d", W, H);
++	CHECK(!same(&a, &n), "nothing changed at %dx%d", W, H);
++	printf("scalar == NEON at %dx%d: %s\n", W, H, same(&a, &b) ? "yes" : "NO");
++	cdn_post_destroy(p);
++	free_img(&t); free_img(&n); free_img(&a); free_img(&b);
++}
++
++int main(void)
++{
++	test_noise_and_edges();
++	test_stages_alone();
++	test_neon_scalar(640, 360);
++	test_neon_scalar(322, 182);	/* width not a multiple of 16: scalar tail */
++	test_neon_scalar(1920, 1080);
++	printf(fails ? "FAIL\n" : "PASS\n");
++	return fails != 0;
++}
+diff -ruN a/tools/cdn-post-bench.c b/tools/cdn-post-bench.c
+--- a/tools/cdn-post-bench.c
++++ b/tools/cdn-post-bench.c
+@@ -0,0 +1,83 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Per-frame cost of the post stage at one size, per stage and in total, on a
++ * synthetic noisy NV12 frame: cdn-post-bench [WIDTH HEIGHT [FRAMES]]
++ * Prints median / p95 / max milliseconds and the share of one core at 30 fps.
++ */
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <time.h>
++
++#include "../src/post/post.h"
++
++static double now_ms(void)
++{
++	struct timespec ts;
++	clock_gettime(CLOCK_MONOTONIC, &ts);
++	return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
++}
++
++static int cmp(const void *a, const void *b)
++{
++	double x = *(const double *)a, y = *(const double *)b;
++	return x < y ? -1 : x > y;
++}
++
++static void bench(const char *name, const struct cdn_post_cfg *cfg, int w, int h, int frames,
++		  const uint8_t *src, bool neon)
++{
++	size_t fs = (size_t)w * h * 3 / 2;
++	uint8_t *buf = malloc(fs);
++	struct cdn_post *p = cdn_post_create(w, h, cfg);
++	double *t = malloc(sizeof(double) * frames);
++
++	if (!p) {
++		printf("%-24s (no stage)\n", name);
++		return;
++	}
++	for (int i = -5; i < frames; i++) {
++		memcpy(buf, src, fs);	/* each frame is a fresh camera frame */
++		struct cdn_frame f = { buf, buf + (size_t)w * h, w, h, w, w };
++		double t0 = now_ms();
++		cdn_post_process_ex(p, &f, neon);
++		if (i >= 0)
++			t[i] = now_ms() - t0;
++	}
++	qsort(t, frames, sizeof(double), cmp);
++	printf("%-24s %s median %6.2f ms  p95 %6.2f  max %6.2f   %4.1f%% of one core at 30 fps\n",
++	       name, neon ? "NEON  " : "scalar", t[frames / 2], t[frames * 95 / 100], t[frames - 1],
++	       t[frames / 2] * 30 / 10.0);
++	cdn_post_destroy(p);
++	free(buf);
++	free(t);
++}
++
++int main(int argc, char **argv)
++{
++	int w = argc > 2 ? atoi(argv[1]) : 1920, h = argc > 2 ? atoi(argv[2]) : 1080;
++	int frames = argc > 3 ? atoi(argv[3]) : 200;
++	size_t fs = (size_t)w * h * 3 / 2;
++	uint8_t *src = malloc(fs);
++	uint32_t r = 1;
++
++	for (size_t i = 0; i < fs; i++) {
++		r = r * 1664525u + 1013904223u;
++		src[i] = (uint8_t)(60 + (i % w) / 16 + ((r >> 24) & 15));
++	}
++	struct cdn_post_cfg all, imp, luma, chroma;
++	cdn_post_cfg_defaults(&all);
++	imp = luma = chroma = all;
++	imp.luma = 0; imp.chroma = 0;
++	luma.impulse = 0; luma.chroma = 0;
++	chroma.impulse = 0; chroma.luma = 0;
++	printf("%dx%d NV12, %d frames\n", w, h, frames);
++	for (int n = 1; n >= 0; n--) {
++		bench("impulse only", &imp, w, h, frames, src, n);
++		bench("radial luma only", &luma, w, h, frames, src, n);
++		bench("chroma only", &chroma, w, h, frames, src, n);
++		bench("all three (defaults)", &all, w, h, frames, src, n);
++	}
++	free(src);
++	return 0;
++}

@@ -40,6 +40,7 @@ int main(int argc, char **argv)
 	int nd = 0, ng = 0;
 	double *rs = calloc(h, 8), *rq = calloc(h, 8);
 	double meany = 0, meanu = 0, meanv = 0;
+	double outl = 0;	/* dark impulse outliers, summed over frames */
 
 	while (fread(f, 1, fs, stdin) == fs) {
 		if (tot++ < skip)
@@ -57,6 +58,23 @@ int main(int argc, char **argv)
 			double u = f[ys + 2 * i], v = f[ys + 2 * i + 1];
 			cu[i] += u; cuq[i] += u * u; cv[i] += v; cvq[i] += v * v;
 			mu += u; mv += v;
+		}
+		/* dark impulses: > 30 below the 2nd-darkest of the 8 neighbours */
+		{
+			long cnt = 0;
+			for (int y = 1; y < h - 1; y++)
+				for (int x = 1; x < w - 1; x++) {
+					const unsigned char *p = f + (size_t)y * w + x;
+					int lo1 = 255, lo2 = 255;
+					for (int dy = -1; dy <= 1; dy++)
+						for (int dx = -1; dx <= 1; dx++) {
+							if (!dy && !dx) continue;
+							int v = p[dy * w + dx];
+							if (v < lo1) { lo2 = lo1; lo1 = v; } else if (v < lo2) lo2 = v;
+						}
+					cnt += p[0] + 30 < lo2;
+				}
+			outl += (double)cnt / ((double)(w - 2) * (h - 2));
 		}
 		meany += m / ys; meanu += mu / cs; meanv += mv / cs;
 		if (ng < 4096) gm[ng++] = m / ys;
@@ -135,6 +153,34 @@ int main(int argc, char **argv)
 	       pct(bt, nb, .10), pct(bt, nb, .25), pct(bt, nb, .50), nm,
 	       nm ? pct(mid, nm, .10) : 0, nm ? pct(mid, nm, .50) : 0);
 	printf("tempUV meanU=%.2f meanV=%.2f\n", ut / cs, vt / cs);
+	/* temporal sd by radius from the centre, as a fraction of the half-diagonal: 0-.3 .3-.6 .6-.9 >.9 */
+	{
+		static const double lim[3] = { .3, .6, .9 };
+		double ty[4] = { 0 }, tu[4] = { 0 }, my[4] = { 0 };
+		long ny[4] = { 0 }, nu[4] = { 0 };
+		double cx = (w - 1) / 2.0, cy = (h - 1) / 2.0, R = sqrt(cx * cx + cy * cy);
+		for (int y = 0; y < h; y++)
+			for (int x = 0; x < w; x++) {
+				double r = sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) / R;
+				int b = r < lim[0] ? 0 : r < lim[1] ? 1 : r < lim[2] ? 2 : 3;
+				size_t i = (size_t)y * w + x;
+				double mu = s[i] / n;
+				ty[b] += sqrt(fmax(q[i] / n - mu * mu, 0) * n / (n - 1));
+				my[b] += mu;
+				ny[b]++;
+				if (!(x & 1) && !(y & 1)) {
+					size_t k = (size_t)(y / 2) * (w / 2) + x / 2;
+					double a = cu[k] / n, c = cv[k] / n;
+					tu[b] += sqrt(fmax(cuq[k] / n - a * a, 0) * n / (n - 1)) + sqrt(fmax(cvq[k] / n - c * c, 0) * n / (n - 1));
+					nu[b] += 2;
+				}
+			}
+		printf("radial tempY sd (0-.3/.3-.6/.6-.9/>.9) %.2f/%.2f/%.2f/%.2f  UV %.2f/%.2f/%.2f/%.2f  meanY %.0f/%.0f/%.0f/%.0f\n",
+		       ty[0] / ny[0], ty[1] / ny[1], ty[2] / ny[2], ty[3] / ny[3],
+		       tu[0] / nu[0], tu[1] / nu[1], tu[2] / nu[2], tu[3] / nu[3],
+		       my[0] / ny[0], my[1] / ny[1], my[2] / ny[2], my[3] / ny[3]);
+		printf("dark impulse outliers per frame: %.3f%% of pixels\n", 100 * outl / n);
+	}
 	printf("spatY p10=%.2f p25=%.2f p50=%.2f\n", pct(bsp, nb, .10), pct(bsp, nb, .25), pct(bsp, nb, .50));
 	return 0;
 }

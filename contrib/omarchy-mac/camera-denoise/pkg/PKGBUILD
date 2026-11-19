@@ -1,8 +1,11 @@
-# Copy of aurora-silicon/alarm-aurora packages/aurora-camera-denoise at a40621c30958 (MIT), unchanged.
-# Built and installed on the J716s 2026-11-17 (camera-2). Drop this copy once the Mac takes the package from the Aurora repo.
+# Copy of aurora-silicon/alarm-aurora packages/aurora-camera-denoise at a40621c30958 (MIT) plus one patch:
+# 0001-post-stage-and-power-line.patch adds the spatial post stage (speck removal, radial luma and chroma denoise,
+# src/post/) and the `power-line` setting (camera anti-flicker, set before each stream); a machine config sets 60 Hz.
+# Built and installed on the J716s 2026-11-17 (camera-2); pkgrel 10 (post stage) staged 2026-11-19, not yet built on the Mac.
+# Drop this copy once the Aurora repo has the post stage (or the Mac takes the package from it).
 pkgname=aurora-camera-denoise
 pkgver=0.1.0
-pkgrel=9
+pkgrel=10
 pkgdesc='PipeWire filter that denoises the built-in camera on Apple silicon laptops, like macOS'
 arch=('aarch64')
 groups=('aurora-platform-apple-silicon')
@@ -12,8 +15,18 @@ _commit=aa7a42ff3f26ac47c07b4cdb4ab1bfc5337291af
 depends=('glibc' 'pipewire')
 makedepends=('meson' 'ninja' 'systemd')
 install=aurora-camera-denoise.install
-source=("$pkgname-$_commit.tar.gz::https://codeload.github.com/aurora-silicon/camera-denoise/tar.gz/$_commit")
-sha256sums=('055616e027955455a6b21ef437aa46b061cd9176ab6f4241fa466e7b0d0bb15e')
+backup=('etc/aurora-camera-denoise/denoise.conf')
+source=("$pkgname-$_commit.tar.gz::https://codeload.github.com/aurora-silicon/camera-denoise/tar.gz/$_commit"
+        '0001-post-stage-and-power-line.patch'
+        'm5pro-denoise.conf')
+sha256sums=('055616e027955455a6b21ef437aa46b061cd9176ab6f4241fa466e7b0d0bb15e'
+            '16c8814ce1e3dcca3a372864e967ceca9663b66ba0f79406e429e99cdb686292'
+            'c34905c1b2017b2a8231a23c93f2384dc9cd41534cd3e5715d789385e7f6b52d')
+
+prepare() {
+  cd "camera-denoise-$_commit"
+  patch -Np1 -i ../0001-post-stage-and-power-line.patch
+}
 
 build() {
   # The binary looks for backends in $prefix/$libdir/aurora-camera-denoise, so
@@ -42,5 +55,6 @@ package() {
   install -Dm644 /dev/stdin "$pkgdir/usr/lib/systemd/user-preset/80-aurora-camera-denoise.preset" <<'PRESET'
 enable aurora-camera-denoise.service
 PRESET
+  install -Dm644 "$srcdir/m5pro-denoise.conf" "$pkgdir/etc/aurora-camera-denoise/denoise.conf"
   install -Dm644 "camera-denoise-$_commit/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
