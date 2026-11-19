@@ -1,0 +1,18 @@
+[Unit]
+Description=Mission Control overview (Quickshell overlay, GPU rendered)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+# The session pins Qt Quick to the software renderer for the Omarchy shell.
+# This overlay only draws while it is on screen and needs the GPU: to follow
+# the fingers at the panel's refresh rate, to take window pictures without
+# copying them through the CPU, and for its rounded-corner shader effects.
+Environment=QT_QUICK_BACKEND=rhi
+Environment=QSG_RHI_BACKEND=opengl
+ExecStart=/usr/bin/qs -p %h/.config/quickshell/mission-control
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
