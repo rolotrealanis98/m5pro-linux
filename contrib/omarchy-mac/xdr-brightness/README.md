@@ -1,6 +1,14 @@
 # XDR brightness (and HDR) on the J716s panel
 
-Status: **staged, untested.** Needs the `j716s-xdr` kernel (branch on the work volume, two commits on `j716s-next8`).
+Status: **tested 2026-11-18, installed, daily.** Needs the `j716s-xdr` kernel (branch on the work volume, two commits on
+`j716s-next8`; daily file `xdr1hdr-everyday-20261118-b79e415c.bin`, kernel `7.3.0-gc1e08542a544`).
+
+Test results (owner present): 800, 1000, 1300 and 1600 nits each visibly brighter, no flicker, pulse or self-dimming, no
+swap errors; brightness keys across 0-1600; the menu row toggles off and on keeping the slider position. HDR: an HDR10
+clip in mpv (`--vo=gpu-next`) shows highlights above desktop white with XDR off. With XDR on (SDR already 1600) there
+is no headroom left, as on macOS. A permanent `cm = "hdr"` leaves the desktop too white, so the daily setup uses
+Hyprland's `render:cm_auto_hdr = 1` (HDR only while an HDR client is fullscreen). Not yet tested: sleep and wake with
+XDR on.
 
 ## What it does
 
@@ -21,7 +29,9 @@ nits min 0 max 1600`, `IOMFBBrightnessLevel` following the slider up to 1600). T
 
 HDR is separate: `appledrm.fw27_3_edr=1` (kernel commit 2, default off) sends the EDR headroom words on firmware
 27.3, which this Mac runs. With it, an HDR output mode in Hyprland gets real headroom for HDR video. Without it the
-swap is unchanged.
+swap is unchanged. The daily boot file passes it on the command line, and the session profile
+(`contrib/pending/gpu/userspace/mesa-aurora/session-dcp/m5pro-dcp.lua`, installed as `~/.config/hypr/m5pro-dcp.lua`,
+backup `.pre-hdr`) reads it: switch on, then 10-bit and `cm_auto_hdr = 1`; switch off, then 8-bit as before.
 
 Safety: the firmware keeps its own limits (`RTPLCBLNitsCap`, which stayed at 1600 under BetterDisplay on macOS).
 Linux does not run macOS's brightness service, so a test of full-screen white at 1600 nits is attended only.

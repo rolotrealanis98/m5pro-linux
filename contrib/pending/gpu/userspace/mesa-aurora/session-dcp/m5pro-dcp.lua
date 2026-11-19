@@ -29,9 +29,20 @@ local panel_vrr = os.getenv("M5PRO_PANEL_VRR") == "1"
 -- timing; Hyprland picks the closest listed mode and falls back to the next
 -- best if the 120 Hz commit fails. 8-bit keeps the swapchain XRGB8888 and
 -- keeps render:use_fp16 (auto) off the FP16 work buffer (2x the bandwidth).
-for _, out in ipairs({ "eDP-1", "eDP-2" }) do
-  hl.monitor({ output = out, mode = "3456x2234@120", position = "0x0", scale = 2, bitdepth = 8 })
+-- HDR (xdr-brightness, kernel j716s-xdr): when the kernel sends the EDR
+-- headroom words (appledrm.fw27_3_edr=Y), the panel runs 10-bit and
+-- render:cm_auto_hdr = 1 switches it to HDR only while an HDR client is
+-- fullscreen, as macOS does; the desktop stays sRGB. A permanent cm = "hdr"
+-- left SDR content too white (tested 2026-11-18). Without the switch: 8-bit.
+local hdr = false
+do
+  local f = io.open("/sys/module/appledrm/parameters/fw27_3_edr", "r")
+  if f then hdr = (f:read("*l") == "Y") f:close() end
 end
+for _, out in ipairs({ "eDP-1", "eDP-2" }) do
+  hl.monitor({ output = out, mode = "3456x2234@120", position = "0x0", scale = 2, bitdepth = hdr and 10 or 8 })
+end
+if hdr then hl.config({ render = { cm_auto_hdr = 1 } }) end
 
 hl.config({
   render = {
