@@ -56,10 +56,10 @@ Item {
   property real ty: target.y
   property real tw: target.w
   property real th: target.h
-  Behavior on tx { enabled: tile.mc.layoutAnimated; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
-  Behavior on ty { enabled: tile.mc.layoutAnimated; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
-  Behavior on tw { enabled: tile.mc.layoutAnimated; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
-  Behavior on th { enabled: tile.mc.layoutAnimated; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+  Behavior on tx { enabled: tile.mc.layoutAnimated; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+  Behavior on ty { enabled: tile.mc.layoutAnimated; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+  Behavior on tw { enabled: tile.mc.layoutAnimated; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+  Behavior on th { enabled: tile.mc.layoutAnimated; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
   // Dragging: the tile follows the pointer and shrinks as it nears the strip.
   property real dragX: 0

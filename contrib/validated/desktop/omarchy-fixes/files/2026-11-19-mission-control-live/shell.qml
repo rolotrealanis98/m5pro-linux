@@ -27,8 +27,8 @@ ShellRoot {
   readonly property real swipeDistance: 250
   readonly property real pageDistance: 300
   // Spring rates (rad/s). Higher is snappier.
-  readonly property real omega: 24
-  readonly property real pageOmega: 21
+  readonly property real omega: 34
+  readonly property real pageOmega: 32
   // Letting go: faster than flickSpeed (in overviews, or workspaces, per
   // second) the swipe goes where it was heading; slower, it needs to have
   // covered commitTravel of the way (commitPage of a workspace).
@@ -132,6 +132,9 @@ ShellRoot {
   property real pageVel: 0
   property bool ticking: false
   property bool gesturing: false
+  property double frameNow: 0        // the time of the frame being drawn (ms, wall clock, evenly stepped)
+  property double clockOff: 0
+  property int clockN: 0
   property bool pageOwned: false     // a workspace swipe just ended: the stage decides, not Hyprland
   property var g: null               // the swipe in progress
   property double holdCloseUntil: 0
@@ -419,6 +422,13 @@ ShellRoot {
     running: mc.ticking && mc.mapped
     onTriggered: {
       var dt = Math.min(0.05, Math.max(0.0005, frameTime))
+      // The frame's own clock steps evenly from one frame to the next; the
+      // wall clock read here does not (this handler runs a little earlier
+      // or later within each frame). Tie the two together once, smoothly.
+      var drift = Date.now() - elapsedTime * 1000
+      if (mc.clockN === 0 || Math.abs(drift - mc.clockOff) > 25) { mc.clockOff = drift; mc.clockN = 1 }
+      else { mc.clockOff += (drift - mc.clockOff) * 0.06; mc.clockN += 1 }
+      mc.frameNow = elapsedTime * 1000 + mc.clockOff
       mc.stat.frames += 1
       mc.stat.sum += frameTime
       if (frameTime > mc.stat.max) mc.stat.max = frameTime
@@ -588,25 +598,37 @@ ShellRoot {
     g.seen = now
     // The pad's clock against ours: the smallest difference seen is the truest.
     if (g.off === undefined || now - t < g.off) g.off = now - t
-    if (g.axis === "v") mc.applyVertical()
-    else mc.applyPage()
   }
 
-  // Where the fingers are right now. The pad reports on its own clock, the
-  // screen redraws on another; drawing only the last report makes the motion
-  // beat between the two (some frames get two reports, some none). So each
-  // frame carries the last report forward along the fingers' speed to the
-  // present, plus leadMs for the frame or two until it is on screen.
+  // Where the fingers are at the frame being drawn. The pad reports on its
+  // own clock and the screen redraws on another; drawing the last report as
+  // it is makes the motion beat between the two (some frames get two reports,
+  // some none), and windows that speed up and slow down by a pixel or two
+  // every frame make their text shimmer. So a straight line is fitted through
+  // the last 45 ms of reports and read off at the frame's time, plus leadMs
+  // for the frame or two until it is on screen. Once the fingers stop
+  // reporting, that fades back to the last report itself.
   function sampled(g) {
     var n = g.hist.length
-    if (n < 3) return g.raw
-    var a = g.hist[n - 3], b = g.hist[n - 1]
-    var dt = (b[0] - a[0]) / 1000
-    if (dt < 0.004) return g.raw
-    var age = Date.now() - (b[0] + g.off)
-    if (age > 30) return g.raw          // the fingers have stopped
-    var ahead = (Math.max(0, Math.min(16, age)) + mc.leadMs) / 1000
-    return g.raw + Math.max(-0.08, Math.min(0.08, (b[1] - a[1]) / dt * ahead))
+    if (n < 3 || mc.frameNow <= 0) return g.raw
+    var last = g.hist[n - 1]
+    var age = mc.frameNow - (last[0] + g.off)
+    if (age > 34) return g.raw
+    var from = n - 1
+    while (from > 0 && last[0] - g.hist[from - 1][0] <= 45) from--
+    var count = n - from
+    if (count < 3) return g.raw
+    var st = 0, sp = 0, stt = 0, stp = 0
+    for (var i = from; i < n; i++) {
+      var t = g.hist[i][0] - last[0], p = g.hist[i][1]
+      st += t; sp += p; stt += t * t; stp += t * p
+    }
+    var den = count * stt - st * st
+    if (den < 1e-6) return g.raw
+    var slope = (count * stp - st * sp) / den           // per millisecond
+    var ahead = Math.max(0, Math.min(18, age)) + mc.leadMs
+    var weight = Math.max(0, Math.min(1, (34 - age) / 16))
+    return g.raw + Math.max(-0.1, Math.min(0.1, slope * ahead)) * weight
   }
 
   // Where to draw an up/down swipe right now.
@@ -799,7 +821,7 @@ ShellRoot {
     mc.targets = targets
     mc.spaceIds = ids
     // Hyprland slides to the new workspace underneath; do not uncover it midway.
-    if (mc.activeWs > 0 && mc.activeWs !== active) mc.holdCloseUntil = Math.max(mc.holdCloseUntil, Date.now() + 330)
+    if (mc.activeWs > 0 && mc.activeWs !== active) mc.holdCloseUntil = Math.max(mc.holdCloseUntil, Date.now() + 260)
     mc.activeWs = active
     if (mc.selAddr !== "" && !tops[mc.selAddr]) mc.selAddr = ""
     if (mc.hoverAddr !== "" && !tops[mc.hoverAddr]) mc.hoverAddr = ""
@@ -891,7 +913,7 @@ ShellRoot {
   function goToSpace(id) {
     if (id !== mc.activeWs) {
       mc.focusWorkspace(id)
-      mc.holdCloseUntil = Date.now() + 420
+      mc.holdCloseUntil = Date.now() + 300
     }
     mc.close()
   }

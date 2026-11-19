@@ -298,3 +298,35 @@ exercised), the feel of the resampling, and the GPU cost of the workspace slide 
 
 Rollback of this update: `cp -a ~/.config/hypr/input.lua.pre-mission-control-live ~/.config/hypr/input.lua`, delete the
 `workspaces` animation line from `looknfeel.lua`, `hyprctl reload`.
+
+## Update: faster animations, steadier motion for text (2026-11-19)
+Rolando: "How can we improve the text rendering whenever I animate? Can we make the animations faster, too?"
+
+Faster:
+- `shell.qml`: `omega` 24 to 34 and `pageOmega` 21 to 32 (a keyboard open now settles in 39 frames, was 53; 90 % of the way
+  in about 115 ms); the wait before uncovering the desktop after a workspace change 330 to 260 ms.
+- `WindowTile.qml`: tiles re-arrange in 180 ms (was 240).
+- `~/.config/hypr/looknfeel.lua`: the `workspaces` slide `speed = 2.0` (was 2.8).
+
+Text while the windows move. Two things blur or shake it; one is addressed here:
+- Uneven motion. The overlay extrapolated the fingers from the last three reports, with millisecond timestamps, to a wall
+  clock read at whatever moment the frame handler ran. Both add noise to where each frame is drawn, and a window whose
+  speed wobbles by a pixel or two per frame makes its text shimmer. Now: `mc-gestures` prints timestamps to the
+  microsecond; the overlay fits a line through the last 45 ms of reports and reads it off at the frame's own clock
+  (`FrameAnimation.elapsedTime`, tied to the wall clock by a slow average), and only in the frame handler, never when a
+  report arrives.
+- The filter. A window drawn smaller than it is gets resampled, here with the GPU's bilinear filter, which is soft and
+  uneven from pixel to pixel. A bicubic filter would be sharper (about 7 % more edge contrast on a crop of on-screen text
+  scaled to 83 % with ImageMagick, bilinear against Catmull-Rom) and steadier in motion. That needs a custom fragment
+  shader, and compiling one needs `qsb` from `qt6-shadertools` (6.12.0-1, not installed; `pacman -Sp` lists no other
+  package). Not done: waits for `sudo pacman -S --needed qt6-shadertools`.
+
+Also: `~/.config/hypr/bindings.lua` gains Super+Ctrl+Up, which restarts `mission-control.service`. The surface is always
+mapped, so a hung overlay holding the keyboard would otherwise need a reboot.
+
+Verified from the agent session: `hyprctl configerrors` empty; open and close by key and by simulated swipes average
+8.0 ms per frame, worst 8.7 to 9.0 ms; no restart of the service; no GPU fault line. The machine rebooted twice during the
+day's work (06:18 and 06:51 local); both were orderly shutdowns in the journal, with no GPU fault line and no core dump
+before them.
+
+**Not verified**: whether text in motion looks steadier (only visible on the panel), and the new speeds by feel.

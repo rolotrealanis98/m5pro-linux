@@ -8,7 +8,7 @@
 //   H <fingers>            fingers rested on the pad (hold began)
 //   h <cancelled>          hold ended
 //   B <fingers>            swipe began
-//   U <dx> <dy> <msec>     swipe moved (unaccelerated units, +x right, +y down)
+//   U <dx> <dy> <msec>     swipe moved (unaccelerated units, +x right, +y down; time to the microsecond)
 //   E <cancelled>          swipe ended
 //
 // libinput reports a swipe only after the fingers have travelled a few
@@ -103,7 +103,7 @@ static void raw_reset(struct pad *p) {
   p->count = 0;
 }
 
-static void raw_frame(struct pad *p, unsigned ms) {
+static void raw_frame(struct pad *p, double ms) {
   int n = 0, idx[3];
   for (int i = 0; i < p->nslots; i++)
     if (p->s[i].id >= 0) { if (n < 3) idx[n] = i; n++; }
@@ -150,7 +150,7 @@ static void raw_frame(struct pad *p, unsigned ms) {
     emit("RB\n");
   }
   if (cx == p->lastx && cy == p->lasty) return;
-  emit("R %.3f %.3f %u\n", (cx - p->lastx) * UNITS_PER_MM, (cy - p->lasty) * UNITS_PER_MM, ms);
+  emit("R %.3f %.3f %.3f\n", (cx - p->lastx) * UNITS_PER_MM, (cy - p->lasty) * UNITS_PER_MM, ms);
   p->lastx = cx;
   p->lasty = cy;
 }
@@ -174,7 +174,7 @@ static void raw_read(struct pad *p) {
       } else if (e->type == EV_SYN) {
         if (e->code == SYN_DROPPED) raw_reset(p);
         else if (e->code == SYN_REPORT)
-          raw_frame(p, (unsigned)(e->input_event_sec * 1000ull + e->input_event_usec / 1000));
+          raw_frame(p, e->input_event_sec * 1000.0 + e->input_event_usec / 1000.0);
       }
     }
   }
@@ -240,8 +240,8 @@ static void handle(struct libinput_event *ev) {
   case LIBINPUT_EVENT_GESTURE_SWIPE_UPDATE:
     cal_li_x += libinput_event_gesture_get_dx_unaccelerated(g);
     cal_li_y += libinput_event_gesture_get_dy_unaccelerated(g);
-    emit("U %.3f %.3f %u\n", libinput_event_gesture_get_dx_unaccelerated(g),
-         libinput_event_gesture_get_dy_unaccelerated(g), libinput_event_gesture_get_time(g));
+    emit("U %.3f %.3f %.3f\n", libinput_event_gesture_get_dx_unaccelerated(g),
+         libinput_event_gesture_get_dy_unaccelerated(g), libinput_event_gesture_get_time_usec(g) / 1000.0);
     break;
   case LIBINPUT_EVENT_GESTURE_SWIPE_END: {
     double li = hypot(cal_li_x, cal_li_y), raw = hypot(cal_raw_x - cal_raw_x0, cal_raw_y - cal_raw_y0);
