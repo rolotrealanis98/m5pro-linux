@@ -230,3 +230,71 @@ open and close average 8.0 ms per frame, worst frame 10 ms; first pictures after
 region at rest rose about 5 % (Laplacian standard deviation 3.56 to 3.72, same window); the process idles at about 390 MB
 (was 560 to 710 MB with the items kept and their copies alive). **Not verified**: how text looks in motion, which only
 shows on the panel.
+
+## Update: swipes commit more readily, workspace slide, motion resampled per frame (2026-11-19)
+Rolando: the text fix is "working great"; now a quick swipe "is sort of not committing to the move as much, especially
+when I swipe between workspaces", and the animations should be extremely smooth and efficient.
+
+What the machine showed:
+- Hyprland's workspace swipe committed only past half the swipe distance (`workspace_swipe_cancel_ratio` 0.5 of 300), and
+  the speed that forces a commit (`workspace_swipe_min_speed_to_force` 30 units per event) is out of reach of a flick.
+- The `workspaces` animation is off (Omarchy's default, `hyprctl animations`: `enabled: 0`), so a workspace swipe followed
+  the fingers and then jumped the rest of the way on release. `m5pro-dcp.lua` notes that choice was kept on purpose
+  ("every frame of a slide recomposites and re-blurs the whole panel"); the swipe itself already does that per frame.
+- The overlay decided an up/down release by `position + speed x 0.16 > 0.5`, with speed taken over the last six reports.
+- The overlay drew the last report it had. Reports come on the pad's clock and frames on the display's, so some frames
+  carried two reports and some none.
+
+Changes:
+1. `~/.config/hypr/input.lua` (backup `input.lua.pre-mission-control-live`): `workspace_swipe_cancel_ratio = 0.2`,
+   `workspace_swipe_min_speed_to_force = 6`.
+2. `~/.config/hypr/looknfeel.lua`: `hl.animation({ leaf = "workspaces", enabled = true, speed = 2.8, bezier =
+   "easeOutQuint", style = "slide" })`. This also makes keyboard workspace switches slide (280 ms) instead of jumping.
+3. `shell.qml`:
+   - Release rule (`flickSpeed`, `commitTravel`, `commitPage`): faster than 1.4 overviews (or workspaces) per second, the
+     swipe goes where it was heading however short; slower, it needs 28 % of the way (20 % of a workspace). Speed is taken
+     over the last 70 ms.
+   - Each frame carries the last report forward along the fingers' speed to the present (at most 16 ms, plus `leadMs`),
+     for up/down and for sideways.
+   - Sideways in the overview follows the raw contacts too. When the swipe ends the stage decides: 70 ms later Hyprland's
+     active workspace is compared with the one shown and corrected if it differs.
+   - After any workspace change the overlay is not unmapped for 330 ms, so Hyprland's slide underneath is never uncovered
+     midway.
+   - A window picture whose recording Hyprland ends (`Ending recording due to screencopy failure`, seen a few times,
+     cause not found) is made afresh, at most four times per opening, and logged (`capture stopped: ...`).
+
+`~/.config/hypr/looknfeel.lua`, appended:
+```diff
++-- Workspaces slide (Omarchy switches them instantly). Without this a workspace
++-- swipe follows the fingers and then jumps the rest of the way on release.
++-- Remove the line to get the instant switch back.
++hl.animation({ leaf = "workspaces", enabled = true, speed = 2.8, bezier = "easeOutQuint", style = "slide" })
+```
+`~/.config/hypr/input.lua`, appended:
+```diff
++-- Workspace swipes commit more readily: a fifth of the way is enough (was half),
++-- and a quick flick commits however short (the old speed could not be reached).
++-- See https://wiki.hypr.land/Configuring/Basics/Variables/#gestures
++hl.config({
++  gestures = {
++    workspace_swipe_cancel_ratio = 0.2,
++    workspace_swipe_min_speed_to_force = 6,
++  },
++})
+```
+
+Verified from the agent session: `hyprctl configerrors` empty, `hyprctl getoption` shows 0.2 and 6, `hyprctl animations`
+shows `workspaces` enabled, slide, 2.80. Simulated raw swipes: up 36 % slowly opens, 16 to 18 % slowly goes back; in the
+overview a 12 % sideways nudge returns and 25 % commits, and Hyprland's active workspace followed the stage both ways
+(2 to 3 and back). 32 open/close cycles without a restart of the service.
+
+One crash while testing: `The Wayland connection experienced a fatal error: Invalid argument`, once, on an interactive open
+three seconds after a service start, with an earlier retry scheme (restarting a recording in place, and asking a thumbnail
+for a frame again). The service restarted itself. That scheme was replaced by re-creating the picture; the error did not
+come back in the cycles above, but its cause is not proven.
+
+**Not verified**: real flicks (the simulated ones are slowed by the IPC round trip, so only the distance rule was
+exercised), the feel of the resampling, and the GPU cost of the workspace slide in daily use.
+
+Rollback of this update: `cp -a ~/.config/hypr/input.lua.pre-mission-control-live ~/.config/hypr/input.lua`, delete the
+`workspaces` animation line from `looknfeel.lua`, `hyprctl reload`.

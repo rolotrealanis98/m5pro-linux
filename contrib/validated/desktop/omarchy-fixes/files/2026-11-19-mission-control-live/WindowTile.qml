@@ -31,6 +31,25 @@ Item {
   readonly property string title: toplevel && toplevel.title ? String(toplevel.title) : ""
   property bool hasContent: false
 
+  // Hyprland now and then refuses a frame and the recording ends with it. The
+  // picture is then made afresh, the same way as on every opening, a few
+  // times at most per opening.
+  property bool recapturing: false
+  property int recaptures: 0
+  function captureStopped() {
+    if (!mc.mapped || !near || recapturing) return
+    console.info("capture stopped: " + appId + " on workspace " + ws + " (showing " + mc.activeWs + "), had a picture: " + hasContent + ", try " + recaptures)
+    if (recaptures >= 4) return
+    recaptures += 1
+    recapturing = true
+    recaptureTimer.restart()
+  }
+  Timer { id: recaptureTimer; interval: 80; onTriggered: tile.recapturing = false }
+  Connections {
+    target: tile.mc
+    function onMappedChanged() { tile.recaptures = 0; tile.recapturing = false }
+  }
+
   // The spread position. Animated when the spread changes under an open
   // overview (a window closed or moved away), never during open and close.
   property real tx: target.x
@@ -128,7 +147,7 @@ Item {
 
       Loader {
         anchors.fill: parent
-        active: tile.mc.captureOn && !!tile.toplevel && !!tile.toplevel.wayland
+        active: tile.mc.captureOn && !tile.recapturing && !!tile.toplevel && !!tile.toplevel.wayland
         sourceComponent: ScreencopyView {
           captureSource: tile.toplevel ? tile.toplevel.wayland : null
           paintCursor: false
@@ -137,6 +156,7 @@ Item {
             tile.hasContent = hasContent
             if (hasContent) tile.mc.tileReady(tile.addr)
           }
+          onStopped: tile.captureStopped()
         }
       }
     }

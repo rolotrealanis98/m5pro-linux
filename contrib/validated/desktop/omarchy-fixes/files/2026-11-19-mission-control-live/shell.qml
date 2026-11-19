@@ -29,6 +29,12 @@ ShellRoot {
   // Spring rates (rad/s). Higher is snappier.
   readonly property real omega: 24
   readonly property real pageOmega: 21
+  // Letting go: faster than flickSpeed (in overviews, or workspaces, per
+  // second) the swipe goes where it was heading; slower, it needs to have
+  // covered commitTravel of the way (commitPage of a workspace).
+  readonly property real flickSpeed: 1.4
+  readonly property real commitTravel: 0.28
+  readonly property real commitPage: 0.2
   // Draw this many milliseconds ahead of the fingers, along their current
   // speed, to make up for the frame or two between a touch and the screen.
   readonly property real leadMs: 8
@@ -126,6 +132,7 @@ ShellRoot {
   property real pageVel: 0
   property bool ticking: false
   property bool gesturing: false
+  property bool pageOwned: false     // a workspace swipe just ended: the stage decides, not Hyprland
   property var g: null               // the swipe in progress
   property double holdCloseUntil: 0
 
@@ -419,6 +426,7 @@ ShellRoot {
       var busy = false
       var vertical = mc.gesturing && mc.g && mc.g.axis === "v"
       if (vertical) mc.applyVertical()
+      if (mc.gesturing && mc.g && mc.g.axis === "h") mc.applyPage()
       var sideways = mc.gesturing && mc.g && mc.g.axis === "h"
 
       if (!vertical && (mc.progress !== mc.progressTarget || mc.progressVel !== 0)) {
@@ -520,8 +528,8 @@ ShellRoot {
     } else if (a[0] === "h") {
       if (mc.warm) warmTimer.restart()
     } else if (a[0] === "B") {
-      // Up and down already follow the raw contacts; libinput keeps sideways.
-      if (!(g && g.src === "raw" && g.axis === "v"))
+      // The raw contacts are already driving this swipe.
+      if (!(g && g.src === "raw" && (g.axis === "v" || g.axis === "h")))
         mc.g = { src: "li", fingers: parseInt(a[1]), axis: "", ax: 0, ay: 0, base: 0, raw: 0, hist: [], at: Date.now() }
     } else if (a[0] === "E") {
       if (g && g.src === "li") mc.swipeEnd(a[1] === "1")
@@ -555,61 +563,82 @@ ShellRoot {
         mc.gesturing = true
         mc.ticking = true
       } else {
-        // Sideways only matters while the overview is up: Hyprland switches
-        // the workspace underneath and the stage follows the fingers. That
-        // one stays with libinput, which is what Hyprland itself listens to.
-        if (g.src !== "li" || !(mc.mapped && mc.revealed && mc.progressTarget > 0.5)) { g.axis = "x"; return }
+        // Sideways only matters while the overview is up: the stage follows
+        // the fingers, and Hyprland switches the workspace underneath.
+        if (!(mc.mapped && mc.revealed && mc.progressTarget > 0.5)) { g.axis = "x"; return }
         g.axis = "h"
         g.base = mc.page
+        g.lo = Math.max(-0.3, Math.round(g.base) - 1)
+        g.hi = Math.min(mc.spaceIds.length - 1 + 0.3, Math.round(g.base) + 1)
+        pageSettle.stop()
+        mc.pageOwned = false
         mc.pageVel = 0
         mc.gesturing = true
+        mc.ticking = true
       }
     }
 
-    if (g.axis === "v") {
-      g.raw = g.base - g.ay / mc.swipeDistance
-    } else if (g.axis === "h") {
-      g.raw = g.base - g.ax / mc.pageDistance
-      var last = mc.spaceIds.length - 1
-      var lo = Math.max(-0.3, Math.round(g.base) - 1)
-      var hi = Math.min(last + 1, Math.round(g.base) + 1)
-      mc.page = Math.max(lo, Math.min(hi, g.raw))
-    } else {
-      return
-    }
+    if (g.axis === "v") g.raw = g.base - g.ay / mc.swipeDistance
+    else if (g.axis === "h") g.raw = g.base - g.ax / mc.pageDistance
+    else return
+
+    var now = Date.now()
     g.hist.push([t, g.raw])
-    if (g.hist.length > 6) g.hist.shift()
-    g.seen = Date.now()
+    if (g.hist.length > 14) g.hist.shift()
+    g.seen = now
+    // The pad's clock against ours: the smallest difference seen is the truest.
+    if (g.off === undefined || now - t < g.off) g.off = now - t
     if (g.axis === "v") mc.applyVertical()
+    else mc.applyPage()
+  }
+
+  // Where the fingers are right now. The pad reports on its own clock, the
+  // screen redraws on another; drawing only the last report makes the motion
+  // beat between the two (some frames get two reports, some none). So each
+  // frame carries the last report forward along the fingers' speed to the
+  // present, plus leadMs for the frame or two until it is on screen.
+  function sampled(g) {
+    var n = g.hist.length
+    if (n < 3) return g.raw
+    var a = g.hist[n - 3], b = g.hist[n - 1]
+    var dt = (b[0] - a[0]) / 1000
+    if (dt < 0.004) return g.raw
+    var age = Date.now() - (b[0] + g.off)
+    if (age > 30) return g.raw          // the fingers have stopped
+    var ahead = (Math.max(0, Math.min(16, age)) + mc.leadMs) / 1000
+    return g.raw + Math.max(-0.08, Math.min(0.08, (b[1] - a[1]) / dt * ahead))
   }
 
   // Where to draw an up/down swipe right now.
   function applyVertical() {
     var g = mc.g
     if (!g || g.axis !== "v") return
-    var now = Date.now()
-    var p = g.raw
-    // A little ahead of the fingers while they move, never once they stop.
-    if (mc.leadMs > 0 && now - g.seen < 24 && g.hist.length >= 3) {
-      var a = g.hist[g.hist.length - 3], b = g.hist[g.hist.length - 1]
-      var dt = (b[0] - a[0]) / 1000
-      if (dt > 0.004) p += Math.max(-0.06, Math.min(0.06, (b[1] - a[1]) / dt * mc.leadMs / 1000))
-    }
+    var p = mc.sampled(g)
     // The first picture arrived after the fingers had moved: close the gap fast.
     // A small gap is simply taken; a large one gets up to catchMs.
     var blend = 1
     if (mc.revealAt > g.at && mc.catchMs > 0) {
       if (g.catchFor === undefined) g.catchFor = Math.min(mc.catchMs, Math.abs(g.raw - g.base) * 400)
-      if (g.catchFor > 1) blend = Math.min(1, (now - mc.revealAt) / g.catchFor)
+      if (g.catchFor > 1) blend = Math.min(1, (Date.now() - mc.revealAt) / g.catchFor)
     }
     mc.progress = Layout.rubber(g.base + (p - g.base) * blend)
   }
 
+  function applyPage() {
+    var g = mc.g
+    if (!g || g.axis !== "h") return
+    mc.page = Math.max(g.lo, Math.min(g.hi, mc.sampled(g)))
+  }
+
+  // Speed over the last 70 ms, so a flick still counts when the fingers slow
+  // in the instant they lift.
   function swipeVelocity(g) {
-    if (g.hist.length < 2) return 0
-    var a = g.hist[0], b = g.hist[g.hist.length - 1]
-    var dt = (b[0] - a[0]) / 1000
-    return dt > 0.004 ? (b[1] - a[1]) / dt : 0
+    var n = g.hist.length
+    if (n < 2) return 0
+    var b = g.hist[n - 1], i = n - 2
+    while (i > 0 && b[0] - g.hist[i - 1][0] <= 70) i--
+    var dt = (b[0] - g.hist[i][0]) / 1000
+    return dt > 0.004 ? (b[1] - g.hist[i][1]) / dt : 0
   }
 
   function swipeEnd(cancelled) {
@@ -619,30 +648,55 @@ ShellRoot {
     var v = mc.swipeVelocity(g)
     // Fingers that stopped before lifting carry no speed.
     if (Date.now() - g.seen > 60) v = 0
+    var travelled = g.raw - g.base
     mc.gesturing = false
 
     if (g.axis === "v") {
-      var projected = g.raw + v * 0.16
-      mc.progressTarget = cancelled ? (g.base > 0.5 ? 1 : 0) : (projected > 0.5 ? 1 : 0)
+      // A flick decides by its direction, however short. Otherwise a good
+      // quarter of the way commits; less goes back.
+      var to = g.base > 0.5 ? 1 : 0
+      if (!cancelled) {
+        if (Math.abs(v) > mc.flickSpeed) to = v > 0 ? 1 : 0
+        else if (Math.abs(travelled) > mc.commitTravel) to = travelled > 0 ? 1 : 0
+      }
+      mc.progressTarget = to
       mc.progressVel = Math.max(-14, Math.min(14, v))
       if (mc.progress > 1) mc.progressVel = 0
     } else {
-      // Guess where Hyprland lands, then take its word for it a moment later.
-      var guess = Math.round(mc.page + v * 0.12)
-      var from = Math.round(g.base)
-      guess = Math.max(from - 1, Math.min(from + 1, guess))
-      mc.pageTarget = Math.max(0, Math.min(mc.spaceIds.length - 1, guess))
+      // The same rule for a workspace: a flick or a fifth of the way.
+      var step = 0
+      if (!cancelled) {
+        if (Math.abs(v) > mc.flickSpeed) step = v > 0 ? 1 : -1
+        else if (Math.abs(travelled) > mc.commitPage) step = travelled > 0 ? 1 : -1
+      }
+      mc.pageTarget = Math.max(0, Math.min(mc.spaceIds.length - 1, Math.round(g.base) + step))
       mc.pageVel = Math.max(-14, Math.min(14, v))
+      // What the stage shows is what happens: Hyprland made its own call on
+      // the same swipe underneath, and is corrected if it differs.
+      mc.pageOwned = true
       pageSettle.restart()
     }
+    console.info("swipe " + g.axis + " (" + g.src + ") from " + g.base.toFixed(2) + ": travelled " + travelled.toFixed(2) + ", speed " + v.toFixed(1)
+      + "/s, " + g.hist.length + " reports, to " + (g.axis === "v" ? mc.progressTarget : mc.pageTarget))
     mc.animate()
   }
 
   Timer { id: boxesAsked; interval: 400 }
-  Timer { id: pageSettle; interval: 70; onTriggered: mc.followActive() }
+  Timer {
+    id: pageSettle
+    interval: 70
+    onTriggered: {
+      mc.pageOwned = false
+      if (!mc.mapped) return
+      var want = mc.spaceIds[mc.pageTarget]
+      var now = mc.monitor && mc.monitor.activeWorkspace ? mc.monitor.activeWorkspace.id : -1
+      if (want > 0 && want !== now) mc.focusWorkspace(want)
+      else mc.followActive()
+    }
+  }
 
   function followActive() {
-    if (!mc.mapped || (mc.gesturing && mc.g && mc.g.axis === "h")) return
+    if (!mc.mapped || mc.pageOwned || (mc.gesturing && mc.g && mc.g.axis === "h")) return
     var index = mc.spaceIds.indexOf(mc.activeWs)
     if (index < 0 || index === mc.pageTarget) return
     mc.pageTarget = index
@@ -744,6 +798,8 @@ ShellRoot {
     mc.wsWins = byWs
     mc.targets = targets
     mc.spaceIds = ids
+    // Hyprland slides to the new workspace underneath; do not uncover it midway.
+    if (mc.activeWs > 0 && mc.activeWs !== active) mc.holdCloseUntil = Math.max(mc.holdCloseUntil, Date.now() + 330)
     mc.activeWs = active
     if (mc.selAddr !== "" && !tops[mc.selAddr]) mc.selAddr = ""
     if (mc.hoverAddr !== "" && !tops[mc.hoverAddr]) mc.hoverAddr = ""
