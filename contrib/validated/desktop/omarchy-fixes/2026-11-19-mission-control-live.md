@@ -48,9 +48,13 @@ A separate Quickshell instance, GPU rendered, with its own trackpad reader. Rola
 5. `omarchy plugin disable rolo.mission-control` (the old plugin stays installed, disabled).
 6. `hyprctl reload`; `hyprctl configerrors` is empty.
 
-Not changed: `~/.config/hypr/m5pro-dcp.lua` and `m5pro.lua` (protected). Their three-finger-up line still runs
-`omarchy-shell shell toggle rolo.mission-control`, which is now a no-op because that plugin is disabled (checked: exit 0, no
-layer appears). Removing the stale line needs Rolando's yes.
+7. Follow-up the same day, after Rolando tried it ("the feel is great") and said yes to the protected files:
+   `~/.config/hypr/m5pro-dcp.lua` and `m5pro.lua` lost the old three-finger-up line (it ran
+   `omarchy-shell shell toggle rolo.mission-control`, a no-op since step 5) and its comment now points at the overlay. Only
+   that line and the comment changed.
+8. Same follow-up: the bar stayed bright above the dark workspace strip (the bar's background is `none`, so the wallpaper
+   showed through it). The overlay now maps a second surface, namespace `mission-control-bar`, on the bottom layer under the
+   bar's reserved strip, click-through, which darkens with the strip. The layer rule covers both namespaces.
 
 ## Files changed
 New files, copies under `files/2026-11-19-mission-control-live/` (install to `~/.config/quickshell/mission-control/`, then
@@ -86,7 +90,19 @@ New files, copies under `files/2026-11-19-mission-control-live/` (install to `~/
 @@ -53,3 +53,6 @@
 +
 +-- Mission Control draws its own open and close animation.
-+hl.layer_rule({ match = { namespace = "^mission-control$" }, no_anim = true, animation = "none" })
++hl.layer_rule({ match = { namespace = "^mission-control(-bar)?$" }, no_anim = true, animation = "none" })
+```
+
+`~/.config/hypr/m5pro-dcp.lua` and `~/.config/hypr/m5pro.lua` (backups `*.pre-mission-control-live`), the same hunk in both:
+```diff
+--- Apple MTP trackpad gestures: 3-finger swipe = workspaces, 3 up = Mission Control, 4 down = fullscreen.
+--- (3 up was the scratchpad; that stays on Super + S. Mission Control is the shell plugin rolo.mission-control.)
++-- Apple MTP trackpad gestures: 3-finger swipe = workspaces, 4 down = fullscreen.
++-- (3 up / down is Mission Control: ~/.config/quickshell/mission-control/ reads the trackpad itself,
++-- so there is no gesture line for it here. The scratchpad stays on Super + S.)
+ hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
+-hl.gesture({ fingers = 3, direction = "up", action = function() hl.exec_cmd("omarchy-shell shell toggle rolo.mission-control") end })
+ hl.gesture({ fingers = 4, direction = "down", action = "fullscreen" })
 ```
 
 `~/.config/omarchy/shell.json` (backup `shell.json.pre-mission-control-live`), written by `omarchy plugin disable`:
@@ -119,9 +135,14 @@ Seen on the machine, from the agent session:
 - Actions, on throwaway terminal windows on spare workspaces: add workspace, close workspace (its windows moved to the one
   beside it), the three dispatch expressions (move, focus, close), drop-target hit testing.
 
-**Not verified** (needs Rolando's hands): the real three-finger swipes and how the travel and spring feel
-(`swipeDistance`, `pageDistance`, `omega` at the top of `shell.qml`), dragging a window with the pointer, hover close
-buttons, keyboard navigation inside the overview, and the sideways swipe with Hyprland really switching underneath.
+- After the follow-up: `hyprctl configerrors` is empty; `hyprctl layers` shows `mission-control-bar` at 0,0 1728x37 under the
+  bar while the overview is up and nothing after it closes; a `grim` screenshot shows the bar on the same dark band as the
+  strip.
+
+Seen by Rolando: the real three-finger swipes ("the feel is great").
+
+**Not verified**: dragging a window with the pointer, hover close buttons, keyboard navigation inside the overview, and the
+sideways swipe with Hyprland really switching underneath were not reported on either way.
 
 Known limits: a fullscreen window covers the bar strip the overlay leaves free, so its top edge shows above the overlay; an
 open bar panel is hidden while the overview is up; window opacity rules are not reproduced in the pictures. The process
@@ -135,6 +156,8 @@ rm ~/.config/systemd/user/mission-control.service && systemctl --user daemon-rel
 cd ~/.config/hypr
 cp -a bindings.lua.pre-mission-control-live bindings.lua
 cp -a looknfeel.lua.pre-mission-control-live looknfeel.lua
+cp -a m5pro-dcp.lua.pre-mission-control-live m5pro-dcp.lua    # only with the old plugin re-enabled below
+cp -a m5pro.lua.pre-mission-control-live m5pro.lua
 hyprctl reload
 omarchy plugin enable rolo.mission-control        # the old icon-only overview
 rm -r ~/.config/quickshell/mission-control        # optional

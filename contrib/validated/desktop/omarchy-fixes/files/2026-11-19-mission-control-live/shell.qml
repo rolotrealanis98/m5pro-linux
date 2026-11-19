@@ -827,6 +827,30 @@ ShellRoot {
 
   // ------------------------------------------------------------------- view
 
+  // The bar keeps its own strip of the screen, above the overlay. This sits
+  // under it (and above the wallpaper), so the bar darkens together with the
+  // workspace strip instead of staying a bright band across the top.
+  PanelWindow {
+    visible: mc.mapped && mc.revealed && !!mc.screen && mc.offY > 0
+    screen: mc.screen
+    anchors { top: true; left: true; right: true }
+    implicitHeight: Math.max(1, mc.offY)
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.layer: WlrLayer.Bottom
+    WlrLayershell.namespace: "mission-control-bar"
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    mask: Region {}
+
+    // The strip is its band colour over the dimmed wallpaper; this is the
+    // same two layers as one, over the plain wallpaper.
+    Rectangle {
+      anchors.fill: parent
+      color: Qt.rgba(mc.bg.r * 0.5, mc.bg.g * 0.5, mc.bg.b * 0.5, 0.9)
+      opacity: Math.min(1, mc.shown * 1.8)
+    }
+  }
+
   PanelWindow {
     id: panel
     visible: mc.mapped && !!mc.screen
