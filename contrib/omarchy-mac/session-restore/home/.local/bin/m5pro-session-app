@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+"""Login Items & Restore: control what opens at login and restore the whole desktop after a reboot.
+
+GTK4 + libadwaita, so Omarchy's GTK theme applies. Pages: Restore (automatic switch, last snapshot, windows by workspace,
+per-app exclude switches, Save now, Restore now) and Login Items (apps and background services with switches).
+Debug: M5PRO_SESSION_SCREENSHOT=/path.png [M5PRO_SESSION_PAGE=restore|login] renders the window to a PNG and quits.
+"""
+import os
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.path.join(os.path.expanduser("~"), ".local/lib/m5pro-session"))
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+gi.require_version("Graphene", "1.0")
+from gi.repository import Adw, Gio, GLib, Graphene, Gtk  # noqa: E402
+
+import m5pro_session as m  # noqa: E402
+
+APP_ID = "org.m5pro.SessionRestore"
+BIN = os.path.join(os.path.expanduser("~"), ".local/bin")
+AGENT_TITLES = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "agy": "Antigravity", "gemini": "Gemini CLI"}
+
+
+def ago(ts):
+    d = max(0, int(time.time() - ts))
+    if d < 5:
+        return "just now"
+    if d < 90:
+        return "%d seconds ago" % d
+    if d < 5400:
+        return "%d minutes ago" % round(d / 60)
+    if d < 172800:
+        return "%d hours ago" % round(d / 3600)
+    return "%d days ago" % round(d / 86400)
+
+
+def short_path(p):
+    home = os.path.expanduser("~")
+    return "~" + p[len(home):] if p and (p == home or p.startswith(home + "/")) else (p or "")
+
+
+def ws_sort_key(w):
+    i = w["workspace"]["id"]
+    return (1, w["workspace"]["name"]) if not isinstance(i, int) or i < 0 else (0, "%06d" % i)
+
+
+def window_row_info(w):
+    """(title, subtitle, icon, exclude key, tooltip) for one saved window."""
+    if w["kind"] == "terminal":
+        ag = w.get("agent")
+        folder = short_path((ag or {}).get("cwd") or w.get("cwd"))
+        if ag:
+            name = AGENT_TITLES.get(ag["kind"], ag["kind"])
+            if ag.get("session_id") and not ag.get("fresh"):
+                sid = ag["session_id"] if ag["kind"] == "gemini" else ag["session_id"][:8]
+                sub = "Session %s%s  ·  %s" % (sid, "" if ag.get("exact") else " (best match)", folder)
+            else:
+                sub = "New session  ·  %s" % folder
+            return name, sub, "utilities-terminal-symbolic", m.exclude_key(w), "Applies to every %s session" % name
+        sub = " ".join(w["run"]) if w.get("run") else folder
+        return "Terminal", sub + ("  ·  %s" % folder if w.get("run") else ""), "utilities-terminal-symbolic", m.exclude_key(w), "Applies to every plain terminal"
+    sub = w.get("title") or ""
+    if w["floating"]:
+        sub = (sub + "  ·  floating").strip(" ·")
+    return w.get("app_name") or w["class"], sub, w.get("icon") or "application-x-executable-symbolic", m.exclude_key(w), "Applies to every window of this app"
+
+
+class MainWindow(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Login Items & Restore", default_width=780, default_height=760)
+        self.cfg = m.load_config()
+        self.snap_sig = None
+        self.busy = False
+        self.toasts = Adw.ToastOverlay()
+        self.stack = Adw.ViewStack()
+        self.restore_page = Adw.PreferencesPage()
+        self.login_page = Adw.PreferencesPage()
+        p1 = self.stack.add_titled_with_icon(self.restore_page, "restore", "Restore", "view-refresh-symbolic")
+        p2 = self.stack.add_titled_with_icon(self.login_page, "login", "Login Items", "system-run-symbolic")
+        header = Adw.HeaderBar()
+        switcher = Adw.ViewSwitcher(policy=Adw.ViewSwitcherPolicy.WIDE, stack=self.stack)
+        header.set_title_widget(switcher)
+        self.add_btn = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Add an app to open at login")
+        self.add_btn.connect("clicked", self.on_add)
+        header.pack_start(self.add_btn)
+        bar = Adw.ViewSwitcherBar(stack=self.stack)
+        view = Adw.ToolbarView()
+        view.add_top_bar(header)
+        view.set_content(self.stack)
+        view.add_bottom_bar(bar)
+        self.breakpoint = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 520sp"))
+        self.breakpoint.add_setter(switcher, "visible", False)
+        self.breakpoint.add_setter(bar, "reveal", True)
+        self.add_breakpoint(self.breakpoint)
+        self.toasts.set_child(view)
+        self.set_content(self.toasts)
+        self.stack.connect("notify::visible-child-name", lambda *_: self.add_btn.set_visible(self.stack.get_visible_child_name() == "login"))
+        self.add_btn.set_visible(False)
+        self.build_restore(force=True)
+        self.build_login()
+        GLib.timeout_add_seconds(4, self.tick)
+
+    # ------------------------------------------------------------------ helpers
+    def icon(self, name, size, fallback="application-x-executable-symbolic"):
+        img = Gtk.Image(pixel_size=size)
+        if name and os.path.isabs(name) and os.path.exists(name):
+            img.set_from_file(name)
+        elif name and Gtk.IconTheme.get_for_display(self.get_display()).has_icon(name):
+            img.set_from_icon_name(name)
+        else:
+            img.set_from_icon_name(fallback)
+        return img
+
+    def toast(self, text):
+        self.toasts.add_toast(Adw.Toast(title=text, timeout=4))
+
+    def run_async(self, argv, done):
+        try:
+            p = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE)
+        except GLib.Error as e:
+            done(False, str(e))
+            return
+
+        def fin(proc, res):
+            try:
+                _, out, _ = proc.communicate_utf8_finish(res)
+            except GLib.Error as e:
+                done(False, str(e))
+                return
+            done(proc.get_exit_status() == 0, (out or "").strip())
+        p.communicate_utf8_async(None, None, fin)
+
+    # ------------------------------------------------------------------ restore page
+    def tick(self):
+        if self.stack.get_visible_child_name() == "restore":
+            self.build_restore()
+        return True
+
+    def build_restore(self, force=False):
+        snap = m.latest_snapshot()
+        st = m.restore_status()
+        sig = (snap or {}).get("taken_at"), st.get("status"), st.get("finished")
+        if not force and sig == self.snap_sig:
+            return
+        self.snap_sig = sig
+        page = self.restore_page
+        for g in getattr(self, "restore_groups", []):
+            page.remove(g)
+        self.restore_groups = []
+
+        def add(g):
+            page.add(g)
+            self.restore_groups.append(g)
+
+        g = Adw.PreferencesGroup()
+        auto = Adw.SwitchRow(title="Restore automatically at login", subtitle="After a reboot, reopen every window on its workspace and resume terminal agents")
+        auto.set_active(bool(self.cfg["auto_restore"]))
+        auto.connect("notify::active", self.on_auto)
+        g.add(auto)
+        add(g)
+
+        g = Adw.PreferencesGroup(title="Last snapshot")
+        wins = (snap or {}).get("windows", [])
+        agents = [w for w in wins if w.get("agent")]
+        row = Adw.ActionRow(title="Saved" if snap else "No snapshot yet")
+        if snap:
+            row.set_subtitle("%s  ·  %d windows  ·  %d agent sessions" % (ago(snap["taken_at"]), len(wins), len(agents)))
+        else:
+            row.set_subtitle("The saver writes one every minute while you are logged in")
+        row.add_prefix(Gtk.Image(icon_name="document-save-symbolic"))
+        g.add(row)
+        if st.get("status") in ("done", "running", "off", "no snapshot"):
+            r = Adw.ActionRow(title="Last restore")
+            when = ago(st["finished"]) if st.get("finished") else "running now"
+            detail = {"done": "%s  ·  %d started, %d placed%s" % (when, st.get("launched", 0), st.get("placed", 0),
+                                                                    ", %d did not appear" % st["missing"] if st.get("missing") else ""),
+                      "running": "Running now", "off": "Skipped: automatic restore was off", "no snapshot": "Nothing to restore"}[st["status"]]
+            r.set_subtitle(detail)
+            r.add_prefix(Gtk.Image(icon_name="view-refresh-symbolic"))
+            g.add(r)
+        box = Gtk.Box(spacing=6)
+        self.save_btn = Gtk.Button(label="Save now")
+        self.save_btn.connect("clicked", self.on_save)
+        self.restore_btn = Gtk.Button(label="Restore now")
+        self.restore_btn.add_css_class("suggested-action")
+        self.restore_btn.connect("clicked", self.on_restore)
+        self.restore_btn.set_sensitive(bool(wins) and not self.busy)
+        box.append(self.save_btn)
+        box.append(self.restore_btn)
+        g.set_header_suffix(box)
+        add(g)
+
+        by_ws = {}
+        for w in wins:
+            by_ws.setdefault((w["workspace"]["id"], w["workspace"]["name"]), []).append(w)
+        for key in sorted(by_ws, key=lambda k: ws_sort_key({"workspace": {"id": k[0], "name": k[1]}})):
+            ws_name = key[1]
+            title = "Workspace %s" % ws_name if not str(ws_name).startswith("special:") else "Scratchpad (%s)" % ws_name.split(":", 1)[1]
+            g = Adw.PreferencesGroup(title=title)
+            for w in sorted(by_ws[key], key=m.window_order_key):
+                name, sub, icon, ekey, tip = window_row_info(w)
+                r = Adw.SwitchRow(title=GLib.markup_escape_text(name), subtitle=GLib.markup_escape_text(sub), tooltip_text=tip)
+                r.set_subtitle_lines(1)
+                r.set_active(ekey not in self.cfg["excluded"])
+                r.add_prefix(self.icon(icon, 24))
+                r.connect("notify::active", self.on_exclude, ekey)
+                g.add(r)
+            add(g)
+        if not by_ws:
+            g = Adw.PreferencesGroup()
+            g.add(Adw.ActionRow(title="Nothing saved yet", subtitle="Open some windows; a snapshot is written every minute."))
+            add(g)
+
+    def on_auto(self, row, _):
+        self.cfg["auto_restore"] = row.get_active()
+        m.save_config(self.cfg)
+        self.toast("Automatic restore %s" % ("on" if row.get_active() else "off"))
+
+    def on_exclude(self, row, _, key):
+        ex = set(self.cfg["excluded"])
+        (ex.discard if row.get_active() else ex.add)(key)
+        self.cfg["excluded"] = sorted(ex)
+        m.save_config(self.cfg)
+
+    def set_busy(self, busy):
+        self.busy = busy
+        self.save_btn.set_sensitive(not busy)
+        self.restore_btn.set_sensitive(not busy)
+
+    def on_save(self, _):
+        self.set_busy(True)
+
+        def done(ok, out):
+            self.set_busy(False)
+            self.toast("Snapshot saved" if ok else "Not saved: %s" % out.replace("not saved: ", ""))
+            self.build_restore(force=True)
+        self.run_async([os.path.join(BIN, "m5pro-session-save"), "--once", "--force"], done)
+
+    def on_restore(self, _):
+        dlg = Adw.AlertDialog(heading="Restore the desktop now?",
+                              body="Apps and terminals from the last snapshot that are not already open will start on their workspaces. "
+                                   "Agent sessions are resumed where they were.")
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("go", "Restore")
+        dlg.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED)
+        dlg.set_default_response("go")
+        dlg.connect("response", lambda d, r: self.do_restore() if r == "go" else None)
+        dlg.present(self)
+
+    def do_restore(self):
+        self.set_busy(True)
+        self.toast("Restoring…")
+
+        def done(ok, out):
+            self.set_busy(False)
+            last = out.splitlines()[-1] if out else ""
+            self.toast("Restore finished" if ok else "Restore problem: %s" % last)
+            self.build_restore(force=True)
+        self.run_async([os.path.join(BIN, "m5pro-session-restore")], done)
+
+    # ------------------------------------------------------------------ login items page
+    def build_login(self):
+        page = self.login_page
+        for g in getattr(self, "login_groups", []):
+            page.remove(g)
+        self.login_groups = []
+        items = m.list_login_items()
+        rank = {"App": 0, "Background": 1}
+        usable = sorted([i for i in items if i.get("applicable", True)], key=lambda i: (rank[i["category"]], i["name"].lower()))
+        unused = [i for i in items if not i.get("applicable", True)]
+        g = Adw.PreferencesGroup(title="Opens at login",
+                                 description="Apps and services that start with your session. Switch one off to stop it starting; "
+                                             "it keeps running until you log out.")
+        for it in usable:
+            g.add(self.item_row(it))
+        page.add(g)
+        self.login_groups.append(g)
+        if unused:
+            g2 = Adw.PreferencesGroup()
+            ex = Adw.ExpanderRow(title="Not used on this desktop", subtitle="%d system entries made for other desktops" % len(unused))
+            for it in sorted(unused, key=lambda i: i["name"].lower()):
+                ex.add_row(self.item_row(it))
+            g2.add(ex)
+            page.add(g2)
+            self.login_groups.append(g2)
+
+    def item_row(self, it):
+        r = Adw.SwitchRow(title=GLib.markup_escape_text(it["name"]))
+        sub = it.get("comment") or ""
+        if it["locked"]:
+            sub = it["lock_note"]
+        elif it.get("state") and it["kind"] != "unit":
+            sub = (sub + "  ·  " if sub else "") + it["state"]
+        elif it["kind"] == "unit":
+            sub = (sub + "  ·  " if sub else "") + ("running" if it.get("running") else "not running")
+        r.set_subtitle(GLib.markup_escape_text(sub))
+        r.set_subtitle_lines(2)
+        r.add_prefix(self.icon(it.get("icon"), 24, "system-run-symbolic" if it["category"] == "Background" else "application-x-executable-symbolic"))
+        badge = Gtk.Label(label=it["category"], valign=Gtk.Align.CENTER)
+        badge.add_css_class("caption")
+        badge.add_css_class("dim-label")
+        r.add_suffix(badge)
+        if it["locked"]:
+            r.add_suffix(Gtk.Image(icon_name="changes-prevent-symbolic", tooltip_text=it["lock_note"]))
+            r.set_sensitive(False)
+        if it.get("added_here"):
+            rm = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Remove from login items")
+            rm.add_css_class("flat")
+            rm.connect("clicked", lambda *_, it=it: self.on_remove(it))
+            r.add_suffix(rm)
+        r.set_active(bool(it["enabled"]))
+        if not it["toggleable"] and not it["locked"]:
+            r.set_sensitive(False)
+        r.connect("notify::active", self.on_item_toggle, it)
+        return r
+
+    def on_item_toggle(self, row, _, it):
+        if getattr(row, "_reverting", False):
+            return
+        on = row.get_active()
+        try:
+            m.set_item_enabled(it, on)
+            self.toast("%s %s at login" % (it["name"], "will open" if on else "will not open"))
+        except Exception as e:
+            row._reverting = True
+            row.set_active(not on)
+            row._reverting = False
+            self.toast("Could not change %s: %s" % (it["name"], e))
+
+    def on_remove(self, it):
+        try:
+            m.remove_login_app(it)
+        except OSError as e:
+            self.toast("Could not remove: %s" % e)
+        self.build_login()
+
+    def on_add(self, _):
+        AddDialog(self).present(self)
+
+
+class AddDialog(Adw.Dialog):
+    """Pick an installed app to open at login."""
+
+    def __init__(self, win):
+        super().__init__(title="Add an app", content_width=480, content_height=560)
+        self.win = win
+        self.index = m.DesktopIndex()
+        self.index.refresh()
+        taken = {i["desktop_id"] for i in m.list_autostart_items() if i["enabled"]}
+        self.entries = []
+        for a in sorted(self.index.apps, key=lambda a: a["name"].lower()):
+            if a["nodisplay"] or a["terminal"] or a["id"] in taken:
+                continue
+            self.entries.append(a)
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_start=12, margin_end=12, margin_bottom=12, margin_top=4)
+        self.search = Gtk.SearchEntry(placeholder_text="Search installed apps")
+        box.append(self.search)
+        self.list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.list.add_css_class("boxed-list")
+        sw = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        sw.set_child(self.list)
+        box.append(sw)
+        view.set_content(box)
+        self.set_child(view)
+        for a in self.entries:
+            r = Adw.ActionRow(title=GLib.markup_escape_text(a["name"]), activatable=True)
+            r.add_prefix(win.icon(a["icon"], 32))
+            r.app = a
+            r.connect("activated", self.on_pick)
+            self.list.append(r)
+        self.list.set_filter_func(self.filter)
+        self.search.connect("search-changed", lambda *_: self.list.invalidate_filter())
+
+    def filter(self, row):
+        q = self.search.get_text().strip().lower()
+        return not q or q in row.app["name"].lower() or q in row.app["id"].lower()
+
+    def on_pick(self, row):
+        try:
+            m.add_login_app(row.app)
+            self.win.toast("%s will open at login" % row.app["name"])
+            self.win.build_login()
+        except OSError as e:
+            self.win.toast("Could not add: %s" % e)
+        self.close()
+
+
+class App(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def do_activate(self):
+        win = self.props.active_window or MainWindow(self)
+        page = os.environ.get("M5PRO_SESSION_PAGE")
+        if page in ("restore", "login"):
+            win.stack.set_visible_child_name(page)
+        win.present()
+        shot = os.environ.get("M5PRO_SESSION_SCREENSHOT")
+        if shot:
+            GLib.timeout_add(1500, self.screenshot, win, shot)
+
+    def screenshot(self, win, path):
+        w, h = win.get_width(), win.get_height()
+        snap = Gtk.Snapshot()
+        Gtk.WidgetPaintable.new(win).snapshot(snap, w, h)
+        node = snap.to_node()
+        tex = win.get_native().get_renderer().render_texture(node, Graphene.Rect().init(0, 0, w, h))
+        tex.save_to_png(path)
+        self.quit()
+        return False
+
+
+if __name__ == "__main__":
+    sys.exit(App().run(sys.argv))

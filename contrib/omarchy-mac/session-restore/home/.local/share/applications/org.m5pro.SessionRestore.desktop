@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Login Items & Restore
+GenericName=Startup and session restore
+Comment=Choose what opens at login and restore every window and terminal agent after a reboot
+Exec=@HOME@/.local/bin/m5pro-session-app
+Icon=org.m5pro.SessionRestore
+Terminal=false
+Categories=Settings;GTK;
+Keywords=login;startup;autostart;login items;restore;session;reboot;workspace;windows;resume;
+StartupWMClass=org.m5pro.SessionRestore
+StartupNotify=true

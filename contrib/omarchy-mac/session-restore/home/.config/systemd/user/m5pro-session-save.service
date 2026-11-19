@@ -1,0 +1,16 @@
+[Unit]
+Description=Save the desktop layout and terminal agent sessions for restore after a reboot (m5pro-session)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/m5pro-session-save run
+# Session stop or shutdown: one last guarded snapshot (never replaces a good one with a half-closed desktop).
+ExecStop=%h/.local/bin/m5pro-session-save --final
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+Nice=10
+
+[Install]
+WantedBy=graphical-session.target

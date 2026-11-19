@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""m5pro-session-restore: bring the desktop back from the last snapshot.
+
+  --auto       run as the login service: does nothing if automatic restore is switched off, waits for the shell,
+               and puts windows that login items opened on their saved workspaces
+  --dry-run    print the plan (nothing is started or moved); add --fresh to plan as if nothing were open yet
+  --snapshot F restore from another snapshot file
+Every app starts silently on its saved workspace; terminals reopen in their folder with their agent session resumed.
+"""
+import argparse
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.join(os.path.expanduser("~"), ".local/lib/m5pro-session"))
+import m5pro_session as m  # noqa: E402
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--auto", action="store_true")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--snapshot")
+    ap.add_argument("--fresh", action="store_true", help="with --dry-run: plan as if nothing were open yet (what a reboot would do)")
+    ap.add_argument("--no-wait", action="store_true", help="do not wait for the shell")
+    a = ap.parse_args()
+    cfg = m.load_config()
+    if a.auto and not cfg["auto_restore"]:
+        m.write_restore_status(status="off", boot_id=m.boot_id(), finished=time.time(), pid=os.getpid())
+        print("automatic restore is off")
+        return 0
+    snap = m.load_json(a.snapshot) if a.snapshot else m.latest_snapshot()
+    if not snap or not snap.get("windows"):
+        print("no snapshot to restore")
+        if not a.dry_run:
+            m.write_restore_status(status="no snapshot", boot_id=m.boot_id(), finished=time.time(), pid=os.getpid())
+        return 0
+    if m.restore_running() and not a.dry_run:
+        print("a restore is already running")
+        return 1
+    if a.auto and not a.dry_run and not a.no_wait:
+        m.wait_for_shell(log=print)
+    live = {"windows": []} if (a.fresh and a.dry_run) else m.collect_snapshot()
+    groups = m.build_plan(snap, live, cfg, m.login_matchers(), adopt=a.auto)
+    for g in groups:
+        tag = g["status"] if g["status"] == "launch" else "%s (%s)" % (g["status"], g["reason"])
+        print("%-34s %s" % (m.describe_group(g), tag))
+    print("plan:", m.plan_summary(groups))
+    if a.dry_run:
+        return 0
+    m.write_restore_status(status="running", pid=os.getpid(), boot_id=m.boot_id(), started=time.time(), finished=None)
+    r = m.Restorer(snap, cfg, m.login_matchers(), adopt=a.auto, log=lambda s: print(s, flush=True))
+    try:
+        r.run(groups)
+    finally:
+        st = dict(r.stats)
+        m.write_restore_status(status="done", finished=time.time(), launched=st.get("launched", 0), placed=st.get("placed", 0),
+                               missing=st.get("missing", 0), failed=st.get("failed", 0))
+    print("done:", dict(r.stats))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

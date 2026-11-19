@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""m5pro-session-save: snapshot the desktop (windows, workspaces, terminal agents) for restore after a reboot.
+
+  m5pro-session-save run        loop: a snapshot every 60 s (the systemd user service)
+  m5pro-session-save --final    one guarded snapshot (service ExecStop: session stop or shutdown)
+  m5pro-session-save --once     one guarded snapshot now (used by "Save now")
+  m5pro-session-save --print    print what would be saved (counts only), write nothing
+"""
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.expanduser("~"), ".local/lib/m5pro-session"))
+import m5pro_session as m  # noqa: E402
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("cmd", nargs="?", default="run", choices=["run"])
+    ap.add_argument("--final", action="store_true")
+    ap.add_argument("--once", action="store_true")
+    ap.add_argument("--force", action="store_true", help="skip the safety checks (Save now)")
+    ap.add_argument("--print", action="store_true", dest="show")
+    ap.add_argument("--interval", type=int, default=60)
+    a = ap.parse_args()
+    if a.show:
+        s = m.collect_snapshot()
+        agents = [w["agent"] for w in s["windows"] if w.get("agent")]
+        print("windows %d, terminals %d, agent sessions %d (exact %d)" % (
+            len(s["windows"]), sum(1 for w in s["windows"] if w["kind"] == "terminal"), len(agents), sum(1 for x in agents if x["exact"])))
+        return 0
+    if a.final or a.once:
+        ok, why = m.save_once(final=a.final, force=a.force)
+        print("saved" if ok else "not saved: %s" % why)
+        return 0 if ok or a.final else 1
+    m.run_saver(a.interval, log=lambda msg: print(msg, flush=True))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

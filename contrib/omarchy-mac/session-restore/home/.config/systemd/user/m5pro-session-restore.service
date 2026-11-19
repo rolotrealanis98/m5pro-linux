@@ -1,0 +1,14 @@
+[Unit]
+Description=Restore the desktop after login: windows on their workspaces, agent sessions resumed (m5pro-session)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Does nothing when the automatic-restore switch in "Login Items & Restore" is off.
+ExecStart=%h/.local/bin/m5pro-session-restore --auto
+TimeoutStartSec=300
+
+[Install]
+WantedBy=graphical-session.target
