@@ -140,6 +140,7 @@ ShellRoot {
   property double holdCloseUntil: 0
 
   readonly property real shown: Math.max(0, Math.min(1, progress))
+  readonly property real dpr: panel.devicePixelRatio > 0 ? panel.devicePixelRatio : 2
   readonly property bool interactive: revealed && !peeking && !gesturing && progressTarget > 0.5
   readonly property bool settled: revealed && !gesturing && progressTarget === 1 && Math.abs(progress - 1) < 0.002
   readonly property bool layoutAnimated: settled

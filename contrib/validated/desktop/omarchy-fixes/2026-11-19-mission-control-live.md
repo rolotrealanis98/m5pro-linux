@@ -330,3 +330,25 @@ day's work (06:18 and 06:51 local); both were orderly shutdowns in the journal, 
 before them.
 
 **Not verified**: whether text in motion looks steadier (only visible on the panel), and the new speeds by feel.
+
+## Update: bicubic filter for the window pictures (2026-11-19)
+Rolando installed the shader compiler (`sudo pacman -S --needed qt6-shadertools`, 6.12.0-1, no other package in the
+transaction) and said to go ahead.
+
+- New `picture.frag` (copy in `files/`): Catmull-Rom scaling in nine bilinear taps plus the rounded corners as a distance
+  field, in one pass. Below about half size it falls back to the plain filter (four texels each way are too few there).
+  At exactly full size it returns the texel itself. Build:
+  `/usr/lib/qt6/bin/qsb --glsl "100 es,120,150" -o picture.frag.qsb picture.frag` (the `.qsb` sits next to `shell.qml`).
+- `WindowTile.qml`: the stock `ClippingRectangle` is replaced by an offscreen copy of the picture at the window's own size
+  (`ShaderEffectSource` with an explicit texture size) and a `ShaderEffect` using that shader. `shell.qml` exposes the
+  panel's device pixel ratio as `dpr`.
+
+Verified from the agent session:
+- The overlay frozen at progress 0 against the desktop: the only differing pixels (1645) are one line of text that changed
+  between the two screenshots; window edges and corners match.
+- Edge sharpness of the same region (Laplacian standard deviation, before against after): at rest 576 to 640 (+11 %),
+  frozen mid-animation 507 to 588 (+16 %); in a magnified crop the sidebar labels are visibly crisper.
+- Three open/close cycles: 8.0 ms per frame, worst 8.5 to 9.3 ms. Thirteen more cycles without a service restart or a
+  warning; first pictures after 14 to 18 ms; no GPU fault line.
+
+**Not verified**: how text looks while it moves, on the panel.

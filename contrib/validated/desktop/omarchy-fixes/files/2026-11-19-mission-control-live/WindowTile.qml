@@ -1,7 +1,6 @@
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Widgets
 
 // One window on the stage. At progress 0 it sits exactly where the real window
 // is on the desktop; at 1 it is at its place in the spread.
@@ -113,12 +112,11 @@ Item {
   }
 
   // The picture is laid out at the window's own size, one texel per pixel,
-  // and the whole thing is scaled once on its way to the screen. Laying it
-  // out at the tile's size instead would resample it twice (the rounded clip
-  // draws through an offscreen copy) at a size that steps in whole pixels as
-  // the tile shrinks, which makes text blur and jitter during the animation.
-  // That offscreen copy is as large as the window, so it only exists while
-  // the overview is in use.
+  // copied offscreen at that size, and scaled once on its way to the screen
+  // by picture.frag. (Laying it out at the tile's size would resample it
+  // twice, at a size that steps in whole pixels as the tile shrinks: text
+  // blurs and jitters.) The offscreen copy is as large as the window, so it
+  // only exists while the overview is in use.
   Loader {
     width: Math.max(1, tile.rw)
     height: Math.max(1, tile.rh)
@@ -126,38 +124,64 @@ Item {
     active: tile.mc.mapped && tile.near
     onActiveChanged: if (!active) tile.hasContent = false
 
-    sourceComponent: ClippingRectangle {
-      radius: tile.mc.rounding
-      color: "transparent"
+    sourceComponent: Item {
+      id: picture
 
-      // Shown until the first frame arrives, and for windows that cannot be captured.
-      Rectangle {
+      // What the shader reads: the window's picture, texel for pixel.
+      Item {
+        id: content
         anchors.fill: parent
-        visible: !tile.hasContent
-        color: tile.mc.cardColor
-        Image {
-          anchors.centerIn: parent
-          width: Math.min(96, parent.width * 0.5, parent.height * 0.5)
-          height: width
-          sourceSize: Qt.size(144, 144)
-          source: tile.mc.iconFor(tile.appId)
-          asynchronous: true
+
+        // Shown until the first frame arrives, and for windows that cannot be captured.
+        Rectangle {
+          anchors.fill: parent
+          visible: !tile.hasContent
+          color: tile.mc.cardColor
+          Image {
+            anchors.centerIn: parent
+            width: Math.min(96, parent.width * 0.5, parent.height * 0.5)
+            height: width
+            sourceSize: Qt.size(144, 144)
+            source: tile.mc.iconFor(tile.appId)
+            asynchronous: true
+          }
+        }
+
+        Loader {
+          anchors.fill: parent
+          active: tile.mc.captureOn && !tile.recapturing && !!tile.toplevel && !!tile.toplevel.wayland
+          sourceComponent: ScreencopyView {
+            captureSource: tile.toplevel ? tile.toplevel.wayland : null
+            paintCursor: false
+            live: true
+            onHasContentChanged: {
+              tile.hasContent = hasContent
+              if (hasContent) tile.mc.tileReady(tile.addr)
+            }
+            onStopped: tile.captureStopped()
+          }
         }
       }
 
-      Loader {
+      ShaderEffectSource {
+        id: texels
+        sourceItem: content
+        hideSource: true
+        live: true
+        smooth: true
+        textureSize: Qt.size(Math.ceil(picture.width * tile.mc.dpr), Math.ceil(picture.height * tile.mc.dpr))
+      }
+
+      // Bicubic scaling and the rounded corners (picture.frag).
+      ShaderEffect {
         anchors.fill: parent
-        active: tile.mc.captureOn && !tile.recapturing && !!tile.toplevel && !!tile.toplevel.wayland
-        sourceComponent: ScreencopyView {
-          captureSource: tile.toplevel ? tile.toplevel.wayland : null
-          paintCursor: false
-          live: true
-          onHasContentChanged: {
-            tile.hasContent = hasContent
-            if (hasContent) tile.mc.tileReady(tile.addr)
-          }
-          onStopped: tile.captureStopped()
-        }
+        fragmentShader: Qt.resolvedUrl("picture.frag.qsb")
+        property var source: texels
+        property real radius: tile.mc.rounding
+        property real zoom: tile.width / Math.max(1, tile.rw) * tile.dragScale
+        property real px: 1 / Math.max(0.01, zoom * tile.mc.dpr)
+        property size itemSize: Qt.size(picture.width, picture.height)
+        property size texSize: texels.textureSize
       }
     }
   }
