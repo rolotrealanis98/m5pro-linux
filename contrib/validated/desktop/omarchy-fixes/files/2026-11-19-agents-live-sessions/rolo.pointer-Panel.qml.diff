@@ -1,0 +1,1386 @@
+--- ~/.config/omarchy/plugins/rolo.pointer/Panel.qml.pre-ui-refresh	2026-11-17 08:46:26.525409311 -0600
++++ ~/.config/omarchy/plugins/rolo.pointer/Panel.qml	2026-11-19 06:35:19.641202885 -0600
+@@ -2,6 +2,7 @@
+ import Quickshell
+ import Quickshell.Io
+ import qs.Commons
++import qs.Commons as Commons
+ import qs.Ui
+ 
+ Panel {
+@@ -11,13 +12,16 @@
+ 
+   readonly property color fg: bar ? bar.foreground : Color.foreground
+   readonly property color bg: bar ? bar.background : Color.background
+-  readonly property color dim: Qt.darker(fg, 1.35)
++  readonly property color dim: Qt.darker(fg, 1.4)
+   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
+   readonly property string scriptPath: Qt.resolvedUrl("apply-pointer.py").toString().replace(/^file:\/\//, "")
+ 
++  readonly property var cursorSizes: [18, 19, 24, 32, 40, 48]
++
+   property string activeTab: "trackpad"
+   property var cfg: ({
+     profile: "custom",
++    defaults: ({}),
+     trackpad_scroll_factor: 1.0,
+     trackpad_scroll_accel: 1.0,
+     trackpad_tracking: 0.6875,
+@@ -36,6 +40,45 @@
+ 
+   property bool writeQueued: false
+ 
++  // G502 X over HID++ (g502.py talks to the LIGHTSPEED receiver directly).
++  readonly property string g502Path: Qt.resolvedUrl("g502.py").toString().replace(/^file:\/\//, "")
++  property var g502: ({ ok: false, error: "", present: false })
++  property var g502Pending: null
++  readonly property bool g502Ready: g502.ok === true && g502.present === true
++  readonly property var g502DpiPresets: [400, 800, 1600, 3200, 6400]
++  readonly property string g502BatteryText: g502.battery !== undefined && g502.battery !== null ? g502.battery + "%" : "—"
++  readonly property string g502StateText: !g502Ready ? "" : g502.charging ? "Charging" : g502.battery_full ? "Full" : g502.external_power ? "Plugged in" : "On battery"
++
++  function g502Run(args) {
++    if (g502Proc.running) { g502Pending = args; return }
++    g502Pending = null
++    g502Proc.command = ["python3", g502Path].concat(args)
++    g502Proc.running = true
++  }
++  function g502Refresh() { if (!g502Proc.running) g502Run(["--read"]) }
++  function g502SetDpi(v) {
++    var n = Math.round(Number(v))
++    if (!(n > 0)) return
++    var next = Object.assign({}, g502); next.dpi = n; g502 = next
++    g502Run(["--set-dpi", String(n)])
++  }
++  function g502SetRate(ms) {
++    var next = Object.assign({}, g502); next.rate_ms = Number(ms); g502 = next
++    g502Run(["--set-rate", String(ms)])
++  }
++  function g502SetOnboard(on) {
++    var next = Object.assign({}, g502); next.onboard = on; g502 = next
++    g502Run(["--onboard", on ? "on" : "off"])
++  }
++  function g502Snap(v) {
++    var step = g502.dpi_step || 50
++    var lo = g502.dpi_min || 100
++    return Math.round((v - lo) / step) * step + lo
++  }
++
++  readonly property bool macos: cfg.profile === "macos"
++  readonly property bool mouseMacCurve: cfg.mouse_accel_profile === "macos"
++
+   function readConfig() {
+     if (!readProc.running) readProc.running = true
+   }
+@@ -50,9 +93,7 @@
+     writeProc.running = true
+   }
+ 
+-  function scheduleApply() {
+-    applyDebounce.restart()
+-  }
++  function scheduleApply() { applyDebounce.restart() }
+ 
+   function updateField(key, value) {
+     var next = Object.assign({}, cfg)
+@@ -60,45 +101,94 @@
+     cfg = next
+   }
+ 
++  function setField(key, value) {
++    applyDebounce.stop()
++    updateField(key, value)
++    applyConfig()
++  }
++
++  function defaultOf(key) {
++    return cfg.defaults && cfg.defaults[key] !== undefined ? cfg.defaults[key] : undefined
++  }
++
++  function isModified(key) {
++    var d = defaultOf(key)
++    if (d === undefined) return false
++    if (typeof d === "number") return Math.abs(Number(cfg[key]) - d) > 0.0001
++    return cfg[key] !== d
++  }
++
++  readonly property int modifiedCount: {
++    var n = 0
++    if (!cfg.defaults) return 0
++    for (var k in cfg.defaults) if (isModified(k)) n++
++    return n
++  }
++
+   function resetDefaults() {
+     applyDebounce.stop()
+     if (!resetProc.running) resetProc.running = true
+   }
+ 
+   // Profiles: "macos" (the owner's macOS settings through Apple's curves) and "custom" (hand-tuned).
+-  // Each keeps its own values; the sliders edit the active one.
++  // Each keeps its own values; the controls edit the active one.
+   function setProfile(name) {
+     if (name === cfg.profile) return
+     applyDebounce.stop()
+     profileProc.command = ["python3", scriptPath, "--profile", name]
+     if (!profileProc.running) profileProc.running = true
+   }
+-  readonly property bool macos: cfg.profile === "macos"
+-  readonly property bool mouseMacCurve: cfg.mouse_accel_profile === "macos"
+ 
+-  Component.onCompleted: readConfig()
+-  onOpenedChanged: if (opened) readConfig()
++  function takeJson(text) {
++    try {
++      var parsed = JSON.parse(text.trim())
++      if (parsed && typeof parsed === "object") root.cfg = parsed
++    } catch (e) {}
++  }
++
++  function cursorIndex(size) {
++    var best = 0
++    for (var i = 1; i < cursorSizes.length; i++)
++      if (Math.abs(cursorSizes[i] - size) < Math.abs(cursorSizes[best] - size)) best = i
++    return best
++  }
++
++  Component.onCompleted: { readConfig(); g502Refresh() }
++  onOpenedChanged: if (opened) { readConfig(); g502Refresh() }
+ 
+   Timer {
+-    id: applyDebounce
+-    interval: 70
+-    repeat: false
+-    onTriggered: root.applyConfig()
++    interval: root.opened && root.activeTab === "g502" ? 8000 : 120000
++    running: true
++    repeat: true
++    onTriggered: root.g502Refresh()
+   }
+ 
+   Process {
+-    id: readProc
+-    command: ["python3", root.scriptPath, "--read"]
++    id: g502Proc
+     stdout: StdioCollector {
+       onStreamFinished: {
+         try {
+           var parsed = JSON.parse(text.trim())
+-          if (parsed && typeof parsed === "object") root.cfg = parsed
++          if (parsed && typeof parsed === "object") root.g502 = parsed
+         } catch (e) {}
++        if (root.g502Pending) Qt.callLater(function() { root.g502Run(root.g502Pending) })
+       }
+     }
+   }
+ 
++  Timer {
++    id: applyDebounce
++    interval: 70
++    repeat: false
++    onTriggered: root.applyConfig()
++  }
++
++  Process {
++    id: readProc
++    command: ["python3", root.scriptPath, "--read"]
++    stdout: StdioCollector { onStreamFinished: root.takeJson(text) }
++  }
++
+   Process {
+     id: writeProc
+     stdout: StdioCollector {
+@@ -113,29 +203,226 @@
+ 
+   Process {
+     id: profileProc
+-    stdout: StdioCollector {
+-      onStreamFinished: {
+-        try {
+-          var parsed = JSON.parse(text.trim())
+-          if (parsed && typeof parsed === "object") root.cfg = parsed
+-        } catch (e) {}
+-      }
+-    }
++    stdout: StdioCollector { onStreamFinished: root.takeJson(text) }
+   }
+ 
+   Process {
+     id: resetProc
+     command: ["python3", root.scriptPath, "--reset"]
+-    stdout: StdioCollector {
+-      onStreamFinished: {
+-        try {
+-          var parsed = JSON.parse(text.trim())
+-          if (parsed && typeof parsed === "object") root.cfg = parsed
+-        } catch (e) {}
++    stdout: StdioCollector { onStreamFinished: root.takeJson(text) }
++  }
++
++  // ------------------------------------------------------------ row components
++  // Inline components do not see this file's ids, so each takes the panel as host.
++
++  // Label + live value on one line, slider below. The value lights up when it
++  // differs from the profile's default, and a reset arrow appears beside it.
++  component SliderRow: Column {
++    id: sliderRow
++    property var host
++    property string label: ""
++    property string key: ""
++    property real minimum: 0
++    property real maximum: 1
++    property real step: 0.05
++    property int decimals: 2
++    property string suffix: ""
++    property bool signed: false
++    property var format: null
++    readonly property real current: Number(host.cfg[key])
++    readonly property bool modified: host.isModified(key)
++
++    function show(v) {
++      if (format) return format(v)
++      return (signed && v > 0 ? "+" : "") + Number(v).toFixed(decimals) + suffix
++    }
++    function snap(v) { return Math.round(v * 10000) / 10000 }
++
++    width: parent ? parent.width : 0
++    spacing: 0
++
++    Item {
++      width: parent.width
++      height: Math.max(labelText.implicitHeight, Style.space(20))
++
++      Text {
++        id: labelText
++        textFormat: Text.PlainText
++        anchors.left: parent.left
++        anchors.right: valueText.left
++        anchors.rightMargin: Style.space(8)
++        anchors.verticalCenter: parent.verticalCenter
++        text: sliderRow.label
++        color: sliderRow.host.fg
++        font.family: sliderRow.host.fontFamily
++        font.pixelSize: Style.font.body
++        elide: Text.ElideRight
++      }
++
++      PanelActionButton {
++        id: resetBtn
++        anchors.right: parent.right
++        anchors.verticalCenter: parent.verticalCenter
++        size: Style.space(20)
++        fontSize: Style.font.caption
++        iconText: "󰑓"
++        visible: sliderRow.modified
++        foreground: sliderRow.host.dim
++        fontFamily: sliderRow.host.fontFamily
++        tooltipText: "Reset to " + sliderRow.show(sliderRow.host.defaultOf(sliderRow.key))
++        onClicked: sliderRow.host.setField(sliderRow.key, sliderRow.host.defaultOf(sliderRow.key))
++      }
++
++      Text {
++        id: valueText
++        textFormat: Text.PlainText
++        anchors.right: resetBtn.visible ? resetBtn.left : parent.right
++        anchors.rightMargin: resetBtn.visible ? Style.space(4) : 0
++        anchors.verticalCenter: parent.verticalCenter
++        text: sliderRow.show(slider.dragging ? slider.liveValue : sliderRow.current)
++        color: sliderRow.modified ? Commons.Color.accent : sliderRow.host.dim
++        font.family: sliderRow.host.fontFamily
++        font.pixelSize: Style.font.body
++        font.bold: sliderRow.modified
+       }
+     }
++
++    PanelSlider {
++      id: slider
++      width: parent.width
++      bar: sliderRow.host.bar
++      minimum: sliderRow.minimum
++      maximum: sliderRow.maximum
++      step: sliderRow.step
++      value: sliderRow.current
++      onMoved: function(v) {
++        sliderRow.host.updateField(sliderRow.key, sliderRow.snap(v))
++        sliderRow.host.scheduleApply()
++      }
++      onReleased: function(v) { sliderRow.host.setField(sliderRow.key, sliderRow.snap(v)) }
++      // Right-click puts the slider back to the profile default.
++      onRightClicked: if (sliderRow.modified) sliderRow.host.setField(sliderRow.key, sliderRow.host.defaultOf(sliderRow.key))
++    }
++  }
++
++  // Compact on/off row: label (+ optional caption) and a switch. The whole row is the click target.
++  component SwitchRow: Item {
++    id: switchRow
++    property var host
++    property string label: ""
++    property string description: ""
++    property string key: ""
++    readonly property bool checked: !!host.cfg[key]
++
++    width: parent ? parent.width : 0
++    implicitHeight: Math.max(switchLabels.implicitHeight, toggle.implicitHeight) + Style.space(10)
++
++    Rectangle {
++      anchors.fill: parent
++      anchors.leftMargin: -Style.space(6)
++      anchors.rightMargin: -Style.space(6)
++      radius: Style.cornerRadius
++      color: rowMouse.containsMouse ? Style.hoverFillFor(switchRow.host.fg, Commons.Color.accent) : "transparent"
++      Behavior on color { ColorAnimation { duration: Style.duration(80) } }
++    }
++
++    Column {
++      id: switchLabels
++      anchors.left: parent.left
++      anchors.right: toggle.left
++      anchors.rightMargin: Style.space(12)
++      anchors.verticalCenter: parent.verticalCenter
++      spacing: Style.space(1)
++
++      Text {
++        textFormat: Text.PlainText
++        width: parent.width
++        text: switchRow.label
++        color: switchRow.host.fg
++        font.family: switchRow.host.fontFamily
++        font.pixelSize: Style.font.body
++        elide: Text.ElideRight
++      }
++      Text {
++        textFormat: Text.PlainText
++        visible: switchRow.description !== ""
++        width: parent.width
++        wrapMode: Text.WordWrap
++        text: switchRow.description
++        color: switchRow.host.dim
++        font.family: switchRow.host.fontFamily
++        font.pixelSize: Style.font.caption
++      }
++    }
++
++    ToggleSwitch {
++      id: toggle
++      anchors.right: parent.right
++      anchors.verticalCenter: parent.verticalCenter
++      interactive: false
++      checked: switchRow.checked
++      hasCursor: rowMouse.containsMouse
++      foreground: switchRow.host.fg
++    }
++
++    MouseArea {
++      id: rowMouse
++      anchors.fill: parent
++      hoverEnabled: true
++      cursorShape: Qt.PointingHandCursor
++      onClicked: switchRow.host.setField(switchRow.key, !switchRow.checked)
++    }
++  }
++
++  // Label on the left, segmented choice on the right.
++  component ChoiceRow: Item {
++    id: choiceRow
++    property var host
++    property string label: ""
++    property var options: []
++    property string value: ""
++    signal chosen(string value)
++
++    width: parent ? parent.width : 0
++    implicitHeight: Math.max(choiceLabel.implicitHeight, group.implicitHeight)
++
++    Text {
++      id: choiceLabel
++      textFormat: Text.PlainText
++      anchors.left: parent.left
++      anchors.right: group.left
++      anchors.rightMargin: Style.space(10)
++      anchors.verticalCenter: parent.verticalCenter
++      text: choiceRow.label
++      color: choiceRow.host.fg
++      font.family: choiceRow.host.fontFamily
++      font.pixelSize: Style.font.body
++      elide: Text.ElideRight
++    }
++
++    ButtonGroup {
++      id: group
++      anchors.right: parent.right
++      anchors.verticalCenter: parent.verticalCenter
++      foreground: choiceRow.host.fg
++      background: choiceRow.host.bg
++      fontFamily: choiceRow.host.fontFamily
++      options: choiceRow.options
++      value: choiceRow.value
++      onChanged: function(v) { choiceRow.chosen(v) }
++    }
+   }
+ 
++  component Section: PanelSectionHeader {
++    property var host
++    width: parent ? parent.width : 0
++    foreground: host.fg
++    fontFamily: host.fontFamily
++    font.letterSpacing: 1.2
++    topPadding: Style.space(6)
++  }
++
++  // ------------------------------------------------------------------ bar icon
+   implicitWidth: button.implicitWidth
+   implicitHeight: button.implicitHeight
+ 
+@@ -144,12 +431,28 @@
+     anchors.fill: parent
+     bar: root.bar
+     text: "󰍽"
+-    tooltipText: "Pointer & Trackpad (" + (root.macos ? "macOS" : "Custom") + ")\nTrackpad scroll: " + Number(root.cfg.trackpad_scroll_factor).toFixed(2) + "× · Mouse scroll: " + Number(root.cfg.mouse_scroll_factor).toFixed(1) + "×"
++    tooltipText: "Pointer & Trackpad · " + (root.macos ? "macOS" : "Custom") + " profile"
++      + "\nTrackpad scroll " + Number(root.cfg.trackpad_scroll_factor).toFixed(2) + "× · Mouse scroll " + Number(root.cfg.mouse_scroll_factor).toFixed(1) + "×"
++      + (root.g502Ready ? "\n" + (root.g502.name || "G502 X") + " · " + root.g502BatteryText + (root.g502.charging ? " charging" : "") + (root.g502.dpi ? " · " + root.g502.dpi + " DPI" : "") : "")
+     onPressed: function(b) {
+-      if (b === Qt.LeftButton) root.toggle()
++      if (b === Qt.RightButton) { root.close(); quitMenu.toggle() }
++      else { quitMenu.close(); root.toggle() }
+     }
+   }
+ 
++  QuitMenu {
++    id: quitMenu
++    anchorItem: button
++    bar: root.bar
++    pluginId: "rolo.pointer"
++    pluginName: "Pointer"
++    actions: [
++      { label: root.macos ? "Switch to Custom profile" : "Switch to macOS profile", icon: "󰒓",
++        run: function() { root.setProfile(root.macos ? "custom" : "macos") } }
++    ]
++  }
++
++  // --------------------------------------------------------------------- panel
+   KeyboardPanel {
+     id: panel
+     anchorItem: button
+@@ -157,7 +460,7 @@
+     bar: root.bar
+     open: root.opened
+     focusTarget: keyCatcher
+-    contentWidth: panel.fittedContentWidth(Style.space(360))
++    contentWidth: panel.fittedContentWidth(Style.space(380))
+     contentHeight: panel.fittedContentHeight(column.implicitHeight)
+ 
+     PanelKeyCatcher {
+@@ -169,562 +472,498 @@
+       Column {
+         id: column
+         width: parent.width
+-        spacing: Style.space(12)
++        spacing: Style.space(10)
+ 
+-        // Header + Trackpad / Mouse switcher
+-        Row {
++        PanelHero {
+           width: parent.width
+-          spacing: Style.space(10)
+-
+-          Column {
+-            width: parent.width - tabGroup.implicitWidth - parent.spacing
+-            anchors.verticalCenter: parent.verticalCenter
+-            spacing: Style.space(2)
+-
++          title: "Pointer"
++          meta: root.macos ? "macOS profile" : "Custom profile"
++          foreground: root.fg
++          fontFamily: root.fontFamily
++          iconComponent: Component {
+             Text {
+               textFormat: Text.PlainText
+-              text: "Pointer & Trackpad"
++              text: root.activeTab === "trackpad" ? "󰟸" : root.activeTab === "g502" ? "󰍽" : "󰇀"
+               color: root.fg
+               font.family: root.fontFamily
+-              font.pixelSize: Style.font.title
+-              font.bold: true
++              font.pixelSize: Style.font.display
+             }
+-
+-            Text {
+-              textFormat: Text.PlainText
+-              text: (root.macos ? "macOS profile · " : "Custom profile · ") + (root.activeTab === "trackpad" ? "Apple MTP Trackpad" : "Mouse & Cursor")
+-              color: root.dim
+-              font.family: root.fontFamily
+-              font.pixelSize: Style.font.caption
++          }
++          trailingControl: Component {
++            ButtonGroup {
++              foreground: root.fg
++              background: root.bg
++              fontFamily: root.fontFamily
++              options: [
++                { value: "macos", label: "macOS",
++                  tooltip: "macOS 27.3 values through Apple's own curves, sized for the 2246-wide \"looks like\" (×0.77 at scale 2)" },
++                { value: "custom", label: "Custom", tooltip: "Your hand-tuned settings" }
++              ]
++              value: root.cfg.profile || "custom"
++              onChanged: function(v) { root.setProfile(v) }
+             }
+           }
++        }
++
++        // Device switcher, centered so it reads as navigation rather than a setting.
++        Item {
++          width: parent.width
++          implicitHeight: tabGroup.implicitHeight
+ 
+           ButtonGroup {
+             id: tabGroup
+-            anchors.verticalCenter: parent.verticalCenter
++            anchors.horizontalCenter: parent.horizontalCenter
+             foreground: root.fg
+             background: root.bg
+             fontFamily: root.fontFamily
+             options: [
+-              { value: "trackpad", label: "Trackpad" },
+-              { value: "mouse", label: "Mouse" }
++              { value: "trackpad", label: "Trackpad", icon: "󰟸" },
++              { value: "mouse", label: "Mouse & cursor", icon: "󰇀" },
++              { value: "g502", label: "G502 X", icon: "󰍽" }
+             ]
+             value: root.activeTab
+-            onChanged: function(v) { root.activeTab = v }
++            onChanged: function(v) { root.activeTab = v; if (v === "g502") root.g502Refresh() }
+           }
+         }
+ 
+-        // Profile switcher
+-        Row {
++        PanelSeparator { width: parent.width; foreground: root.fg }
++
++        // ======================================================== TRACKPAD TAB
++        Column {
+           width: parent.width
+-          spacing: Style.space(10)
++          spacing: Style.space(8)
++          visible: root.activeTab === "trackpad"
+ 
+-          Column {
+-            width: parent.width - profileGroup.implicitWidth - parent.spacing
+-            anchors.verticalCenter: parent.verticalCenter
+-            spacing: Style.space(2)
++          Section { host: root; text: "SCROLLING" }
+ 
+-            Text {
+-              textFormat: Text.PlainText
+-              text: "Profile"
+-              color: root.fg
+-              font.family: root.fontFamily
+-              font.pixelSize: Style.font.body
+-            }
++          SliderRow {
++            host: root
++            key: "trackpad_scroll_factor"
++            label: root.macos ? "Scroll speed (at rest)" : "Scroll speed"
++            minimum: 0.1; maximum: 3.0; step: 0.05
++            suffix: "×"
++          }
++
++          SliderRow {
++            host: root
++            key: "trackpad_scroll_accel"
++            label: "Flick acceleration"
++            minimum: 0.0; maximum: 1.0; step: 0.05
++            format: function(v) { return Math.round(Number(v) * 100) + "%" }
++          }
++
++          SwitchRow {
++            host: root
++            key: "trackpad_natural_scroll"
++            label: "Natural scrolling"
++            description: "Content moves with your fingers"
++          }
+ 
+-            Text {
+-              textFormat: Text.PlainText
+-              width: parent.width
+-              wrapMode: Text.WordWrap
+-              text: root.macos
+-                ? "macOS 27.3 values through Apple's own curves, sized for macOS's 2246-wide \"looks like\" (x0.77 at scale 2)"
+-                : "Your hand-tuned settings"
+-              color: root.dim
+-              font.family: root.fontFamily
+-              font.pixelSize: Style.font.caption
+-            }
++          Section { host: root; text: "TRACKING" }
++
++          SliderRow {
++            host: root
++            key: "trackpad_tracking"
++            label: "Cursor speed"
++            minimum: 0.0; maximum: 3.0; step: 0.05
++          }
++
++          SliderRow {
++            host: root
++            key: "trackpad_gain"
++            label: root.macos ? "Extra gain (on top of macOS)" : "Gain multiplier"
++            minimum: 0.4; maximum: 2.0; step: 0.05
++            suffix: "×"
++          }
++
++          Section { host: root; text: "CLICKING & GESTURES" }
++
++          SwitchRow { host: root; key: "trackpad_tap_to_click"; label: "Tap to click" }
++          SwitchRow { host: root; key: "trackpad_disable_while_typing"; label: "Ignore while typing" }
++          SwitchRow {
++            host: root
++            key: "trackpad_three_finger_drag"
++            label: "Three-finger drag"
++            description: "Replaces three-finger swipes"
+           }
++        }
+ 
+-          ButtonGroup {
+-            id: profileGroup
+-            anchors.verticalCenter: parent.verticalCenter
+-            foreground: root.fg
+-            background: root.bg
+-            fontFamily: root.fontFamily
++        // =========================================================== MOUSE TAB
++        Column {
++          width: parent.width
++          spacing: Style.space(8)
++          visible: root.activeTab === "mouse"
++
++          Section { host: root; text: "TRACKING" }
++
++          ChoiceRow {
++            host: root
++            label: "Acceleration"
+             options: [
+-              { value: "macos", label: "macOS" },
+-              { value: "custom", label: "Custom" }
++              { value: "macos", label: "macOS", tooltip: "Apple's mouse curve (com.apple.mouse.scaling)" },
++              { value: "adaptive", label: "Adaptive", tooltip: "libinput's adaptive curve" },
++              { value: "flat", label: "Flat", tooltip: "No acceleration" }
+             ]
+-            value: root.cfg.profile || "custom"
+-            onChanged: function(v) { root.setProfile(v) }
++            value: root.cfg.mouse_accel_profile || "adaptive"
++            onChosen: function(v) { root.setField("mouse_accel_profile", v) }
+           }
+-        }
+ 
+-        PanelSeparator { width: parent.width; foreground: root.fg }
++          SliderRow {
++            host: root
++            visible: root.mouseMacCurve
++            key: "mouse_tracking"
++            label: "Tracking speed"
++            minimum: 0.0; maximum: 3.0; step: 0.0625
++          }
+ 
+-        // ======================================================== TRACKPAD TAB
+-        Column {
+-          width: parent.width
+-          spacing: Style.space(10)
+-          visible: root.activeTab === "trackpad"
++          SliderRow {
++            host: root
++            visible: !root.mouseMacCurve
++            key: "mouse_sensitivity"
++            label: "Cursor speed"
++            minimum: -1.0; maximum: 1.0; step: 0.05
++            signed: true
++          }
++
++          Section { host: root; text: "SCROLLING" }
++
++          SliderRow {
++            host: root
++            key: "mouse_scroll_factor"
++            label: root.mouseMacCurve ? "Wheel step (× macOS)" : "Wheel speed"
++            minimum: 0.2; maximum: 4.0; step: 0.1
++            decimals: 1
++            suffix: "×"
++          }
++
++          SwitchRow {
++            host: root
++            key: "mouse_natural_scroll"
++            label: "Natural scrolling"
++            description: "Reverse the wheel direction"
++          }
++
++          Section { host: root; text: "CURSOR" }
+ 
+-          // Scroll Speed
++          // Discrete sizes on a notched slider, between a small and a large arrow.
+           Column {
+             width: parent.width
+-            spacing: Style.space(2)
++            spacing: 0
+ 
+-            Row {
++            Item {
+               width: parent.width
++              height: Math.max(sizeLabel.implicitHeight, sizeValue.implicitHeight)
++
+               Text {
++                id: sizeLabel
+                 textFormat: Text.PlainText
+-                text: root.macos ? "Scroll speed (at rest)" : "Scroll speed"
++                anchors.left: parent.left
++                anchors.verticalCenter: parent.verticalCenter
++                text: "Size"
+                 color: root.fg
+                 font.family: root.fontFamily
+                 font.pixelSize: Style.font.body
+-                width: parent.width - tpScrollVal.implicitWidth
+               }
+               Text {
+-                id: tpScrollVal
++                id: sizeValue
+                 textFormat: Text.PlainText
+-                text: Number(root.cfg.trackpad_scroll_factor).toFixed(2) + "×"
+-                color: root.dim
++                anchors.right: parent.right
++                anchors.verticalCenter: parent.verticalCenter
++                text: root.cursorSizes[sizeSlider.dragging ? Math.round(sizeSlider.liveValue) : root.cursorIndex(root.cfg.cursor_size || 24)] + " px"
++                color: root.isModified("cursor_size") ? Commons.Color.accent : root.dim
+                 font.family: root.fontFamily
+                 font.pixelSize: Style.font.body
++                font.bold: root.isModified("cursor_size")
+               }
+             }
+ 
+-            PanelSlider {
++            Item {
+               width: parent.width
+-              bar: root.bar
+-              minimum: 0.1
+-              maximum: 3.0
+-              step: 0.05
+-              value: Number(root.cfg.trackpad_scroll_factor)
+-              onMoved: function(v) {
+-                root.updateField("trackpad_scroll_factor", Math.round(v * 100) / 100)
+-                root.scheduleApply()
+-              }
+-              onReleased: function(v) {
+-                applyDebounce.stop()
+-                root.updateField("trackpad_scroll_factor", Math.round(v * 100) / 100)
+-                root.applyConfig()
+-              }
+-            }
+-          }
++              height: Math.max(sizeSlider.implicitHeight, Style.space(28))
+ 
+-          // Scroll Acceleration
+-          Column {
+-            width: parent.width
+-            spacing: Style.space(2)
+-
+-            Row {
+-              width: parent.width
+               Text {
++                id: smallArrow
+                 textFormat: Text.PlainText
+-                text: "Scroll flick acceleration"
+-                color: root.fg
+-                font.family: root.fontFamily
+-                font.pixelSize: Style.font.body
+-                width: parent.width - tpScrollAccelVal.implicitWidth
+-              }
+-              Text {
+-                id: tpScrollAccelVal
+-                textFormat: Text.PlainText
+-                text: Math.round(Number(root.cfg.trackpad_scroll_accel) * 100) + "%"
++                anchors.left: parent.left
++                anchors.verticalCenter: parent.verticalCenter
++                text: "󰇀"
+                 color: root.dim
+                 font.family: root.fontFamily
+-                font.pixelSize: Style.font.body
++                font.pixelSize: Style.font.caption
+               }
+-            }
+ 
+-            PanelSlider {
+-              width: parent.width
+-              bar: root.bar
+-              minimum: 0.0
+-              maximum: 1.0
+-              step: 0.05
+-              value: Number(root.cfg.trackpad_scroll_accel)
+-              onMoved: function(v) {
+-                root.updateField("trackpad_scroll_accel", Math.round(v * 100) / 100)
+-                root.scheduleApply()
+-              }
+-              onReleased: function(v) {
+-                applyDebounce.stop()
+-                root.updateField("trackpad_scroll_accel", Math.round(v * 100) / 100)
+-                root.applyConfig()
++              PanelSlider {
++                id: sizeSlider
++                anchors.left: smallArrow.right
++                anchors.right: bigArrow.left
++                anchors.leftMargin: Style.space(6)
++                anchors.rightMargin: Style.space(6)
++                anchors.verticalCenter: parent.verticalCenter
++                bar: root.bar
++                minimum: 0
++                maximum: root.cursorSizes.length - 1
++                step: 1
++                integer: true
++                tickCount: root.cursorSizes.length
++                value: root.cursorIndex(root.cfg.cursor_size || 24)
++                onReleased: function(v) { root.setField("cursor_size", root.cursorSizes[Math.round(v)]) }
++                onRightClicked: if (root.isModified("cursor_size")) root.setField("cursor_size", root.defaultOf("cursor_size"))
+               }
+-            }
+-          }
+-
+-          // Tracking Speed
+-          Column {
+-            width: parent.width
+-            spacing: Style.space(2)
+ 
+-            Row {
+-              width: parent.width
+               Text {
+-                textFormat: Text.PlainText
+-                text: "Cursor speed (tracking)"
++                id: bigArrow
++                textFormat: Text.PlainText
++                anchors.right: parent.right
++                anchors.verticalCenter: parent.verticalCenter
++                text: "󰇀"
+                 color: root.fg
+                 font.family: root.fontFamily
+-                font.pixelSize: Style.font.body
+-                width: parent.width - tpTrackVal.implicitWidth
+-              }
+-              Text {
+-                id: tpTrackVal
+-                textFormat: Text.PlainText
+-                text: Number(root.cfg.trackpad_tracking).toFixed(2)
+-                color: root.dim
+-                font.family: root.fontFamily
+-                font.pixelSize: Style.font.body
+-              }
+-            }
+-
+-            PanelSlider {
+-              width: parent.width
+-              bar: root.bar
+-              minimum: 0.0
+-              maximum: 3.0
+-              step: 0.05
+-              value: Number(root.cfg.trackpad_tracking)
+-              onMoved: function(v) {
+-                root.updateField("trackpad_tracking", Math.round(v * 100) / 100)
+-                root.scheduleApply()
+-              }
+-              onReleased: function(v) {
+-                applyDebounce.stop()
+-                root.updateField("trackpad_tracking", Math.round(v * 100) / 100)
+-                root.applyConfig()
++                font.pixelSize: Style.font.title
+               }
+             }
+           }
++        }
+ 
+-          // Pointer Gain
+-          Column {
+-            width: parent.width
+-            spacing: Style.space(2)
++        // ============================================================ G502 TAB
++        Column {
++          width: parent.width
++          spacing: Style.space(8)
++          visible: root.activeTab === "g502"
+ 
+-            Row {
+-              width: parent.width
++          // Not reachable: say why and what to do.
++          Text {
++            visible: !root.g502Ready
++            width: parent.width
++            wrapMode: Text.WordWrap
++            textFormat: Text.PlainText
++            color: root.dim
++            font.family: root.fontFamily
++            font.pixelSize: Style.font.body
++            text: root.g502.error === "no-access"
++              ? "No access to the Logitech receiver. Install the udev rule once:\n\nsudo cp " + root.g502Path.replace(/g502\.py$/, "") + "udev/42-logitech-hidraw.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger -s hidraw"
++              : root.g502.error === "no-receiver" ? "No LIGHTSPEED receiver plugged in."
++              : root.g502.error === "not-connected" ? "Receiver found, mouse is asleep or off. Move it and reopen."
++              : root.g502.error ? "Mouse not reachable (" + root.g502.error + ")." : "Looking for the mouse…"
++          }
++
++          // Battery
++          Item {
++            visible: root.g502Ready
++            width: parent.width
++            implicitHeight: Math.max(g502Name.implicitHeight, g502Batt.implicitHeight)
++            Column {
++              id: g502Name
++              anchors.left: parent.left
++              anchors.verticalCenter: parent.verticalCenter
++              spacing: Style.space(1)
+               Text {
+                 textFormat: Text.PlainText
+-                text: root.macos ? "Pointer gain (on top of macOS)" : "Pointer gain multiplier"
++                text: root.g502.name || "G502 X"
+                 color: root.fg
+                 font.family: root.fontFamily
+                 font.pixelSize: Style.font.body
+-                width: parent.width - tpGainVal.implicitWidth
++                font.bold: true
+               }
+               Text {
+-                id: tpGainVal
+                 textFormat: Text.PlainText
+-                text: Number(root.cfg.trackpad_gain).toFixed(2) + "×"
++                text: root.g502StateText.toUpperCase()
+                 color: root.dim
+                 font.family: root.fontFamily
+-                font.pixelSize: Style.font.body
+-              }
+-            }
+-
+-            PanelSlider {
+-              width: parent.width
+-              bar: root.bar
+-              minimum: 0.4
+-              maximum: 2.0
+-              step: 0.05
+-              value: Number(root.cfg.trackpad_gain)
+-              onMoved: function(v) {
+-                root.updateField("trackpad_gain", Math.round(v * 100) / 100)
+-                root.scheduleApply()
++                font.pixelSize: Style.font.caption
++                font.letterSpacing: 1.2
+               }
+-              onReleased: function(v) {
+-                applyDebounce.stop()
+-                root.updateField("trackpad_gain", Math.round(v * 100) / 100)
+-                root.applyConfig()
+-              }
+-            }
+-          }
+-
+-          Toggle {
+-            width: parent.width
+-            label: "Natural scrolling"
+-            description: "Content moves with your fingers"
+-            checked: !!root.cfg.trackpad_natural_scroll
+-            foreground: root.fg
+-            fontFamily: root.fontFamily
+-            onClicked: {
+-              root.updateField("trackpad_natural_scroll", !root.cfg.trackpad_natural_scroll)
+-              root.applyConfig()
+             }
+-          }
+-
+-          Toggle {
+-            width: parent.width
+-            label: "Tap to click"
+-            checked: !!root.cfg.trackpad_tap_to_click
+-            foreground: root.fg
+-            fontFamily: root.fontFamily
+-            onClicked: {
+-              root.updateField("trackpad_tap_to_click", !root.cfg.trackpad_tap_to_click)
+-              root.applyConfig()
+-            }
+-          }
+-
+-          Toggle {
+-            width: parent.width
+-            label: "Disable while typing"
+-            checked: !!root.cfg.trackpad_disable_while_typing
+-            foreground: root.fg
+-            fontFamily: root.fontFamily
+-            onClicked: {
+-              root.updateField("trackpad_disable_while_typing", !root.cfg.trackpad_disable_while_typing)
+-              root.applyConfig()
++            Text {
++              id: g502Batt
++              anchors.right: parent.right
++              anchors.verticalCenter: parent.verticalCenter
++              textFormat: Text.PlainText
++              text: root.g502BatteryText
++              color: (root.g502.battery || 100) < 20 && !root.g502.charging ? Color.urgent : root.fg
++              font.family: root.fontFamily
++              font.pixelSize: Style.font.title
++              font.bold: true
+             }
+           }
+-
+-          Toggle {
++          Rectangle {
++            visible: root.g502Ready && root.g502.battery > 0
+             width: parent.width
+-            label: "Three-finger drag"
+-            description: "Uses 3 fingers to drag (disables 3-finger swipes)"
+-            checked: !!root.cfg.trackpad_three_finger_drag
+-            foreground: root.fg
+-            fontFamily: root.fontFamily
+-            onClicked: {
+-              root.updateField("trackpad_three_finger_drag", !root.cfg.trackpad_three_finger_drag)
+-              root.applyConfig()
++            height: Style.space(6)
++            radius: height / 2
++            color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
++            Rectangle {
++              height: parent.height
++              radius: parent.radius
++              width: Math.max(parent.height, parent.width * (root.g502.battery || 0) / 100)
++              color: (root.g502.battery || 100) < 20 && !root.g502.charging ? Color.urgent : Commons.Color.accent
++              Behavior on width { NumberAnimation { duration: 250 } }
+             }
+           }
+-        }
+ 
+-        // =========================================================== MOUSE TAB
+-        Column {
+-          width: parent.width
+-          spacing: Style.space(10)
+-          visible: root.activeTab === "mouse"
++          Section { host: root; visible: root.g502Ready && !!root.g502.dpi; text: "SENSITIVITY" }
+ 
+-          // Mouse tracking speed (macOS curve)
+           Column {
++            visible: root.g502Ready && !!root.g502.dpi
+             width: parent.width
+-            spacing: Style.space(2)
+-            visible: root.mouseMacCurve
++            spacing: Style.space(6)
+ 
+-            Row {
++            Item {
+               width: parent.width
++              height: Math.max(dpiLabel.implicitHeight, Style.space(20))
+               Text {
++                id: dpiLabel
++                anchors.left: parent.left
++                anchors.verticalCenter: parent.verticalCenter
+                 textFormat: Text.PlainText
+-                text: "Tracking speed (macOS)"
++                text: "DPI"
+                 color: root.fg
+                 font.family: root.fontFamily
+                 font.pixelSize: Style.font.body
+-                width: parent.width - mTrackVal.implicitWidth
+               }
+               Text {
+-                id: mTrackVal
++                anchors.right: parent.right
++                anchors.verticalCenter: parent.verticalCenter
+                 textFormat: Text.PlainText
+-                text: Number(root.cfg.mouse_tracking).toFixed(2)
+-                color: root.dim
++                text: (dpiSlider.dragging ? root.g502Snap(dpiSlider.liveValue) : root.g502.dpi) + " DPI"
++                color: Commons.Color.accent
+                 font.family: root.fontFamily
+                 font.pixelSize: Style.font.body
++                font.bold: true
+               }
+             }
+ 
+             PanelSlider {
++              id: dpiSlider
+               width: parent.width
+               bar: root.bar
+-              minimum: 0.0
+-              maximum: 3.0
+-              step: 0.0625
+-              value: Number(root.cfg.mouse_tracking)
+-              onMoved: function(v) {
+-                root.updateField("mouse_tracking", Math.round(v * 10000) / 10000)
+-                root.scheduleApply()
+-              }
+-              onReleased: function(v) {
+-                applyDebounce.stop()
+-                root.updateField("mouse_tracking", Math.round(v * 10000) / 10000)
+-                root.applyConfig()
+-              }
++              minimum: root.g502.dpi_min || 100
++              // The full range runs to 25600; the slider covers the useful part, presets and the max button the rest.
++              maximum: Math.min(root.g502.dpi_max || 6400, 8000)
++              step: root.g502.dpi_step || 50
++              value: root.g502.dpi || 1600
++              onReleased: function(v) { root.g502SetDpi(root.g502Snap(v)) }
+             }
+-          }
+ 
+-          // Mouse Sensitivity
+-          Column {
+-            width: parent.width
+-            spacing: Style.space(2)
+-            visible: !root.mouseMacCurve
+-
+-            Row {
+-              width: parent.width
+-              Text {
+-                textFormat: Text.PlainText
+-                text: "Cursor speed (sensitivity)"
+-                color: root.fg
+-                font.family: root.fontFamily
+-                font.pixelSize: Style.font.body
+-                width: parent.width - mSensVal.implicitWidth
+-              }
+-              Text {
+-                id: mSensVal
+-                textFormat: Text.PlainText
+-                text: (Number(root.cfg.mouse_sensitivity) > 0 ? "+" : "") + Number(root.cfg.mouse_sensitivity).toFixed(2)
+-                color: root.dim
+-                font.family: root.fontFamily
+-                font.pixelSize: Style.font.body
+-              }
++            ButtonGroup {
++              anchors.horizontalCenter: parent.horizontalCenter
++              foreground: root.fg
++              background: root.bg
++              fontFamily: root.fontFamily
++              options: root.g502DpiPresets.map(function(d) { return { value: String(d), label: String(d) } })
++              value: String(root.g502.dpi)
++              onChanged: function(v) { root.g502SetDpi(Number(v)) }
+             }
++          }
+ 
+-            PanelSlider {
+-              width: parent.width
+-              bar: root.bar
+-              minimum: -1.0
+-              maximum: 1.0
+-              step: 0.05
+-              value: Number(root.cfg.mouse_sensitivity)
+-              onMoved: function(v) {
+-                root.updateField("mouse_sensitivity", Math.round(v * 100) / 100)
+-                root.scheduleApply()
+-              }
+-              onReleased: function(v) {
+-                applyDebounce.stop()
+-                root.updateField("mouse_sensitivity", Math.round(v * 100) / 100)
+-                root.applyConfig()
+-              }
+-            }
++          Section { host: root; visible: root.g502Ready && (root.g502.rates_ms || []).length > 0; text: "REPORT RATE" }
++
++          ChoiceRow {
++            host: root
++            visible: root.g502Ready && (root.g502.rates_ms || []).length > 0
++            label: "Polling"
++            options: (root.g502.rates_ms || []).slice().reverse().map(function(ms) {
++              return { value: String(ms), label: Math.round(1000 / ms) + " Hz" }
++            })
++            value: String(root.g502.rate_ms)
++            onChosen: function(v) { root.g502SetRate(Number(v)) }
+           }
+ 
+-          // Mouse Scroll Speed
+-          Column {
+-            width: parent.width
+-            spacing: Style.space(2)
++          Section { host: root; visible: root.g502Ready && root.g502.onboard !== undefined; text: "PROFILES" }
+ 
+-            Row {
+-              width: parent.width
++          Item {
++            visible: root.g502Ready && root.g502.onboard !== undefined
++            width: parent.width
++            implicitHeight: Math.max(onboardLabels.implicitHeight, onboardToggle.implicitHeight) + Style.space(10)
++            Column {
++              id: onboardLabels
++              anchors.left: parent.left
++              anchors.right: onboardToggle.left
++              anchors.rightMargin: Style.space(12)
++              anchors.verticalCenter: parent.verticalCenter
++              spacing: Style.space(1)
+               Text {
+                 textFormat: Text.PlainText
+-                text: root.mouseMacCurve ? "Scroll wheel size (x macOS)" : "Scroll wheel speed"
++                text: "Onboard profiles"
+                 color: root.fg
+                 font.family: root.fontFamily
+                 font.pixelSize: Style.font.body
+-                width: parent.width - mScrollVal.implicitWidth
+               }
+               Text {
+-                id: mScrollVal
++                width: parent.width
++                wrapMode: Text.WordWrap
+                 textFormat: Text.PlainText
+-                text: Number(root.cfg.mouse_scroll_factor).toFixed(1) + "×"
++                text: "On: the mouse's saved profile (G HUB). Off: this panel controls DPI and polling"
+                 color: root.dim
+                 font.family: root.fontFamily
+-                font.pixelSize: Style.font.body
+-              }
+-            }
+-
+-            PanelSlider {
+-              width: parent.width
+-              bar: root.bar
+-              minimum: 0.2
+-              maximum: 4.0
+-              step: 0.1
+-              value: Number(root.cfg.mouse_scroll_factor)
+-              onMoved: function(v) {
+-                root.updateField("mouse_scroll_factor", Math.round(v * 10) / 10)
+-                root.scheduleApply()
+-              }
+-              onReleased: function(v) {
+-                applyDebounce.stop()
+-                root.updateField("mouse_scroll_factor", Math.round(v * 10) / 10)
+-                root.applyConfig()
++                font.pixelSize: Style.font.caption
+               }
+             }
+-          }
+-
+-          // Acceleration Profile
+-          Row {
+-            width: parent.width
+-            spacing: Style.space(10)
+-
+-            Text {
+-              textFormat: Text.PlainText
+-              text: "Acceleration"
+-              color: root.fg
+-              font.family: root.fontFamily
+-              font.pixelSize: Style.font.body
+-              width: parent.width - accelGroup.implicitWidth - parent.spacing
+-              anchors.verticalCenter: parent.verticalCenter
+-            }
+-
+-            ButtonGroup {
+-              id: accelGroup
++            ToggleSwitch {
++              id: onboardToggle
++              anchors.right: parent.right
+               anchors.verticalCenter: parent.verticalCenter
++              interactive: false
++              checked: !!root.g502.onboard
++              hasCursor: onboardMouse.containsMouse
+               foreground: root.fg
+-              background: root.bg
+-              fontFamily: root.fontFamily
+-              options: [
+-                { value: "macos", label: "macOS" },
+-                { value: "adaptive", label: "Adaptive" },
+-                { value: "flat", label: "Flat" }
+-              ]
+-              value: root.cfg.mouse_accel_profile || "adaptive"
+-              onChanged: function(v) {
+-                root.updateField("mouse_accel_profile", v)
+-                root.applyConfig()
+-              }
+-            }
+-          }
+-
+-          // Cursor Size
+-          Row {
+-            width: parent.width
+-            spacing: Style.space(10)
+-
+-            Text {
+-              textFormat: Text.PlainText
+-              text: "Cursor size"
+-              color: root.fg
+-              font.family: root.fontFamily
+-              font.pixelSize: Style.font.body
+-              width: parent.width - cursorGroup.implicitWidth - parent.spacing
+-              anchors.verticalCenter: parent.verticalCenter
+             }
+-
+-            ButtonGroup {
+-              id: cursorGroup
+-              anchors.verticalCenter: parent.verticalCenter
+-              foreground: root.fg
+-              background: root.bg
+-              fontFamily: root.fontFamily
+-              options: ["18", "19", "24", "32", "40", "48"]
+-              value: String(root.cfg.cursor_size || 24)
+-              onChanged: function(v) {
+-                root.updateField("cursor_size", parseInt(v, 10) || 24)
+-                root.applyConfig()
+-              }
++            MouseArea {
++              id: onboardMouse
++              anchors.fill: parent
++              hoverEnabled: true
++              cursorShape: Qt.PointingHandCursor
++              onClicked: root.g502SetOnboard(!root.g502.onboard)
+             }
+           }
+ 
+-          Toggle {
+-            width: parent.width
+-            label: "Natural scrolling (mouse)"
+-            description: "Reverse mouse wheel scroll direction"
+-            checked: !!root.cfg.mouse_natural_scroll
+-            foreground: root.fg
+-            fontFamily: root.fontFamily
+-            onClicked: {
+-              root.updateField("mouse_natural_scroll", !root.cfg.mouse_natural_scroll)
+-              root.applyConfig()
+-            }
++          Text {
++            visible: root.g502Ready && !!root.g502.error
++            width: parent.width
++            wrapMode: Text.WordWrap
++            textFormat: Text.PlainText
++            text: root.g502.error || ""
++            color: Color.urgent
++            font.family: root.fontFamily
++            font.pixelSize: Style.font.caption
+           }
+         }
+ 
+-        PanelSeparator { width: parent.width; foreground: root.fg }
++        PanelSeparator { width: parent.width; foreground: root.fg; visible: root.activeTab !== "g502" }
+ 
+-        // Footer: Reset button
+-        Row {
++        // Footer: what's live, and a way back.
++        Item {
++          visible: root.activeTab !== "g502"
+           width: parent.width
+-          layoutDirection: Qt.RightToLeft
++          implicitHeight: Math.max(footerText.implicitHeight, resetButton.implicitHeight)
++
++          Text {
++            id: footerText
++            textFormat: Text.PlainText
++            anchors.left: parent.left
++            anchors.right: resetButton.left
++            anchors.rightMargin: Style.space(10)
++            anchors.verticalCenter: parent.verticalCenter
++            text: root.modifiedCount > 0
++              ? "Changes apply live · right-click a slider to reset it"
++              : "On the " + (root.macos ? "macOS" : "default") + " values"
++            color: root.dim
++            font.family: root.fontFamily
++            font.pixelSize: Style.font.caption
++            wrapMode: Text.WordWrap
++          }
+ 
+           Button {
+-            text: root.macos ? "Reset to macOS values" : "Reset to defaults"
++            id: resetButton
++            anchors.right: parent.right
++            anchors.verticalCenter: parent.verticalCenter
++            text: "Reset all"
++            iconText: "󰑓"
++            enabled: root.modifiedCount > 0
++            opacity: enabled ? 1 : 0.45
+             foreground: root.fg
+             background: root.bg
+             fontFamily: root.fontFamily
++            tooltipText: root.macos ? "Back to the macOS values" : "Back to the defaults"
+             onClicked: root.resetDefaults()
+           }
+         }

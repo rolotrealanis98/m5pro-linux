@@ -1,0 +1,9 @@
+{
+  "name": "io.rolo.ytpip",
+  "description": "yt-pip mini player settings",
+  "path": "~/.local/share/yt-pip/native-host.py",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://ccpknojkckpfdcjeopcijkoelbbcgkph/"
+  ]
+}

@@ -1,0 +1,19 @@
+[Desktop Entry]
+Name=cds
+GenericName=Agent Sessions
+Comment=Live view of every coding-agent session on every machine
+Keywords=agents;claude;codex;sessions;herdr;colony;vault;
+Exec=omarchy launch or focus tui --app-id=cds cds
+Icon=cds
+Type=Application
+Terminal=false
+Categories=Development;Utility;
+Actions=Colony;Vault;
+
+[Desktop Action Colony]
+Name=Open Colony
+Exec=omarchy launch or focus tui --app-id=cds-colony cds --colony
+
+[Desktop Action Vault]
+Name=Open Vault
+Exec=omarchy launch or focus tui --app-id=cds-vault cds --vault

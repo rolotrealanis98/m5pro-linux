@@ -1,0 +1,345 @@
+--- ~/.config/omarchy/plugins/rolo.agents/Panel.qml.pre-cds-sessions	2026-11-18 07:13:17.339314936 -0600
++++ ~/.config/omarchy/plugins/rolo.agents/Panel.qml	2026-11-19 06:47:32.616594545 -0600
+@@ -41,6 +41,88 @@
+ 
+   property bool cursorActive: false
+ 
++  // ------------------------------------------------------- live sessions (cds)
++  // `cds --list` prints every agent session on every machine; the panel keeps
++  // the ones doing something (busy / waiting) and the bar icon reflects them.
++  property var liveSessions: []
++  property bool cdsAvailable: true
++  readonly property int maxLiveRows: 6
++  readonly property int cdsWaiting: {
++    var n = 0
++    for (var i = 0; i < liveSessions.length; i++) if (liveSessions[i].waiting) n++
++    return n
++  }
++  readonly property int cdsWorking: liveSessions.length - cdsWaiting
++
++  // live_sessions.py merges local Claude Code windows, Herdr terminals (any
++  // machine) and whatever else cds lists; only the first two can be answered here.
++  function parseSessions(raw) {
++    var data
++    try { data = JSON.parse(String(raw || "")) } catch (e) { return }
++    var list = Array.isArray(data.sessions) ? data.sessions : []
++    var out = []
++    for (var i = 0; i < list.length && out.length < 50; i++) {
++      var s = list[i]
++      if (!s || (s.state !== "working" && s.state !== "waiting")) continue
++      out.push({
++        kind: safeText(s.kind, 8), id: String(s.id || "").slice(0, 400),
++        machine: safeText(s.machine, 24), provider: safeText(s.provider, 24),
++        title: safeText(s.title, 80), where: safeText(s.where, 40),
++        state: s.state, waiting: s.state === "waiting", waitingFor: safeText(s.waitingFor, 80),
++        age: safeText(s.age, 12), workspace: safeText(s.workspace, 12),
++        interactive: s.interactive === true,
++        name: safeText(s.name, 40)
++      })
++    }
++    liveSessions = out
++  }
++
++  function openSession(s) {
++    // Claude Desktop sessions are answered in Claude Desktop: go to its window.
++    if (s.kind === "other" && s.name === "Desktop") { focusSession(s); return }
++    root.close()
++    sessionWindow.openSession(s)
++  }
++
++  function focusSession(s) {
++    Quickshell.execDetached(["python3", root.scriptDir + "/live_sessions.py", "focus", s.kind, s.id])
++    root.close()
++  }
++
++  function refreshSessions() {
++    if (cdsListProc.running) return
++    cdsListProc.collected = ""
++    cdsListProc.running = true
++  }
++
++  function openCds() {
++    Quickshell.execDetached(["omarchy-launch-or-focus-tui", "--app-id=cds", "cds"])
++    root.close()
++  }
++
++  Process {
++    id: cdsListProc
++    command: ["python3", root.scriptDir + "/live_sessions.py", "list"]
++    property string collected: ""
++    stdout: SplitParser {
++      splitMarker: ""
++      onRead: data => { if (cdsListProc.collected.length < 65536) cdsListProc.collected += data }
++    }
++    onExited: exitCode => {
++      root.cdsAvailable = exitCode === 0
++      if (exitCode === 0) root.parseSessions(cdsListProc.collected)
++    }
++  }
++
++  Timer {
++    interval: 30000
++    running: true
++    repeat: true
++    triggeredOnStart: true
++    onTriggered: root.refreshSessions()
++  }
++
++
+   // Countdowns and "last updated" ages read this instead of Date.now() so the
+   // panel keeps telling the truth while it sits open.
+   property double nowMs: Date.now()
+@@ -70,6 +152,7 @@
+     var rows = []
+     var hero = []
+     if (addButtonShown) hero.push({ kind: "add", index: 0 })
++    if (addStage === "") hero.push({ kind: "cds", index: 0 })
+     if (addStage === "") hero.push({ kind: "launch", index: 0 })
+     if (hero.length > 0) rows.push(hero)
+     if (picking) {
+@@ -407,6 +490,7 @@
+     else if (target.kind === "add") addStage !== "" ? cancelAdd() : addAccount()
+     else if (target.kind === "choice") chooseAddProvider(addProviders[target.index].providerId)
+     else if (target.kind === "launch") launchAgent()
++    else if (target.kind === "cds") openCds()
+     else if (target.kind === "starter") startPrompt(starterPrompts[target.index].prompt)
+     else if (target.kind === "providerSignin") signInAgain(providers[target.index], null)
+     else if (target.kind === "signin") signInAgain(pickedEntry.provider, pickedEntry.account)
+@@ -931,6 +1015,7 @@
+   implicitHeight: button.implicitHeight
+ 
+   onOpenedChanged: if (opened) {
++    refreshSessions()
+     if (addStage !== "running") addStage = ""
+     resetKeys()
+     if (usage.enabledProviders.length === 0 && !checkProcess.running) checkProcess.running = true
+@@ -1021,6 +1106,21 @@
+     function hide(): void { root.close() }
+     function toggle(): void { root.toggle() }
+     function refresh(): string { root.refreshNow(); return "ok" }
++    // Opens the session that has waited longest for you (or the first live one) in the pop-out.
++    function openWaiting(): string {
++      var list = root.liveSessions
++      var pick = list.filter(function(s) { return s.waiting })[0] || list.filter(function(s) { return s.interactive })[0]
++      if (!pick) return "none"
++      root.openSession(pick)
++      return pick.title
++    }
++  }
++
++  SessionWindow {
++    id: sessionWindow
++    scriptPath: root.scriptDir + "/live_sessions.py"
++    fontFamily: root.fontFamily
++    foreground: root.foreground
+   }
+ 
+   BarIconButton {
+@@ -1028,14 +1128,28 @@
+     anchors.fill: parent
+     bar: root.bar
+     text: "󱚣"
+-    active: root.alarming
++    // Lit while agents are working or a limit is close; the count is sessions waiting for you.
++    active: root.alarming || root.liveSessions.length > 0
++    labelText: root.cdsWaiting > 0 ? String(root.cdsWaiting) : ""
+     onPressed: function(buttonCode) {
+-      if (buttonCode === Qt.RightButton) root.launchAgent()
++      if (buttonCode === Qt.RightButton) { root.close(); quitMenu.toggle() }
+       else if (buttonCode === Qt.MiddleButton) root.refreshNow()
+-      else root.toggle()
++      else { quitMenu.close(); root.toggle() }
+     }
+   }
+ 
++  QuitMenu {
++    id: quitMenu
++    anchorItem: button
++    bar: root.bar
++    pluginId: "rolo.agents"
++    pluginName: "My Agents"
++    actions: [
++      { label: "Launch an agent", icon: "󱚣", run: function() { root.launchAgent() } },
++      { label: "Refresh now", icon: "󰑓", run: function() { root.refreshNow() } }
++    ]
++  }
++
+   KeyboardPanel {
+     id: panel
+     anchorItem: button
+@@ -1141,6 +1255,15 @@
+ 
+                 HeroButton {
+                   visible: root.addStage === ""
++                  hasCursor: root.hasKey("cds")
++                  onHovered: root.pointAt("cds")
++                  glyph: "󰆍"
++                  tooltip: pluginStrings.t("live.openCds")
++                  onClicked: root.openCds()
++                }
++
++                HeroButton {
++                  visible: root.addStage === ""
+                   hasCursor: root.hasKey("launch")
+                   onHovered: root.pointAt("launch")
+                   glyph: "󰞷"
+@@ -1151,6 +1274,159 @@
+             }
+           }
+ 
++          // ---------- Live sessions from cds ----------
++          Column {
++            id: liveSection
++            visible: root.addStage === "" && root.liveSessions.length > 0
++            width: parent.width
++            spacing: Style.space(8)
++
++            Item {
++              width: parent.width
++              implicitHeight: liveHeader.implicitHeight
++
++              PanelSectionHeader {
++                id: liveHeader
++                anchors.left: parent.left
++                text: pluginStrings.t("live.header")
++                foreground: root.foreground
++                fontFamily: root.fontFamily
++              }
++
++              Text {
++                anchors.right: parent.right
++                anchors.verticalCenter: liveHeader.verticalCenter
++                textFormat: Text.PlainText
++                text: (root.cdsWaiting > 0 ? pluginStrings.tn("live.waiting", root.cdsWaiting).arg(root.cdsWaiting) + " · " : "")
++                  + pluginStrings.tn("live.working", root.cdsWorking).arg(root.cdsWorking)
++                color: root.cdsWaiting > 0 ? Commons.Color.accent : root.dim
++                font.family: root.fontFamily
++                font.pixelSize: Style.font.caption
++                font.bold: root.cdsWaiting > 0
++              }
++            }
++
++            Repeater {
++              model: root.liveSessions.slice(0, root.maxLiveRows)
++
++              Item {
++                id: sessionRow
++                required property var modelData
++                width: liveSection.width
++                implicitHeight: sessionText.implicitHeight + Style.space(8)
++
++                HoverHandler { id: rowHover }
++
++                Rectangle {
++                  anchors.fill: parent
++                  anchors.leftMargin: -Style.space(6)
++                  anchors.rightMargin: -Style.space(6)
++                  radius: Style.cornerRadius
++                  color: sessionMouse.containsMouse ? Style.hoverFillFor(root.foreground, Commons.Color.accent) : "transparent"
++                }
++
++                Rectangle {
++                  id: stateDot
++                  width: Style.space(8)
++                  height: width
++                  radius: width / 2
++                  anchors.left: parent.left
++                  anchors.top: parent.top
++                  anchors.topMargin: Style.space(4) + (sessionTitle.implicitHeight - height) / 2
++                  color: sessionRow.modelData.waiting ? Commons.Color.accent : root.foreground
++                  opacity: sessionRow.modelData.waiting ? 1 : 0.55
++
++                  SequentialAnimation on opacity {
++                    running: !sessionRow.modelData.waiting && root.opened && Style.duration(1000) > 0
++                    loops: Animation.Infinite
++                    NumberAnimation { to: 0.2; duration: 900; easing.type: Easing.InOutSine }
++                    NumberAnimation { to: 0.55; duration: 900; easing.type: Easing.InOutSine }
++                  }
++                }
++
++                Column {
++                  id: sessionText
++                  anchors.left: stateDot.right
++                  anchors.leftMargin: Style.space(10)
++                  anchors.right: sessionGo.visible ? sessionGo.left : sessionAge.left
++                  anchors.rightMargin: Style.space(8)
++                  anchors.verticalCenter: parent.verticalCenter
++                  spacing: Style.space(1)
++
++                  Text {
++                    id: sessionTitle
++                    width: parent.width
++                    textFormat: Text.PlainText
++                    text: sessionRow.modelData.title
++                    color: root.foreground
++                    font.family: root.fontFamily
++                    font.pixelSize: Style.font.body
++                    elide: Text.ElideRight
++                  }
++                  Text {
++                    width: parent.width
++                    textFormat: Text.PlainText
++                    text: [sessionRow.modelData.provider,
++                           sessionRow.modelData.machine === "here"
++                             ? (sessionRow.modelData.workspace ? pluginStrings.t("live.workspace").arg(sessionRow.modelData.workspace) : pluginStrings.t("live.here"))
++                             : sessionRow.modelData.machine,
++                           sessionRow.modelData.where].filter(function(s) { return s !== "" }).join(" · ")
++                    color: root.dim
++                    font.family: root.fontFamily
++                    font.pixelSize: Style.font.caption
++                    elide: Text.ElideRight
++                  }
++                }
++
++                PanelActionButton {
++                  id: sessionGo
++                  anchors.right: sessionAge.left
++                  anchors.rightMargin: Style.space(6)
++                  anchors.verticalCenter: parent.verticalCenter
++                  visible: sessionRow.modelData.interactive && rowHover.hovered
++                  iconText: "󰆍"
++                  foreground: root.dim
++                  fontFamily: root.fontFamily
++                  tooltipText: pluginStrings.t("live.goToTerminal")
++                  onClicked: root.focusSession(sessionRow.modelData)
++                  z: 2
++                }
++
++                Text {
++                  id: sessionAge
++                  anchors.right: parent.right
++                  anchors.verticalCenter: parent.verticalCenter
++                  textFormat: Text.PlainText
++                  text: sessionRow.modelData.waiting ? pluginStrings.t("live.needsYou") : sessionRow.modelData.age
++                  color: sessionRow.modelData.waiting ? Commons.Color.accent : root.dim
++                  font.family: root.fontFamily
++                  font.pixelSize: Style.font.caption
++                  font.bold: sessionRow.modelData.waiting
++                }
++
++                MouseArea {
++                  id: sessionMouse
++                  anchors.fill: parent
++                  hoverEnabled: true
++                  cursorShape: Qt.PointingHandCursor
++                  onClicked: root.openSession(sessionRow.modelData)
++                }
++              }
++            }
++
++            TextLink {
++              visible: root.liveSessions.length > root.maxLiveRows
++              text: pluginStrings.tn("live.more", root.liveSessions.length - root.maxLiveRows).arg(root.liveSessions.length - root.maxLiveRows)
++              tooltip: pluginStrings.t("live.openCds")
++              onClicked: root.openCds()
++            }
++
++            PanelSeparator {
++              width: parent.width
++              foreground: root.foreground
++            }
++          }
++
+           AddView {
+             visible: root.addStage !== "" || root.blankSlate
+             width: column.width

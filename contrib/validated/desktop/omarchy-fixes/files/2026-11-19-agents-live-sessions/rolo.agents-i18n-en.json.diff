@@ -1,0 +1,27 @@
+--- ~/.config/omarchy/plugins/rolo.agents/i18n/en.json.pre-cds-sessions	2026-11-18 07:05:10.461217071 -0600
++++ ~/.config/omarchy/plugins/rolo.agents/i18n/en.json	2026-11-19 06:36:55.046266522 -0600
+@@ -14,5 +14,23 @@
+   "openRouterFree": "Free tier",
+   "openRouterBalanceHint": "OpenRouter restricts credit balances to Management Keys. Click + → OpenRouter to paste one from openrouter.ai/settings/management-keys.",
+   "copilotPremiumRequests": "%1 / %2 premium requests",
+-  "copilotUnlimited": "Unlimited allowance"
++  "copilotUnlimited": "Unlimited allowance",
++  "live.header": "Active now",
++  "live.working": {
++    "one": "%1 working",
++    "other": "%1 working"
++  },
++  "live.waiting": {
++    "one": "%1 waiting",
++    "other": "%1 waiting"
++  },
++  "live.here": "this machine",
++  "live.needsYou": "needs you",
++  "live.more": {
++    "one": "+%1 more in cds",
++    "other": "+%1 more in cds"
++  },
++  "live.openCds": "Open cds",
++  "live.workspace": "workspace %1",
++  "live.goToTerminal": "Go to its terminal"
+ }

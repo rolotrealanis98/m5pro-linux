@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Mini Player (yt-pip)",
+  "version": "1.1.0",
+  "description": "Adds a mini player button and settings to YouTube's player; opens Chrome's picture-in-picture that the Omarchy yt-pip helper keeps across workspaces.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyJidQvl4ODKj/JPbdUzdBREhNRtVthX5qJJ6sJxLJOA30UwF8dbG8OPVbSdT4AkD7FfQ07BdRShd4iI7WBalD+r/Gz37A8rFA1IzoihPsiCIGSnH16voFvlmLKD3kw6yUxJmVyDD1m6zbFCr9dN11j9nMkP3McN9wC259wFflmbIl4tBw5IRS1EFZ/FsoKu3wqoePSJT3An6ZnHH0/oq8lRwhH43AdfnLTi+aCOnhjlqMvr054IcM4IXgkYznSD7wV8dbVKr0syvF/Z1G71YaXNEXZMLRbmJ+kTWJfc4QL2iCC4Bmgm4/Fd9SsockhkhEPKvzzbh0UJQMW+qdk2uYwIDAQAB",
+  "permissions": [
+    "scripting",
+    "activeTab",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*"
+  ],
+  "icons": {
+    "128": "icon.png"
+  },
+  "action": {
+    "default_title": "YouTube mini player (Alt+Shift+P)",
+    "default_icon": "icon.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

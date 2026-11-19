@@ -1,0 +1,9 @@
+--- bindings.lua.pre-yt-pip	2026-11-19 06:06:16.200697100 -0600
++++ bindings.lua	2026-11-19 06:36:40.101944044 -0600
+@@ -42,3 +42,6 @@
+ o.bind("SUPER + CTRL + ALT + M", "KM Link: control Mac", "systemctl --user kill -s USR1 kmlink-controller.service")
+ o.bind("SUPER + CTRL + ALT + L", "KM Link: lock to this computer", "systemctl --user kill -s USR2 kmlink-controller.service")
+ 
++
++-- YouTube mini player (yt-pip)
++o.bind("SUPER + ALT + P", "YouTube mini player", "yt-pip toggle")

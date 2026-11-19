@@ -1,0 +1,9 @@
+--- autostart.lua.pre-yt-pip	2026-11-17 09:55:12.769632031 -0600
++++ autostart.lua	2026-11-19 06:36:40.101944044 -0600
+@@ -3,3 +3,6 @@
+ 
+ -- Lock right after login (autologin): the lock screen is the gate at boot. m5pro-linux contrib/omarchy-mac/lock-at-login
+ o.launch_on_start("m5pro-lock-at-login")
++
++-- YouTube mini player daemon (~/.local/bin/yt-pip, plugin rolo.yt-pip)
++o.launch_on_start("yt-pip daemon")

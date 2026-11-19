@@ -1,0 +1,370 @@
+#!/usr/bin/env python3
+"""yt-pip: a YouTube picture-in-picture mini player for Hyprland.
+
+Chrome draws the mini player (its native picture-in-picture window); the
+yt-pip Chrome extension opens and closes it when it sees Alt+Shift+P. This
+script sends that shortcut to the right YouTube window, places the PiP
+window per ~/.config/yt-pip/config.json, and (as a daemon) opens it when
+you leave a playing video's workspace and closes it when you come back.
+
+  yt-pip toggle            open/close the mini player for the playing video
+  yt-pip daemon            watch Hyprland and act on the settings
+  yt-pip status            print the current state as JSON
+  yt-pip set KEY VALUE     change a setting (enabled, auto, autoClose, mode, workspace,
+                           corner, width, opacity, source)
+"""
+import fcntl, json, os, re, socket, subprocess, sys, time, selectors
+
+HOME = os.path.expanduser("~")
+CONF_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME", HOME + "/.config"), "yt-pip")
+CONF = os.path.join(CONF_DIR, "config.json")
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+STATE = os.path.join(RUNTIME, "yt-pip.json")
+EXT_DIR = os.path.join(HOME, ".local/share/yt-pip/chrome-extension")
+
+DEFAULTS = {
+    "enabled": True,       # false = the background helper stays off (it exits)
+    "auto": True,          # open the mini player when you leave a playing video
+    "autoClose": True,     # close it again when you return to the video
+    "mode": "follow",      # follow = on every workspace (pinned); workspace = one workspace
+    "workspace": 0,        # with mode=workspace: 0 = where it opened, N = workspace N
+    "corner": "top-right", # top-left | top-right | bottom-left | bottom-right
+    "width": 560,          # logical pixels; height follows 16:9
+    "opacity": 1.0,
+    "source": "app",       # app = the YouTube web app only; all = also YouTube tabs in Chrome/Chromium
+}
+SHORTCUT = {"mods": "ALT SHIFT", "key": "P"}
+PIP_TITLE = re.compile(r"^Picture.?in.?[Pp]icture$")
+APP_CLASS = re.compile(r"-youtube\.com__")
+BROWSER_CLASS = re.compile(r"^((google-)?[cC]hrom(e|ium)|[bB]rave-browser|[mM]icrosoft-edge|Vivaldi-stable|helium)")
+MARGIN = 24
+
+
+def load_conf():
+    conf = dict(DEFAULTS)
+    try:
+        with open(CONF) as f:
+            user = json.load(f)
+        for k, v in user.items():
+            if k in DEFAULTS and type(v) is type(DEFAULTS[k]) or (k == "opacity" and isinstance(v, (int, float))):
+                conf[k] = v
+    except (OSError, ValueError):
+        pass
+    return conf
+
+
+def save_conf(conf):
+    os.makedirs(CONF_DIR, exist_ok=True)
+    tmp = CONF + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({k: conf[k] for k in DEFAULTS}, f, indent=2)
+        f.write("\n")
+    os.replace(tmp, CONF)
+
+
+def hypr_json(what):
+    try:
+        return json.loads(subprocess.run(["hyprctl", "-j", what], capture_output=True, text=True, timeout=3).stdout or "null")
+    except (subprocess.SubprocessError, ValueError):
+        return None
+
+
+def lua_str(s):
+    return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def dispatch(expr):
+    """Run hl.dispatch(<expr>) through hyprctl eval (Hyprland's Lua config has no plain dispatchers)."""
+    subprocess.run(["hyprctl", "eval", "hl.dispatch(" + expr + ")"], capture_output=True, timeout=3)
+
+
+def players():
+    """MPRIS players of Chromium-based browsers: list of (status, title)."""
+    try:
+        out = subprocess.run(
+            ["playerctl", "-a", "metadata", "--format", "{{playerName}}\t{{status}}\t{{xesam:title}}"],
+            capture_output=True, text=True, timeout=3).stdout
+    except subprocess.SubprocessError:
+        return []
+    res = []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and re.match(r"(chromium|chrome|brave|edge|vivaldi|helium)", parts[0], re.I):
+            res.append((parts[1], parts[2].strip()))
+    return res
+
+
+def is_youtube(c, source):
+    if APP_CLASS.search(c.get("class", "")):
+        return True
+    return source == "all" and BROWSER_CLASS.match(c.get("class", "")) and c.get("title", "").endswith(" - YouTube")
+
+
+def snapshot(conf):
+    clients = hypr_json("clients") or []
+    monitors = hypr_json("monitors") or []
+    visible_ws = {m["activeWorkspace"]["id"] for m in monitors if m.get("activeWorkspace")}
+    visible_ws |= {m["specialWorkspace"]["id"] for m in monitors if m.get("specialWorkspace", {}).get("id")}
+    yts = [c for c in clients if is_youtube(c, conf["source"]) and not PIP_TITLE.match(c.get("title", ""))]
+    pip = next((c for c in clients if PIP_TITLE.match(c.get("title", "")) and BROWSER_CLASS.search(c.get("class", "") or "chrome")), None)
+    playing, paused = None, None
+    plist = players()
+    for c in yts:
+        title = c.get("title", "")
+        for status, ptitle in plist:
+            if ptitle and ptitle in title:
+                if status == "Playing" and not playing:
+                    playing = (c, ptitle)
+                elif status == "Paused" and not paused:
+                    paused = (c, ptitle)
+    current = playing or paused
+    return {
+        "clients": clients, "monitors": monitors, "pip": pip,
+        "yt": current[0] if current else (yts[0] if yts else None),
+        "title": current[1] if current else "",
+        "playing": bool(playing),
+        "visible": bool(current) and current[0]["workspace"]["id"] in visible_ws,
+        "ytWindows": len(yts),
+    }
+
+
+def send_toggle(win):
+    dispatch("hl.dsp.send_shortcut({ mods = %s, key = %s, window = %s })"
+             % (lua_str(SHORTCUT["mods"]), lua_str(SHORTCUT["key"]), lua_str("address:" + win["address"])))
+
+
+def place(pip, conf, monitors, monitor_id=None):
+    """Pin/unpin, size, and move the PiP window per the settings."""
+    addr = lua_str("address:" + pip["address"])
+    mon = None
+    want = monitor_id if monitor_id is not None else next((m["id"] for m in monitors if m.get("focused")), None)
+    mon = next((m for m in monitors if m["id"] == want), monitors[0] if monitors else None)
+    if conf["mode"] == "workspace" and conf["workspace"] > 0:
+        if pip.get("pinned"):
+            dispatch("hl.dsp.window.pin({ action = \"off\", window = %s })" % addr)
+        dispatch("hl.dsp.window.move({ workspace = %s, follow = false, window = %s })" % (lua_str(conf["workspace"]), addr))
+        target_ws = conf["workspace"]
+        mon = next((m for m in monitors if m.get("activeWorkspace", {}).get("id") == target_ws), mon)
+    elif conf["mode"] == "workspace":
+        if pip.get("pinned"):
+            dispatch("hl.dsp.window.pin({ action = \"off\", window = %s })" % addr)
+    elif not pip.get("pinned"):
+        dispatch("hl.dsp.window.pin({ action = \"on\", window = %s })" % addr)
+    w = max(240, min(1600, int(conf["width"])))
+    h = round(w * 9 / 16)
+    dispatch("hl.dsp.window.resize({ x = %d, y = %d, window = %s })" % (w, h, addr))
+    if mon:
+        scale = mon.get("scale") or 1
+        mw, mh = mon["width"] / scale, mon["height"] / scale
+        if mon.get("transform", 0) % 2:
+            mw, mh = mh, mw
+        rl, rt, rr, rb = (mon.get("reserved") or [0, 0, 0, 0])[:4]
+        x = mon["x"] + (rl + MARGIN if "left" in conf["corner"] else mw - rr - MARGIN - w)
+        y = mon["y"] + (rt + MARGIN if "top" in conf["corner"] else mh - rb - MARGIN - h)
+        dispatch("hl.dsp.window.move({ x = %d, y = %d, window = %s })" % (round(x), round(y), addr))
+    op = max(0.2, min(1.0, float(conf["opacity"])))
+    dispatch("hl.dsp.window.set_prop({ prop = \"opacity\", value = %s, window = %s })" % (lua_str(op), addr))
+
+
+def write_state(state):
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f)
+    os.replace(tmp, STATE)
+
+
+def state_of(snap, conf, daemon, auto_opened):
+    yt = snap["yt"]
+    return {
+        "daemon": daemon, "pipOpen": bool(snap["pip"]), "playing": snap["playing"],
+        "title": snap["title"], "hasVideo": bool(yt), "ytWindows": snap["ytWindows"],
+        "ytWorkspace": yt["workspace"]["id"] if yt else None, "autoOpened": auto_opened,
+        "extensionDir": EXT_DIR, "config": conf, "updated": int(time.time()),
+    }
+
+
+def cmd_toggle():
+    conf = load_conf()
+    snap = snapshot(conf)
+    win = snap["yt"]
+    if not win:
+        # Fall back to the focused window if it's a browser showing a video.
+        aw = hypr_json("activewindow") or {}
+        if BROWSER_CLASS.match(aw.get("class", "")) or APP_CLASS.search(aw.get("class", "")):
+            win = aw
+    if not win:
+        subprocess.run(["notify-send", "-a", "YouTube mini player", "-u", "low", "No YouTube video is open"])
+        return 1
+    send_toggle(win)
+    return 0
+
+
+class Daemon:
+    def __init__(self):
+        self.conf = load_conf()
+        self.conf_mtime = self._mtime()
+        self.auto_opened = False      # the open PiP was opened by us (so we may close it)
+        self.suppressed = None        # yt window address the user closed the auto PiP for
+        self.cooldown_until = 0.0
+        self.pip_addr = None
+        self.pip_monitor = None
+        self.last_state = None
+
+    def _mtime(self):
+        try:
+            return os.stat(CONF).st_mtime
+        except OSError:
+            return 0
+
+    def reload_conf(self):
+        m = self._mtime()
+        if m != self.conf_mtime:
+            self.conf_mtime = m
+            old = self.conf
+            self.conf = load_conf()
+            return old != self.conf
+        return False
+
+    def tick(self, event=None):
+        conf_changed = self.reload_conf()
+        if not self.conf["enabled"]:
+            try:
+                os.unlink(STATE)
+            except OSError:
+                pass
+            sys.exit(0)
+        snap = snapshot(self.conf)
+        pip, yt = snap["pip"], snap["yt"]
+        now = time.monotonic()
+
+        # A new PiP window: place it.
+        if pip and pip["address"] != self.pip_addr:
+            self.pip_addr = pip["address"]
+            place(pip, self.conf, snap["monitors"])
+            self.pip_monitor = next((m["id"] for m in snap["monitors"] if m.get("focused")), pip.get("monitor"))
+        elif pip and conf_changed:
+            place(pip, self.conf, snap["monitors"], self.pip_monitor)
+        elif pip and self.conf["mode"] == "follow" and event == "focusedmon":
+            focused = next((m["id"] for m in snap["monitors"] if m.get("focused")), None)
+            if focused is not None and focused != self.pip_monitor:
+                self.pip_monitor = focused
+                place(pip, self.conf, snap["monitors"], focused)
+        elif not pip and self.pip_addr:
+            # The PiP closed. If we opened it and the video is still hidden, the user closed it: don't reopen.
+            if self.auto_opened and yt and not snap["visible"]:
+                self.suppressed = yt["address"]
+            self.pip_addr = None
+            self.auto_opened = False
+
+        if yt and snap["visible"]:
+            self.suppressed = None
+
+        if now >= self.cooldown_until and yt:
+            if (self.conf["auto"] and not pip and snap["playing"] and not snap["visible"]
+                    and self.suppressed != yt["address"]):
+                send_toggle(yt)
+                self.auto_opened = True
+                self.cooldown_until = now + 2.5
+            elif self.conf["autoClose"] and pip and self.auto_opened and snap["visible"]:
+                send_toggle(yt)
+                self.auto_opened = False
+                self.cooldown_until = now + 2.5
+
+        state = state_of(snap, self.conf, True, self.auto_opened)
+        cmp = {k: v for k, v in state.items() if k != "updated"}
+        if cmp != self.last_state:
+            self.last_state = cmp
+            write_state(state)
+
+    def run(self):
+        sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+        if not sig:
+            sys.exit("yt-pip: HYPRLAND_INSTANCE_SIGNATURE is not set")
+        path = os.path.join(RUNTIME, "hypr", sig, ".socket2.sock")
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(path)
+        sock.setblocking(False)
+        sel = selectors.DefaultSelector()
+        sel.register(sock, selectors.EVENT_READ)
+        buf = b""
+        interesting = ("workspace", "workspacev2", "focusedmon", "focusedmonv2", "activewindowv2",
+                       "openwindow", "closewindow", "movewindowv2", "windowtitlev2", "activespecial", "monitoradded", "monitorremoved")
+        self.tick()
+        last_tick = time.monotonic()
+        while True:
+            pending = None
+            for _key, _ in sel.select(timeout=0.25):
+                data = sock.recv(65536)
+                if not data:
+                    sys.exit("yt-pip: Hyprland socket closed")
+                buf += data
+                *lines, buf = buf.split(b"\n")
+                for line in lines:
+                    name = line.split(b">>", 1)[0].decode(errors="replace")
+                    if name in interesting:
+                        pending = "focusedmon" if name.startswith("focusedmon") else (pending or name)
+            now = time.monotonic()
+            if pending:
+                time.sleep(0.15)  # let a workspace switch settle
+                self.tick(pending)
+                last_tick = time.monotonic()
+            elif now - last_tick >= 1.5:
+                self.tick()
+                last_tick = now
+
+
+def coerce(key, value):
+    d = DEFAULTS[key]
+    if isinstance(d, bool):
+        return value.lower() in ("1", "true", "on", "yes")
+    if isinstance(d, int):
+        return int(value)
+    if isinstance(d, float):
+        return float(value)
+    allowed = {"mode": ("follow", "workspace"), "corner": ("top-left", "top-right", "bottom-left", "bottom-right"),
+               "source": ("app", "all")}.get(key)
+    if allowed and value not in allowed:
+        raise ValueError("%s must be one of %s" % (key, ", ".join(allowed)))
+    return value
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "toggle"
+    if cmd == "toggle":
+        return cmd_toggle()
+    if cmd == "daemon":
+        if not load_conf()["enabled"]:
+            return 0
+        lock = open(os.path.join(RUNTIME, "yt-pip.lock"), "w")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return 0  # already running
+        Daemon().run()
+        return 0
+    if cmd == "status":
+        conf = load_conf()
+        try:
+            with open(STATE) as f:
+                st = json.load(f)
+        except (OSError, ValueError):
+            st = state_of(snapshot(conf), conf, False, False)
+        st["config"] = conf  # the file is the truth; the daemon's copy can lag a tick
+        st["daemon"] = bool(st.get("daemon")) and conf["enabled"] and time.time() - st.get("updated", 0) < 10
+        print(json.dumps(st, indent=2))
+        return 0
+    if cmd == "set" and len(argv) == 4 and argv[2] in DEFAULTS:
+        conf = load_conf()
+        try:
+            conf[argv[2]] = coerce(argv[2], argv[3])
+        except ValueError as e:
+            print("yt-pip:", e, file=sys.stderr)
+            return 2
+        save_conf(conf)
+        return 0
+    print(__doc__.strip(), file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

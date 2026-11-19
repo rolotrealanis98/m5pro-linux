@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""YouTube Mini Player: settings and controls for yt-pip (GTK4 + libadwaita)."""
+import json, os, subprocess, sys
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio, GLib, Gtk
+
+HOME = os.path.expanduser("~")
+CONF = os.path.join(os.environ.get("XDG_CONFIG_HOME", HOME + "/.config"), "yt-pip", "config.json")
+STATE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "yt-pip.json")
+EXT_DIR = os.path.join(HOME, ".local/share/yt-pip/chrome-extension")
+DEFAULTS = {"enabled": True, "auto": True, "autoClose": True, "mode": "follow", "workspace": 0,
+            "corner": "top-right", "width": 560, "opacity": 1.0, "source": "app"}
+MODES = [("follow", "Every workspace"), ("workspace", "One workspace")]
+WORKSPACES = [(0, "Where it opens")] + [(i, "Workspace %d" % i) for i in range(1, 10)]
+CORNERS = [("top-right", "Top right"), ("top-left", "Top left"), ("bottom-right", "Bottom right"), ("bottom-left", "Bottom left")]
+SOURCES = [("app", "YouTube app"), ("all", "YouTube app and Chrome tabs")]
+
+
+def read_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def yt_pip(*args):
+    subprocess.Popen(["yt-pip", *map(str, args)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def start_daemon():
+    subprocess.Popen(["hyprctl", "eval", 'hl.dispatch(hl.dsp.exec_cmd("uwsm-app -- yt-pip daemon"))'],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def combo(title, choices, subtitle=None):
+    row = Adw.ComboRow(title=title, model=Gtk.StringList.new([label for _, label in choices]))
+    if subtitle:
+        row.set_subtitle(subtitle)
+    return row
+
+
+class Window(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="YouTube Mini Player", default_width=520, default_height=760)
+        self.loading = False
+        self.conf = dict(DEFAULTS)
+
+        page = Adw.PreferencesPage()
+        toolbar = Adw.ToolbarView()
+        toolbar.add_top_bar(Adw.HeaderBar())
+        toolbar.set_content(page)
+        self.set_content(toolbar)
+
+        # Now playing
+        now = Adw.PreferencesGroup(title="Now")
+        self.now_row = Adw.ActionRow(title="No video open")
+        self.now_row.set_title_lines(1)
+        self.pip_button = Gtk.Button(label="Open mini player", valign=Gtk.Align.CENTER)
+        self.pip_button.add_css_class("suggested-action")
+        self.pip_button.connect("clicked", lambda *_: yt_pip("toggle"))
+        self.now_row.add_suffix(self.pip_button)
+        now.add(self.now_row)
+        self.enabled_row = Adw.SwitchRow(title="Run in the background",
+                                         subtitle="Needed to open, close and place the mini player automatically")
+        self.enabled_row.connect("notify::active", self.on_enabled)
+        now.add(self.enabled_row)
+        page.add(now)
+
+        # Behavior
+        beh = Adw.PreferencesGroup(title="Behavior")
+        self.auto_row = Adw.SwitchRow(title="Open automatically", subtitle="When you leave the workspace of a playing video")
+        self.auto_row.connect("notify::active", lambda r, _: self.set("auto", r.get_active()))
+        self.close_row = Adw.SwitchRow(title="Close when I go back", subtitle="Only a mini player that opened automatically")
+        self.close_row.connect("notify::active", lambda r, _: self.set("autoClose", r.get_active()))
+        beh.add(self.auto_row)
+        beh.add(self.close_row)
+        page.add(beh)
+
+        # Placement
+        place = Adw.PreferencesGroup(title="Placement")
+        self.mode_row = combo("Show on", MODES, "Every workspace follows you around")
+        self.mode_row.connect("notify::selected", lambda r, _: self.set("mode", MODES[r.get_selected()][0]))
+        self.ws_row = combo("Workspace", WORKSPACES)
+        self.ws_row.connect("notify::selected", lambda r, _: self.set("workspace", WORKSPACES[r.get_selected()][0]))
+        self.corner_row = combo("Corner", CORNERS)
+        self.corner_row.connect("notify::selected", lambda r, _: self.set("corner", CORNERS[r.get_selected()][0]))
+        self.width_row = Adw.SpinRow.new_with_range(320, 1280, 40)
+        self.width_row.set_title("Width")
+        self.width_row.set_subtitle("Pixels; height follows 16:9")
+        self.width_row.connect("notify::value", lambda r, _: self.set("width", int(r.get_value())))
+        self.opacity_row = Adw.SpinRow.new_with_range(40, 100, 5)
+        self.opacity_row.set_title("Opacity")
+        self.opacity_row.set_subtitle("Percent")
+        self.opacity_row.connect("notify::value", lambda r, _: self.set("opacity", round(r.get_value() / 100, 2)))
+        for r in (self.mode_row, self.ws_row, self.corner_row, self.width_row, self.opacity_row):
+            place.add(r)
+        page.add(place)
+
+        # Source
+        src = Adw.PreferencesGroup(title="Videos from")
+        self.source_row = combo("Source", SOURCES, "Chrome tabs need the YouTube tab to be the active one")
+        self.source_row.connect("notify::selected", lambda r, _: self.set("source", SOURCES[r.get_selected()][0]))
+        src.add(self.source_row)
+        page.add(src)
+
+        # Extension
+        ext = Adw.PreferencesGroup(title="Chrome extension",
+                                   description="Load it once: chrome://extensions → Developer mode → Load unpacked → the folder below. "
+                                               "Shortcuts: Super+Alt+P anywhere, Alt+Shift+P inside YouTube.")
+        folder = Adw.ActionRow(title="Extension folder", subtitle=EXT_DIR)
+        folder.set_subtitle_selectable(True)
+        copy = Gtk.Button(icon_name="edit-copy-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Copy path")
+        copy.add_css_class("flat")
+        copy.connect("clicked", self.on_copy)
+        folder.add_suffix(copy)
+        ext.add(folder)
+        open_ext = Adw.ButtonRow(title="Open Chrome's extensions page")
+        open_ext.connect("activated", lambda *_: subprocess.Popen(["google-chrome-stable", "chrome://extensions"],
+                                                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        ext.add(open_ext)
+        page.add(ext)
+
+        self.toast = Adw.ToastOverlay()
+        toolbar.set_content(self.toast)
+        self.toast.set_child(page)
+
+        self.refresh()
+        GLib.timeout_add(1500, self.refresh)
+
+    # ---------- settings ----------
+    def set(self, key, value):
+        if self.loading or self.conf.get(key) == value:
+            return
+        self.conf[key] = value
+        yt_pip("set", key, str(value).lower() if isinstance(value, bool) else value)
+        self.ws_row.set_sensitive(self.conf["mode"] == "workspace")
+
+    def on_enabled(self, row, _):
+        if self.loading:
+            return
+        on = row.get_active()
+        self.set("enabled", on)
+        if on:
+            GLib.timeout_add(400, lambda: (start_daemon(), False)[1])
+
+    def on_copy(self, *_):
+        self.get_clipboard().set(EXT_DIR)
+        self.toast.add_toast(Adw.Toast(title="Path copied"))
+
+    # ---------- state ----------
+    def refresh(self):
+        conf = dict(DEFAULTS)
+        conf.update({k: v for k, v in (read_json(CONF) or {}).items() if k in DEFAULTS})
+        self.conf = conf
+        st = read_json(STATE) or {}
+        running = bool(st.get("daemon")) and abs(GLib.get_real_time() / 1e6 - st.get("updated", 0)) < 10
+
+        self.loading = True
+        try:
+            self.enabled_row.set_active(conf["enabled"])
+            self.auto_row.set_active(conf["auto"])
+            self.close_row.set_active(conf["autoClose"])
+            self.mode_row.set_selected(next((i for i, (v, _) in enumerate(MODES) if v == conf["mode"]), 0))
+            self.ws_row.set_selected(next((i for i, (v, _) in enumerate(WORKSPACES) if v == conf["workspace"]), 0))
+            self.ws_row.set_sensitive(conf["mode"] == "workspace")
+            self.corner_row.set_selected(next((i for i, (v, _) in enumerate(CORNERS) if v == conf["corner"]), 0))
+            self.width_row.set_value(conf["width"])
+            self.opacity_row.set_value(round(float(conf["opacity"]) * 100))
+            self.source_row.set_selected(next((i for i, (v, _) in enumerate(SOURCES) if v == conf["source"]), 0))
+        finally:
+            self.loading = False
+
+        for r in (self.auto_row, self.close_row):
+            r.set_sensitive(conf["enabled"])
+        if conf["enabled"] and not running:
+            self.enabled_row.set_subtitle("Not running — switch off and on to start it")
+        else:
+            self.enabled_row.set_subtitle("Needed to open, close and place the mini player automatically")
+
+        if running:
+            title = st.get("title") or ""
+            if st.get("pipOpen"):
+                status = "Mini player open"
+            elif st.get("playing"):
+                status = "Playing"
+            elif st.get("hasVideo"):
+                status = "Paused"
+            else:
+                status = "No video open"
+            self.now_row.set_title(GLib.markup_escape_text(title or status))
+            self.now_row.set_subtitle(status if title else "")
+            self.pip_button.set_label("Close mini player" if st.get("pipOpen") else "Open mini player")
+            self.pip_button.set_sensitive(bool(st.get("hasVideo")))
+        else:
+            self.now_row.set_title("Background helper is off")
+            self.now_row.set_subtitle("The button and Super+Alt+P still work")
+            self.pip_button.set_label("Open / close mini player")
+            self.pip_button.set_sensitive(True)
+        return True
+
+
+class App(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id="io.rolo.YtPip", flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+
+    def do_activate(self):
+        win = self.props.active_window or Window(self)
+        win.present()
+
+
+if __name__ == "__main__":
+    sys.exit(App().run(sys.argv))

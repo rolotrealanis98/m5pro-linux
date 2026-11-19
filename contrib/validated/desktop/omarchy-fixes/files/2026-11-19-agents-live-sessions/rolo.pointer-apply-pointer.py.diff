@@ -1,0 +1,8 @@
+--- ~/.config/omarchy/plugins/rolo.pointer/apply-pointer.py.pre-ui-refresh	2026-11-17 08:46:26.529824730 -0600
++++ ~/.config/omarchy/plugins/rolo.pointer/apply-pointer.py	2026-11-19 06:04:54.203358059 -0600
+@@ -167,6 +167,7 @@
+ def flat(store):
+     out = dict(store["profiles"][store["profile"]])
+     out["profile"] = store["profile"]
++    out["defaults"] = dict(DEFAULTS[store["profile"]])  # the panel marks values that differ
+     return out

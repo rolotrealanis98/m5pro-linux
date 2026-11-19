@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=YouTube Mini Player
+Comment=Picture-in-picture mini player for YouTube that can follow you across workspaces
+Exec=yt-pip-app
+Icon=youtube
+Terminal=false
+Categories=AudioVideo;Video;Utility;
+Keywords=youtube;pip;picture-in-picture;mini player;
+StartupWMClass=io.rolo.YtPip
+# Hidden: the settings live in the YouTube web app (right-click its mini player button). Delete this line to show it again.
+NoDisplay=true
