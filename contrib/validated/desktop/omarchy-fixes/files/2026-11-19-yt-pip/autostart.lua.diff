@@ -5,5 +5,5 @@
  -- Lock right after login (autologin): the lock screen is the gate at boot. m5pro-linux contrib/omarchy-mac/lock-at-login
  o.launch_on_start("m5pro-lock-at-login")
 +
-+-- YouTube mini player daemon (~/.local/bin/yt-pip, plugin rolo.yt-pip)
++-- YouTube mini player daemon (~/.local/bin/yt-pip; settings in the YouTube web app)
 +o.launch_on_start("yt-pip daemon")
