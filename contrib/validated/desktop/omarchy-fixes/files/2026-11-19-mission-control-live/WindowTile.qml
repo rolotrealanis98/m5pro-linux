@@ -29,7 +29,7 @@ Item {
   readonly property bool highlighted: mc.settled && !mc.dragTile && (mc.hoverAddr === addr || mc.selAddr === addr)
   readonly property bool dragging: mc.dragTile === tile
   readonly property string title: toplevel && toplevel.title ? String(toplevel.title) : ""
-  readonly property bool hasContent: capture.item ? capture.item.hasContent : false
+  property bool hasContent: false
 
   // The spread position. Animated when the spread changes under an open
   // overview (a window closed or moved away), never during open and close.
@@ -93,46 +93,53 @@ Item {
     visible: opacity > 0 && tile.mc.borderSize > 0
   }
 
-  ClippingRectangle {
-    anchors.fill: parent
-    radius: tile.mc.rounding
-    color: "transparent"
+  // The picture is laid out at the window's own size, one texel per pixel,
+  // and the whole thing is scaled once on its way to the screen. Laying it
+  // out at the tile's size instead would resample it twice (the rounded clip
+  // draws through an offscreen copy) at a size that steps in whole pixels as
+  // the tile shrinks, which makes text blur and jitter during the animation.
+  // That offscreen copy is as large as the window, so it only exists while
+  // the overview is in use.
+  Loader {
+    width: Math.max(1, tile.rw)
+    height: Math.max(1, tile.rh)
+    transform: Scale { xScale: tile.width / Math.max(1, tile.rw); yScale: tile.height / Math.max(1, tile.rh) }
+    active: tile.mc.mapped && tile.near
+    onActiveChanged: if (!active) tile.hasContent = false
 
-    // Shown until the first frame arrives, and for windows that cannot be captured.
-    Rectangle {
-      anchors.fill: parent
-      visible: !tile.hasContent
-      color: tile.mc.cardColor
-      Image {
-        anchors.centerIn: parent
-        width: Math.min(72, parent.width * 0.5, parent.height * 0.5)
-        height: width
-        sourceSize: Qt.size(144, 144)
-        source: tile.mc.iconFor(tile.appId)
-        asynchronous: true
+    sourceComponent: ClippingRectangle {
+      radius: tile.mc.rounding
+      color: "transparent"
+
+      // Shown until the first frame arrives, and for windows that cannot be captured.
+      Rectangle {
+        anchors.fill: parent
+        visible: !tile.hasContent
+        color: tile.mc.cardColor
+        Image {
+          anchors.centerIn: parent
+          width: Math.min(96, parent.width * 0.5, parent.height * 0.5)
+          height: width
+          sourceSize: Qt.size(144, 144)
+          source: tile.mc.iconFor(tile.appId)
+          asynchronous: true
+        }
+      }
+
+      Loader {
+        anchors.fill: parent
+        active: tile.mc.captureOn && !!tile.toplevel && !!tile.toplevel.wayland
+        sourceComponent: ScreencopyView {
+          captureSource: tile.toplevel ? tile.toplevel.wayland : null
+          paintCursor: false
+          live: true
+          onHasContentChanged: {
+            tile.hasContent = hasContent
+            if (hasContent) tile.mc.tileReady(tile.addr)
+          }
+        }
       }
     }
-
-    Loader {
-      id: capture
-      anchors.fill: parent
-      active: tile.mc.mapped && tile.mc.captureOn && tile.near && !!tile.toplevel && !!tile.toplevel.wayland
-      sourceComponent: ScreencopyView {
-        captureSource: tile.toplevel ? tile.toplevel.wayland : null
-        paintCursor: false
-        // GPU rendering follows every frame; the CPU renderer refreshes on a timer below.
-        live: tile.mc.gpu
-        onHasContentChanged: if (hasContent) tile.mc.tileReady(tile.addr)
-        Component.onCompleted: if (!tile.mc.gpu) captureFrame()
-      }
-    }
-  }
-
-  Timer {
-    interval: tile.mc.refreshMs
-    repeat: true
-    running: !tile.mc.gpu && tile.mc.captureOn && tile.activePage && tile.mc.settled && !tile.mc.dragTile && !!capture.item
-    onTriggered: capture.item.captureFrame()
   }
 
   // Selection ring.

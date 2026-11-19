@@ -58,12 +58,15 @@ function natural(wins, screen, area, gap) {
   var ox0 = area.x + (area.w - bw * s) / 2
   var oy0 = area.y + (area.h - bh * s) / 2
 
+  // One scale for both directions of a window, or its text is squeezed; and
+  // whole pixels for where it comes to rest.
   for (var m = 0; m < n; m++) {
-    var w = Math.max(24, r[m].w * s - gap)
-    var h = Math.max(24, r[m].h * s - gap)
+    var cw = r[m].w * s, ch = r[m].h * s
+    var k = Math.max(0.02, Math.min((cw - gap) / r[m].w, (ch - gap) / r[m].h))
+    var w = r[m].w * k, h = r[m].h * k
     out[r[m].addr] = {
-      x: ox0 + (r[m].x - minX) * s + (r[m].w * s - w) / 2,
-      y: oy0 + (r[m].y - minY) * s + (r[m].h * s - h) / 2,
+      x: Math.round(ox0 + (r[m].x - minX) * s + (cw - w) / 2),
+      y: Math.round(oy0 + (r[m].y - minY) * s + (ch - h) / 2),
       w: w,
       h: h
     }

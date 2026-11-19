@@ -35,8 +35,6 @@ ShellRoot {
   // If the fingers moved before the first picture was ready, catch up over
   // this long instead of jumping.
   readonly property real catchMs: 45
-  // How the CPU renderer refreshes window previews (the GPU follows every frame).
-  readonly property int refreshMs: 150
 
   readonly property bool gpu: String(Quickshell.env("QT_QUICK_BACKEND") || "").indexOf("software") !== 0
   readonly property bool captureOn: String(Quickshell.env("MC_CAPTURE") || "1") !== "0"

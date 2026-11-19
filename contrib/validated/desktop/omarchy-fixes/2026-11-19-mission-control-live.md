@@ -204,3 +204,29 @@ travels per swipe: `swipe libinput ... units, raw ... mm`), and accidental openi
 Cost of staying mapped: the compositor blends one more transparent full-screen surface in the regions it redraws, and the
 process holds its buffers (about 500 MB resident right after start, where it was about 350 MB). Rollback of this update only:
 set `visible: mc.mapped && !!mc.screen` on the two `PanelWindow`s in `shell.qml`.
+
+## Update: text jittered and blurred while the windows scaled (2026-11-19)
+Rolando, after the latency fix ("working amazingly"): text "seems to feel a little jumpy during the animation as if it's
+scaling weirdly. It sort of blurs out slightly".
+
+Seen by Rolando's swipes in the log after the latency fix: fingers down to first picture 16 to 21 ms, swipe seen to first
+picture 2 to 12 ms (progress 0.06 to 0.11 at that moment). The reader's comparison lines put the raw contacts 2.4 to 3.7 mm
+ahead of libinput's swipe, and the scale at about 9.6 to 10.1 units per mm on full swipes (10.517 is used; left as is).
+
+Cause, read from `/usr/lib/qt6/qml/Quickshell/Widgets/ClippingRectangle.qml`: the rounded clip draws its content through a
+`ShaderEffectSource` of an item the size of the clip. Each tile's clip was the size of the shrinking tile, so the window
+picture was resampled twice (into an offscreen copy at the tile's size, in whole pixels, then onto the screen), and that
+copy's size stepped a pixel at a time as the tile scaled. Also the spread subtracted the same gap from width and height, so
+a window was scaled by slightly different factors across and down (0.772 against 0.767 for a full-width window).
+
+Fix:
+- `WindowTile.qml`: the clip and the picture are laid out at the window's own size (one texel per pixel) and scaled once
+  by a transform. That full-size offscreen copy exists only while the overview is in use (a `Loader`).
+- `Layout.js`: one scale per window for both directions; the resting position is on whole pixels.
+- The CPU-renderer refresh timer and `refreshMs` are gone (the overlay is GPU only).
+
+Verified from the agent session: the overlay frozen at progress 0 still matches the desktop (414 of 7.7 million pixels);
+open and close average 8.0 ms per frame, worst frame 10 ms; first pictures after 13 to 19 ms; edge sharpness of a text
+region at rest rose about 5 % (Laplacian standard deviation 3.56 to 3.72, same window); the process idles at about 390 MB
+(was 560 to 710 MB with the items kept and their copies alive). **Not verified**: how text looks in motion, which only
+shows on the panel.
