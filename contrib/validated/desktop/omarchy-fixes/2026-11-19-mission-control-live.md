@@ -162,3 +162,45 @@ hyprctl reload
 omarchy plugin enable rolo.mission-control        # the old icon-only overview
 rm -r ~/.config/quickshell/mission-control        # optional
 ```
+
+## Update: the swipe up trailed the fingers (2026-11-19)
+Rolando, after using it: the three-finger swipe up "sort of lags behind a little bit".
+
+Cause, from the overlay's own log during his swipes (`journalctl --user -u mission-control.service`):
+
+- The layer surface was created on each use. Between asking for it and its first frame went 114 to 260 ms ("surface up
+  after ..."), a whole swipe: the first picture appeared when the swipe was already 67 to 110 % done. The agent-session
+  tests had not shown this because they timed the animation after the surface was up. Inferred, not measured further:
+  the time goes into creating the window's GPU surface (EGL window and swapchain on zink).
+- Building the window and workspace items took about 15 ms of each opening on top of that.
+- libinput reports a swipe only after it has told it from a pinch, a few millimetres in, so the travel before that was lost.
+
+Fix:
+
+1. The overlay's surface (and the strip under the bar) is created once and stays mapped: transparent, click-through, no
+   keyboard focus, and not redrawn while the overview is closed. It is parked on the focused monitor ahead of time.
+2. The window and workspace items are kept between openings; only their pictures are dropped on close.
+3. One silent run 1.2 s after the service starts draws everything once at 0.4 % opacity, so the first real opening does not
+   pay for shader compiles (88 to 133 ms that one time).
+4. `mc-gestures` also reads the pad's raw contacts (a second read-only descriptor, `ABS_MT_*`): `T <count>` when the
+   number of fingers changes, and `RB` / `R dx dy ms` / `RE` once three fingers have each moved 0.4 mm the same way (a
+   resting palm, a pinch or a third finger under a two-finger scroll do not qualify). The overlay starts taking the window
+   pictures the moment three fingers land and follows the raw centre for up and down. libinput remains the fallback for up
+   and down (for example with a palm resting as a fourth contact) and the source for sideways, which is what Hyprland
+   itself listens to. Raw millimetres are scaled by 10.517 to libinput's unaccelerated units, so `swipeDistance` keeps its
+   meaning (250 units is about 24 mm).
+5. While the fingers move the overview is drawn 8 ms ahead along their speed (`leadMs`), and if the first picture arrives
+   after the fingers have moved, the gap is closed over at most 45 ms (`catchMs`) instead of jumping.
+
+Verified from the agent session: over six IPC-triggered openings the first pictures were ready 14 to 22 ms after the
+request (was 114 to 260 ms on Rolando's swipes); `hyprctl layers` shows both surfaces mapped while closed; simulated raw
+swipes (`T 3`, `RB`, `R ...`, `RE`, with late libinput lines that must be ignored) hold at half, open, and close; the
+libinput-only path still works; no `GPU work of a client failed` line in `dmesg`. The new reader reports
+`raw contacts on /dev/input/event1, 16 slots, 98 x 98 units/mm` and printed `T 1` / `T 0` for a real touch.
+
+**Not verified**: how it feels under real fingers, the 10.517 scale against libinput on this pad (the reader logs both
+travels per swipe: `swipe libinput ... units, raw ... mm`), and accidental openings from odd three-contact touches.
+
+Cost of staying mapped: the compositor blends one more transparent full-screen surface in the regions it redraws, and the
+process holds its buffers (about 500 MB resident right after start, where it was about 350 MB). Rollback of this update only:
+set `visible: mc.mapped && !!mc.screen` on the two `PanelWindow`s in `shell.qml`.

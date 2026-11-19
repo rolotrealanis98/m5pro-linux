@@ -29,6 +29,12 @@ ShellRoot {
   // Spring rates (rad/s). Higher is snappier.
   readonly property real omega: 24
   readonly property real pageOmega: 21
+  // Draw this many milliseconds ahead of the fingers, along their current
+  // speed, to make up for the frame or two between a touch and the screen.
+  readonly property real leadMs: 8
+  // If the fingers moved before the first picture was ready, catch up over
+  // this long instead of jumping.
+  readonly property real catchMs: 45
   // How the CPU renderer refreshes window previews (the GPU follows every frame).
   readonly property int refreshMs: 150
 
@@ -107,7 +113,7 @@ ShellRoot {
   }
 
   // ------------------------------------------------------------------- state
-  property bool mapped: false        // the layer surface exists
+  property bool mapped: false        // the overview is in use (its surface is always there, empty)
   property bool revealed: false      // and its first frames are ready
   property bool pendingOpen: false
   property bool peeking: false       // shown for a screenshot: no input taken
@@ -150,7 +156,13 @@ ShellRoot {
   property string signature: ""
 
   property var ready: ({})
+  property bool priming: false       // the one silent run after start that compiles the shaders
   property int readyWait: 0
+  // When things happened in the current opening (Date.now()), for the log.
+  property double touchAt: 0
+  property double mapAt: 0
+  property double latchAt: 0
+  property double revealAt: 0
   property bool thumbsOn: false
 
   property string hoverAddr: ""
@@ -172,23 +184,62 @@ ShellRoot {
 
   // ------------------------------------------------------------ open / close
 
-  function prepare() {
-    if (mc.mapped) return true
+  // Creating a GPU surface takes 100 to 250 ms here, a whole swipe. So the
+  // overlay's surface is made once and stays mapped: empty, transparent and
+  // click-through until the overview is used. It is parked on the focused
+  // monitor ahead of time.
+  function park() {
+    if (mc.mapped) return false
     var mon = Hyprland.focusedMonitor
     if (!mon) return false
     var scr = null
     for (var i = 0; i < Quickshell.screens.length; i++)
       if (Quickshell.screens[i].name === mon.name) scr = Quickshell.screens[i]
     if (!scr) return false
+    if (mc.monitor !== mon) mc.monitor = mon
+    if (mc.screen !== scr) mc.screen = scr
+    mc.readGeometry()
+    return true
+  }
 
-    mc.monitor = mon
-    mc.screen = scr
+  function readGeometry() {
+    var mon = mc.monitor
+    if (!mon || !mc.screen) return
+    var mo = mon.lastIpcObject || ({})
+    var res = mo.reserved || [0, 0, 0, 0]
+    mc.offX = res[0]
+    mc.offY = res[1]
+    mc.screenW = mc.screen.width
+    mc.screenH = mc.screen.height
+    mc.viewW = Math.max(1, mc.screenW - res[0] - res[2])
+    mc.viewH = Math.max(1, mc.screenH - res[1] - res[3])
+  }
+
+  Connections {
+    target: Hyprland
+    function onFocusedMonitorChanged() { mc.park() }
+  }
+  Connections {
+    target: Quickshell
+    function onScreensChanged() { mc.park() }
+  }
+  Timer { interval: 400; running: true; onTriggered: { Hyprland.refreshMonitors(); mc.park() } }
+  Timer { interval: 1500; running: true; onTriggered: mc.park() }
+
+  function prepare() {
+    if (mc.mapped) return true
+    if (!mc.park()) return false
     Hyprland.refreshMonitors()
     Hyprland.refreshWorkspaces()
     Hyprland.refreshToplevels()
 
     mc.ready = ({})
     mc.readyWait = 0
+    mc.mapAt = Date.now()
+    mc.visibleAt = 0
+    mc.firstTileAt = 0
+    mc.latchAt = 0
+    mc.revealAt = 0
     mc.revealed = false
     mc.thumbsOn = false
     mc.pendingOpen = false
@@ -201,11 +252,7 @@ ShellRoot {
     mc.raisedAddr = ""
     mc.dragTile = null
     mc.dropTarget = 0
-    mc.signature = ""
     mc.holdCloseUntil = 0
-    winModel.clear()
-    spaceModel.clear()
-    mc.spaceIds = []
 
     mc.mapped = true
     mc.rebuild()
@@ -218,6 +265,8 @@ ShellRoot {
 
   function open() {
     if (mc.gesturing) return
+    mc.stopPriming()
+    mc.touchAt = 0
     if (!mc.prepare()) return
     mc.peeking = false
     if (mc.revealed) {
@@ -264,50 +313,94 @@ ShellRoot {
     mc.dragTile = null
     mc.hoverAddr = ""
     mc.selAddr = ""
-    winModel.clear()
-    spaceModel.clear()
-    mc.spaceIds = []
-    mc.wsWins = ({})
-    mc.tops = ({})
+    mc.priming = false
+    // The window and workspace items stay (building them costs about 15 ms
+    // of an opening); only their pictures are dropped until the next use.
   }
 
   Timer { id: closeHold; onTriggered: if (mc.progressTarget === 0 && mc.progress <= 0) mc.finishClose() }
   Timer { id: warmTimer; interval: 320; onTriggered: { mc.warm = false; if (!mc.gesturing && !mc.pendingOpen && mc.progressTarget === 0 && mc.progress <= 0) mc.finishClose() } }
+  // One silent run shortly after start: everything is drawn once, all but
+  // transparent, so the first real opening does not pay for shader compiles.
+  Timer {
+    interval: 1200
+    running: true
+    onTriggered: {
+      if (mc.mapped || !mc.prepare()) return
+      mc.priming = true
+      mc.peeking = true
+      mc.holdAt = 1
+      primeEnd.restart()
+    }
+  }
+  Timer {
+    id: primeEnd
+    interval: 450
+    onTriggered: {
+      if (!mc.priming) return
+      mc.progressTarget = 0
+      mc.progress = 0
+      mc.finishClose()
+    }
+  }
+  function stopPriming() {
+    if (!mc.priming) return
+    mc.priming = false
+    mc.peeking = false
+    mc.progress = 0
+    mc.progressTarget = 0
+  }
+
   Timer { id: peekTimer; onTriggered: { mc.peeking = false; mc.progressTarget = 0; mc.holdCloseUntil = 0; mc.finishClose() } }
   Timer { id: thumbsTimer; interval: 30; onTriggered: mc.thumbsOn = true }
 
+  property double visibleAt: 0
+  property double firstTileAt: 0
   function tileReady(addr) {
+    if (mc.firstTileAt === 0) mc.firstTileAt = Date.now()
     mc.ready[addr] = true
+    if (!mc.revealed) Qt.callLater(mc.tryReveal)
   }
 
   // Draw nothing until the windows of the visible workspace have a frame, so
   // the overlay's first picture is the desktop it replaces.
+  function tryReveal() {
+    if (!mc.mapped || mc.revealed) return
+    if (!panel.backingWindowVisible || panel.width < 2) return
+    if (mc.visibleAt === 0) mc.visibleAt = Date.now()
+    var waited = Date.now() - mc.mapAt
+    mc.readyWait = waited
+    var list = mc.wsWins[mc.activeWs] || []
+    if (mc.captureOn && waited < 180) {
+      for (var i = 0; i < list.length; i++) if (!mc.ready[list[i].addr]) return
+    }
+    mc.revealed = true
+    mc.revealAt = Date.now()
+    thumbsTimer.restart()
+    if (mc.priming || mc.peeking)
+      console.info("open: first window picture after " + (mc.firstTileAt > 0 ? mc.firstTileAt - mc.mapAt : -1)
+        + " ms, all " + list.length + " after " + waited + " ms" + (mc.priming ? " (warm-up run)" : ""))
+    if (mc.touchAt > 0 || mc.latchAt > 0)
+      console.info("open: map to first picture " + waited + " ms"
+        + (mc.touchAt > 0 ? ", fingers down to first picture " + (mc.revealAt - mc.touchAt) + " ms" : "")
+        + (mc.latchAt > 0 ? ", swipe seen to first picture " + (mc.revealAt - mc.latchAt) + " ms, progress then " + (mc.g ? Math.round(mc.g.raw * 100) / 100 : 0) : ""))
+    if (mc.holdAt >= 0) {
+      mc.progress = mc.holdAt
+      mc.progressTarget = mc.holdAt
+      mc.holdAt = -1
+    }
+    if (mc.pendingOpen) {
+      mc.pendingOpen = false
+      mc.progressTarget = 1
+      mc.animate()
+    }
+  }
+
   Timer {
-    interval: 6
+    interval: 4
     repeat: true
     running: mc.mapped && !mc.revealed
-    onTriggered: {
-      if (!panel.backingWindowVisible || panel.width < 2) return
-      mc.readyWait += interval
-      var list = mc.wsWins[mc.activeWs] || []
-      var all = true
-      if (mc.captureOn && mc.readyWait < 180) {
-        for (var i = 0; i < list.length; i++) if (!mc.ready[list[i].addr]) { all = false; break }
-      }
-      if (!all) return
-      mc.revealed = true
-      thumbsTimer.restart()
-      if (mc.holdAt >= 0) {
-        mc.progress = mc.holdAt
-        mc.progressTarget = mc.holdAt
-        mc.holdAt = -1
-      }
-      if (mc.pendingOpen) {
-        mc.pendingOpen = false
-        mc.progressTarget = 1
-        mc.animate()
-      }
-    }
+    onTriggered: mc.tryReveal()
   }
 
   // ---------------------------------------------------------------- springs
@@ -327,6 +420,7 @@ ShellRoot {
 
       var busy = false
       var vertical = mc.gesturing && mc.g && mc.g.axis === "v"
+      if (vertical) mc.applyVertical()
       var sideways = mc.gesturing && mc.g && mc.g.axis === "h"
 
       if (!vertical && (mc.progress !== mc.progressTarget || mc.progressVel !== 0)) {
@@ -385,6 +479,7 @@ ShellRoot {
     running: true
     command: [Qt.resolvedUrl("mc-gestures").toString().replace(/^file:\/\//, "")]
     stdout: SplitParser { onRead: function(line) { mc.onGesture(line) } }
+    stderr: SplitParser { onRead: function(line) { console.info(line) } }
     onExited: gestureRestart.restart()
   }
   Timer { id: gestureRestart; interval: 3000; onTriggered: gestureProc.running = true }
@@ -392,10 +487,34 @@ ShellRoot {
   function onGesture(line) {
     if (mc.threeFingerDrag && !mc.gesturing) return
     var a = String(line).split(" ")
-    if (a[0] === "U") {
-      mc.swipeUpdate(parseFloat(a[1]), parseFloat(a[2]), parseFloat(a[3]))
+    var g = mc.g
+    if (a[0] === "R") {
+      if (g && g.src === "raw") mc.swipeUpdate(parseFloat(a[1]), parseFloat(a[2]), parseFloat(a[3]))
+    } else if (a[0] === "U") {
+      if (g && g.src === "li") mc.swipeUpdate(parseFloat(a[1]), parseFloat(a[2]), parseFloat(a[3]))
+    } else if (a[0] === "T") {
+      // Two fingers down is often the way to three: ask Hyprland for the
+      // window boxes now, so they are current when the pictures are taken.
+      if (parseInt(a[1]) >= 2 && !mc.mapped && !boxesAsked.running) {
+        Hyprland.refreshToplevels()
+        boxesAsked.restart()
+      }
+      // Three fingers just landed: get the window pictures ready before they move.
+      if (parseInt(a[1]) === 3) {
+        mc.touchAt = Date.now()
+        if (!mc.mapped && mc.prepare()) mc.warm = true
+        if (mc.warm) warmTimer.stop()
+      } else if (mc.warm) {
+        warmTimer.restart()
+      }
+    } else if (a[0] === "RB") {
+      // The raw contacts see a swipe before libinput does. They lead unless
+      // libinput is already driving one.
+      if (!(g && g.src === "li" && (g.axis === "v" || g.axis === "h")))
+        mc.g = { src: "raw", fingers: 3, axis: "", ax: 0, ay: 0, base: 0, raw: 0, hist: [], at: Date.now() }
+    } else if (a[0] === "RE") {
+      if (g && g.src === "raw") mc.swipeEnd(false)
     } else if (a[0] === "H") {
-      // Three fingers resting: get the window pictures ready before they move.
       if (parseInt(a[1]) === 3 && !mc.mapped && mc.prepare()) {
         mc.warm = true
         warmTimer.stop()
@@ -403,9 +522,11 @@ ShellRoot {
     } else if (a[0] === "h") {
       if (mc.warm) warmTimer.restart()
     } else if (a[0] === "B") {
-      mc.g = { fingers: parseInt(a[1]), axis: "", ax: 0, ay: 0, base: 0, raw: 0, hist: [] }
+      // Up and down already follow the raw contacts; libinput keeps sideways.
+      if (!(g && g.src === "raw" && g.axis === "v"))
+        mc.g = { src: "li", fingers: parseInt(a[1]), axis: "", ax: 0, ay: 0, base: 0, raw: 0, hist: [], at: Date.now() }
     } else if (a[0] === "E") {
-      mc.swipeEnd(a[1] === "1")
+      if (g && g.src === "li") mc.swipeEnd(a[1] === "1")
     }
   }
 
@@ -416,14 +537,17 @@ ShellRoot {
     g.ay += dy
 
     if (g.axis === "") {
-      if (Math.abs(g.ax) + Math.abs(g.ay) < 3) return
+      // The raw source only speaks once the fingers agree; libinput needs a moment.
+      if (g.src === "li" && Math.abs(g.ax) + Math.abs(g.ay) < 3) return
       if (Math.abs(g.ay) > Math.abs(g.ax)) {
         var up = g.ay < 0
         var showing = mc.mapped && (mc.progressTarget > 0.5 || mc.progress > 0.02 || mc.pendingOpen)
         // Down on the plain desktop, or four fingers, is not ours.
+        if (mc.priming) { mc.stopPriming(); showing = false }
         if (g.fingers !== 3 || (!showing && !up) || !mc.prepare()) { g.axis = "x"; return }
         g.axis = "v"
         g.base = mc.progress
+        mc.latchAt = Date.now()
         mc.warm = false
         warmTimer.stop()
         peekTimer.stop()
@@ -431,10 +555,12 @@ ShellRoot {
         mc.pendingOpen = false
         mc.progressVel = 0
         mc.gesturing = true
+        mc.ticking = true
       } else {
         // Sideways only matters while the overview is up: Hyprland switches
-        // the workspace underneath and the stage follows the fingers.
-        if (!(mc.mapped && mc.revealed && mc.progressTarget > 0.5)) { g.axis = "x"; return }
+        // the workspace underneath and the stage follows the fingers. That
+        // one stays with libinput, which is what Hyprland itself listens to.
+        if (g.src !== "li" || !(mc.mapped && mc.revealed && mc.progressTarget > 0.5)) { g.axis = "x"; return }
         g.axis = "h"
         g.base = mc.page
         mc.pageVel = 0
@@ -444,7 +570,6 @@ ShellRoot {
 
     if (g.axis === "v") {
       g.raw = g.base - g.ay / mc.swipeDistance
-      mc.progress = Layout.rubber(g.raw)
     } else if (g.axis === "h") {
       g.raw = g.base - g.ax / mc.pageDistance
       var last = mc.spaceIds.length - 1
@@ -456,6 +581,30 @@ ShellRoot {
     }
     g.hist.push([t, g.raw])
     if (g.hist.length > 6) g.hist.shift()
+    g.seen = Date.now()
+    if (g.axis === "v") mc.applyVertical()
+  }
+
+  // Where to draw an up/down swipe right now.
+  function applyVertical() {
+    var g = mc.g
+    if (!g || g.axis !== "v") return
+    var now = Date.now()
+    var p = g.raw
+    // A little ahead of the fingers while they move, never once they stop.
+    if (mc.leadMs > 0 && now - g.seen < 24 && g.hist.length >= 3) {
+      var a = g.hist[g.hist.length - 3], b = g.hist[g.hist.length - 1]
+      var dt = (b[0] - a[0]) / 1000
+      if (dt > 0.004) p += Math.max(-0.06, Math.min(0.06, (b[1] - a[1]) / dt * mc.leadMs / 1000))
+    }
+    // The first picture arrived after the fingers had moved: close the gap fast.
+    // A small gap is simply taken; a large one gets up to catchMs.
+    var blend = 1
+    if (mc.revealAt > g.at && mc.catchMs > 0) {
+      if (g.catchFor === undefined) g.catchFor = Math.min(mc.catchMs, Math.abs(g.raw - g.base) * 400)
+      if (g.catchFor > 1) blend = Math.min(1, (now - mc.revealAt) / g.catchFor)
+    }
+    mc.progress = Layout.rubber(g.base + (p - g.base) * blend)
   }
 
   function swipeVelocity(g) {
@@ -470,6 +619,8 @@ ShellRoot {
     mc.g = null
     if (!g || (g.axis !== "v" && g.axis !== "h")) return
     var v = mc.swipeVelocity(g)
+    // Fingers that stopped before lifting carry no speed.
+    if (Date.now() - g.seen > 60) v = 0
     mc.gesturing = false
 
     if (g.axis === "v") {
@@ -489,6 +640,7 @@ ShellRoot {
     mc.animate()
   }
 
+  Timer { id: boxesAsked; interval: 400 }
   Timer { id: pageSettle; interval: 70; onTriggered: mc.followActive() }
 
   function followActive() {
@@ -515,14 +667,7 @@ ShellRoot {
   function rebuild() {
     var mon = mc.monitor
     if (!mon || !mc.mapped || !mc.screen) return
-    var mo = mon.lastIpcObject || ({})
-    var res = mo.reserved || [0, 0, 0, 0]
-    mc.offX = res[0]
-    mc.offY = res[1]
-    mc.screenW = mc.screen.width
-    mc.screenH = mc.screen.height
-    mc.viewW = Math.max(1, mc.screenW - res[0] - res[2])
-    mc.viewH = Math.max(1, mc.screenH - res[1] - res[3])
+    mc.readGeometry()
 
     var active = mon.activeWorkspace ? mon.activeWorkspace.id : -1
     var list = Hyprland.toplevels.values
@@ -636,17 +781,21 @@ ShellRoot {
   }
   Connections {
     target: mc.monitor
-    enabled: mc.mapped
-    function onActiveWorkspaceChanged() { rebuildSoon.restart() }
-    function onLastIpcObjectChanged() { rebuildSoon.restart() }
+    function onActiveWorkspaceChanged() { if (mc.mapped) rebuildSoon.restart() }
+    function onLastIpcObjectChanged() { if (mc.mapped) rebuildSoon.restart(); else mc.readGeometry() }
   }
   // Window boxes arrive a moment after a refresh is asked for.
   Instantiator {
-    model: mc.mapped ? Hyprland.toplevels : null
+    model: Hyprland.toplevels
     delegate: Connections {
       required property var modelData
       target: modelData
-      function onLastIpcObjectChanged() { rebuildSoon.restart() }
+      function onLastIpcObjectChanged() {
+        if (!mc.mapped) return
+        // Before the first picture, take the new boxes at once.
+        if (!mc.revealed) mc.rebuild()
+        else rebuildSoon.restart()
+      }
     }
   }
 
@@ -831,7 +980,7 @@ ShellRoot {
   // under it (and above the wallpaper), so the bar darkens together with the
   // workspace strip instead of staying a bright band across the top.
   PanelWindow {
-    visible: mc.mapped && mc.revealed && !!mc.screen && mc.offY > 0
+    visible: !!mc.screen && mc.offY > 0
     screen: mc.screen
     anchors { top: true; left: true; right: true }
     implicitHeight: Math.max(1, mc.offY)
@@ -847,13 +996,14 @@ ShellRoot {
     Rectangle {
       anchors.fill: parent
       color: Qt.rgba(mc.bg.r * 0.5, mc.bg.g * 0.5, mc.bg.b * 0.5, 0.9)
-      opacity: Math.min(1, mc.shown * 1.8)
+      visible: mc.mapped && mc.revealed
+      opacity: Math.min(1, mc.shown * 1.8) * (mc.priming ? 0.004 : 1)
     }
   }
 
   PanelWindow {
     id: panel
-    visible: mc.mapped && !!mc.screen
+    visible: !!mc.screen
     screen: mc.screen
     anchors { top: true; left: true; right: true; bottom: true }
     color: "transparent"
@@ -880,7 +1030,8 @@ ShellRoot {
     Item {
       id: content
       anchors.fill: parent
-      visible: mc.revealed
+      visible: mc.mapped && mc.revealed
+      opacity: mc.priming ? 0.004 : 1
       focus: true
 
       Keys.onPressed: function(event) {

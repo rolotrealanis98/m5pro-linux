@@ -116,7 +116,7 @@ Item {
     Loader {
       id: capture
       anchors.fill: parent
-      active: tile.mc.captureOn && tile.near && !!tile.toplevel && !!tile.toplevel.wayland
+      active: tile.mc.mapped && tile.mc.captureOn && tile.near && !!tile.toplevel && !!tile.toplevel.wayland
       sourceComponent: ScreencopyView {
         captureSource: tile.toplevel ? tile.toplevel.wayland : null
         paintCursor: false
