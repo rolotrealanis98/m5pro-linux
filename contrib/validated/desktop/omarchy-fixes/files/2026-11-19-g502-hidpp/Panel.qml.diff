@@ -1,0 +1,324 @@
+--- Panel.qml.pre-g502	2026-11-19 06:16:44.200805822 -0600
++++ Panel.qml.pre-quit	2026-11-19 06:29:22.975664598 -0600
+@@ -40,6 +40,42 @@
+ 
+   property bool writeQueued: false
+ 
++  // G502 X over HID++ (g502.py talks to the LIGHTSPEED receiver directly).
++  readonly property string g502Path: Qt.resolvedUrl("g502.py").toString().replace(/^file:\/\//, "")
++  property var g502: ({ ok: false, error: "", present: false })
++  property var g502Pending: null
++  readonly property bool g502Ready: g502.ok === true && g502.present === true
++  readonly property var g502DpiPresets: [400, 800, 1600, 3200, 6400]
++  readonly property string g502BatteryText: g502.battery !== undefined && g502.battery !== null ? g502.battery + "%" : "—"
++  readonly property string g502StateText: !g502Ready ? "" : g502.charging ? "Charging" : g502.battery_full ? "Full" : g502.external_power ? "Plugged in" : "On battery"
++
++  function g502Run(args) {
++    if (g502Proc.running) { g502Pending = args; return }
++    g502Pending = null
++    g502Proc.command = ["python3", g502Path].concat(args)
++    g502Proc.running = true
++  }
++  function g502Refresh() { if (!g502Proc.running) g502Run(["--read"]) }
++  function g502SetDpi(v) {
++    var n = Math.round(Number(v))
++    if (!(n > 0)) return
++    var next = Object.assign({}, g502); next.dpi = n; g502 = next
++    g502Run(["--set-dpi", String(n)])
++  }
++  function g502SetRate(ms) {
++    var next = Object.assign({}, g502); next.rate_ms = Number(ms); g502 = next
++    g502Run(["--set-rate", String(ms)])
++  }
++  function g502SetOnboard(on) {
++    var next = Object.assign({}, g502); next.onboard = on; g502 = next
++    g502Run(["--onboard", on ? "on" : "off"])
++  }
++  function g502Snap(v) {
++    var step = g502.dpi_step || 50
++    var lo = g502.dpi_min || 100
++    return Math.round((v - lo) / step) * step + lo
++  }
++
+   readonly property bool macos: cfg.profile === "macos"
+   readonly property bool mouseMacCurve: cfg.mouse_accel_profile === "macos"
+ 
+@@ -117,8 +153,28 @@
+     return best
+   }
+ 
+-  Component.onCompleted: readConfig()
+-  onOpenedChanged: if (opened) readConfig()
++  Component.onCompleted: { readConfig(); g502Refresh() }
++  onOpenedChanged: if (opened) { readConfig(); g502Refresh() }
++
++  Timer {
++    interval: root.opened && root.activeTab === "g502" ? 8000 : 120000
++    running: true
++    repeat: true
++    onTriggered: root.g502Refresh()
++  }
++
++  Process {
++    id: g502Proc
++    stdout: StdioCollector {
++      onStreamFinished: {
++        try {
++          var parsed = JSON.parse(text.trim())
++          if (parsed && typeof parsed === "object") root.g502 = parsed
++        } catch (e) {}
++        if (root.g502Pending) Qt.callLater(function() { root.g502Run(root.g502Pending) })
++      }
++    }
++  }
+ 
+   Timer {
+     id: applyDebounce
+@@ -377,6 +433,7 @@
+     text: "󰍽"
+     tooltipText: "Pointer & Trackpad · " + (root.macos ? "macOS" : "Custom") + " profile"
+       + "\nTrackpad scroll " + Number(root.cfg.trackpad_scroll_factor).toFixed(2) + "× · Mouse scroll " + Number(root.cfg.mouse_scroll_factor).toFixed(1) + "×"
++      + (root.g502Ready ? "\n" + (root.g502.name || "G502 X") + " · " + root.g502BatteryText + (root.g502.charging ? " charging" : "") + (root.g502.dpi ? " · " + root.g502.dpi + " DPI" : "") : "")
+     onPressed: function(b) {
+       if (b === Qt.LeftButton) root.toggle()
+     }
+@@ -413,7 +470,7 @@
+           iconComponent: Component {
+             Text {
+               textFormat: Text.PlainText
+-              text: root.activeTab === "trackpad" ? "󰟸" : "󰍽"
++              text: root.activeTab === "trackpad" ? "󰟸" : root.activeTab === "g502" ? "󰍽" : "󰇀"
+               color: root.fg
+               font.family: root.fontFamily
+               font.pixelSize: Style.font.display
+@@ -448,10 +505,11 @@
+             fontFamily: root.fontFamily
+             options: [
+               { value: "trackpad", label: "Trackpad", icon: "󰟸" },
+-              { value: "mouse", label: "Mouse & cursor", icon: "󰍽" }
++              { value: "mouse", label: "Mouse & cursor", icon: "󰇀" },
++              { value: "g502", label: "G502 X", icon: "󰍽" }
+             ]
+             value: root.activeTab
+-            onChanged: function(v) { root.activeTab = v }
++            onChanged: function(v) { root.activeTab = v; if (v === "g502") root.g502Refresh() }
+           }
+         }
+ 
+@@ -653,10 +711,215 @@
+           }
+         }
+ 
+-        PanelSeparator { width: parent.width; foreground: root.fg }
++        // ============================================================ G502 TAB
++        Column {
++          width: parent.width
++          spacing: Style.space(8)
++          visible: root.activeTab === "g502"
++
++          // Not reachable: say why and what to do.
++          Text {
++            visible: !root.g502Ready
++            width: parent.width
++            wrapMode: Text.WordWrap
++            textFormat: Text.PlainText
++            color: root.dim
++            font.family: root.fontFamily
++            font.pixelSize: Style.font.body
++            text: root.g502.error === "no-access"
++              ? "No access to the Logitech receiver. Install the udev rule once:\n\nsudo cp " + root.g502Path.replace(/g502\.py$/, "") + "udev/42-logitech-hidraw.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger -s hidraw"
++              : root.g502.error === "no-receiver" ? "No LIGHTSPEED receiver plugged in."
++              : root.g502.error === "not-connected" ? "Receiver found, mouse is asleep or off. Move it and reopen."
++              : root.g502.error ? "Mouse not reachable (" + root.g502.error + ")." : "Looking for the mouse…"
++          }
++
++          // Battery
++          Item {
++            visible: root.g502Ready
++            width: parent.width
++            implicitHeight: Math.max(g502Name.implicitHeight, g502Batt.implicitHeight)
++            Column {
++              id: g502Name
++              anchors.left: parent.left
++              anchors.verticalCenter: parent.verticalCenter
++              spacing: Style.space(1)
++              Text {
++                textFormat: Text.PlainText
++                text: root.g502.name || "G502 X"
++                color: root.fg
++                font.family: root.fontFamily
++                font.pixelSize: Style.font.body
++                font.bold: true
++              }
++              Text {
++                textFormat: Text.PlainText
++                text: root.g502StateText.toUpperCase()
++                color: root.dim
++                font.family: root.fontFamily
++                font.pixelSize: Style.font.caption
++                font.letterSpacing: 1.2
++              }
++            }
++            Text {
++              id: g502Batt
++              anchors.right: parent.right
++              anchors.verticalCenter: parent.verticalCenter
++              textFormat: Text.PlainText
++              text: root.g502BatteryText
++              color: (root.g502.battery || 100) < 20 && !root.g502.charging ? Color.urgent : root.fg
++              font.family: root.fontFamily
++              font.pixelSize: Style.font.title
++              font.bold: true
++            }
++          }
++          Rectangle {
++            visible: root.g502Ready && root.g502.battery > 0
++            width: parent.width
++            height: Style.space(6)
++            radius: height / 2
++            color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
++            Rectangle {
++              height: parent.height
++              radius: parent.radius
++              width: Math.max(parent.height, parent.width * (root.g502.battery || 0) / 100)
++              color: (root.g502.battery || 100) < 20 && !root.g502.charging ? Color.urgent : Commons.Color.accent
++              Behavior on width { NumberAnimation { duration: 250 } }
++            }
++          }
++
++          Section { host: root; visible: root.g502Ready && !!root.g502.dpi; text: "SENSITIVITY" }
++
++          Column {
++            visible: root.g502Ready && !!root.g502.dpi
++            width: parent.width
++            spacing: Style.space(6)
++
++            Item {
++              width: parent.width
++              height: Math.max(dpiLabel.implicitHeight, Style.space(20))
++              Text {
++                id: dpiLabel
++                anchors.left: parent.left
++                anchors.verticalCenter: parent.verticalCenter
++                textFormat: Text.PlainText
++                text: "DPI"
++                color: root.fg
++                font.family: root.fontFamily
++                font.pixelSize: Style.font.body
++              }
++              Text {
++                anchors.right: parent.right
++                anchors.verticalCenter: parent.verticalCenter
++                textFormat: Text.PlainText
++                text: (dpiSlider.dragging ? root.g502Snap(dpiSlider.liveValue) : root.g502.dpi) + " DPI"
++                color: Commons.Color.accent
++                font.family: root.fontFamily
++                font.pixelSize: Style.font.body
++                font.bold: true
++              }
++            }
++
++            PanelSlider {
++              id: dpiSlider
++              width: parent.width
++              bar: root.bar
++              minimum: root.g502.dpi_min || 100
++              // The full range runs to 25600; the slider covers the useful part, presets and the max button the rest.
++              maximum: Math.min(root.g502.dpi_max || 6400, 8000)
++              step: root.g502.dpi_step || 50
++              value: root.g502.dpi || 1600
++              onReleased: function(v) { root.g502SetDpi(root.g502Snap(v)) }
++            }
++
++            ButtonGroup {
++              anchors.horizontalCenter: parent.horizontalCenter
++              foreground: root.fg
++              background: root.bg
++              fontFamily: root.fontFamily
++              options: root.g502DpiPresets.map(function(d) { return { value: String(d), label: String(d) } })
++              value: String(root.g502.dpi)
++              onChanged: function(v) { root.g502SetDpi(Number(v)) }
++            }
++          }
++
++          Section { host: root; visible: root.g502Ready && (root.g502.rates_ms || []).length > 0; text: "REPORT RATE" }
++
++          ChoiceRow {
++            host: root
++            visible: root.g502Ready && (root.g502.rates_ms || []).length > 0
++            label: "Polling"
++            options: (root.g502.rates_ms || []).slice().reverse().map(function(ms) {
++              return { value: String(ms), label: Math.round(1000 / ms) + " Hz" }
++            })
++            value: String(root.g502.rate_ms)
++            onChosen: function(v) { root.g502SetRate(Number(v)) }
++          }
++
++          Section { host: root; visible: root.g502Ready && root.g502.onboard !== undefined; text: "PROFILES" }
++
++          Item {
++            visible: root.g502Ready && root.g502.onboard !== undefined
++            width: parent.width
++            implicitHeight: Math.max(onboardLabels.implicitHeight, onboardToggle.implicitHeight) + Style.space(10)
++            Column {
++              id: onboardLabels
++              anchors.left: parent.left
++              anchors.right: onboardToggle.left
++              anchors.rightMargin: Style.space(12)
++              anchors.verticalCenter: parent.verticalCenter
++              spacing: Style.space(1)
++              Text {
++                textFormat: Text.PlainText
++                text: "Onboard profiles"
++                color: root.fg
++                font.family: root.fontFamily
++                font.pixelSize: Style.font.body
++              }
++              Text {
++                width: parent.width
++                wrapMode: Text.WordWrap
++                textFormat: Text.PlainText
++                text: "On: the mouse's saved profile (G HUB). Off: this panel controls DPI and polling"
++                color: root.dim
++                font.family: root.fontFamily
++                font.pixelSize: Style.font.caption
++              }
++            }
++            ToggleSwitch {
++              id: onboardToggle
++              anchors.right: parent.right
++              anchors.verticalCenter: parent.verticalCenter
++              interactive: false
++              checked: !!root.g502.onboard
++              hasCursor: onboardMouse.containsMouse
++              foreground: root.fg
++            }
++            MouseArea {
++              id: onboardMouse
++              anchors.fill: parent
++              hoverEnabled: true
++              cursorShape: Qt.PointingHandCursor
++              onClicked: root.g502SetOnboard(!root.g502.onboard)
++            }
++          }
++
++          Text {
++            visible: root.g502Ready && !!root.g502.error
++            width: parent.width
++            wrapMode: Text.WordWrap
++            textFormat: Text.PlainText
++            text: root.g502.error || ""
++            color: Color.urgent
++            font.family: root.fontFamily
++            font.pixelSize: Style.font.caption
++          }
++        }
++
++        PanelSeparator { width: parent.width; foreground: root.fg; visible: root.activeTab !== "g502" }
+ 
+         // Footer: what's live, and a way back.
+         Item {
++          visible: root.activeTab !== "g502"
+           width: parent.width
+           implicitHeight: Math.max(footerText.implicitHeight, resetButton.implicitHeight)
+ 

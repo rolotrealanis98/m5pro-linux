@@ -1,0 +1,6 @@
+# rolo.pointer: let the logged-in user talk HID++ to Logitech receivers (G502 X tab).
+# Same effect as Solaar's 42-logitech-unify-permissions.rules, hidraw only.
+ACTION=="remove", GOTO="rolo_logi_end"
+SUBSYSTEM!="hidraw", GOTO="rolo_logi_end"
+ATTRS{idVendor}=="046d", TAG+="uaccess"
+LABEL="rolo_logi_end"
