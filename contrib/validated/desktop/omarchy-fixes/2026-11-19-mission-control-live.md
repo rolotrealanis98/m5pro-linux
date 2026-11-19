@@ -352,3 +352,8 @@ Verified from the agent session:
   warning; first pictures after 14 to 18 ms; no GPU fault line.
 
 **Not verified**: how text looks while it moves, on the panel.
+
+## Confirmed (2026-11-19)
+Seen by Rolando, on the machine, after the bicubic filter: "this looks awesome". Earlier the same day he confirmed the
+swipes ("the feel is great", "working amazingly") and the text fix ("working great"). He did not report either way on
+dragging a window onto a workspace, the hover close buttons, or the keys inside the overview.
