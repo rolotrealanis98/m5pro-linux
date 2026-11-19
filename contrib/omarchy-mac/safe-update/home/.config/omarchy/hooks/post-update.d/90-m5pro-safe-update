@@ -1,0 +1,5 @@
+# m5pro-safe-update: after `omarchy update`, validate the Mac against the pre-update snapshot (pins, protected packages,
+# /boot, /opt/mesa-aurora libraries, tracked files, units) and put back system files the update overwrote.
+# Runs inside the update's sudo authorization.
+sudo -n /usr/local/sbin/m5pro-safe-update --post-update --repo "$HOME/m5pro-linux" ||
+  echo "m5pro: post-update check could not run (sudo -n); run: m5pro-safe-update --check"

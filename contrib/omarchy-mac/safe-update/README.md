@@ -1,6 +1,6 @@
 # safe-update: `m5pro-safe-update`, the update path for an Omarchy MacBook that carries its own kernel, Mesa and Touch ID
 
-Scope `t6050` (holds and pins are the J716s's), status `staged` (written offline, never run on the Mac), upstream target below.
+Scope `t6050` (holds and pins are the J716s's), status `installed`, native `omarchy update` guards in place (2026-11-19), upstream target below.
 Closes gap-map row `desktop.update-path` once it has had its attended first run (`/Volumes/m5pro/bench/requests/safe-update-1.md`).
 
 `omarchy update`, `omarchy apply system`, `omarchy-refresh-*`, `omarchy-apply-hardware` and a bare `pacman -Syu` are all unsafe on this Mac
@@ -83,6 +83,25 @@ Of the 79 migrations added since v4.5.0: 25 DEFER (24 BOOT, 1 PACCONF, almost al
 | `etc/m5pro/safe-update/migration-policy.tsv` | migration classes (regex, severity, reason) |
 | `etc/m5pro/safe-update/tracked-paths.txt` | generated: `m5pro-safe-update --gen-tracked contrib/omarchy-mac/INVENTORY.md > tracked-paths.txt`. Regenerate when `INVENTORY.md` changes (PRIVATE data and big trees are excluded) |
 | `/var/lib/m5pro-safe-update/` | snapshots, `latest`, `deferred.tsv`, `deferred/` (created at run time, PRIVATE to the Mac: hashes and config copies) |
+
+## Native `omarchy update` (2026-11-19)
+
+`omarchy update` (terminal, menu or bar) is now safe to run as is; `m5pro-safe-update --run` stays as the stricter path.
+- Holds live in `/etc/pacman.conf` itself: a third `IgnorePkg` line (`# m5pro-local-builds`, also in
+  `pacman-conf/pacman.conf.m5pro-snippet`) carries `holds.conf` `hold`, so pacman and `yay -Sua` skip the hypr libraries and
+  our own builds. Backup of the old file on the Mac: `/etc/pacman.conf.pre-local-holds`.
+- Packages Omarchy's orphan step must keep are marked explicit (`mkinitcpio`, the `protect` list, speaker and UCM builds).
+- `files/etc/pacman.d/hooks/10-m5pro-pre-update-snapshot.hook`: `--pre-update` snapshot before any package change
+  (reused when under 30 min old, so one update has one baseline).
+- `files/etc/pacman.d/hooks/95-m5pro-defer-migrations.hook`: when `omarchy` upgrades, `--defer-pending` marks DEFER-class
+  migrations done before `omarchy-migrate` runs them (ledger `deferred.tsv`, `--undefer NAME`).
+- `home/.config/omarchy/hooks/post-update.d/90-m5pro-safe-update`: Omarchy's post-update hook runs `--post-update`
+  (validation against the snapshot, clobbered system files put back) inside the update's sudo.
+- Not covered: the AUR step and the boot verify run after the post-update hook (IgnorePkg protects the AUR step; `/boot`
+  is held). The end prompt "Linux kernel has been updated. Reboot?" is always shown here (our kernel's modules are not
+  package-owned); answer no unless something asks for a reboot.
+- First native run 2026-11-19: 43 upgrades + 2 AUR rebuilds, `/boot` unchanged, 0 failures. Found and fixed: `/boot` is an
+  automount, so the snapshot's ESP manifest listed 4 of 495 files (`ESP_CMD` now lists `/boot/` first).
 
 ## Undo and repair
 

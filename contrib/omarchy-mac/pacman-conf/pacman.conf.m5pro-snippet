@@ -4,5 +4,7 @@
 # The boot guard (contrib/distro/pkg/m5pro-boot/) refuses such a transaction even when this line is lost.
 [options]
 IgnorePkg   = hyprland linux linux-aarch64* linux-asahi* linux-aurora* linux-omarchy* m1n1 m1n1-* uboot-* u-boot* limine limine-* mkinitcpio mkinitcpio-* dracut grub asahi-scripts asahi-meta asahi-fwextract asahi-configs omarchy-mac-boot omarchy-mac omarchy-aurora-firmware mesa-aurora vulkan-aurora linux-firmware linux-firmware-* kernel-modules-hook plymouth-theme-*
+IgnorePkg   = libfprint-git # m5pro-touchid-guard
+IgnorePkg   = speakersafetyd speakerguardd-v2 aurora-speaker-upgrade asahi-audio aurora-audio triforce-lv2 alsa-ucm-conf-asahi alsa-ucm-conf-aurora omarchy-power-profiles-daemon power-profiles-daemon libva-v4l2-request-avd avd-fw aurora-camera-denoise aurora-camera hyprland-m5pro aquamarine hyprutils hyprlang hyprcursor hyprgraphics hyprwayland-scanner hyprland-qt-support hyprtoolkit hyprwire hyprland-protocols hyprland-guiutils aura aura-* aurora-fwextract aurora-scripts aurora-bless asahi-bless # m5pro-local-builds (safe-update holds.conf `hold`: native omarchy update and yay skip them)
 
 # Sections present on the Mac besides core, extra and omarchy: [alarm] and [aur], both through /etc/pacman.d/mirrorlist.

@@ -9,6 +9,10 @@
 #   m5pro-safe-update --undefer NAME       release a deferred Omarchy migration so omarchy-migrate runs it
 #   m5pro-safe-update --classify DIR [NAME...]   classify Omarchy migrations (works anywhere, no Mac needed)
 #   m5pro-safe-update --gen-tracked INVENTORY.md > tracked-paths.txt
+# Native `omarchy update` guards (installed as pacman and Omarchy hooks, see README "Native omarchy update"):
+#   m5pro-safe-update --pre-update      pacman PreTransaction: snapshot (skipped when the last one is under 30 min old)
+#   m5pro-safe-update --defer-pending   pacman PostTransaction on omarchy: mark DEFER-class migrations done before omarchy-migrate
+#   m5pro-safe-update --post-update     Omarchy post-update hook: validate against the snapshot, put clobbered system files back
 # Options: --repo DIR (m5pro-linux checkout for item checks), --user NAME, --with-mise, --allow-boot-change, --force-hazards.
 # Exit: 0 clean, 1 warnings, 2 failures, 3 refused (nothing changed).
 set -uo pipefail
@@ -41,6 +45,9 @@ while (($#)); do
     --undefer) MODE=undefer ;;
     --classify) MODE=classify ;;
     --gen-tracked) MODE=gen ;;
+    --pre-update) MODE=pre ;;
+    --defer-pending) MODE=defer ;;
+    --post-update) MODE=post ;;
     --deep) DEEP=1 ;;
     --yes | -y) ASSUME_YES=1 ;;
     --with-mise) WITH_MISE=1 ;;
@@ -87,6 +94,13 @@ cfg_words() { cfg "$1" | tr ' ' '\n' | sed '/^$/d'; }
 
 resolve_user() {
   [[ -n $TARGET_USER ]] || TARGET_USER=${SUDO_USER:-${USER:-$(id -un)}}
+  # From a pacman hook (root, no SUDO_USER): the logged-in desktop user
+  if [[ $TARGET_USER == root && $MODE == @(pre|defer|post) ]]; then
+    local u
+    u=$(loginctl list-sessions --no-legend 2>/dev/null | awk '$3 != "root" && $3 != "" { print $3; exit }')
+    [[ -n $u ]] || u=$(getent passwd 1000 | cut -d: -f1)
+    [[ -n $u ]] && TARGET_USER=$u
+  fi
   TARGET_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6)
   [[ -n $TARGET_HOME ]] || die "no such user: $TARGET_USER"
 }
@@ -275,7 +289,8 @@ owners_of() { # stdin: paths -> "path<TAB>pkg"
     sed -n 's/^\(.*\) is owned by \([^ ]*\) .*$/\1\t\2/p'
 }
 
-ESP_CMD='if mountpoint -q /boot 2>/dev/null; then find /boot -xdev -type f -exec sha256sum {} + 2>/dev/null | sort -k2; else echo "NOT-MOUNTED"; fi'
+# /boot is an automount on the Mac: list it first so the ESP is mounted before find (-xdev would stop at the autofs)
+ESP_CMD='ls /boot/ >/dev/null 2>&1; if mountpoint -q /boot 2>/dev/null; then find /boot/ -xdev -type f -exec sha256sum {} + 2>/dev/null | sort -k2; else echo "NOT-MOUNTED"; fi'
 esp_manifest() { sudo_ bash -c "$ESP_CMD"; }
 
 mesa_ldd() { # lines "lib: unresolved-soname" for every unresolved dependency of /opt/mesa-aurora* libs
@@ -898,7 +913,67 @@ do_undefer() {
   say "  $n will run at the next 'omarchy-migrate' (or --run, which would defer it again: read $STATE_DIR/deferred/$n first)."
 }
 
+# ---------------------------------------------------------------- native `omarchy update` guards
+do_pre() { # pacman PreTransaction hook: never blocks the transaction
+  resolve_user
+  local last now stamp
+  last=$(latest_snapshot || true)
+  now=$(date +%s)
+  if [[ -n $last ]] && ((now - $(stat -c %Y "$last" 2>/dev/null || echo 0) < 1800)); then
+    say "m5pro: snapshot $(basename "$last") is recent; keeping it as the update baseline"
+    exit 0
+  fi
+  stamp=$(date +%Y%m%d-%H%M%S)
+  mkdir -p "$STATE_DIR"
+  take_snapshot "$STATE_DIR/$stamp" >/dev/null 2>&1
+  ln -sfn "$STATE_DIR/$stamp" "$STATE_DIR/latest"
+  say "m5pro: snapshot $STATE_DIR/$stamp (tracked files, packages, /boot manifest)"
+  exit 0
+}
+
+do_defer() { # pacman PostTransaction hook on omarchy: defer, never run
+  resolve_user
+  local state f n sev tags why ledger="$STATE_DIR/deferred.tsv" deferred=0
+  state=$(migration_state_dir)
+  [[ -d $OMARCHY_SHARE/migrations && -d $state ]] || exit 0
+  for f in "$OMARCHY_SHARE"/migrations/*.sh; do
+    [[ -f $f ]] || continue
+    n=$(basename "$f")
+    [[ -f $state/$n ]] && continue
+    IFS='|' read -r sev tags why < <(classify_file "$f")
+    [[ $sev == DEFER ]] || continue
+    mkdir -p "$STATE_DIR/deferred"
+    cp -p "$f" "$STATE_DIR/deferred/$n"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$(date -Is)" "$n" "$sev" "$tags" "$why" >>"$ledger"
+    as_user touch "$state/$n"
+    deferred=$((deferred + 1))
+    say "m5pro: deferred migration $n [$tags] $(grep -m1 -E '^echo' "$f" | cut -c6-70)"
+  done
+  ((deferred)) && say "m5pro: $deferred migration(s) deferred; review: $ledger, release: m5pro-safe-update --undefer NAME"
+  exit 0
+}
+
+do_post() { # Omarchy post-update hook (runs under the update's sudo)
+  resolve_user
+  have pacman || die "no pacman here"
+  local snap
+  snap=$(latest_snapshot || true)
+  head1 "m5pro post-update check  ($(date '+%F %T'), baseline ${snap:+$(basename "$snap")})"
+  orphans_report
+  check_all "$snap" 1
+  head1 "m5pro result"
+  if ((NFAIL)); then
+    say "  ${C_R}$NFAIL failure(s), $NWARN warning(s): read the FAIL lines above before rebooting${C_0}"
+  else
+    say "  ${C_G}0 failures${C_0}, $NWARN warning(s)"
+  fi
+  exit 0
+}
+
 case $MODE in
+  pre) do_pre ;;
+  defer) do_defer ;;
+  post) do_post ;;
   gen) do_gen ;;
   classify) do_classify ;;
   dry) do_dry; exit $? ;;

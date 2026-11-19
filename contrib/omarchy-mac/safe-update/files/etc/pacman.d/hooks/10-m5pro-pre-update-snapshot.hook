@@ -1,0 +1,13 @@
+# m5pro-safe-update: snapshot tracked files, packages and the /boot manifest before any package change, so a native
+# `omarchy update` has a baseline to check and restore against. Never aborts the transaction.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = *
+
+[Action]
+Description = m5pro: snapshot before the package change...
+When = PreTransaction
+Exec = /usr/local/sbin/m5pro-safe-update --pre-update

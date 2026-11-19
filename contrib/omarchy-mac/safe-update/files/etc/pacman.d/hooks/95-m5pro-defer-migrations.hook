@@ -1,0 +1,13 @@
+# m5pro-safe-update: when the omarchy package brings migrations, mark the DEFER-class ones (boot, pacman.conf, PAM,
+# login/network, our own packages) done before omarchy-migrate runs. They are copied to
+# /var/lib/m5pro-safe-update/deferred/ and listed in deferred.tsv; `m5pro-safe-update --undefer NAME` releases one.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = omarchy
+
+[Action]
+Description = m5pro: deferring Omarchy migrations that would touch boot, login or package settings...
+When = PostTransaction
+Exec = /usr/local/sbin/m5pro-safe-update --defer-pending
