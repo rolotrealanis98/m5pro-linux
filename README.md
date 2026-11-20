@@ -43,13 +43,14 @@ clean on 2026-11-19). Rollback: `next8gpu-everyday-20261118-3125fe70.bin`.
 | **Next test boot** | Neural Engine | The ANE driver ([aurora-silicon/linux#2293](https://github.com/aurora-silicon/linux/pull/2293) DT + #1957's per-build table) with a code pin for the macOS 27.3 (26C5035r) firmware, computed from the firmware image on the Linux install's own macOS volume. [`contrib/pending/ane/`](contrib/pending/ane/) |
 | **Prepared** | Video decode | AVD firmware and the VA-API path are installed; a clip test is pending. [`avd-video/`](contrib/omarchy-mac/avd-video/) |
 | **In progress** | AirDrop | The N1 firmware starts AWDL and stops after about 11 s; Taildrop is the fallback for iPhone sharing. [`airdrop/`](contrib/omarchy-mac/airdrop/) |
-| **Test kernels** | Thunderbolt/USB4, external displays | Both routers bring up a TB3 link and a PCIe tunnel on a test kernel; not on the daily, so no docks or DisplayPort yet. [`contrib/pending/thunderbolt/`](contrib/pending/thunderbolt/) |
+| **Test kernels** | Thunderbolt/USB4, external displays | Both routers bring up a TB3 link and a PCIe tunnel on a test kernel; not on the daily, so no docks or DisplayPort yet. HDMI is lined up on the newest test stack (`j716s-t2-hdmi`), and deep sleep after it (`j716s-t2-sleep`, attended). [`contrib/pending/thunderbolt/`](contrib/pending/thunderbolt/) |
+| **Prepared** | SD card reader | The GL9755 reader on PCIe port 1: device tree node, SD power line, reset pin and DART, plus the PCI SDHCI driver (branch `j716s-sdxc`, DTBs compile). Link tunables are copied from the J714s/K116s; one self-reverting boot checks it. |
 | **Not planned** | Fan control | The T6050 SMC has no unlock key. |
 
 **Next test boot** (built, self-reverting, waits for the owner): `ane2293c-usbpd1-edr-test-20261119-111abae6.bin`,
 kernel 7.3.0-g0c6bb36ed14a. It carries the USB-C hotplug fix (5 commits, KUnit 178/178), the Neural Engine with the 27.3
 code pin (KUnit 277 of 278, 1 skipped), and the HDR headroom fading down over 2.0 s as on macOS (DRM KUnit 180 of 181,
-1 skipped). The camera clean-up package installs in the same sitting.
+1 skipped). The camera clean-up package installs in the same sitting. The USB-C fix is prepared for upstream as three small PRs, posted after the hardware test.
 
 **Upstream** (`aurora-silicon/linux`): merged #1082, #1083, #1084, #1152, #1160, #1167 (the J716s device tree), #1174
 (27.3 display method IDs), #1182 and #1183 (kernel-side N1 training), #1240, #1241, #1242 (GPU recovery). Open: **#1173**
