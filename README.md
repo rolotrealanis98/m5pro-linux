@@ -7,7 +7,7 @@ as the build and USB host. Started 2026-10-20.
 This repo holds only what was made or changed here. Upstream sources are pinned in
 [`SOURCES.md`](SOURCES.md), not vendored.
 
-## Status (2026-11-20)
+## Status (2026-11-22)
 
 **Kept current:** this section is updated with every step forward (a new daily, a feature that starts working, a test
 boot built, a PR merged). Older snapshots: [`docs/status-2026-11-08.md`](docs/status-2026-11-08.md),
@@ -54,7 +54,10 @@ code pin (KUnit 277 of 278, 1 skipped), and the HDR headroom fading down over 2.
 
 **Upstream** (`aurora-silicon/linux`): merged #1082, #1083, #1084, #1152, #1160, #1167 (the J716s device tree), #1174
 (27.3 display method IDs), #1182 and #1183 (kernel-side N1 training), #1240, #1241, #1242 (GPU recovery). Open: **#1173**
-(M5 GPU InitData for 27.2 and 27.3) and **#2070** (refuse deep sleep where the 27.x display sleep is unknown). For the
+(M5 GPU InitData for 27.2 and 27.3; on 2026-11-22 macOS 27.2's own InitData was captured on this Mac under the m1n1
+hypervisor: the version word, allocation sizes, policy bands and controller words, the inserted status-config words
+and the 27.0 HW data layout all match the PR, one status-config block stride is still open; the comment is drafted)
+and **#2070** (refuse deep sleep where the 27.x display sleep is unknown). For the
 Omarchy project: [omacom/linux-aurora #413](https://github.com/omacom/linux-aurora/pull/413) and the omacom m1n1 stack
 #30-#37. [`contrib/validated/aurora/prs/`](contrib/validated/aurora/prs/)
 
