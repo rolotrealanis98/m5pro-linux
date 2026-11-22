@@ -10,7 +10,8 @@ This repo holds only what was made or changed here. Upstream sources are pinned 
 ## Status (2026-11-22)
 
 **Kept current:** this section is updated with every step forward (a new daily, a feature that starts working, a test
-boot built, a PR merged). Older snapshots: [`docs/status-2026-11-08.md`](docs/status-2026-11-08.md),
+boot built, a PR merged). The capability ledger [`gap-map.csv`](contrib/community/gap-map.csv) was refreshed on
+2026-11-22. Older snapshots: [`docs/status-2026-11-08.md`](docs/status-2026-11-08.md),
 [`docs/status-2026-11-06.md`](docs/status-2026-11-06.md). Every change made on the Mac itself is a row in
 [`contrib/omarchy-mac/INVENTORY.md`](contrib/omarchy-mac/INVENTORY.md). The capability-by-capability map is
 [`contrib/community/FULL-SUPPORT-GAP-MAP.md`](contrib/community/FULL-SUPPORT-GAP-MAP.md) (refreshed 2026-11-17).
@@ -51,13 +52,17 @@ clean on 2026-11-19). Rollback: `next8gpu-everyday-20261118-3125fe70.bin`.
 kernel 7.3.0-g0c6bb36ed14a. It carries the USB-C hotplug fix (5 commits, KUnit 178/178), the Neural Engine with the 27.3
 code pin (KUnit 277 of 278, 1 skipped), and the HDR headroom fading down over 2.0 s as on macOS (DRM KUnit 180 of 181,
 1 skipped). The camera clean-up package installs in the same sitting. The USB-C fix is prepared for upstream as three small PRs, posted after the hardware test.
+The MacBook is travelling from 2026-11-22: it boots the daily (boot.bin and its fallback are both the daily), and the
+test boot waits until it is back with the owner.
 
 **Upstream** (`aurora-silicon/linux`): merged #1082, #1083, #1084, #1152, #1160, #1167 (the J716s device tree), #1174
 (27.3 display method IDs), #1182 and #1183 (kernel-side N1 training), #1240, #1241, #1242 (GPU recovery). Open: **#1173**
 (M5 GPU InitData for 27.2 and 27.3; on 2026-11-22 macOS 27.2's own InitData was captured on this Mac under the m1n1
 hypervisor: the version word, allocation sizes, policy bands and controller words, the inserted status-config words
 and the 27.0 HW data layout all match the PR, one status-config block stride is still open; the comment is drafted)
-and **#2070** (refuse deep sleep where the 27.x display sleep is unknown). For the
+and **#2070** (refuse deep sleep where the 27.x display sleep is unknown; the review asks for admission by the
+firmware's method table and a re-signed commit, being reworked), and aura **#274** (the J716s boot, being retargeted to the
+27.2 stub and split into small PRs after review). For the
 Omarchy project: [omacom/linux-aurora #413](https://github.com/omacom/linux-aurora/pull/413) and the omacom m1n1 stack
 #30-#37. [`contrib/validated/aurora/prs/`](contrib/validated/aurora/prs/)
 
