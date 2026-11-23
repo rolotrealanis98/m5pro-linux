@@ -1,0 +1,16 @@
+[Unit]
+Description=AirPods control: owner of the AAP connection (noise mode, battery, ear detection) for the Omarchy Bluetooth panel and airpods-mode
+Documentation=file:///usr/local/bin/airpods-daemon
+After=bluetooth.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/airpods-daemon
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_BLUETOOTH
+# No AirPods connected: the process sleeps (one blocked dbus-monitor and a 15 s poll).
+
+[Install]
+WantedBy=default.target

@@ -50,8 +50,9 @@ clean on 2026-11-19). Rollback (`boot.bin.prev`): the previous daily `xdr1hdr-ev
 | **Prepared** | SD card reader | The GL9755 reader on PCIe port 1: device tree node, SD power line, reset pin and DART, plus the PCI SDHCI driver (branch `j716s-sdxc`, DTBs compile). Link tunables are copied from the J714s/K116s; one self-reverting boot checks it. |
 | **Not planned** | Fan control | The T6050 SMC has no unlock key. |
 
-**Test boots built, waiting for hardware or the owner:** PMU, EDAC and the AES engine (`pmu-edac1`), GPU power values
-observed under macOS (`gpupm-observed`), HDMI with HDMI audio (`extdisp-chain`, needs an HDMI display), the encrypted-root
+**Test boots run on 2026-11-23 (unattended):** `pmu-edac1`: the CPU PMU counts on both core types (`perf stat`), EDAC
+monitors 12 + 23 error sources with no errors, the AES engine times out at probe (needs the SIO side). `gpupm-observed`:
+macOS's GPU power values give +8.5 % in glmark at the same idle power (one run each). **Waiting for hardware or the owner:** HDMI with HDMI audio (`extdisp-chain`, needs an HDMI display), the encrypted-root
 unlock (`encryption-2`, initramfs with SEP token and passphrase; the scratch-file test passed on 2026-11-23); AirDrop is being
 rebuilt on the daily kernel. Distribution work in progress: package recipes and an `m5pro-boot` CLI
 ([`contrib/distro/`](contrib/distro/)), and omarchy-mac-installer support for the J716s (simulation only).

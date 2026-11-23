@@ -1,0 +1,385 @@
+#!/usr/bin/env python3
+"""airpods-daemon - one owner for the AirPods AAP channel, shared by the Omarchy Bluetooth panel and `airpods-mode`.
+
+Only one AAP client can be connected to a pair of AirPods at a time. This user service holds that connection for every
+connected AirPods, keeps their state (listening mode, battery of left/right/case, ear detection, conversation
+awareness) and serves it on a Unix socket, $XDG_RUNTIME_DIR/airpods-control.sock (mode 0600): newline-delimited JSON.
+
+Server -> client (sent on connect and after every change):
+  {"event":"state","devices":{"AA:BB:..":{"address","name","model","aap","error","modes","mode","battery":{"left":
+   {"level":82,"status":"discharging"},"right":..,"case":..,"headphones":..},"ear":["in-ear","in-ear"],
+   "conversation_awareness":true|false|null,"off_allowed":true|false|null}}}
+  {"event":"result","id":N,"ok":true}   or   {"event":"result","id":N,"ok":false,"error":"..."}
+Client -> server:
+  {"cmd":"mode","address":"AA:BB:..","value":"anc|transparency|adaptive|off","id":N}
+  {"cmd":"ca","address":"AA:BB:..","value":true|false,"id":N}
+  {"cmd":"state"}                      (re-send the state)
+`address` may be left out when exactly one AirPods is connected.
+
+Devices come from BlueZ (`bluetoothctl devices Connected`, re-read when `dbus-monitor` sees a Connected change, and every
+15 s as a fallback). Only devices whose name (or alias) contains "AirPods" are opened; anything else is never touched.
+The packet layouts are the ones in airpods-mode, which this file imports (no copy of the protocol).
+"""
+import importlib.machinery, importlib.util, json, os, queue, select, selectors, signal, socket, subprocess, sys, threading, time
+
+sys.dont_write_bytecode = True
+
+
+def load_protocol():
+    here = os.path.dirname(os.path.realpath(__file__))
+    for cand in (os.path.join(here, "airpods-mode"), "/usr/local/bin/airpods-mode"):
+        if os.path.exists(cand):
+            loader = importlib.machinery.SourceFileLoader("airpods_mode", cand)
+            spec = importlib.util.spec_from_loader("airpods_mode", loader)
+            mod = importlib.util.module_from_spec(spec)
+            loader.exec_module(mod)
+            return mod
+    raise SystemExit("airpods-daemon: airpods-mode not found next to this file or in /usr/local/bin")
+
+
+P = load_protocol()
+SOCK_NAME = "airpods-control.sock"
+MODE_CMD, CA_CMD = 0x0D, 0x28
+ALL_MODES = ["off", "transparency", "adaptive", "anc"]
+
+
+def log(msg):
+    print(msg, file=sys.stderr, flush=True)
+
+
+def connect_aap(mac):
+    """Open the AAP channel and run the handshake. Replaced in tests."""
+    s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+    s.settimeout(10)
+    try:
+        s.connect((mac, P.PSM))
+        for pkt in (P.HANDSHAKE, P.SET_FEATURES, P.REQ_NOTIFY):
+            s.send(pkt)
+            time.sleep(0.05)
+    except OSError:
+        s.close()
+        raise
+    return s
+
+
+_real_names = {}
+
+
+def real_name(mac, alias):
+    """BlueZ's Name (what the device calls itself) next to the user-editable alias: a renamed pair of AirPods still says AirPods here."""
+    if mac not in _real_names:
+        try:
+            out = subprocess.run(["bluetoothctl", "info", mac], capture_output=True, text=True, timeout=8).stdout
+        except (OSError, subprocess.SubprocessError):
+            return alias
+        _real_names[mac] = next((l.split(":", 1)[1].strip() for l in out.splitlines() if l.strip().startswith("Name:")), alias)
+    return _real_names[mac]
+
+
+def list_connected():
+    """[(mac, alias, name)] of connected AirPods."""
+    try:
+        out = subprocess.run(["bluetoothctl", "devices", "Connected"], capture_output=True, text=True, timeout=8).stdout
+    except (OSError, subprocess.SubprocessError) as e:
+        log("bluetoothctl failed: %s" % e)
+        return None
+    pods = []
+    for line in out.splitlines():
+        p = line.split(" ", 2)
+        if len(p) == 3 and p[0] == "Device":
+            name = p[2] if "airpods" in p[2].lower() else real_name(p[1], p[2])
+            if "airpods" in name.lower():
+                pods.append((p[1].upper(), p[2], name))
+    return pods
+
+
+def model_of(name):
+    n = name.lower()
+    return "max" if "max" in n else "pro" if "pro" in n else "airpods"
+
+
+class Worker(threading.Thread):
+    """Owns the AAP connection of one AirPods."""
+
+    def __init__(self, hub, mac, name, real):
+        super().__init__(daemon=True, name="aap-" + mac)
+        self.hub, self.mac, self.name = hub, mac, name
+        self.model = model_of(real)
+        self.cmds = queue.Queue()
+        self.stop_evt = threading.Event()
+        self.st, self.aap, self.err = {}, False, None
+        self.pending = None  # (client, id, want, deadline)
+
+    def modes(self):
+        if self.model == "max":
+            return ["off", "transparency", "anc"]
+        if self.model == "pro" or "mode" in self.st:
+            return list(ALL_MODES)
+        return []
+
+    def snapshot(self):
+        st = self.st
+        return {"address": self.mac, "name": self.name, "model": self.model, "aap": self.aap, "error": self.err,
+                "modes": self.modes() if self.aap else [], "mode": st.get("mode") if self.aap else None,
+                "battery": st.get("battery", {}), "ear": st.get("ear"),
+                "conversation_awareness": st.get("conversation_awareness"), "off_allowed": st.get("off_allowed")}
+
+    def finish(self, ok, error=None):
+        if self.pending:
+            client, cid, _, _ = self.pending
+            self.pending = None
+            self.hub.reply(client, cid, ok, error)
+
+    def run(self):
+        backoff = 2
+        while not self.stop_evt.is_set():
+            try:
+                sock = connect_aap(self.mac)
+            except OSError as e:
+                self.err = "cannot open the AAP channel (%s)" % (e.strerror or e)
+                self.aap = False
+                self.hub.publish()
+                self.stop_evt.wait(backoff)
+                backoff = min(backoff * 2, 30)
+                continue
+            backoff, self.aap, self.err = 2, True, None
+            self.hub.publish()
+            try:
+                self.loop(sock)
+            except OSError as e:
+                self.err = "AAP channel lost (%s)" % (e.strerror or e)
+            finally:
+                sock.close()
+                self.aap = False
+                self.st = {}
+                self.finish(False, "AirPods disconnected")
+                self.hub.publish()
+            self.stop_evt.wait(2)
+
+    def loop(self, sock):
+        while not self.stop_evt.is_set():
+            r, _, _ = select.select([sock], [], [], 0.4)
+            if r:
+                pkt = sock.recv(1024)
+                if not pkt:
+                    raise OSError(0, "closed by the AirPods")
+                ev = P.parse(pkt, self.st)
+                if ev and ev.startswith("mode ") and self.pending:
+                    want = self.pending[2]
+                    got = self.st.get("mode")
+                    self.finish(got == want, None if got == want else "AirPods report %s" % got)
+                self.hub.publish()  # no-op unless the visible state changed (some packets, e.g. off_allowed, carry no event text)
+            while True:
+                try:
+                    client, cid, kind, value = self.cmds.get_nowait()
+                except queue.Empty:
+                    break
+                self.run_command(sock, client, cid, kind, value)
+            if self.pending and time.time() > self.pending[3]:
+                want = self.pending[2]
+                if self.st.get("mode") == want:
+                    self.finish(True)
+                else:
+                    self.finish(False, "no answer from the AirPods" + (
+                        " ('Off' may be disabled on the AirPods; enable it from an Apple device)" if want == "off" else ""))
+
+    def run_command(self, sock, client, cid, kind, value):
+        if kind == "mode":
+            if value not in self.modes():
+                return self.hub.reply(client, cid, False, "%s is not available on %s" % (value, self.name))
+            if value == "off" and self.st.get("off_allowed") is False:
+                return self.hub.reply(client, cid, False, "'Off' is disabled on these AirPods; enable it from an Apple device (Noise Control > Off)")
+            self.finish(False, "superseded")
+            sock.send(P.HDR + bytes([0x09, 0x00, MODE_CMD, P.MODES[value], 0, 0, 0]))
+            self.pending = (client, cid, value, time.time() + 3.0)
+        elif kind == "ca":
+            sock.send(P.HDR + bytes([0x09, 0x00, CA_CMD, 1 if value else 2, 0, 0, 0]))
+            self.st["conversation_awareness"] = bool(value)  # the AirPods only echo this once per connection
+            self.hub.reply(client, cid, True)
+            self.hub.publish()
+
+
+class Hub:
+    def __init__(self, path):
+        self.path, self.lock = path, threading.RLock()
+        self.workers, self.clients, self.last = {}, {}, ""
+        self.rescan = threading.Event()
+        self.sel = selectors.DefaultSelector()
+        self.stop = False
+
+    # ---- output
+    def state_line(self):
+        with self.lock:
+            devs = {w.mac: w.snapshot() for w in self.workers.values()}
+        return json.dumps({"event": "state", "devices": devs}, sort_keys=True) + "\n"
+
+    def send(self, c, line):
+        try:
+            c.send(line.encode())
+        except (BlockingIOError, OSError):
+            self.kick(c)
+
+    def publish(self, force=False):
+        line = self.state_line()
+        with self.lock:
+            if line == self.last and not force:
+                return
+            self.last = line
+            for c in list(self.clients):
+                self.send(c, line)
+
+    def reply(self, client, cid, ok, error=None):
+        msg = {"event": "result", "id": cid, "ok": ok}
+        if error:
+            msg["error"] = error
+        with self.lock:
+            if client in self.clients:
+                self.send(client, json.dumps(msg) + "\n")
+
+    def kick(self, c):
+        """Any thread: forget a client and shut it down; the main loop sees the EOF and drops it."""
+        with self.lock:
+            self.clients.pop(c, None)
+        try:
+            c.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+    def drop(self, c):
+        """Main thread only."""
+        with self.lock:
+            self.clients.pop(c, None)
+        try:
+            self.sel.unregister(c)
+        except (KeyError, ValueError):
+            pass
+        c.close()
+
+    # ---- devices
+    def sync_devices(self):
+        pods = list_connected()
+        if pods is None:
+            return
+        want = {mac: (alias, real) for mac, alias, real in pods}
+        with self.lock:
+            for mac in [m for m in self.workers if m not in want]:
+                self.workers.pop(mac).stop_evt.set()
+            for mac, (name, real) in want.items():
+                if mac not in self.workers:
+                    log("AirPods connected: %s %s" % (name, mac))
+                    w = self.workers[mac] = Worker(self, mac, name, real)
+                    w.start()
+        self.publish()
+
+    def scanner(self):
+        while not self.stop:
+            self.sync_devices()
+            self.rescan.wait(15)
+            self.rescan.clear()
+            time.sleep(0.4)  # let BlueZ settle after a Connected change
+
+    def watch_dbus(self):
+        rule = "type='signal',sender='org.bluez',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',arg0='org.bluez.Device1'"
+        while not self.stop:
+            try:
+                proc = subprocess.Popen(["dbus-monitor", "--system", rule], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            except OSError:
+                log("dbus-monitor not found: relying on the 15 s poll")
+                return
+            for line in proc.stdout:
+                if '"Connected"' in line:
+                    self.rescan.set()
+            proc.wait()
+            time.sleep(5)
+
+    # ---- clients
+    def handle(self, c, line):
+        try:
+            msg = json.loads(line)
+            cmd = msg.get("cmd")
+        except (ValueError, AttributeError):
+            return
+        cid = msg.get("id")
+        if cmd == "state":
+            self.send(c, self.state_line())
+            return
+        if cmd not in ("mode", "ca"):
+            return self.reply(c, cid, False, "unknown command")
+        with self.lock:
+            addr = str(msg.get("address") or "").upper()
+            if not addr and len(self.workers) == 1:
+                addr = next(iter(self.workers))
+            w = self.workers.get(addr)
+        if not w or not w.aap:
+            return self.reply(c, cid, False, "no AirPods with an open AAP channel" + (" at " + addr if addr else ""))
+        w.cmds.put((c, cid, cmd, msg.get("value")))
+
+    def serve(self):
+        try:
+            os.unlink(self.path)
+        except FileNotFoundError:
+            pass
+        old = os.umask(0o177)
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(self.path)
+        os.umask(old)
+        srv.listen(8)
+        srv.setblocking(False)
+        self.sel.register(srv, selectors.EVENT_READ, None)
+        bufs = {}
+        threading.Thread(target=self.scanner, daemon=True).start()
+        threading.Thread(target=self.watch_dbus, daemon=True).start()
+        try:
+            while not self.stop:
+                for key, _ in self.sel.select(1.0):
+                    if key.data is None:
+                        c, _ = srv.accept()
+                        c.setblocking(False)
+                        self.sel.register(c, selectors.EVENT_READ, "client")
+                        with self.lock:
+                            self.clients[c] = True
+                        bufs[c] = b""
+                        self.send(c, self.state_line())
+                        continue
+                    c = key.fileobj
+                    try:
+                        data = c.recv(4096)
+                    except BlockingIOError:
+                        continue
+                    except OSError:
+                        data = b""
+                    if not data:
+                        bufs.pop(c, None)
+                        self.drop(c)
+                        continue
+                    bufs[c] += data
+                    while b"\n" in bufs[c]:
+                        line, bufs[c] = bufs[c].split(b"\n", 1)
+                        self.handle(c, line.decode("utf-8", "replace"))
+                    if len(bufs.get(c, b"")) > 65536:
+                        bufs.pop(c, None)
+                        self.drop(c)
+        finally:
+            for w in list(self.workers.values()):
+                w.stop_evt.set()
+            try:
+                os.unlink(self.path)
+            except OSError:
+                pass
+
+
+def main():
+    rt = os.environ.get("XDG_RUNTIME_DIR")
+    if not rt:
+        raise SystemExit("airpods-daemon: XDG_RUNTIME_DIR is not set (run it as a user service)")
+    hub = Hub(os.path.join(rt, SOCK_NAME))
+    def bye(*_):
+        hub.stop = True
+    signal.signal(signal.SIGTERM, bye)
+    signal.signal(signal.SIGINT, bye)
+    hub.serve()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,23 @@
+# Maintainer: local (omarchy-mac). Builds LibrePods' Qt6 Linux app (tray GUI + librepods-ctl) from a pinned commit.
+# Upstream: https://github.com/kavishdevar/librepods (AGPL-3.0). No AUR package exists; this is a local one. aarch64 is untested upstream.
+pkgname=librepods
+pkgver=1.0.4
+pkgrel=1
+_commit=89356c08cea3db0b6b54792d9329d09a87cc85fa
+pkgdesc='AirPods noise control, battery and ear detection for Linux (Qt6 tray app plus librepods-ctl)'
+arch=(aarch64 x86_64)
+url='https://github.com/kavishdevar/librepods'
+license=(AGPL-3.0-only)
+depends=(qt6-base qt6-declarative qt6-connectivity qt6-multimedia openssl libpulse)
+makedepends=(cmake git qt6-tools)
+source=("git+$url.git#commit=$_commit")
+sha256sums=(SKIP)
+
+build() {
+  cmake -S librepods/linux -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+  cmake --build build -j"$(nproc)"
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

@@ -1,0 +1,400 @@
+diff --git a/shell/plugins/panels/bluetooth/AirPodsClient.qml b/shell/plugins/panels/bluetooth/AirPodsClient.qml
+new file mode 100644
+index 0000000..00b5af9
+--- /dev/null
++++ b/shell/plugins/panels/bluetooth/AirPodsClient.qml
+@@ -0,0 +1,69 @@
++import QtQuick
++import Quickshell
++import Quickshell.Io
++
++// Client for the airpods-control user service (airpods-daemon). AirPods allow a single AAP connection, so the
++// service owns it and every client (this panel, `airpods-mode`) talks to the service over a Unix socket:
++// $XDG_RUNTIME_DIR/airpods-control.sock, newline-delimited JSON. The service pushes its whole state after every
++// change; commands are {cmd: "mode"|"ca", address, value, id} and are answered by a {event: "result"} line.
++//
++// `active` is set by the panel while it is open with an AirPods connected, so a machine without AirPods, or
++// without the service, never opens the socket. Without the service nothing here ever turns true: `devices`
++// stays empty and the panel shows no AirPods controls.
++Item {
++  id: root
++
++  property bool active: false
++  // Service state: BlueZ address (upper case) -> { name, model, aap, modes, mode, battery, ear, ... }.
++  property var devices: ({})
++  readonly property bool linked: socket.connected
++  readonly property string socketPath: (Quickshell.env("XDG_RUNTIME_DIR") || "") + "/airpods-control.sock"
++  property int nextId: 1
++
++  signal failed(string message)
++
++  function send(request) {
++    if (!socket.connected) return false
++    request.id = root.nextId++
++    socket.write(JSON.stringify(request) + "\n")
++    socket.flush()
++    return true
++  }
++
++  function setMode(address, mode) {
++    return send({ cmd: "mode", address: address, value: mode })
++  }
++
++  function setConversationAwareness(address, on) {
++    return send({ cmd: "ca", address: address, value: !!on })
++  }
++
++  function handle(line) {
++    var message
++    try { message = JSON.parse(line) } catch (e) { return }
++    if (!message) return
++    if (message.event === "state") root.devices = message.devices || ({})
++    else if (message.event === "result" && !message.ok) root.failed(String(message.error || ""))
++  }
++
++  Socket {
++    id: socket
++    path: root.socketPath
++    parser: SplitParser {
++      onRead: function(line) { root.handle(line) }
++    }
++    onConnectedChanged: if (!connected) root.devices = ({})
++  }
++
++  // (Re)connect while wanted. A failed attempt leaves `connected` false, so the next tick tries again; the
++  // service sends its state as soon as the socket opens.
++  Timer {
++    interval: 4000
++    repeat: true
++    triggeredOnStart: true
++    running: root.active && root.socketPath !== "/airpods-control.sock" && !socket.connected
++    onTriggered: socket.connected = true
++  }
++
++  onActiveChanged: if (!active) socket.connected = false
++}
+diff --git a/shell/plugins/panels/bluetooth/AirPodsControls.qml b/shell/plugins/panels/bluetooth/AirPodsControls.qml
+new file mode 100644
+index 0000000..e5b4444
+--- /dev/null
++++ b/shell/plugins/panels/bluetooth/AirPodsControls.qml
+@@ -0,0 +1,102 @@
++import QtQuick
++import qs.Ui
++import qs.Commons
++import qs.Commons as Commons
++import "Model.js" as Model
++
++// The AirPods block under a connected AirPods row of the Bluetooth panel: battery (left, right, case), ear
++// detection, noise mode and conversation awareness. `pods` is the airpods-control service's state for the device
++// (null while the service is not running); the block hides itself then, and shows only a dim note while the
++// service has no AAP channel to the AirPods.
++Item {
++  id: root
++
++  property var pods: null
++  property color foreground: Commons.Color.foreground
++  property string fontFamily: Style.font.family
++
++  signal modeRequested(string mode)
++  signal conversationAwarenessRequested(bool on)
++
++  readonly property var tr: function(key, english) { return Commons.I18n.t(key, english) }
++  function fmt(n) { return Commons.I18n.formatNumber(n) }
++
++  readonly property bool ready: !!pods && pods.aap === true
++  readonly property var modeOptions: ready ? Model.airpodsModeOptions(pods, tr) : []
++  readonly property string batteryText: ready ? Model.airpodsBatteryParts(pods, tr, fmt).join("   ") : ""
++  readonly property string earText: ready ? Model.airpodsEarText(pods, tr) : ""
++  readonly property bool hasAwareness: ready && pods.conversation_awareness !== null && pods.conversation_awareness !== undefined
++
++  visible: !!pods
++  implicitHeight: visible ? body.implicitHeight : 0
++
++  Column {
++    id: body
++    x: Style.space(10)
++    width: parent.width - 2 * x
++    spacing: Style.space(8)
++
++    Text {
++      textFormat: Text.PlainText
++      visible: root.pods !== null && !root.ready
++      width: parent.width
++      text: Commons.I18n.t("bluetooth.airpods.unavailable", "Noise control unavailable")
++      color: Qt.darker(root.foreground, 1.5)
++      font.family: root.fontFamily
++      font.pixelSize: Style.font.caption
++      elide: Text.ElideRight
++    }
++
++    Text {
++      textFormat: Text.PlainText
++      visible: root.batteryText !== "" || root.earText !== ""
++      width: parent.width
++      text: root.earText !== "" && root.batteryText !== "" ? root.batteryText + "   ·   " + root.earText : (root.batteryText || root.earText)
++      color: Qt.darker(root.foreground, 1.2)
++      font.family: root.fontFamily
++      font.pixelSize: Style.font.caption
++      elide: Text.ElideRight
++    }
++
++    ButtonGroup {
++      visible: root.modeOptions.length > 0
++      width: parent.width
++      options: root.modeOptions
++      value: root.ready && root.pods.mode ? root.pods.mode : ""
++      foreground: root.foreground
++      fontFamily: root.fontFamily
++      fontSize: Style.font.caption
++      focusable: false
++      onChanged: function(mode) { root.modeRequested(mode) }
++    }
++
++    Item {
++      visible: root.hasAwareness
++      width: parent.width
++      implicitHeight: Math.max(awarenessLabel.implicitHeight, awarenessSwitch.implicitHeight)
++
++      Text {
++        id: awarenessLabel
++        textFormat: Text.PlainText
++        anchors.left: parent.left
++        anchors.right: awarenessSwitch.left
++        anchors.rightMargin: Style.space(8)
++        anchors.verticalCenter: parent.verticalCenter
++        text: Commons.I18n.t("bluetooth.airpods.conversationAwareness", "Conversation awareness")
++        color: root.foreground
++        font.family: root.fontFamily
++        font.pixelSize: Style.font.bodySmall
++        elide: Text.ElideRight
++      }
++
++      ToggleSwitch {
++        id: awarenessSwitch
++        anchors.right: parent.right
++        anchors.verticalCenter: parent.verticalCenter
++        checked: root.hasAwareness && root.pods.conversation_awareness === true
++        foreground: root.foreground
++        onToggled: root.conversationAwarenessRequested(!checked)
++      }
++    }
++  }
++}
+diff --git a/shell/plugins/panels/bluetooth/Model.js b/shell/plugins/panels/bluetooth/Model.js
+index 55b29bf..3bde29b 100644
+--- a/shell/plugins/panels/bluetooth/Model.js
++++ b/shell/plugins/panels/bluetooth/Model.js
+@@ -154,6 +154,111 @@ function sectionDevices(lists, section) {
+   return []
+ }
+ 
++// ---- AirPods controls (state comes from the airpods-control user service; see AirPodsClient.qml) ----
++
++function plainText(key, english) { return english }
++function plainNumber(n) { return String(n) }
++
++// Apple AirPods and AirPods Pro/Max report as "<owner>'s AirPods Pro" and the like. Anything else (including
++// every non-Apple headset) never reaches the AirPods code path.
++function isAirPods(device) {
++  return /airpods/i.test(deviceLabel(device))
++}
++
++function hasAirPods(devices) {
++  var list = toArray(devices)
++  for (var i = 0; i < list.length; i++) if (list[i] && isAirPods(list[i])) return true
++  return false
++}
++
++// The service's state for a device, or null while the service is not running, the AirPods are not
++// connected to it yet, or its AAP channel is down. `devices` is the service's address -> state map.
++function airpodsState(devices, address) {
++  if (!devices || !address) return null
++  var wanted = normalizedAddress(address)
++  for (var key in devices) if (normalizedAddress(key) === wanted) return devices[key]
++  return null
++}
++
++function modeLabel(mode, t) {
++  if (mode === "off") return t("bluetooth.airpods.modeOff", "Off")
++  if (mode === "transparency") return t("bluetooth.airpods.modeTransparency", "Transparency")
++  if (mode === "adaptive") return t("bluetooth.airpods.modeAdaptive", "Adaptive")
++  if (mode === "anc") return t("bluetooth.airpods.modeAnc", "ANC")
++  return ""
++}
++
++function modeTooltip(mode, t) {
++  if (mode === "off") return t("bluetooth.airpods.tipOff", "Noise control off")
++  if (mode === "transparency") return t("bluetooth.airpods.tipTransparency", "Transparency: hear your surroundings")
++  if (mode === "adaptive") return t("bluetooth.airpods.tipAdaptive", "Adaptive: blends noise cancellation and transparency")
++  if (mode === "anc") return t("bluetooth.airpods.tipAnc", "Noise cancellation")
++  return ""
++}
++
++// Options for a ButtonGroup: only the modes this device offers, in the service's order.
++function airpodsModeOptions(state, tr) {
++  tr = tr || plainText
++  var modes = state && state.modes ? state.modes : []
++  var options = []
++  for (var i = 0; i < modes.length; i++) {
++    var label = modeLabel(modes[i], tr)
++    if (label === "") continue
++    if (modes[i] === "off" && state.off_allowed === false) continue
++    options.push({ value: modes[i], label: label, tooltip: modeTooltip(modes[i], tr) })
++  }
++  return options
++}
++
++// Mode after the current one, for the keyboard shortcut. Skips "off" when the AirPods have it disabled.
++function airpodsNextMode(state) {
++  var modes = airpodsModeOptions(state).map(function(o) { return o.value })
++  if (modes.length === 0) return ""
++  var at = modes.indexOf(state.mode)
++  return modes[(at + 1) % modes.length]
++}
++
++function batteryLabel(component, t) {
++  if (component === "left") return t("bluetooth.airpods.batteryLeft", "Left %1")
++  if (component === "right") return t("bluetooth.airpods.batteryRight", "Right %1")
++  if (component === "case") return t("bluetooth.airpods.batteryCase", "Case %1")
++  return t("bluetooth.airpods.batteryHeadphones", "Battery %1")
++}
++
++// One entry per reported component, e.g. ["Left 82%", "Right 80%", "Case 100% "]; "" marks charging.
++function airpodsBatteryParts(state, tr, fmt) {
++  tr = tr || plainText
++  fmt = fmt || plainNumber
++  var battery = state && state.battery ? state.battery : {}
++  var parts = []
++  var order = ["left", "right", "case", "headphones"]
++  for (var i = 0; i < order.length; i++) {
++    var entry = battery[order[i]]
++    if (!entry || entry.status === "disconnected" || entry.status === "unknown") continue
++    var level = Number(entry.level)
++    if (!isFinite(level) || level < 0 || level > 100) continue
++    var value = fmt(level) + "%" + (entry.status === "charging" ? " " : "")
++    parts.push(batteryLabel(order[i], tr).replace("%1", value))
++  }
++  return parts
++}
++
++// "In both ears" | "In one ear" | "Out of ears" | "In case" | "" when nothing was reported or for a single-piece model.
++function airpodsEarText(state, tr) {
++  var t = tr || plainText
++  if (!state || !state.ear || state.ear.length < 2 || state.model === "max") return ""
++  var inEar = 0
++  var inCase = 0
++  for (var i = 0; i < 2; i++) {
++    if (state.ear[i] === "in-ear") inEar++
++    else if (state.ear[i] === "in-case") inCase++
++  }
++  if (inCase === 2) return t("bluetooth.airpods.earCase", "In case")
++  if (inEar === 2) return t("bluetooth.airpods.earBoth", "In both ears")
++  if (inEar === 1) return t("bluetooth.airpods.earOne", "In one ear")
++  return t("bluetooth.airpods.earNone", "Out of ears")
++}
++
+ if (typeof module !== "undefined") {
+   module.exports = {
+     deviceLabel: deviceLabel,
+@@ -172,6 +277,13 @@ if (typeof module !== "undefined") {
+     pendingAction: pendingAction,
+     withPendingAction: withPendingAction,
+     visibleSections: visibleSections,
+-    sectionDevices: sectionDevices
++    sectionDevices: sectionDevices,
++    isAirPods: isAirPods,
++    hasAirPods: hasAirPods,
++    airpodsState: airpodsState,
++    airpodsModeOptions: airpodsModeOptions,
++    airpodsNextMode: airpodsNextMode,
++    airpodsBatteryParts: airpodsBatteryParts,
++    airpodsEarText: airpodsEarText
+   }
+ }
+diff --git a/shell/plugins/panels/bluetooth/Panel.qml b/shell/plugins/panels/bluetooth/Panel.qml
+index 5e9a2ce..9e3706b 100644
+--- a/shell/plugins/panels/bluetooth/Panel.qml
++++ b/shell/plugins/panels/bluetooth/Panel.qml
+@@ -156,6 +156,37 @@ Panel {
+     return rows
+   }
+ 
++  // AirPods controls: the airpods-control user service (airpods-daemon) owns the single AAP connection and this
++  // client reads its state over a Unix socket. It connects only while the panel is open with an AirPods connected,
++  // so any other headset, or a machine without the service, never sees it.
++  readonly property bool airpodsConnected: Model.hasAirPods(connectedDevices)
++
++  AirPodsClient {
++    id: airpods
++    active: root.opened && root.airpodsConnected
++  }
++
++  function airpodsStateFor(row) {
++    if (!row || !Model.isAirPods(row)) return null
++    return Model.airpodsState(airpods.devices, row.address)
++  }
++
++  // The AirPods the m key acts on: the one under the cursor, else the first connected one.
++  function airpodsForShortcut() {
++    var focused = focusSection === "connected" ? deviceAt("connected", selectedIndex) : null
++    if (focused && Model.isAirPods(focused)) return focused
++    for (var i = 0; i < connectedDevices.length; i++)
++      if (Model.isAirPods(connectedDevices[i])) return connectedDevices[i]
++    return null
++  }
++
++  function cycleAirPodsMode() {
++    var device = airpodsForShortcut()
++    var state = device ? Model.airpodsState(airpods.devices, device.address) : null
++    var next = state && state.aap ? Model.airpodsNextMode(state) : ""
++    if (next !== "") airpods.setMode(device.address, next)
++  }
++
+   // Live BlueZ device behind a row. Rows carry primitives only, so actions
+   // resolve the backend object here rather than holding a wrapper that can
+   // dangle mid-incubation. `devices` is already the raw device array (see the
+@@ -686,6 +717,7 @@ Panel {
+       onDeleteRequested: if (root.cursorActive) root.deleteSelected()
+       onTextKey: function(t) {
+         if (t === "b" || t === "B") root.toggleBluetooth()
++        else if (t === "m" || t === "M") root.cycleAirPodsMode()
+       }
+ 
+       Column {
+@@ -786,14 +818,30 @@ Panel {
+ 
+           Repeater {
+             model: root.connectedRows
+-            DeviceRow {
++            Column {
++              id: connectedEntry
+               required property var modelData
+               required property int index
++              readonly property var pods: root.airpodsStateFor(modelData)
+               width: connectedList.width
+-              dev: modelData
+-              rowIndex: index
+-              sectionName: "connected"
+-              isDiscovered: false
++              spacing: Style.space(8)
++
++              DeviceRow {
++                width: parent.width
++                dev: connectedEntry.modelData
++                rowIndex: connectedEntry.index
++                sectionName: "connected"
++                isDiscovered: false
++              }
++
++              AirPodsControls {
++                width: parent.width
++                pods: connectedEntry.pods
++                foreground: root.bar.foreground
++                fontFamily: root.bar.fontFamily
++                onModeRequested: function(mode) { airpods.setMode(connectedEntry.modelData.address, mode) }
++                onConversationAwarenessRequested: function(on) { airpods.setConversationAwareness(connectedEntry.modelData.address, on) }
++              }
+             }
+           }
+         }

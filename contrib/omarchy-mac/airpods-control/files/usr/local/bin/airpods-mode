@@ -1,0 +1,300 @@
+#!/usr/bin/env python3
+"""airpods-mode - control AirPods (Max) noise control from Linux over Apple's AAP (L2CAP PSM 0x1001).
+
+  airpods-mode anc|transparency|off|adaptive   set the listening mode, wait for the AirPods to confirm
+  airpods-mode toggle                          cycle anc -> transparency -> off (-> anc)
+  airpods-mode status [--json|--waybar]        mode, battery, ear detection, conversation awareness
+  airpods-mode battery                         battery percentages only
+  airpods-mode ca on|off                       conversation awareness (volume ducks when you speak)
+  airpods-mode watch                           print events (mode, battery, ear, speaking) until Ctrl-C
+(With the user service airpods-daemon running, every command is routed through it: it owns the single AAP connection.)
+Options: --mac AA:BB:CC:DD:EE:FF (or AIRPODS_MAC), --name pro|max (or AIRPODS_NAME; needed only if several AirPods are
+connected), --timeout SECONDS. Developed against AirPods Pro (modes anc/transparency/adaptive/off, case + bud battery) and Max.
+Needs only python3 and a connected, paired AirPods. No BlueZ DeviceID change is needed for these features.
+Packet layouts follow the protocol notes of LibrePods (kavishdevar/librepods, "AAP Definitions.md"); this
+file is an independent stdlib implementation, not derived from its (AGPL) code.
+"""
+import argparse, json, os, select, socket, subprocess, sys, time
+
+PSM = 0x1001
+HDR = bytes([4, 0, 4, 0])
+HANDSHAKE = bytes([0, 0, 4, 0, 1, 0, 2, 0] + [0] * 8)
+SET_FEATURES = HDR + bytes([0x4D, 0x00, 0xFF] + [0] * 7)
+REQ_NOTIFY = HDR + bytes([0x0F, 0x00, 0xFF, 0xFF, 0xFF, 0xFF])
+MODES = {"off": 1, "anc": 2, "transparency": 3, "adaptive": 4}
+MODE_NAME = {v: k for k, v in MODES.items()}
+CYCLE = ["anc", "transparency", "off"]
+COMPONENT = {0x01: "headphones", 0x02: "right", 0x04: "left", 0x08: "case"}
+BATT_STATUS = {0: "unknown", 1: "charging", 2: "discharging", 4: "disconnected"}
+EAR = {0: "in-ear", 1: "out-of-ear", 2: "in-case", 3: "disconnected"}
+
+
+def die(msg, code=1):
+    print("airpods-mode: " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def find_device(mac=None, name=None):
+    """Return (mac, name) of the connected AirPods via bluetoothctl."""
+    try:
+        out = subprocess.run(["bluetoothctl", "devices", "Connected"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError) as e:
+        die("cannot run bluetoothctl: %s" % e)
+    devs = []
+    for line in out.splitlines():
+        p = line.split(" ", 2)
+        if len(p) == 3 and p[0] == "Device":
+            devs.append((p[1], p[2]))
+    if mac:
+        for m, n in devs:
+            if m.upper() == mac.upper():
+                return m, n
+        die("%s is not connected (connect it first: bluetoothctl connect %s)" % (mac, mac))
+    pods = [d for d in devs if "airpods" in d[1].lower() and (not name or name.lower() in d[1].lower())]
+    if len(pods) > 1:
+        die("several AirPods are connected (%s); pick one with --name pro|max or --mac" % ", ".join("%s %s" % (n, m) for m, n in pods))
+    if not pods:
+        die("no connected AirPods found (bluetoothctl devices Connected: %s)" % (", ".join(n for _, n in devs) or "none"))
+    return pods[0]
+
+
+def parse(pkt, st):
+    """Fold one AAP packet into the state dict; return an event string or None."""
+    if len(pkt) < 6 or pkt[:4] != HDR:
+        return None
+    op = pkt[4]
+    if op == 0x04 and len(pkt) >= 7:  # battery: 04 00 04 00 04 00 count (comp 01 level status 01)*count
+        n = pkt[6]
+        batt = {}
+        for i in range(n):
+            b = 7 + i * 5
+            if b + 4 >= len(pkt):
+                break
+            comp = COMPONENT.get(pkt[b], "0x%02x" % pkt[b])
+            batt[comp] = {"level": pkt[b + 2], "status": BATT_STATUS.get(pkt[b + 3], "0x%02x" % pkt[b + 3])}
+        st["battery"] = batt
+        return "battery " + " ".join("%s=%d%%(%s)" % (k, v["level"], v["status"]) for k, v in batt.items())
+    if op == 0x06 and len(pkt) >= 8:  # ear detection: primary, secondary
+        st["ear"] = [EAR.get(pkt[6], "0x%02x" % pkt[6]), EAR.get(pkt[7], "0x%02x" % pkt[7])]
+        return "ear " + "/".join(st["ear"])
+    if op == 0x09 and len(pkt) >= 8:  # control command: id, 4 value bytes
+        cid, val = pkt[6], pkt[7]
+        if cid == 0x0D:
+            st["mode"] = MODE_NAME.get(val, "0x%02x" % val)
+            return "mode " + st["mode"]
+        if cid == 0x28:
+            st["conversation_awareness"] = {1: True, 2: False}.get(val)
+            return "conversation-awareness " + {1: "on", 2: "off"}.get(val, "?")
+        if cid == 0x34:
+            st["off_allowed"] = {1: True, 2: False}.get(val)
+        return None
+    if op == 0x4B and len(pkt) >= 10:  # speaking level
+        lvl = pkt[9]
+        st["speaking"] = lvl in (1, 2)
+        return "speaking %s (level %d)" % ("yes" if st["speaking"] else "no", lvl)
+    return None
+
+
+class Session:
+    def __init__(self, mac, timeout):
+        self.mac, self.timeout, self.state = mac, timeout, {}
+        self.sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET, socket.BTPROTO_L2CAP)
+        self.sock.settimeout(timeout)
+        try:
+            self.sock.connect((mac, PSM))
+        except OSError as e:
+            die("cannot open AAP channel to %s: %s (is another AirPods app, e.g. librepods, already connected?)" % (mac, e))
+        for p in (HANDSHAKE, SET_FEATURES, REQ_NOTIFY):
+            self.sock.send(p)
+            time.sleep(0.05)
+
+    def pump(self, quiet=0.8, limit=None, until=None, on_event=None):
+        """Read packets until `quiet` seconds of silence, `limit` seconds total, or until() is true."""
+        end = time.time() + (limit if limit is not None else self.timeout)
+        while time.time() < end:
+            r, _, _ = select.select([self.sock], [], [], quiet)
+            if not r:
+                return
+            try:
+                pkt = self.sock.recv(1024)
+            except OSError:
+                return
+            if not pkt:
+                return
+            ev = parse(pkt, self.state)
+            if ev and on_event:
+                on_event(ev)
+            if until and until(self.state):
+                return
+
+    def send(self, payload):
+        self.sock.send(HDR + payload)
+
+    def close(self):
+        self.sock.close()
+
+
+def fmt_status(st, name, mac, as_json=False, waybar=False):
+    batt = st.get("battery", {})
+    lv = [v["level"] for v in batt.values() if v["status"] != "disconnected"]
+    low = min(lv) if lv else None
+    mode = st.get("mode", "unknown")
+    if waybar:
+        icon = {"anc": "ANC", "transparency": "TRN", "off": "OFF", "adaptive": "ADP"}.get(mode, "?")
+        tip = "%s\nMode: %s\n%s" % (name, mode, "\n".join("%s: %d%% (%s)" % (k, v["level"], v["status"]) for k, v in batt.items()))
+        return json.dumps({"text": "%s %s" % (icon, "" if low is None else "%d%%" % low), "tooltip": tip, "class": mode,
+                           "percentage": low or 0})
+    if as_json:
+        return json.dumps(dict(st, address=mac, device=name), sort_keys=True)
+    lines = ["%s (%s)" % (name, mac), "mode: %s" % mode]
+    for k, v in batt.items():
+        lines.append("battery %s: %d%% %s" % (k, v["level"], v["status"]))
+    if "ear" in st:
+        lines.append("ear detection: " + " / ".join(st["ear"]))
+    if st.get("conversation_awareness") is not None:
+        lines.append("conversation awareness: " + ("on" if st["conversation_awareness"] else "off"))
+    if st.get("off_allowed") is False:
+        lines.append("note: the AirPods have 'Off' disabled; enable it in iOS/macOS (Noise Control > Off) to use it")
+    return "\n".join(lines)
+
+
+def via_daemon(a):
+    """When the user service airpods-daemon runs it owns the one AAP connection: ask it instead of opening a second.
+    Returns an exit code, or None when there is no daemon (or it has no matching AirPods) and the direct path should run."""
+    path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""), "airpods-control.sock")
+    if not os.environ.get("XDG_RUNTIME_DIR") or not os.path.exists(path):
+        return None
+    c = socket.socket(socket.AF_UNIX)
+    c.settimeout(3)
+    try:
+        c.connect(path)
+    except OSError:
+        c.close()
+        return None
+    buf = [b""]
+
+    def lines(wait):
+        end = time.time() + wait
+        while time.time() < end:
+            while b"\n" in buf[0]:
+                l, buf[0] = buf[0].split(b"\n", 1)
+                yield json.loads(l)
+            try:
+                d = c.recv(65536)
+            except socket.timeout:
+                continue
+            if not d:
+                return
+            buf[0] += d
+
+    def pick(devs):
+        want_mac = (a.mac or "").upper()
+        c_ = [d for d in devs.values() if (not want_mac or d["address"] == want_mac) and (not a.name or a.name.lower() in d["name"].lower())]
+        return c_[0] if len(c_) == 1 else None
+
+    try:
+        dev = None
+        for m in lines(3):
+            if m.get("event") == "state":
+                dev = pick(m["devices"])
+                break
+        if not dev or not dev["aap"]:
+            return None
+        if a.command == "watch":
+            print(time.strftime("%H:%M:%S ") + json.dumps(dev, sort_keys=True), flush=True)
+            c.settimeout(3600)
+            for m in lines(10 ** 9):
+                if m.get("event") == "state" and pick(m["devices"]):
+                    print(time.strftime("%H:%M:%S ") + json.dumps(pick(m["devices"]), sort_keys=True), flush=True)
+            return 0
+        if a.command in ("status", "battery"):
+            if a.command == "battery":
+                if not dev["battery"]:
+                    die("no battery report received", 3)
+                for k, v in dev["battery"].items():
+                    print("%s %d%% %s" % (k, v["level"], v["status"]))
+            else:
+                print(fmt_status(dev, dev["name"], dev["address"], a.json, a.waybar))
+            return 0
+        if a.command == "ca":
+            if a.arg not in ("on", "off"):
+                die("usage: airpods-mode ca on|off", 2)
+            req = {"cmd": "ca", "address": dev["address"], "value": a.arg == "on", "id": 1}
+        else:
+            want = a.command
+            if want == "toggle":
+                cur = dev.get("mode")
+                want = CYCLE[(CYCLE.index(cur) + 1) % len(CYCLE)] if cur in CYCLE else "anc"
+            req = {"cmd": "mode", "address": dev["address"], "value": want, "id": 1}
+        c.sendall((json.dumps(req) + "\n").encode())
+        for m in lines(a.timeout):
+            if m.get("event") == "result" and m.get("id") == 1:
+                if not m["ok"]:
+                    die(m.get("error", "failed"), 3)
+                print(req["value"] if req["cmd"] == "mode" else "conversation awareness " + a.arg + " requested")
+                return 0
+        die("no answer from airpods-daemon", 3)
+    finally:
+        c.close()
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="airpods-mode", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("command", nargs="?", default="status",
+                    choices=["anc", "transparency", "off", "adaptive", "toggle", "status", "battery", "ca", "watch"])
+    ap.add_argument("arg", nargs="?", help="on|off for the ca command")
+    ap.add_argument("--mac", default=os.environ.get("AIRPODS_MAC"))
+    ap.add_argument("--name", default=os.environ.get("AIRPODS_NAME"), help="substring of the device name, e.g. pro or max")
+    ap.add_argument("--timeout", type=float, default=15.0)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--waybar", action="store_true")
+    a = ap.parse_args()
+
+    done = via_daemon(a)
+    if done is not None:
+        return done
+    mac, name = find_device(a.mac, a.name)
+    s = Session(mac, a.timeout)
+    try:
+        if a.command == "watch":
+            try:
+                s.pump(quiet=3600, limit=10 ** 9, on_event=lambda e: print(time.strftime("%H:%M:%S ") + e, flush=True))
+            except KeyboardInterrupt:
+                pass
+            return 0
+        s.pump(quiet=0.7, limit=a.timeout)  # initial notifications: battery, mode, ear, CA
+        if a.command in MODES or a.command == "toggle":
+            want = a.command
+            if want == "toggle":
+                cur = s.state.get("mode")
+                want = CYCLE[(CYCLE.index(cur) + 1) % len(CYCLE)] if cur in CYCLE else "anc"
+            s.send(bytes([0x09, 0x00, 0x0D, MODES[want], 0, 0, 0]))
+            s.state.pop("mode", None)
+            s.pump(quiet=1.5, limit=a.timeout, until=lambda st: "mode" in st)
+            got = s.state.get("mode")
+            if got != want:
+                die("asked for %s, AirPods report %s%s" % (want, got or "nothing",
+                    " ('Off' may be disabled on the AirPods; enable it from an Apple device)" if want == "off" else ""), 3)
+            print(want)
+        elif a.command == "ca":
+            if a.arg not in ("on", "off"):
+                die("usage: airpods-mode ca on|off", 2)
+            s.send(bytes([0x09, 0x00, 0x28, 1 if a.arg == "on" else 2, 0, 0, 0]))
+            s.pump(quiet=1.0, limit=2)
+            print("conversation awareness " + a.arg + " requested (the AirPods only echo this once per connection)")
+        elif a.command == "battery":
+            for k, v in s.state.get("battery", {}).items():
+                print("%s %d%% %s" % (k, v["level"], v["status"]))
+            if not s.state.get("battery"):
+                die("no battery report received", 3)
+        else:
+            if not s.state:
+                die("no data from the AirPods (AAP handshake got no answer)", 3)
+            print(fmt_status(s.state, name, mac, a.json, a.waybar))
+    finally:
+        s.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
