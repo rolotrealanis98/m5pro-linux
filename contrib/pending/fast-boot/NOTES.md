@@ -71,3 +71,27 @@ Superseded first-pack files (da43de4f, b8ed2b52) stay on the volume. Same kernel
 - iBoot vs stage 1 split (owner stopwatch point 3 in the request).
 - /boot/r1-logs/.reverted-once exists: a no-network test would not revert.
 - If aura boot_args.video.display is 0 on this Mac, fast-boot-2 prints as before.
+
+## Round 2 (2026-11-23 evening): request /Volumes/m5pro/bench/requests/fast-boot-2.md
+
+- Daily now 7cf5348b (silent aura without host wait): aura 14.33 -> 18.93 s (4.60 s, was 6.41), Hyprland 22.69 s, lock 24.47 s; the
+  7.2 ms/line aura print cost is gone (1.0 ms). iBoot + stage 1 = 14.3 s = 58 % of the time to the lock screen, split unknown.
+- fast-boot-3 (test) c0d91103 / daily form f42d76ae: bootargs `quiet loglevel=3 logo.nologo ... systemd.show_status=false udev.log_level=3
+  plymouth.enable=0`, initramfs v5 (init output fully silent under quiet, failure paths back on the console, selftest unit Type=exec).
+  Packer: `FASTBOOT_PROFILE=polish python3 -I -B mk-fast-boot.py` (`FASTBOOT_DAILY=1` for the daily form). `console=tty3` rejected (hides the DIAG).
+- userspace/install-polish.sh: removes the getty@tty1 boot symlink (VT1 stays blank; logind autovt keeps Ctrl+Alt+F1 login). Undo included.
+- Stage 1: enrolled = boot-ab.bin 920ed202 (3 identical copies read from the stub, p3). Built on macOS; the Fedora container rebuild lays out
+  differently, so the silent stage 1 is the enrolled image with ONE instruction changed (0x26aec mov w0,#1 -> #0), sha bc060f93; files and ceremony
+  in the request; stage1/ (bench/fast-boot/stage1) holds the sources of the container builds, s1-timing.patch (optional timing property) and the rollback.
+- Housekeeping slip: while tidying bench/fast-boot/stage1/dist I `rm -f`'d three wrapped images I had made minutes earlier (container-build
+  variants); mk-dist.sh regenerated them identically. Nothing else was removed.
+
+## Result (2026-11-23, evening)
+
+The owner enrolled `s1-silent-patched-wdt150.bin` (sha256 `bc060f93...`) through 1TR (`stage1-install.sh`, then power-hold -> Omarchy -> step2).
+First boot: primary slot, 18 CPUs, systemd feeding `/dev/watchdog0` (1 min), stage-1 version string unchanged
+(`v2.0.0-68-g459a3af2-dirty`), no text on the panel from the Apple logo to the lock screen. With the polished daily
+`daily-20261123-f42d76ae` (logo.nologo, systemd.show_status=false, initramfs v5, blank tty1): aura starts 13.61 s (was 14.33 s), kernel
+18.25 s, Hyprland 21.86 s, lock screen 23.64 s. Rollback stage 1: `rollback-boot-ab-920ed202.bin` on the stub (`/Volumes/Omarchy/m1n1/`),
+in `~/Work/m1n1/stage1/` on the MacBook's macOS and in `/Volumes/m5pro/bench/fast-boot/stage1/xfer/`; the macOS backup of what was enrolled
+before is `~/Work/m1n1/stage1/rollback-installed-20261123.bin` (920ed202...).

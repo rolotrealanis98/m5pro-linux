@@ -19,8 +19,13 @@ R = pathlib.Path(os.environ.get("M5", "/Volumes/m5pro")) / "bench/pr-verify"
 K = R / os.environ.get("KBUILD", "kbuild-ane2293")
 TOOL = H / "Documents/GitHub/m5pro/m5pro-linux-re/tooling/loop-safety/mk-daily.py"
 sha = lambda b: hashlib.sha256(b).hexdigest()
-LOADER = pathlib.Path(os.environ.get("FASTBOOT_M1N1", "/Volumes/m5pro/out/aura/aura-j716s-camera1-nohostwait.bin"))
-IR = pathlib.Path(os.environ.get("FASTBOOT_IR", "/Volumes/m5pro/bench/fast-boot/initramfs-ftab-wdt2-fsck-v4q.cpio.gz"))
+# FASTBOOT_PROFILE=polish (round 2): the silent aura without the USB proxy window (fastboot-silent-nh), initramfs v5 (init output
+# fully silent under `quiet`, self-revert unit Type=exec) and the polished bootargs. Default profile "quiet" is round 1.
+POLISH = os.environ.get("FASTBOOT_PROFILE") == "polish"
+LOADER = pathlib.Path(os.environ.get("FASTBOOT_M1N1", "/Volumes/m5pro/out/aura/fastboot-silent-nh/aura.bin" if POLISH
+                                     else "/Volumes/m5pro/out/aura/aura-j716s-camera1-nohostwait.bin"))
+IR = pathlib.Path(os.environ.get("FASTBOOT_IR", "/Volumes/m5pro/bench/fast-boot/initramfs-ftab-wdt2-fsck-v5.cpio.gz" if POLISH
+                                 else "/Volumes/m5pro/bench/fast-boot/initramfs-ftab-wdt2-fsck-v4q.cpio.gz"))
 img = LOADER.read_bytes()
 assert img[-8:] == b"STACKBOT" and len(img) % 0x10000 == 0, f"{LOADER} is not a plain stage 2 image"
 sums = {l.split()[1]: l.split()[0] for l in (K/"SHA256SUMS").read_text().splitlines() if l.strip()}
@@ -33,7 +38,14 @@ if "ane2293" in str(K):   # the daily 624bd344 = these exact ingredients
     assert sha(dtb.read_bytes()) == "44180962c1972b9f97acc46feaec0790fde4f9e542784bd5bf8d4fabcaca7c10"
 spec = importlib.util.spec_from_file_location("mk_daily", TOOL); mk = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mk); mk.M1N1_SIZE = len(img)
-if not os.environ.get("FASTBOOT_VERBOSE"):
+if POLISH and not os.environ.get("FASTBOOT_VERBOSE"):
+    # round 2: no kernel logo (CONFIG_LOGO=y draws the Omarchy logo at the fbcon take-over), no systemd status, quiet udev, no
+    # Plymouth (it only ran in text mode here and took the VT/DRM for nothing). console=tty0 stays: errors and the initramfs
+    # failure DIAG still reach the panel. tty1 stays blank because the userspace install no longer starts a getty there.
+    mk.BASE = ("console=tty0 quiet loglevel=3 logo.nologo vt.global_cursor_default=0 systemd.show_status=false udev.log_level=3 "
+               "plymouth.enable=0 pd_ignore_unused clk_ignore_unused no_console_suspend nvme_apple.flush_interval=0 "
+               "m5.root=/dev/nvme0n1p5 kvm-arm.wfi_trap_policy=trap")
+elif not os.environ.get("FASTBOOT_VERBOSE"):
     # was: earlycon=efifb keep_bootcon console=tty0 loglevel=8 pd_ignore_unused clk_ignore_unused no_console_suspend ...
     mk.BASE = ("console=tty0 quiet loglevel=3 vt.global_cursor_default=0 pd_ignore_unused clk_ignore_unused "
                "no_console_suspend nvme_apple.flush_interval=0 m5.root=/dev/nvme0n1p5 kvm-arm.wfi_trap_policy=trap")

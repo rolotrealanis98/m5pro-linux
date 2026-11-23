@@ -16,15 +16,16 @@ boot built, a PR merged). The capability ledger [`gap-map.csv`](contrib/communit
 [`contrib/omarchy-mac/INVENTORY.md`](contrib/omarchy-mac/INVENTORY.md). The capability-by-capability map is
 [`contrib/community/FULL-SUPPORT-GAP-MAP.md`](contrib/community/FULL-SUPPORT-GAP-MAP.md) (refreshed 2026-11-17).
 
-**Daily boot:** `daily-20261123-7cf5348b.bin` (**quiet-fast**, since 2026-11-23): kernel **7.3.0-g0c6bb36ed14a** (branch
+**Daily boot:** `daily-20261123-f42d76ae.bin` (**quiet and fast**, since 2026-11-23): kernel **7.3.0-g0c6bb36ed14a** (branch
 `j716s-ane2293` = `j716s-xdr` plus the USB-C hotplug fix, the Neural Engine with the 27.3 code pin and the HDR headroom ramp),
-quiet boot arguments (`quiet loglevel=3`, no `earlycon`), a quiet initramfs, and a silent **aura stage 2** (`j716s-camera-1`,
-`FB_SILENT_MODE`, no USB host wait). Power-on to the lock screen **24.5 s** (was about 33 s), a restart about 30 s (was about
-58 s): autologin without the `Type=idle` wait, the lock without a fixed sleep, the shutdown settle only after a write burst
-([`contrib/pending/fast-boot/`](contrib/pending/fast-boot/)). Only m1n1 stage 1 still prints (a quiet stage 1 needs the 1TR
-enrolment). Omarchy 4.5 on the root, updated with the stock `omarchy update` behind
-[`safe-update`](contrib/omarchy-mac/safe-update/)'s guards (latest guarded update 2026-11-23, 52 packages). Rollback and verbose
-escape hatch (`boot.bin.prev`): the same kernel with the verbose boot, `ane2293c-everyday-20261123-624bd344.bin`.
+a silent **aura stage 2** (`j716s-camera-1` with `FB_SILENT_MODE`, no USB host wait), a **silent m1n1 stage 1** (the enrolled A/B stage 1
+with its on-screen log switched off, enrolled 2026-11-23 through 1TR), quiet boot arguments (`quiet loglevel=3 logo.nologo
+systemd.show_status=false`), a quiet initramfs, and a blank tty1. **No text from the Apple logo to the lock screen.** Power-on to the
+lock screen **23.6 s** (was about 33 s); a restart about 30 s (was about 58 s): autologin without the `Type=idle` wait, the lock
+without a fixed sleep, the shutdown settle only after a write burst ([`contrib/pending/fast-boot/`](contrib/pending/fast-boot/)).
+Omarchy 4.5 on the root, updated with the stock `omarchy update` behind [`safe-update`](contrib/omarchy-mac/safe-update/)'s guards
+(latest guarded update 2026-11-23, 52 packages). Rollback and verbose escape hatch (`boot.bin.prev`): the same kernel with the verbose
+boot, `ane2293c-everyday-20261123-624bd344.bin`; `touch /etc/m5-verbose` brings the kernel log back on screen.
 
 | Status | Area | State |
 |---|---|---|
