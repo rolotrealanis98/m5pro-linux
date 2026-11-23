@@ -1,0 +1,10 @@
+<!doctype html><meta charset=utf-8><title>widevine probe</title><body>WV_PROBE=PENDING<script>
+const cfg=[{initDataTypes:['cenc'],
+ videoCapabilities:[{contentType:'video/mp4; codecs="avc1.42E01E"',robustness:'SW_SECURE_DECODE'}],
+ audioCapabilities:[{contentType:'audio/mp4; codecs="mp4a.40.2"',robustness:'SW_SECURE_CRYPTO'}]}];
+const out=t=>{document.body.textContent=t};
+if(!navigator.requestMediaKeySystemAccess){out('WV_PROBE=FAIL no EME (insecure context?)')}
+else navigator.requestMediaKeySystemAccess('com.widevine.alpha',cfg)
+ .then(a=>a.createMediaKeys().then(()=>out('WV_PROBE=OK '+a.keySystem)))
+ .catch(e=>out('WV_PROBE=FAIL '+e.name+': '+e.message));
+</script>

@@ -1,0 +1,14 @@
+[Unit]
+Description=Record which M5 Pro boot payload is running and whether it reached the network
+Documentation=man:m5pro-boot(8)
+After=network-online.target boot.mount
+Wants=network-online.target
+ConditionPathExists=/proc/device-tree/chosen
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/m5pro-boot confirm --wait 120
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

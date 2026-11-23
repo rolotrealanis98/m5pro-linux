@@ -1,0 +1,1003 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""m5pro-boot - build, install, roll back and inspect the stage-2 payload (ESP m1n1/boot.bin) of a J716s.
+
+Packages the hand tools (mk-daily.py, esp-put.sh, the deploy plan, the m5-selftest service) behind one CLI.
+Policy: contrib/validated/aurora/tools/ESP-POLICY.md. Stdlib only.
+
+  m5pro-boot status [--json]                 read-only: running slot, ESP files, staged payloads, stale check
+  m5pro-boot build [--test --label L | --daily] [--kver V] [--cmdline S] [--extra S] [--loader F]
+                   [--initramfs F] [--dtb F]  build + verify a payload from the installed kernel into the staging dir
+  m5pro-boot verify FILE|boot.bin|prev|b2|known-good       re-parse a payload and check every part
+  m5pro-boot install [PAYLOAD|latest] [--apply]            DRY RUN unless --apply: boot.bin.new -> sha -> prev rotation -> boot.bin
+  m5pro-boot promote [--apply]               rebuild the running (confirmed) test payload as a daily and install it
+  m5pro-boot rollback [--to prev|b2|known-good] [--apply]  copy a known slot over boot.bin (the bad one is saved on the root)
+  m5pro-boot confirm [--wait S]              record which payload is running and whether the network is up (boot service)
+  m5pro-boot selftest-watch [--delay S]      self-revert service body (only with m5.selftest=1 on the command line)
+  m5pro-boot hook                            pacman hook: build a test payload for the new kernel, print the install plan
+  m5pro-boot stub-checklist [--json]         what to do after a macOS update (stub refresh), with the checks Linux can make
+
+Global: --root DIR (prefix for /proc /usr /etc /var, tests), --esp-dir DIR (a plain directory is the ESP: no mount, no device
+flush, tests), --state-dir DIR. Exit 0 ok, 1 refused or failed, 2 usage.
+"""
+import argparse, datetime, glob, gzip, hashlib, json, os, pathlib, re, shutil, struct, subprocess, sys, time, zlib
+
+VERSION = "0.1.0"
+BOOT, PREV, B2, KG = "boot.bin", "boot.bin.prev", "boot.bin.b2", "boot.bin.known-good"
+SLOTS = (BOOT, PREV, B2, KG)
+TRANSIENT = ("boot.bin.new", "boot.bin.prev.new")
+SLOT_ALIAS = {"boot": BOOT, "boot.bin": BOOT, "prev": PREV, "boot.bin.prev": PREV, "b2": B2, "boot.bin.b2": B2,
+              "known-good": KG, "boot.bin.known-good": KG}
+SELFTEST = "m5.selftest=1"
+NOTCH = b"chosen.asahi,show-notch=1\n"
+STACKBOT = b"STACKBOT"
+DEFAULT_CONF = {
+    "ESP": "/boot", "ESP_DEV": "/dev/nvme0n1p4", "ESP_SUBDIR": "m1n1",
+    "LOADER": "/usr/lib/aura-j716s/aura-stage2.bin:/usr/lib/asahi-boot/m1n1.bin",
+    "AUTO_INSTALL": "no",          # no | test   (a daily is never installed by a hook)
+    "NETCHECK_HOST": "1.1.1.1", "SETTLE": "60", "SELFTEST_DELAY": "90",
+    "SUPPORTED_FW": "mBoot-20457.41. mBoot-20457.60.",   # build prefixes: 27.2 / 27.3 beta 1 (26C5035r)
+    "MIN_FREE_MB": "",
+}
+
+
+class Refused(Exception):
+    """A policy or sanity check failed; nothing was changed."""
+
+
+def sha(b):
+    return hashlib.sha256(b).hexdigest()
+
+
+def file_sha(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+# ------------------------------------------------------------------ context
+class Ctx:
+    def __init__(self, root="/", esp_dir=None, state_dir=None, out=None):
+        self.root = pathlib.Path(root)
+        self.fake_esp = esp_dir is not None
+        self.conf = dict(DEFAULT_CONF)
+        self.read_conf()
+        self.esp = pathlib.Path(esp_dir) if esp_dir else self.p(self.conf["ESP"])
+        self.d = self.esp / self.conf["ESP_SUBDIR"]
+        self.state = pathlib.Path(state_dir) if state_dir else self.p("/var/lib/m5pro-boot")
+        self.out = out or (lambda s="": print(s))
+        # seams for the tests
+        self.run = lambda cmd, **kw: subprocess.run(cmd, capture_output=True, text=True, **kw)
+        self.net_check = self._net_check
+        self.reboot = lambda: self.run(["systemctl", "reboot"])
+        self.sleep = time.sleep
+        self.now = datetime.datetime.now
+
+    def p(self, path):
+        path = str(path)
+        return self.root / path.lstrip("/") if str(self.root) != "/" else pathlib.Path(path)
+
+    def read_conf(self):
+        f = self.p("/etc/m5pro/boot.conf")
+        if f.is_file():
+            for line in f.read_text().splitlines():
+                m = re.match(r'\s*([A-Z_]+)=("?)(.*?)\2\s*$', line)
+                if m and not line.lstrip().startswith("#"):
+                    self.conf[m.group(1)] = m.group(3)
+
+    def read(self, path, default=""):
+        try:
+            return self.p(path).read_bytes().decode("ascii", "replace")
+        except OSError:
+            return default
+
+    def cmdline(self):
+        return self.read("/proc/cmdline").strip()
+
+    def dt(self, name):
+        try:
+            return self.p("/proc/device-tree/" + name).read_bytes()
+        except OSError:
+            return None
+
+    def _net_check(self):
+        if not self.p("/proc/net/route").exists() and str(self.root) != "/":
+            return False
+        host = self.conf["NETCHECK_HOST"]
+        r = self.run(["ip", "route", "get", host])
+        if r.returncode != 0:
+            return False
+        return self.run(["ping", "-c1", "-W3", host]).returncode == 0
+
+
+# ------------------------------------------------------------------ device tree and slot
+def board(ctx, override=None):
+    """-> (soc, board) from the root compatible, e.g. ('t6050', 'j716s')."""
+    if override:
+        m = re.fullmatch(r"(t\d+)-(j\d+[a-z]?)", override)
+        if not m:
+            raise Refused(f"--board {override!r}: expected SOC-BOARD, e.g. t6050-j716s")
+        return m.groups()
+    c = ctx.dt("compatible")
+    if not c:
+        raise Refused("cannot read /proc/device-tree/compatible (not on the Mac? pass --board t6050-j716s)")
+    names = [x.decode() for x in c.split(b"\0") if x]
+    b = next((n[6:] for n in names if re.fullmatch(r"apple,j\d+[a-z]?", n)), None)
+    s = next((n[6:] for n in names if re.fullmatch(r"apple,t\d+", n)), None)
+    if not (b and s):
+        raise Refused(f"root compatible {names} names no Apple board and SoC")
+    return s, b
+
+
+def boot_slot(ctx):
+    """chosen,m5pro,boot-slot as set by stage 1 (patch 0016): primary|fallback[-after-failure] or None."""
+    v = ctx.dt("chosen/m5pro,boot-slot")
+    return v.rstrip(b"\0").decode("ascii", "replace") if v else None
+
+
+def slot_file(slot):
+    return PREV if (slot or "").startswith("fallback") else BOOT
+
+
+def boot_id(ctx):
+    return ctx.read("/proc/sys/kernel/random/boot_id").strip()
+
+
+def btime(ctx):
+    m = re.search(r"^btime (\d+)", ctx.read("/proc/stat"), re.M)
+    return int(m.group(1)) if m else None
+
+
+# ------------------------------------------------------------------ payload format
+def gzip_members(b, what):
+    n, first = 0, None
+    while b:
+        d = zlib.decompressobj(31)
+        try:
+            out = d.decompress(b)
+        except zlib.error as ex:
+            raise Refused(f"{what}: not valid gzip ({ex})")
+        if not d.eof:
+            raise Refused(f"{what}: truncated gzip member")
+        first = out if first is None else first
+        n += 1
+        b = d.unused_data
+    return n, first
+
+
+def check_loader(b, name="loader"):
+    if len(b) < 0x10000 or len(b) % 0x10000:
+        raise Refused(f"{name}: {len(b):#x} bytes is not a stage-2 image (a multiple of 0x10000, at least 0x10000)")
+    if not b.endswith(STACKBOT):
+        raise Refused(f"{name}: the image does not end in the STACKBOT marker (is it a plain stage 2, not a payload?)")
+    if b"aura" not in b and b"m1n1" not in b:
+        raise Refused(f"{name}: neither 'aura' nor 'm1n1' appears in the image")
+
+
+def check_kernel_gz(b):
+    n, raw = gzip_members(b, "kernel Image.gz")
+    if n != 1:
+        raise Refused(f"kernel has {n} gzip members, need exactly 1")
+    if raw[56:60] != b"ARM\x64":
+        raise Refused("kernel does not decompress to an arm64 Image (no 'ARM\\x64' at offset 56)")
+
+
+def check_initramfs(b):
+    if b[:4] == b"\x28\xb5\x2f\xfd":
+        raise Refused("initramfs is zstd: m1n1/aura parse gzip only (mkinitcpio -z gzip; the package preset sets it)")
+    n, raw = gzip_members(b, "initramfs")
+    if n != 1:
+        raise Refused(f"initramfs has {n} gzip members, need exactly 1 (the loader keeps only the last)")
+    if raw[:5] != b"07070":
+        raise Refused("initramfs does not decompress to a cpio newc archive")
+
+
+def check_dtb(b, board_name):
+    if len(b) < 40 or b[:4] != b"\xd0\x0d\xfe\xed" or struct.unpack(">I", b[4:8])[0] != len(b):
+        raise Refused("dtb: bad magic or totalsize != file size")
+    if f"apple,{board_name}".encode() not in b:
+        raise Refused(f"dtb is not a {board_name} device tree (no 'apple,{board_name}' compatible)")
+
+
+def make_bootargs(base, selftest, extra=""):
+    toks = [t for t in base.split() if not t.startswith(("BOOT_IMAGE=", "m5.selftest="))]
+    if selftest:
+        toks.append(SELFTEST)
+    if extra:
+        toks += extra.split()
+    s = " ".join(toks)
+    if not s.isascii() or "\n" in s or len(s) > 1000:
+        raise Refused("bootargs must be one ASCII line of at most 1000 bytes")
+    return s
+
+
+def assemble(loader, args, kernel_gz, dtb, initramfs):
+    line = f"chosen.bootargs={args}\n".encode()
+    return loader + line + NOTCH + kernel_gz + dtb + initramfs
+
+
+def parse_payload(blob):
+    """Find the parts of a finished payload: -> dict(loader, bootargs, vars, kernel, dtb, initramfs, offsets). Raises Refused."""
+    pos = 0
+    while True:
+        i = blob.find(b"chosen.bootargs=", pos)
+        if i < 0:
+            raise Refused("no 'chosen.bootargs=' record: not a payload")
+        pos = i + 1
+        try:
+            return _parse_at(blob, i)
+        except Refused as ex:
+            last = ex
+            if blob.find(b"chosen.bootargs=", pos) < 0:
+                raise last
+
+
+def _parse_at(blob, i):
+    loader = blob[:i]
+    check_loader(loader)
+    off, vars_ = i, []
+    while blob[off:off + 7] == b"chosen.":
+        e = blob.find(b"\n", off, off + 1100)
+        if e < 0:
+            raise Refused("unterminated chosen.* record")
+        rec = blob[off:e].decode("ascii", "strict")
+        vars_.append(rec)
+        off = e + 1
+    if not vars_ or not vars_[0].startswith("chosen.bootargs="):
+        raise Refused("first record is not chosen.bootargs")
+    if blob[off:off + 2] != b"\x1f\x8b":
+        raise Refused("no gzip kernel after the variables")
+    d = zlib.decompressobj(31)
+    d.decompress(blob[off:])
+    k_end = len(blob) - len(d.unused_data)
+    kernel = blob[off:k_end]
+    check_kernel_gz(kernel)
+    if blob[k_end:k_end + 4] != b"\xd0\x0d\xfe\xed":
+        raise Refused("no device tree after the kernel")
+    dsz = struct.unpack(">I", blob[k_end + 4:k_end + 8])[0]
+    dtb = blob[k_end:k_end + dsz]
+    initramfs = blob[k_end + dsz:]
+    check_initramfs(initramfs)
+    return {"loader": loader, "bootargs": vars_[0][len("chosen.bootargs="):], "vars": vars_, "kernel": kernel, "dtb": dtb,
+            "initramfs": initramfs, "offsets": {"loader": 0, "vars": i, "kernel": off, "dtb": k_end, "initramfs": k_end + dsz}}
+
+
+def payload_facts(blob):
+    parts = parse_payload(blob)
+    raw = gzip.decompress(parts["kernel"])
+    m = re.search(rb"Linux version (\S+)", raw)
+    ld = re.search(rb"(?:aura|m1n1)[ -]v?[0-9][0-9A-Za-z.\-_+]*", parts["loader"])
+    cm = re.search(rb"apple,(j\d+[a-z]?)", parts["dtb"])
+    return {"sha256": sha(blob), "size": len(blob), "bootargs": parts["bootargs"],
+            "selftest": SELFTEST in parts["bootargs"].split(), "kernel": m.group(1).decode() if m else "?",
+            "loader": ld.group(0).decode("ascii", "replace") if ld else "?", "board": cm.group(1).decode() if cm else "?"}
+
+
+# ------------------------------------------------------------------ build
+def vkey(s):
+    return [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", s)]
+
+
+def find_kernel(ctx, kver=None):
+    base = ctx.p("/usr/lib/modules")
+    cands = [p for p in base.glob("*") if (p / "vmlinuz").is_file()] if base.is_dir() else []
+    if not cands:
+        raise Refused(f"no kernel with a vmlinuz under {base}")
+    if kver:
+        c = [p for p in cands if p.name == kver]
+        if not c:
+            raise Refused(f"kernel {kver} is not installed (have: {', '.join(sorted(p.name for p in cands))})")
+        return c[0]
+    return sorted(cands, key=lambda p: vkey(p.name))[-1]
+
+
+def pick_dtb(ctx, moddir, soc, brd, override=None):
+    if override:
+        return pathlib.Path(override)
+    for sub in ("dtbs", "dtbs/apple"):
+        f = moddir / sub / f"{soc}-{brd}.dtb"
+        if f.is_file():
+            return f
+    raise Refused(f"{moddir.name} ships no {soc}-{brd}.dtb (looked in dtbs/ and dtbs/apple/): it is not a J716s kernel")
+
+
+def pick_loader(ctx, override=None):
+    for c in ([override] if override else ctx.conf["LOADER"].split(":")):
+        f = ctx.p(c) if not override else pathlib.Path(c)
+        if f.is_file():
+            return f
+    raise Refused(f"no stage-2 loader found ({override or ctx.conf['LOADER']}): install aura-j716s or pass --loader")
+
+
+def pick_initramfs(ctx, moddir, override=None):
+    if override:
+        return pathlib.Path(override)
+    pb = (moddir / "pkgbase").read_text().strip() if (moddir / "pkgbase").is_file() else "linux"
+    for c in (f"/var/lib/m5pro-boot/initramfs-{pb}.img", f"/boot/initramfs-{pb}.img"):
+        if ctx.p(c).is_file():
+            return ctx.p(c)
+    raise Refused(f"no initramfs for {pb}: run mkinitcpio -p {pb} (the package preset writes /var/lib/m5pro-boot/)")
+
+
+def base_cmdline(ctx, override=None):
+    if override:
+        return override
+    f = ctx.p("/etc/m5pro/cmdline")
+    if f.is_file():
+        return " ".join(l.strip() for l in f.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#"))
+    run = ctx.cmdline()
+    if run:
+        return run     # the daily that is running now is the best statement of what this Mac needs
+    raise Refused("no command line: write /etc/m5pro/cmdline or pass --cmdline")
+
+
+def build(ctx, daily=False, label=None, kver=None, cmdline=None, extra="", loader=None, initramfs=None, dtb=None,
+          board_override=None, selftest=None, date=None):
+    if not daily and not label:
+        raise Refused("a test payload needs --label NAME (or use --daily)")
+    label = label or "daily"
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", label):
+        raise Refused("label may only hold letters, digits, . _ -")
+    if SELFTEST.split("=")[0] in extra:
+        raise Refused("use --test/--daily, not --extra, for m5.selftest")
+    st = (not daily) if selftest is None else selftest
+    soc, brd = board(ctx, board_override)
+    mod = find_kernel(ctx, kver)
+    ing = {"loader": pick_loader(ctx, loader), "dtb": pick_dtb(ctx, mod, soc, brd, dtb),
+           "initramfs": pick_initramfs(ctx, mod, initramfs), "kernel": mod / "vmlinuz"}
+    lb = ing["loader"].read_bytes()
+    check_loader(lb, str(ing["loader"]))
+    kb = ing["kernel"].read_bytes()
+    if kb[:2] == b"\x1f\x8b":
+        kgz = kb
+    else:
+        if kb[56:60] != b"ARM\x64":
+            raise Refused(f"{ing['kernel']} is neither gzip nor an arm64 Image")
+        kgz = gzip.compress(kb, 9, mtime=0)
+    check_kernel_gz(kgz)
+    db = ing["dtb"].read_bytes()
+    check_dtb(db, brd)
+    ib = ing["initramfs"].read_bytes()
+    check_initramfs(ib)
+    args = make_bootargs(base_cmdline(ctx, cmdline), st, extra)
+    blob = assemble(lb, args, kgz, db, ib)
+    parts = parse_payload(blob)   # round trip: the finished blob must parse back to its inputs
+    for k, want in (("loader", lb), ("kernel", kgz), ("dtb", db), ("initramfs", ib)):
+        if parts[k] != want:
+            raise Refused(f"layout check failed: {k} differs after assembly")
+    if parts["bootargs"] != args:
+        raise Refused("layout check failed: bootargs differ after assembly")
+    digest = sha(blob)
+    date = date or ctx.now().strftime("%Y%m%d")
+    name = f"{label}-{date}-{digest[:8]}.bin"
+    recipe = {"name": name, "sha256": digest, "size": len(blob), "label": label, "mode": "daily" if daily else "test",
+              "selftest": st, "kver": mod.name, "board": f"{soc}-{brd}", "bootargs": args, "cmdline_base": base_cmdline(ctx, cmdline),
+              "extra": extra, "built": ctx.now().isoformat(timespec="seconds"),
+              "ingredients": {k: {"path": str(v), "sha256": file_sha(v)} for k, v in ing.items()}}
+    stage = ctx.state / "payloads"
+    stage.mkdir(parents=True, exist_ok=True)
+    dest = stage / name
+    if dest.exists() and file_sha(dest) != digest:
+        raise Refused(f"{dest} exists with different content")
+    tmp = stage / (name + ".tmp")
+    tmp.write_bytes(blob)
+    os.replace(tmp, dest)
+    (stage / (name + ".json")).write_text(json.dumps(recipe, indent=1) + "\n")
+    line = f"{digest}  {name}"
+    sums = stage / "SHA256SUMS"
+    have = sums.read_text().splitlines() if sums.exists() else []
+    if line not in have:
+        with open(sums, "a") as f:
+            f.write(line + "\n")
+    return dest, recipe
+
+
+def staged(ctx):
+    d = ctx.state / "payloads"
+    out = []
+    for j in sorted(d.glob("*.json")) if d.is_dir() else []:
+        try:
+            r = json.loads(j.read_text())
+        except ValueError:
+            continue
+        if (d / r["name"]).is_file():
+            out.append(r)
+    return sorted(out, key=lambda r: r["built"])
+
+
+def resolve_payload(ctx, arg):
+    """latest | staged name | path | slot alias -> (path, bytes)."""
+    if arg in (None, "latest"):
+        st = staged(ctx)
+        if not st:
+            raise Refused("nothing staged: run `m5pro-boot build` first")
+        p = ctx.state / "payloads" / st[-1]["name"]
+    elif arg in SLOT_ALIAS:
+        p = ctx.d / SLOT_ALIAS[arg]
+    elif (ctx.state / "payloads" / arg).is_file():
+        p = ctx.state / "payloads" / arg
+    else:
+        p = pathlib.Path(arg)
+    if not p.is_file():
+        raise Refused(f"{arg}: no such payload")
+    return p, p.read_bytes()
+
+
+# ------------------------------------------------------------------ ESP
+class Esp:
+    """The ESP's m1n1/ directory. Real mode follows esp-put.sh: fsync the file and directory, unmount, device FLUSH, drop
+    caches, remount, cold read. --esp-dir (fake) skips the mount and device steps and keeps the file-level fsyncs."""
+
+    def __init__(self, ctx):
+        self.c, self.d = ctx, ctx.d
+
+    def names(self):
+        return sorted(p.name for p in self.d.glob("boot.bin*")) if self.d.is_dir() else []
+
+    def mounted(self):
+        return self.c.fake_esp or os.path.ismount(self.c.esp)
+
+    def ensure_mounted(self):
+        if self.mounted():
+            return
+        r = self.c.run(["mount", self.c.conf["ESP_DEV"], str(self.c.esp)])
+        if r.returncode != 0:
+            raise Refused(f"cannot mount {self.c.conf['ESP_DEV']} on {self.c.esp}: {r.stderr.strip()}")
+
+    def free_mb(self):
+        return shutil.disk_usage(self.c.esp if self.c.esp.exists() else self.d).free // 1048576
+
+    def check_policy(self, need_mb):
+        if not self.d.is_dir():
+            raise Refused(f"{self.d} does not exist (is the ESP the right partition?)")
+        stray = [n for n in self.names() if n not in SLOTS and n not in TRANSIENT]
+        if stray:
+            raise Refused(f"stray payload(s) on the ESP: {', '.join(stray)}. ESP-POLICY.md: at most boot.bin, .prev, .b2, "
+                          f".known-good. Copy them off and delete them first")
+        floor = self.c.conf["MIN_FREE_MB"]
+        need = int(floor) if floor != "" else need_mb
+        if self.free_mb() < need:
+            raise Refused(f"ESP has {self.free_mb()} MB free, need {need}: prune first (ESP-POLICY.md)")
+
+    def rw(self):
+        if not self.c.fake_esp:
+            r = self.c.run(["mount", "-o", "remount,rw", str(self.c.esp)])
+            if r.returncode != 0:
+                raise Refused(f"remount rw failed: {r.stderr.strip()}")
+
+    def fsync(self, *paths):
+        for p in paths:
+            fd = os.open(p, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+
+    def stage(self, tmpname, data, want):
+        t = self.d / tmpname
+        if t.exists():
+            t.unlink()
+        with open(t, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        if file_sha(t) != want:
+            t.unlink()
+            raise Refused(f"{tmpname} reads back wrong after the copy: nothing replaced")
+
+    def commit(self, tmpname, name):
+        os.replace(self.d / tmpname, self.d / name)
+        self.fsync(self.d / name, self.d)
+
+    def finish(self, expect, keep_rw, settle):
+        """Flush to the device, remount cold and re-read every file named in expect {name: sha}."""
+        if not self.c.fake_esp:
+            self.c.run(["umount", str(self.c.esp)])
+            fd = os.open(self.c.conf["ESP_DEV"], os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            try:
+                pathlib.Path("/proc/sys/vm/drop_caches").write_text("3")
+            except OSError:
+                pass
+            r = self.c.run(["mount"] + ([] if keep_rw else ["-o", "ro"]) + [self.c.conf["ESP_DEV"], str(self.c.esp)])
+            if r.returncode != 0:
+                raise Refused(f"remount failed: {r.stderr.strip()}: do not reboot until the ESP is checked")
+        for n, h in expect.items():
+            if file_sha(self.d / n) != h:
+                raise Refused(f"{n} reads back as a different file after the remount: DO NOT REBOOT")
+        if settle:
+            self.c.sleep(settle)
+
+
+# ------------------------------------------------------------------ running payload, prev rotation
+def running_payload(ctx):
+    """-> dict(sha, slot, selftest, network_ok|None, source) or None when it cannot be told."""
+    try:
+        rec = json.loads((ctx.state / "running.json").read_text())
+        if rec.get("boot_id") and rec["boot_id"] == boot_id(ctx):
+            rec["source"] = "recorded at boot"
+            return rec
+    except (OSError, ValueError):
+        pass
+    slot = boot_slot(ctx)
+    f = ctx.d / slot_file(slot)
+    if not f.is_file():
+        return None
+    bt = btime(ctx)
+    if bt is None or f.stat().st_mtime > bt + 2:
+        return None    # the file changed after this boot: it is not what is running
+    return {"sha": file_sha(f), "slot": slot, "selftest": SELFTEST in ctx.cmdline().split(), "network_ok": None,
+            "source": f"{f.name} (older than this boot)"}
+
+
+def decide_prev(ctx, esp, new_sha):
+    """ESP-POLICY: prev is rotated only from a running daily that reached the network. -> (rotate?, reason, bytes|None)."""
+    run = running_payload(ctx)
+    pf = esp.d / PREV
+    prev_sha = file_sha(pf) if pf.is_file() else None
+    if run is None:
+        return False, "the running payload cannot be told (no record for this boot, and the ESP file changed since): prev stays; run `m5pro-boot confirm`", None
+    if run["selftest"]:
+        return False, "running payload is a test (m5.selftest=1): prev stays", None
+    if run["sha"] == new_sha:
+        return False, "the new payload is the running one: prev stays", None
+    if run["sha"] == prev_sha:
+        return False, "prev already is the running payload", None
+    net = run.get("network_ok")
+    if net is None:
+        net = ctx.net_check()
+    if not net:
+        return False, "the running payload has not been seen reaching the network: prev stays (ESP-POLICY: prev must be known good)", None
+    for cand in (esp.d / BOOT, pf):
+        if cand.is_file() and file_sha(cand) == run["sha"]:
+            return True, f"prev := the running daily {run['sha'][:8]} (from {cand.name})", cand.read_bytes()
+    for r in staged(ctx):
+        if r["sha256"] == run["sha"]:
+            return True, f"prev := the running daily {run['sha'][:8]} (from the staging dir)", (ctx.state / "payloads" / r["name"]).read_bytes()
+    return False, f"the running payload {run['sha'][:8]} is on neither the ESP nor in staging: prev stays", None
+
+
+def check_mode(facts, mode, force):
+    """A test payload must carry m5.selftest=1 (its watchdog); a daily must not (it has to boot with no network)."""
+    if mode == "test" and not facts["selftest"] and not force:
+        raise Refused("--test: the payload has no m5.selftest=1, so it has no self-revert (rebuild with --test, or --force)")
+    if mode == "daily" and facts["selftest"] and not force:
+        raise Refused("--daily: the payload carries m5.selftest=1: without a network it reverts and reboots every 90 s "
+                      "(ESP-POLICY.md). Rebuild with --daily, or --force")
+
+
+def install(ctx, arg, apply=False, mode=None, force=False, keep_rw=False, settle=None, name=BOOT):
+    """Steps are recorded either way; they are only executed with apply. -> dict(steps, notes, ok)."""
+    path, blob = resolve_payload(ctx, arg)
+    facts = payload_facts(blob)
+    if facts["board"] != board(ctx)[1]:
+        raise Refused(f"the payload is for {facts['board']}, this machine is {board(ctx)[1]}")
+    mode = mode or ("test" if facts["selftest"] else "daily")
+    check_mode(facts, mode, force)
+    esp = Esp(ctx)
+    res = {"payload": str(path), "sha256": facts["sha256"], "mode": mode, "apply": apply, "steps": [], "notes": []}
+    steps = res["steps"]
+    mb = -(-len(blob) // 1048576)
+    if apply:
+        esp.ensure_mounted()
+    elif not esp.d.is_dir():
+        res["notes"].append(f"{esp.d} not readable here (ESP not mounted): checks skipped in the dry run")
+    if esp.d.is_dir():
+        esp.check_policy(2 * mb + 20)
+        steps.append(f"preflight ok: {esp.free_mb()} MB free, {len([n for n in esp.names() if n in SLOTS])} payloads at rest")
+    stale = [n for n in esp.names() if n in TRANSIENT]
+    if stale:
+        steps.append(f"remove stale {', '.join(stale)}")
+    rot, why, prev_bytes = decide_prev(ctx, esp, facts["sha256"]) if esp.d.is_dir() else (False, "ESP not readable", None)
+    res["prev_rotation"], res["prev_reason"] = rot, why
+    cur = esp.d / BOOT
+    if cur.is_file() and file_sha(cur) == facts["sha256"] and name == BOOT:
+        steps.append(f"{BOOT} already is {facts['sha256'][:8]}: nothing to write")
+        res["ok"] = True
+        return res
+    steps += [f"copy payload -> {name}.new, fsync, verify sha256 {facts['sha256'][:8]}",
+              ("rotate: " if rot else "no rotation: ") + why]
+    if rot:
+        steps += [f"copy running daily -> {PREV}.new, fsync, verify", f"mv {PREV}.new {PREV} (fsync file and directory)"]
+    steps += [f"mv {name}.new {name} (fsync file and directory)",
+              ("umount, device FLUSH, drop caches, remount " + ("rw" if keep_rw else "ro") + ", cold read of the written files, settle")
+              if not ctx.fake_esp else "(fake ESP: no device flush)"]
+    if mode == "test":
+        steps.append("test payload: self-reverts to boot.bin.prev if the network is not up 90 s after boot (m5pro-boot-selftest.service)")
+    else:
+        steps.append("daily payload: no watchdog; its rollback is boot.bin.prev (and macOS: r1-deploy.sh restore prev)")
+    if not apply:
+        res["ok"] = True
+        return res
+    for n in TRANSIENT:
+        (esp.d / n).unlink(missing_ok=True)
+    esp.rw()
+    expect = {}
+    esp.stage(name + ".new", blob, facts["sha256"])
+    if rot:
+        psha = sha(prev_bytes)
+        esp.stage(PREV + ".new", prev_bytes, psha)
+        esp.commit(PREV + ".new", PREV)
+        expect[PREV] = psha
+    esp.commit(name + ".new", name)
+    expect[name] = facts["sha256"]
+    esp.finish(expect, keep_rw, int(ctx.conf["SETTLE"]) if settle is None else settle)
+    (ctx.state).mkdir(parents=True, exist_ok=True)
+    (ctx.state / "reverted-once").unlink(missing_ok=True)
+    with open(ctx.state / "install.log", "a") as f:
+        f.write(f"{ctx.now().isoformat(timespec='seconds')} {name}={facts['sha256']} mode={mode} rotated_prev={rot}\n")
+    res["ok"] = True
+    return res
+
+
+def rollback(ctx, to="prev", apply=False, keep_rw=False, settle=None):
+    src = SLOT_ALIAS.get(to)
+    if src in (None, BOOT):
+        raise Refused("--to prev|b2|known-good")
+    esp = Esp(ctx)
+    if apply:
+        esp.ensure_mounted()
+    f = esp.d / src
+    if not f.is_file():
+        raise Refused(f"{src} does not exist on the ESP")
+    blob = f.read_bytes()
+    facts = payload_facts(blob)
+    notes = []
+    if facts["selftest"]:
+        notes.append(f"WARNING: {src} carries m5.selftest=1; without a network it reverts onto itself and reboots every 90 s")
+    cur = esp.d / BOOT
+    bad = file_sha(cur) if cur.is_file() else None
+    steps = [f"save the current boot.bin ({(bad or 'absent')[:8]}) to {ctx.state}/failed/ on the root",
+             f"copy {src} -> boot.bin.new, fsync, verify {facts['sha256'][:8]}, mv over boot.bin ({src} is kept)"]
+    res = {"steps": steps, "notes": notes, "apply": apply, "from": src, "sha256": facts["sha256"], "ok": True}
+    if bad == facts["sha256"]:
+        res["steps"] = [f"boot.bin already is {src}: nothing to do"]
+        return res
+    if not apply:
+        return res
+    esp.rw()
+    if cur.is_file():
+        fd = ctx.state / "failed"
+        fd.mkdir(parents=True, exist_ok=True)
+        (fd / f"boot.bin-{bad[:8]}-{ctx.now().strftime('%Y%m%d-%H%M%S')}").write_bytes(cur.read_bytes())
+    (esp.d / "boot.bin.new").unlink(missing_ok=True)
+    esp.stage("boot.bin.new", blob, facts["sha256"])
+    esp.commit("boot.bin.new", BOOT)
+    esp.finish({BOOT: facts["sha256"]}, keep_rw, int(ctx.conf["SETTLE"]) if settle is None else settle)
+    with open(ctx.state / "install.log", "a") as f:
+        f.write(f"{ctx.now().isoformat(timespec='seconds')} rollback boot.bin={facts['sha256']} from {src}\n")
+    return res
+
+
+def promote(ctx, apply=False, **kw):
+    """The running payload is a confirmed test: rebuild the same ingredients as a daily and install it."""
+    run = running_payload(ctx)
+    if not run:
+        raise Refused("the running payload cannot be told: run `m5pro-boot confirm` first")
+    rec = next((r for r in staged(ctx) if r["sha256"] == run["sha"]), None)
+    if not rec:
+        raise Refused(f"the running payload {run['sha'][:8]} is not in the staging dir: nothing to promote")
+    if rec["mode"] != "test":
+        raise Refused(f"{rec['name']} is already a daily")
+    net = run.get("network_ok")
+    if net is None:
+        net = ctx.net_check()
+    if not net:
+        raise Refused("this test boot has not been seen reaching the network (m5-selftest 'network OK'): not promoting")
+    ing = rec["ingredients"]
+    for k, v in ing.items():
+        if file_sha(v["path"]) != v["sha256"]:
+            raise Refused(f"ingredient {k} {v['path']} changed since the test was built: rebuild and test again")
+    dest, new = build(ctx, daily=True, label=rec["label"] if rec["label"] != "daily" else None, kver=rec["kver"],
+                      cmdline=rec["cmdline_base"], extra=rec["extra"], loader=ing["loader"]["path"],
+                      initramfs=ing["initramfs"]["path"], dtb=ing["dtb"]["path"], board_override=rec["board"])
+    out = install(ctx, new["name"], apply=apply, mode="daily", **kw)
+    out["promoted_from"] = rec["name"]
+    return out
+
+
+# ------------------------------------------------------------------ boot services
+def confirm(ctx, wait=0):
+    ctx.state.mkdir(parents=True, exist_ok=True)
+    slot = boot_slot(ctx)
+    f = ctx.d / slot_file(slot)
+    bt = btime(ctx)
+    if not f.is_file():
+        raise Refused(f"{f} not readable (ESP not mounted?)")
+    if bt is not None and f.stat().st_mtime > bt + 2:
+        raise Refused(f"{f.name} changed after this boot: cannot tell which payload is running")
+    deadline, ok = time.monotonic() + wait, ctx.net_check()
+    while not ok and time.monotonic() < deadline:
+        ctx.sleep(5)
+        ok = ctx.net_check()
+    rec = {"boot_id": boot_id(ctx), "sha": file_sha(f), "slot": slot, "selftest": SELFTEST in ctx.cmdline().split(),
+           "network_ok": bool(ok), "at": ctx.now().isoformat(timespec="seconds")}
+    (ctx.state / "running.json").write_text(json.dumps(rec) + "\n")
+    if ok:
+        (ctx.state / "reverted-once").unlink(missing_ok=True)
+    return rec
+
+
+def selftest_watch(ctx, delay=None, reboot=True, settle=0):
+    """The body of m5pro-boot-selftest.service: m5.selftest=1 must reach the network, or boot.bin.prev goes over boot.bin."""
+    if SELFTEST not in ctx.cmdline().split():
+        ctx.out("m5pro-boot: no m5.selftest=1 on the command line: nothing to watch")
+        return 0
+    delay = int(ctx.conf["SELFTEST_DELAY"]) if delay is None else delay
+    ctx.sleep(delay)
+    if ctx.net_check():
+        ctx.run(["logger", "-t", "m5-selftest", "network OK, keeping this payload"])
+        try:
+            confirm(ctx)
+        except Refused:
+            pass
+        return 0
+    stamp = ctx.now().strftime("%Y%m%d-%H%M")
+    logd = ctx.state / "failed" / f"selftest-{stamp}"
+    logd.mkdir(parents=True, exist_ok=True)
+    (logd / "cmdline.txt").write_text(ctx.cmdline() + "\n")
+    for fn, cmd in (("dmesg.txt", ["dmesg"]), ("journal.txt", ["journalctl", "-b", "--no-pager"]), ("links.txt", ["ip", "-br", "link"])):
+        try:
+            (logd / fn).write_text(ctx.run(cmd).stdout)
+        except OSError:
+            pass
+    guard = ctx.state / "reverted-once"
+    if guard.exists():
+        ctx.run(["logger", "-t", "m5-selftest", f"network down again after a revert: NOT reverting a second time ({guard}); staying up"])
+        (logd / "NOT-REVERTED").write_text("second failure in a row; guard present\n")
+        return 1
+    try:
+        Esp(ctx).ensure_mounted()
+        r = rollback(ctx, "prev", apply=True, settle=settle)
+        (logd / "REVERTED").write_text(f"boot.bin := boot.bin.prev ({r['sha256'][:8]})\n")
+    except Refused as ex:
+        (logd / "REVERT-FAILED").write_text(str(ex) + "\n")
+        ctx.run(["logger", "-t", "m5-selftest", f"revert failed: {ex}"])
+        return 1
+    guard.write_text(ctx.now().isoformat() + "\n")
+    if reboot:
+        ctx.reboot()
+    return 1
+
+
+# ------------------------------------------------------------------ status, stub checklist
+def status(ctx):
+    s = {"version": VERSION, "kernel_running": ctx.read("/proc/sys/kernel/osrelease").strip() or os.uname().release,
+         "boot_slot": boot_slot(ctx), "pmu_scrpad": (ctx.dt("chosen/m5pro,pmu-scrpad") or b"").rstrip(b"\0").decode("ascii", "replace") or None,
+         "running_selftest": SELFTEST in ctx.cmdline().split(), "esp": str(ctx.esp), "files": {}, "problems": [], "notes": []}
+    slot = s["boot_slot"]
+    if slot is None:
+        s["notes"].append("no chosen/m5pro,boot-slot: this stage 1 predates the A/B patch (0016), or this is not the J716s")
+    elif slot.endswith("-after-failure"):
+        s["problems"].append(f"booted slot '{slot}': the previous boot failed and the fallback ran; boot.bin may be bad "
+                             f"(`m5pro-boot rollback` makes the fallback the primary)")
+    elif slot == "fallback":
+        s["problems"].append("booted the fallback because the primary could not be loaded")
+    s["running_file"] = slot_file(slot)
+    try:
+        s["board"] = "-".join(board(ctx))
+    except Refused as ex:
+        s["board"] = None
+        s["notes"].append(str(ex))
+    esp = Esp(ctx)
+    if not esp.d.is_dir():
+        s["notes"].append(f"{esp.d} is not readable (ESP not mounted, or not root): file inventory skipped")
+    else:
+        for n in esp.names():
+            f = esp.d / n
+            e = {"size": f.stat().st_size, "sha256": file_sha(f)}
+            if n in SLOTS:
+                try:
+                    e.update({k: v for k, v in payload_facts(f.read_bytes()).items() if k in ("kernel", "loader", "selftest", "board")})
+                except Refused as ex:
+                    e["unparsed"] = str(ex)
+                    (s["problems"] if n in (BOOT, PREV) else s["notes"]).append(f"{n} does not parse as a payload: {ex}")
+            s["files"][n] = e
+        stray = [n for n in esp.names() if n not in SLOTS and n not in TRANSIENT]
+        if stray:
+            s["problems"].append(f"stray payload(s) on the ESP: {', '.join(stray)} (ESP-POLICY.md: at most four)")
+        if [n for n in esp.names() if n in TRANSIENT]:
+            s["problems"].append("stale boot.bin.new/.prev.new on the ESP (an interrupted install; the next install removes them)")
+        s["esp_free_mb"] = esp.free_mb()
+        if PREV not in s["files"]:
+            s["problems"].append("no boot.bin.prev: a failed boot has nothing to fall back to")
+        elif s["files"][PREV].get("selftest"):
+            s["problems"].append("boot.bin.prev carries m5.selftest=1: a revert onto it would loop (ESP-POLICY.md)")
+        if BOOT in s["files"] and PREV in s["files"] and s["files"][BOOT]["sha256"] == s["files"][PREV]["sha256"]:
+            s["notes"].append("boot.bin and boot.bin.prev are the same file")
+    try:
+        mod = find_kernel(ctx)
+        s["kernel_installed"] = mod.name
+        if BOOT in s["files"] and s["files"][BOOT].get("kernel") not in (None, "?") and s["files"][BOOT]["kernel"] != mod.name:
+            s["notes"].append(f"boot.bin carries {s['files'][BOOT]['kernel']}, the newest installed kernel is {mod.name}: "
+                              f"`m5pro-boot build --test --label {mod.name.split('-')[0]}` then `install`")
+    except Refused:
+        s["kernel_installed"] = None
+    s["staged"] = [{"name": r["name"], "mode": r["mode"], "kver": r["kver"]} for r in staged(ctx)][-5:]
+    run = running_payload(ctx)
+    s["running_payload"] = None if run is None else {"sha256": run["sha"][:12], "network_ok": run.get("network_ok"), "source": run["source"]}
+    return s
+
+
+def print_status(ctx, s):
+    o = ctx.out
+    o(f"m5pro-boot {s['version']}   board {s['board']}   kernel running {s['kernel_running']}, installed {s.get('kernel_installed')}")
+    o(f"boot slot:  {s['boot_slot'] or 'unknown'}   (stage 1 loaded {s['running_file']})   PMU scratchpad {s['pmu_scrpad'] or '-'}")
+    rp = s["running_payload"]
+    o(f"running:    " + (f"payload {rp['sha256']} ({rp['source']}), network {rp['network_ok']}" if rp else "cannot tell (run: m5pro-boot confirm)")
+      + ("   [TEST boot: m5.selftest=1]" if s["running_selftest"] else ""))
+    for n in SLOTS:
+        e = s["files"].get(n)
+        if e:
+            o(f"  {n:<22} {e['sha256'][:12]}  {e['size']/1048576:6.1f} MB  kernel {e.get('kernel','?')}  {e.get('loader','?')}  "
+              f"{'TEST' if e.get('selftest') else 'daily'}")
+        else:
+            o(f"  {n:<22} -")
+    if "esp_free_mb" in s:
+        o(f"ESP:        {s['esp']}, {s['esp_free_mb']} MB free")
+    for r in s["staged"]:
+        o(f"staged:     {r['name']} ({r['mode']}, {r['kver']})")
+    for n in s["notes"]:
+        o(f"note:       {n}")
+    for p in s["problems"]:
+        o(f"PROBLEM:    {p}")
+    if not s["problems"]:
+        o("ok")
+
+
+def stub_checklist(ctx):
+    def fw(name):
+        v = ctx.dt("chosen/" + name)
+        return v.rstrip(b"\0").decode("ascii", "replace") if v else None
+    stub, llb = fw("firmware-version"), fw("system-firmware-version")
+    table = ctx.conf["SUPPORTED_FW"].split()
+    facts = {"stub_mboot_firmware": stub, "system_firmware_llb": llb, "supported": table,
+             "stub_behind": bool(stub and llb and stub != llb), "llb_supported": any(llb.startswith(t) for t in table) if llb else None,
+             "boot_slot": boot_slot(ctx), "ok_to_refresh": None}
+    facts["ok_to_refresh"] = bool(facts["llb_supported"]) and (boot_slot(ctx) == "primary")
+    steps = [
+        ("Linux", "Before the update", "m5pro-boot status shows slot 'primary', boot.bin and boot.bin.prev both daily, no PROBLEM lines. "
+                                     "Keep a copy of the installed stage-1 (known-good.bin on the stub) and boot.bin.known-good."),
+        ("macOS", "Update macOS normally", "Nothing in Linux needs to change for the update itself: the stub keeps its own Preboot restore "
+                                          "bundle and its mBoot, so the stub still boots Linux. Only the LLB (system-firmware-version) moves."),
+        ("Linux", "Decide whether a refresh is wanted", "Only when a newer mBoot fix is needed, and only when this tool says "
+                                                       "'ok_to_refresh': the loader (aura) and kernel must know the new DCP/GPU firmware "
+                                                       f"(mBoot builds here: {' '.join(table)}; aura pins one DCP/GPU image per firmware digest); firmware they do not know loses display/GPU."),
+        ("macOS", "Check", "sudo host/macos/refresh-stub-firmware.sh check   (versions only, changes nothing)"),
+        ("macOS", "Recreate the stub", "sudo host/macos/refresh-stub-firmware.sh recreate --yes --m1n1 <known-good stage-1>   "
+                                       "(new volume group; backs up the old bundle to ~/Work/stub-backup-<build>)"),
+        ("macOS", "Re-extract firmware", "extract-tpmtfw.py against the NEW stub's restore bundle -> vendorfw/firmware.tar on the ESP "
+                                         "(Asahi: asahi-fwupdate; here: m5pro-firmware). Firmware must follow the stub or Wi-Fi/Bluetooth lose pairing."),
+        ("1TR", "The ceremony", "power-hold -> Omarchy stub -> Options; step 2 (bputil -nc, kmutil configure-boot --raw) with the known-good stage-1. "
+                               "kmutil works only from the stub's PAIRED recoveryOS."),
+        ("Linux", "First boot", "m5pro-boot status (slot primary, no failure suffix); confirm GPU, DCP (120 Hz), Wi-Fi, Bluetooth; "
+                               "m5pro-boot confirm; only then update boot.bin.prev (install a daily from this boot)."),
+        ("Linux", "If anything is wrong", "boot.bin.prev is the rollback (m5pro-boot rollback), then b2 / known-good; from macOS "
+                                          "host/macos/r1-deploy.sh restore prev. Booting macOS once clears the PMU boot-error counter."),
+    ]
+    return facts, steps
+
+
+# ------------------------------------------------------------------ commands
+def cmd_hook(ctx):
+    try:
+        soc, brd = board(ctx)
+    except Refused:
+        return 0     # not an Apple machine: a no-op
+    if soc != "t6050":
+        return 0
+    try:
+        mod = find_kernel(ctx)
+        label = "pkg-" + re.sub(r"[^A-Za-z0-9._-]", "_", mod.name)
+        dest, rec = build(ctx, daily=False, label=label, kver=mod.name)
+        ctx.out(f"m5pro-boot: built test payload {rec['name']} for {mod.name} (staged, the ESP is untouched)")
+        res = install(ctx, rec["name"], apply=(ctx.conf["AUTO_INSTALL"] == "test"), mode="test")
+        if res["apply"]:
+            ctx.out("m5pro-boot: installed as boot.bin (self-reverting test). Reboot to try it; `m5pro-boot promote` after it reached the network.")
+        else:
+            ctx.out("m5pro-boot: DRY RUN (AUTO_INSTALL=no in /etc/m5pro/boot.conf). Plan:")
+            for st in res["steps"]:
+                ctx.out(f"  - {st}")
+            ctx.out(f"m5pro-boot: to do it: sudo m5pro-boot install {rec['name']} --apply")
+    except Refused as ex:
+        ctx.out(f"m5pro-boot: NOT updated: {ex}")
+        ctx.out("m5pro-boot: boot.bin on the ESP is unchanged and still boots the old kernel.")
+    return 0
+
+
+def main(argv=None, ctx=None):
+    ap = argparse.ArgumentParser(prog="m5pro-boot", description=__doc__.split("\n\n")[0])
+    ap.add_argument("--root", default="/")
+    ap.add_argument("--esp-dir")
+    ap.add_argument("--state-dir")
+    ap.add_argument("--version", action="version", version=VERSION)
+    sp = ap.add_subparsers(dest="cmd", required=True)
+    a = sp.add_parser("status"); a.add_argument("--json", action="store_true")
+    b = sp.add_parser("build")
+    b.add_argument("--daily", action="store_true"); b.add_argument("--test", action="store_true"); b.add_argument("--label")
+    b.add_argument("--kver"); b.add_argument("--cmdline"); b.add_argument("--extra", default=""); b.add_argument("--loader")
+    b.add_argument("--initramfs"); b.add_argument("--dtb"); b.add_argument("--board")
+    v = sp.add_parser("verify"); v.add_argument("payload")
+    i = sp.add_parser("install"); i.add_argument("payload", nargs="?", default="latest")
+    pr = sp.add_parser("promote")
+    rb = sp.add_parser("rollback"); rb.add_argument("--to", default="prev")
+    for x in (i, pr, rb):
+        x.add_argument("--apply", action="store_true", help="really write; the default is a dry run")
+        x.add_argument("--keep-rw", action="store_true"); x.add_argument("--settle", type=int)
+    for x in (i,):
+        x.add_argument("--test", action="store_true"); x.add_argument("--daily", action="store_true"); x.add_argument("--force", action="store_true")
+    c = sp.add_parser("confirm"); c.add_argument("--wait", type=int, default=0)
+    w = sp.add_parser("selftest-watch"); w.add_argument("--delay", type=int); w.add_argument("--no-reboot", action="store_true")
+    sp.add_parser("hook")
+    k = sp.add_parser("stub-checklist"); k.add_argument("--json", action="store_true")
+    args = ap.parse_args(argv)
+    ctx = ctx or Ctx(args.root, args.esp_dir, args.state_dir)
+    o = ctx.out
+    try:
+        if args.cmd == "status":
+            s = status(ctx)
+            o(json.dumps(s, indent=1)) if args.json else print_status(ctx, s)
+            return 1 if s["problems"] else 0
+        if args.cmd == "build":
+            if args.daily and args.test:
+                raise Refused("--daily and --test are exclusive")
+            dest, rec = build(ctx, daily=args.daily, label=args.label, kver=args.kver, cmdline=args.cmdline, extra=args.extra,
+                              loader=args.loader, initramfs=args.initramfs, dtb=args.dtb, board_override=args.board)
+            o(f"built   {dest}\nsha256  {rec['sha256']}\nkernel  {rec['kver']}   board {rec['board']}   mode {rec['mode']} "
+              f"(m5.selftest {'ON: self-reverts without network' if rec['selftest'] else 'OFF: no watchdog'})\nbootargs {rec['bootargs']}")
+            return 0
+        if args.cmd == "verify":
+            path, blob = resolve_payload(ctx, args.payload)
+            f = payload_facts(blob)
+            o(f"{path}: OK  sha256 {f['sha256']}  kernel {f['kernel']}  board {f['board']}  loader {f['loader']}  "
+              f"{'TEST (m5.selftest=1)' if f['selftest'] else 'daily'}\nbootargs {f['bootargs']}")
+            return 0
+        if args.cmd in ("install", "promote", "rollback"):
+            kw = {"keep_rw": args.keep_rw, "settle": args.settle}
+            if args.cmd == "install":
+                mode = "test" if args.test else "daily" if args.daily else None
+                res = install(ctx, args.payload, apply=args.apply, mode=mode, force=args.force, **kw)
+            elif args.cmd == "promote":
+                res = promote(ctx, apply=args.apply, **kw)
+            else:
+                res = rollback(ctx, args.to, apply=args.apply, **kw)
+            o(("APPLIED" if res["apply"] else "DRY RUN (nothing written; add --apply)") + f": {args.cmd} {res.get('payload', res.get('from', ''))}")
+            for st in res["steps"]:
+                o(f"  - {st}")
+            for n in res.get("notes", []):
+                o(f"  ! {n}")
+            if res["apply"]:
+                o("Reboot when you are ready; `m5pro-boot status` afterwards shows which slot booted.")
+            return 0
+        if args.cmd == "confirm":
+            o(json.dumps(confirm(ctx, args.wait)))
+            return 0
+        if args.cmd == "selftest-watch":
+            return selftest_watch(ctx, args.delay, reboot=not args.no_reboot)
+        if args.cmd == "hook":
+            return cmd_hook(ctx)
+        if args.cmd == "stub-checklist":
+            facts, steps = stub_checklist(ctx)
+            if args.json:
+                o(json.dumps({"facts": facts, "steps": steps}, indent=1))
+            else:
+                o(f"stub mBoot firmware: {facts['stub_mboot_firmware']}   system firmware (LLB): {facts['system_firmware_llb']}   "
+                  f"supported here: {' '.join(facts['supported'])}")
+                o("stub behind macOS: " + ("yes (normal after a macOS update; the stub still boots)" if facts["stub_behind"] else "no / unknown"))
+                o("ok to refresh:     " + {True: "yes", False: "NO (firmware not in the supported table, or not on the primary slot)", None: "unknown"}[facts["ok_to_refresh"]])
+                for n, (who, title, body) in enumerate(steps, 1):
+                    o(f"{n}. [{who}] {title}\n     {body}")
+            return 0
+    except Refused as ex:
+        o(f"m5pro-boot: refused: {ex}")
+        return 1
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

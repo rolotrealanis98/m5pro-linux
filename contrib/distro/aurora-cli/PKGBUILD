@@ -1,0 +1,43 @@
+# Maintainer: m5pro-linux
+# m5pro-boot: build, verify, install and roll back the J716s stage-2 payload on the ESP (A/B: boot.bin + boot.bin.prev, hash
+# checked, self-reverting test boots), plus the pacman hook that prepares a payload after a kernel upgrade. Packages the hand tools
+# esp-put.sh, mk-daily.py and the deploy plan under ESP-POLICY.md.
+#
+# Not the same as distro/pkg/m5pro-boot (0.2.0, m5pro-update-payload, boot.prev.bin/fallback.bin layout, boot guard hooks): that
+# one predates the A/B policy the Mac runs today. This replaces it; the boot guard (00-m5pro-boot-guard*.hook) is to be split out
+# as its own package and is NOT carried here.
+pkgname=m5pro-boot-cli
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="m5pro-boot: A/B payload install, rollback, self-reverting test boots and status for the J716s ESP"
+arch=(any)
+url="https://github.com/RolandoT98/m5pro-linux"
+license=(MIT)
+depends=(python util-linux coreutils iproute2 iputils)
+optdepends=('linux-aurora-j716s: the kernel and DTB the payload carries'
+            'aura-j716s: the stage-2 loader the payload starts with')
+conflicts=(m5pro-boot)
+provides=("m5pro-boot=$pkgver")
+backup=(etc/m5pro/boot.conf)
+install=m5pro-boot-cli.install
+source=(m5pro-boot tests/test_m5pro_boot.py boot.conf hooks/96-m5pro-boot.hook systemd/m5pro-boot-confirm.service
+        systemd/m5pro-boot-selftest.service README.md)   # makepkg links each by basename into $srcdir
+sha256sums=(SKIP SKIP SKIP SKIP SKIP SKIP SKIP)   # updpkgsums before a release
+
+check() {
+    # the unit tests run against a fake root and a fake ESP directory; nothing touches /boot
+    mkdir -p chk/tests
+    cp m5pro-boot chk/
+    cp test_m5pro_boot.py chk/tests/
+    python -I -B chk/tests/test_m5pro_boot.py
+}
+
+package() {
+    install -Dm755 m5pro-boot "$pkgdir/usr/bin/m5pro-boot"
+    install -Dm644 boot.conf "$pkgdir/etc/m5pro/boot.conf"
+    install -Dm644 96-m5pro-boot.hook "$pkgdir/usr/share/libalpm/hooks/96-m5pro-boot.hook"
+    install -Dm644 m5pro-boot-confirm.service "$pkgdir/usr/lib/systemd/system/m5pro-boot-confirm.service"
+    install -Dm644 m5pro-boot-selftest.service "$pkgdir/usr/lib/systemd/system/m5pro-boot-selftest.service"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/m5pro-boot/README.md"
+    install -dm755 "$pkgdir/var/lib/m5pro-boot"
+}

@@ -1,0 +1,73 @@
+# aura stage 2 for the 16-inch MacBook Pro M5 Pro (J716s, T6050): the plain loader that m1n1/boot.bin starts with.
+# Recipe in the style of omacom/omarchy-pkgs pkgbuilds/aura and m1n1-aurora (same build flags family, same qualification record),
+# but a PLAIN stage 2 (no CHAINLOADING, no ESP_STAGE2): the J716s stage 1 is the stub's raw chainloading m1n1 and loads
+# ESP:m1n1/boot.bin = this image + payload (contrib/pending/boot-aura/PORT.md "Build", `build-stage2.sh j716s`).
+#
+# WHAT IT WAITS FOR (gap-map dist.packages):
+#  - aurora-silicon/aura #274 (the J716s hand-offs: 27.3 DCP/GPU rows, wdt keep, RVBAR relay, dapf, display) and its split (#214
+#    is the s2r base). Until they merge, omarchy-pkgs' `aura` (703a0a92, 1.0.0b13) does not boot the J716s with the 27.3 firmware
+#    (its DCP/GPU tables know 27.0 and 27.2 only). When they merge this package becomes: depend on `aura`, install nothing.
+#  - omacom/m1n1 #30 (OPEN: T6050 boot from disk through the Omarchy chain), #33 (smp RVBAR forward), #34 (N1), #35 (display),
+#    #36 (wdt keep), #37 (GPU hand-off): the m1n1-aurora (1.6.1.aurora23) side of the same list. #31 and #32 are merged. aura carries
+#    the equivalents natively (PORT.md table rows 2, 4, 16-19), so with aura as the loader these PRs matter only for m1n1-aurora users.
+#  - the branch must be pushed: rolotrealanis98/aura has j716s-s2r-ext-cam2 (bfb36556) but not j716s-fix1.
+#
+# Provides m1n1 so kernel packages' "m1n1>=1.6.1" is met; conflicts with aura/m1n1-aurora (one loader on a machine).
+pkgname=aura-j716s
+pkgver=1.0.0b13.r20261122
+pkgrel=1
+pkgdesc='aura stage 2 for the MacBook Pro 16-inch M5 Pro (J716s): plain loader for ESP m1n1/boot.bin'
+arch=('aarch64')
+groups=('omarchy-platform-apple-silicon')
+url='https://github.com/aurora-silicon/aura'
+license=('MIT' 'GPL-2.0-only')
+# rolotrealanis98/aura branch j716s-s2r-ext-cam2 (aura main 52af355c + the J716s stack of PORT.md + s2r + camera hand-off).
+_commit=bfb365565796e5953a8efe8ab6e68a7a2facc206
+_compat=1.6.1.aurora23
+provides=("m1n1=$_compat" "aura=1.0.0b13" "m1n1-aurora=$_compat")
+conflicts=('aura' 'm1n1' 'm1n1-aurora' 'm1n1-neo')
+makedepends=('git' 'clang' 'lld' 'llvm' 'rustup' 'make' 'python')
+options=('!strip' '!debug')
+source=("aura::git+https://github.com/rolotrealanis98/aura.git#commit=$_commit")
+sha256sums=('SKIP')
+
+prepare() {
+  [[ $(git -C aura rev-parse HEAD) == "$_commit" ]]
+  rustup toolchain install 1.99.1 --profile minimal --target aarch64-unknown-none-softfloat
+}
+
+build() {
+  cd aura
+  export RUSTUP_TOOLCHAIN=1.99.1
+  export AURA_VERSION_TAG="$(cat VERSION)-g${_commit:0:8}"
+  # The loader variant the test boots use (aura-j716s-nohostwait.bin): no USB host window before the payload (HOSTWAIT_MS=0), text log kept on the panel (no RELEASE).
+  make clean
+  make -j"${OMARCHY_BUILD_JOBS:-10}" USE_CLANG=1 EXTRA_CFLAGS=-DHOSTWAIT_MS=0
+  install -Dm644 build/aura.bin "$srcdir/out/aura-stage2.bin"
+  # The Windows/test-bench variant: 4 s USB proxy window before the payload.
+  make clean
+  make -j"${OMARCHY_BUILD_JOBS:-10}" USE_CLANG=1
+  install -Dm644 build/aura.bin "$srcdir/out/aura-stage2-hostwait.bin"
+}
+
+check() {
+  # A plain stage 2: payload goes directly after the image, which ends in the STACKBOT marker and is 64 KiB aligned.
+  local f size
+  for f in "$srcdir"/out/*.bin; do
+    size=$(stat -c %s "$f")
+    (( size % 65536 == 0 )) || { echo "$f: $size is not a multiple of 0x10000" >&2; return 1; }
+    [[ $(tail -c 8 "$f") == STACKBOT ]] || { echo "$f: no STACKBOT end marker" >&2; return 1; }
+    grep -qa 'm1n1.wdt=keep' "$f" || { echo "$f: no wdt-keep support (stage 1 arms a 150 s watchdog)" >&2; return 1; }
+    grep -qa '26C5035' "$f" || { echo "$f: no 27.3 beta (26C5035r) firmware rows" >&2; return 1; }
+  done
+}
+
+package() {
+  install -Dm644 "$srcdir/out/aura-stage2.bin" "$pkgdir/usr/lib/aura-j716s/aura-stage2.bin"
+  install -Dm644 "$srcdir/out/aura-stage2-hostwait.bin" "$pkgdir/usr/lib/aura-j716s/aura-stage2-hostwait.bin"
+  # update-m1n1 and the kernel packages look here
+  install -d "$pkgdir/usr/lib/asahi-boot"
+  ln -s ../aura-j716s/aura-stage2.bin "$pkgdir/usr/lib/asahi-boot/m1n1.bin"
+  install -Dm644 aura/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -m644 aura/3rdparty_licenses/* "$pkgdir/usr/share/licenses/$pkgname/"
+}

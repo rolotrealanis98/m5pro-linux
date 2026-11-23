@@ -3,6 +3,7 @@
 #   bash install.sh [--browser chrome|chromium|firefox] [--root DIR] [--force]    install if missing (idempotent)
 #   bash install.sh --check [--browser B] [--online]                              read-only report (exit 0 = CDM usable)
 #   bash install.sh --uninstall [--browser B]                                     remove what this script installed
+#   bash install.sh --probe [--browser B]                                         headless browser asks for a Widevine key system (exit 0 = granted)
 # The CDM is never stored in the repo: it is downloaded at install time from Google's component update service (the same
 # source and the same signed CRX3 Chrome's own updater uses; sha256 and the publisher signature are checked, see
 # widevine_tool.py). Its 64K-aligned segments load on 16K pages as shipped, so no Asahi-style patching is done.
@@ -13,9 +14,9 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 TOOL=(python3 -I "$HERE/widevine_tool.py")
 MODE=install B=""; FORCE=0; ONLINE=0; ROOT=""
 while [ $# -gt 0 ]; do case $1 in
-  --check) MODE=check;; --uninstall) MODE=uninstall;; --force) FORCE=1;; --online) ONLINE=1;;
+  --check) MODE=check;; --probe) MODE=probe;; --uninstall) MODE=uninstall;; --force) FORCE=1;; --online) ONLINE=1;;
   --browser) B=${2:?}; shift;; --root) ROOT=${2:?}; shift;;
-  -h|--help) sed -n '2,10p' "$0"; exit 0;;
+  -h|--help) sed -n '2,11p' "$0"; exit 0;;
   *) echo "unknown option $1" >&2; exit 2;; esac; shift; done
 
 [ "$(id -u)" != 0 ] || { echo "run as the desktop user, not root (the CDM lives in the user's browser profile)" >&2; exit 1; }
@@ -79,8 +80,25 @@ report() {
   return $rc
 }
 
+probe() {   # non-interactive: headless Chrome/Chromium on a throwaway profile; EME must grant com.widevine.alpha
+  local bin T out rc=1
+  case $B in chrome) bin=$(command -v google-chrome-stable || echo /opt/google/chrome/chrome);; chromium) bin=$(command -v chromium);;
+    *) say "probe supports chrome and chromium only"; return 2;; esac
+  [ -x "$bin" ] || { say "no browser binary ($bin)"; return 2; }
+  T=$(mktemp -d "${TMPDIR:-/tmp}/m5pro-widevine-probe.XXXXXXXX")
+  # the throwaway profile has no component-updated CDM: point it at the one in use (same file the real profile uses)
+  if [ -f "$POINTER" ]; then mkdir -p "$T/WidevineCdm"; cp "$POINTER" "$T/WidevineCdm/"; fi
+  out=$(timeout 60 "$bin" --headless=new --no-sandbox --disable-gpu --user-data-dir="$T" --enable-logging=stderr --v=0 \
+        --virtual-time-budget=15000 --dump-dom "file://$HERE/probe.html" 2>"$T/err" || true)
+  echo "$out" | grep -o 'WV_PROBE=[^<]*' | head -1 | sed "s/^/[widevine:$B] /"
+  grep -i -E 'widevine|cdm' "$T/err" | head -10 | sed "s/^/[widevine:$B] log: /"
+  echo "$out" | grep -q 'WV_PROBE=OK' && rc=0
+  rm -rf "$T"; return $rc
+}
+
 case $MODE in
 check) report; exit $? ;;
+probe) probe; exit $? ;;
 uninstall)
   if [ "$B" = firefox ]; then
     [ -e "$UDD/$MARK" ] && { say "rm $UDD"; rm -rf "$UDD"; }

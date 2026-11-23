@@ -1,0 +1,37 @@
+# J716 audio profile for the 16-inch MacBook Pro (M5 Pro/Max), in the shape omarchy-pkgs' aurora-audio carries J616s:
+# extra files on top of aurora-audio / alsa-ucm-conf-aurora. Files from the repo (`../mk-source.sh aurora-audio-j716`).
+#
+# CARRIES (J716s-tested, silent checks; the jack and the mic array were run on hardware, the HiFi UCM is the one the speakers open):
+#   UCM        MacBook Pro J716.conf, j716/{HiFi,Headphones}.conf          (macaudio card AppleJ716: speakers + jack)
+#   UCM (mic)  aop_audio/MacBook Pro J716 High-Power Audio Interface.conf, aop_audio/j716s/HiFi.conf   (AppleJ716HPAI, 3 capsules)
+#   WirePlumber 99-asahi-j716-{jack,bluetooth,mic}.conf, asahi-audio/j716/mic.json
+# DOES NOT CARRY the speaker voicing: speakers moved to speakerguardd v2 with this Mac's own macOS tuning (owner: speaker agent,
+# contrib/validated/desktop/audio/speakerguardd-v2, packages speakerguardd-v2 and aurora-speaker-upgrade). The asahi-audio style
+# graph/FIRs/speakersafetyd AID41 profile stay staged in the repo as the record; under v2 no graph.json is used.
+#
+# WHAT IT WAITS FOR (gap-map dist.packages): aurora-silicon/asahi-audio and alarm-aurora alsa-ucm-conf-asahi taking J716 entries
+# (the INVENTORY upstream target); until then this package owns /usr/share/alsa/ucm2/conf.d/macaudio/{MacBook Pro J716.conf,j716/}
+# and will conflict with an upstream package that ships them (drop this one then). Also waits for the listening test sign-off
+# (LISTENING-TEST.md) before anything speaker-related is proposed upstream, and for the kernel with the AOP audio driver
+# (card names AppleJ716 and AppleJ716HPAI come from it).
+pkgname=aurora-audio-j716
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='J716 (MacBook Pro 16-inch M5 Pro/Max) UCM, jack, Bluetooth and microphone-array profiles for Aurora audio'
+arch=(any)
+url='https://github.com/RolandoT98/m5pro-linux'
+license=('GPL-2.0-or-later')
+depends=(aurora-audio alsa-ucm-conf-aurora wireplumber)
+source=(m5pro-contrib-src.tar.zst)
+sha256sums=(SKIP)   # ../mk-source.sh prints it
+
+package() {
+  cd "$srcdir/contrib"
+  local U="$pkgdir/usr/share/alsa/ucm2/conf.d/macaudio" W="$pkgdir/usr/share/wireplumber/wireplumber.conf.d"
+  install -Dm644 "validated/desktop/audio/ucm/MacBook Pro J716.conf" "$U/MacBook Pro J716.conf"
+  install -Dm644 validated/desktop/audio/ucm/j716/HiFi.conf "$U/j716/HiFi.conf"
+  install -Dm644 validated/desktop/audio/ucm/j716/Headphones.conf "$U/j716/Headphones.conf"
+  install -Dm644 validated/desktop/audio/wireplumber/99-asahi-j716-jack.conf "$W/99-asahi-j716-jack.conf"
+  install -Dm644 validated/desktop/audio/wireplumber/99-asahi-j716-bluetooth.conf "$W/99-asahi-j716-bluetooth.conf"
+  cp -a omarchy-mac/mic-array/files/usr "$pkgdir/"
+}

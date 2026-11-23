@@ -1,0 +1,17 @@
+# After a kernel (or the stage-2 loader) changes: build a TEST payload for it and print what installing it would do.
+# Runs after 90-mkinitcpio-install.hook (filename order), so the initramfs it packs is the new one.
+# Dry run by default: the ESP is only written when /etc/m5pro/boot.conf says AUTO_INSTALL=test (a self-reverting test
+# payload, never a daily). A failure here prints a message and never fails the transaction.
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Target = usr/lib/modules/*/vmlinuz
+Target = usr/lib/aura-j716s/aura-stage2.bin
+Target = usr/lib/asahi-boot/m1n1.bin
+
+[Action]
+Description = Preparing the M5 Pro boot payload for the new kernel (dry run unless AUTO_INSTALL=test)...
+When = PostTransaction
+Exec = /usr/bin/m5pro-boot hook
+Depends = python

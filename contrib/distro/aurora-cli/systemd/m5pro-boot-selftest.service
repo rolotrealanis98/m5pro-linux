@@ -1,0 +1,16 @@
+[Unit]
+Description=M5 Pro self-reverting test boot (m5.selftest=1): no network in 90 s means boot.bin.prev goes back over boot.bin
+Documentation=man:m5pro-boot(8)
+ConditionKernelCommandLine=m5.selftest=1
+After=network-online.target
+Wants=network-online.target
+# the hand-built service from contrib/omarchy-mac/boot-selftest does the same job; never both
+Conflicts=m5-selftest.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/m5pro-boot selftest-watch
+TimeoutStartSec=420
+
+[Install]
+WantedBy=multi-user.target

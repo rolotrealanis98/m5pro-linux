@@ -1,0 +1,31 @@
+--- m1c-retest.sh	2026-11-17 12:25:14
++++ /private/tmp/claude-501/-Users-rolo-Documents-GitHub-m5pro-m5pro-linux/e0ad0c30-ca88-41e8-886b-efe51e25a9cc/scratchpad/new.sh	2026-11-23 08:10:15
+@@ -16,6 +16,10 @@
+ # run continues over the wire. A second unit, airdrop-m1c-mirror, copies the event and frame logs every
+ # 2 s to /root/airdrop-m1c-<stamp>/ and, the moment the kernel reports a halt, saves the crash log
+ # there (it survives the reboot). This script also copies them to the Studio every step.
++# Without the wired link (travelling, no USB Ethernet) a firmware halt takes wlan0 and this ssh session
++# down with it: the watchdog reboots the Mac after 90 s, this script stops at the failed step, and the
++# mirror's copy in /root survives. Fetch it with --collect STAMP once the Mac is back (same kernel, a
++# fresh firmware run, Wi-Fi up).
+ set -uo pipefail
+ 
+ SEQ=none EXT="" REL="" COLLECT="" HERE=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+@@ -55,7 +59,7 @@
+     exit 1
+   fi
+   if ((rc != 0)) || tail -4 "$LOG" | grep -q -E '^rc=[1-9]|result -[0-9]|firmware status [1-9]'; then
+-    say "[$label] FAILED (ssh rc=$rc): stopping. Saved state: $REMOTE (Mac), $LOCAL (Studio)"
++    say "[$label] FAILED (ssh rc=$rc): stopping. Saved state: $REMOTE (Mac), $LOCAL (Studio). If ssh is gone the firmware likely halted: wait ~3 min for the watchdog reboot, then: MBP=... $0 --collect $STAMP"
+     finish
+     disarm
+     exit 1
+@@ -79,7 +83,7 @@
+ 
+ if [[ -n $COLLECT ]]; then finish; exit 0; fi
+ say "M1c retest: seq=$SEQ start args: ${EXT:-none}; Mac dir $REMOTE; Studio dir $LOCAL"
+-mbp "uname -r; ip -br addr show enu1u2u2; ip -br link show wlan0" 2>&1 | tee -a "$LOG"
++mbp "uname -r; ip -br addr show enu1u2u2 2>/dev/null || echo 'no wired link (enu1u2u2 absent): Wi-Fi only, a halt drops ssh and the watchdog reboots in ~90 s'; ip -br link show wlan0" 2>&1 | tee -a "$LOG"
+ if [[ -n $REL ]] && ! mbp "uname -r" | grep -qx "$REL"; then say "not on $REL: stop"; exit 1; fi
+ # Upload by redirection and check the size: the 10:46 run piped them and the Mac got 0-byte files,
+ # so every probe step was a silent no-op (python3 on an empty file exits 0).

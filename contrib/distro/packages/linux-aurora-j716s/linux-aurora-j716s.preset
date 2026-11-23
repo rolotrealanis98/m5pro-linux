@@ -1,0 +1,6 @@
+# mkinitcpio preset for linux-aurora-j716s. One image, gzip (m1n1/aura parse gzip, not zstd), kept OFF the ESP:
+# m5pro-boot packs it into m1n1/boot.bin, and a 20 MB file next to four 25 MB payloads would break ESP-POLICY.md.
+ALL_kver="/usr/lib/modules/@KVER@/vmlinuz"
+PRESETS=('default')
+default_image="/var/lib/m5pro-boot/initramfs-linux-aurora-j716s.img"
+default_options="-z gzip"

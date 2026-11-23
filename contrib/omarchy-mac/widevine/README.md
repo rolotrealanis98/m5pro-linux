@@ -64,6 +64,7 @@ the CDM Google itself ships for linux_arm64.
 
     bash install.sh --check [--online]        read-only: page size, browser, bundled and in-use CDM, ELF 16K check, dlopen
     bash install.sh                           install only if no working CDM is in use (idempotent; --force reinstalls)
+    bash install.sh --probe                   non-interactive: headless browser (throwaway profile) requests com.widevine.alpha via EME; exit 0 = granted
     bash install.sh --uninstall               remove what the script installed (restores a previous pointer)
 
 Runs as the desktop user (it refuses root). Needs `python3` and `openssl`. `widevine_tool.py` does the work: it asks
@@ -72,6 +73,18 @@ requires (1) the exact size, (2) the sha256 from the service answer, (3) the CRX
 against the public key whose derived id is the Widevine component id**, (4) manifest name and version match, (5) an AArch64 ELF
 with 16K-compatible `PT_LOAD` alignment and no RWX segment, (6) a real `dlopen` by the system loader. Anything failing aborts
 before touching the profile. Nothing is installed system-wide; the browser's own updater later supersedes the pointer file.
+
+## Is "CDM present" complete? (2026-11-23 review)
+
+- File side: yes for Google Chrome. The bundled 4.10.3112.0 `linux_arm64` CDM has 64K-aligned segments (re-fetched and re-verified
+  from Google's service on the Studio: CRX3 signature ok, sha256 `7d50bcc5...ed43`, 4 PT_LOAD at 0x10000, GLIBC_2.17 only). The
+  Asahi 16K fixup (segment padding, `GLIBC_ABI_DT_RELR`, atomics stubs) is not needed; page size is irrelevant at 64K alignment.
+- No flags needed: Chrome registers the bundled CDM itself (`WidevineCdm/manifest.json` beside the binary) and its component updater
+  keeps it current. `--enable-features` is only a Chromium-from-pacman question (that build has no bundled CDM; `install.sh --browser chromium`).
+- Not proven: that EME actually grants the key system on this Mac, and that services play. `--probe` covers the first without the
+  owner; the second is the attended 2-minute test (`/Volumes/m5pro/bench/requests/widevine-1.md`).
+- Chrome launched with the owner's custom flags (`~/.config/chrome-flags.conf`): none of the GPU A/B flags affect EME, but note that
+  `--disable-features=...` lists containing `WidevineCdm`/`MediaFoundation`-style entries would.
 
 ## Attended test (5 minutes, owner at the Mac, Chrome closed first)
 

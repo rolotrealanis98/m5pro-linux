@@ -1,0 +1,7 @@
+post_install() {
+    systemctl enable m5pro-boot-confirm.service m5pro-boot-selftest.service >/dev/null 2>&1 || true
+    echo ">>> m5pro-boot: read-only first:  m5pro-boot status ; m5pro-boot stub-checklist"
+    echo ">>> m5pro-boot: nothing is written to the ESP without --apply (see /usr/share/doc/m5pro-boot/README.md)"
+}
+post_upgrade() { :; }
+pre_remove() { systemctl disable m5pro-boot-confirm.service m5pro-boot-selftest.service >/dev/null 2>&1 || true; }

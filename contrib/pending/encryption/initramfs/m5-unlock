@@ -1,0 +1,7 @@
+#!/bin/sh
+# m5-unlock: unlock the LUKS root from an ssh session over the USB gadget (init is waiting for /dev/mapper/<name>).
+# Use when the keyboard did not come up. Prompts for the passphrase on this terminal (ssh -t).
+[ -r /run/m5-crypt.dev ] || { echo "m5-unlock: init is not waiting for a LUKS root"; exit 1; }
+DEV=$(cat /run/m5-crypt.dev)
+NAME=${1:-m5root}
+exec /sbin/cryptsetup open --type luks "$DEV" "$NAME"

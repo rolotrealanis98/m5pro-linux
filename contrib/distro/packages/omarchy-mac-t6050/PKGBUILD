@@ -1,0 +1,35 @@
+# Small system settings the J716s Omarchy install relies on, one package, files taken verbatim from contrib/omarchy-mac/*/files
+# (`../mk-source.sh omarchy-mac-t6050` makes m5pro-contrib-src.tar.zst from the repo). arch=any: config files only.
+#
+# Packaging-ready items from contrib/omarchy-mac/INVENTORY.md (static files, no per-machine data, no secrets, J716s-tested):
+#   dmesg-unrestricted  /etc/sysctl.d/40-m5pro-dmesg.conf            (kernel.dmesg_restrict=0: bring-up logs for non-root; drop for a release)
+#   xhci-wakeup         /etc/udev/rules.d/97-m5pro-xhci-wakeup.rules (stopgap until the DT carries wakeup-source, edimoldovan 9f8535b38fcb)
+#   lid-sleep-s2idle    /etc/systemd/{logind,sleep}.conf.d/20-*      (lid -> s2idle, hibernation off; passed S1-S4 on the WFI daily)
+#   module-config       /etc/modules-load.d/thunderbolt-net.conf
+#   audio-realtime      /etc/security/limits.d/25-m5pro-audio-rt.conf (PipeWire RT without rtkit timing)
+# WHAT IT WAITS FOR: nothing to build; upstream homes are alarm-aurora `aurora-system-fixes` (sysctl/udev/limits drop-ins, numbered
+# NN-aurora-*) and omarchy-mac-pkgs. This package exists so a stranger gets the same behaviour today. The xhci rule goes when the
+# kernel DT has wakeup-source (omacom/linux-aurora #413 follow-up); lid-sleep waits for a deep-sleep test on other T6050 boards.
+# NOT packaged (and why): usb-pd-rebind (stopgap until the tipd fix `j716s-usbpd1`, hard-coded /usr/local/bin path), tty2-autologin
+# and lock-at-login (user name), boot-selftest (replaced by m5pro-boot-cli's service), safe-update (`omarchy update` guard for a
+# hand-built system; unnecessary once these packages exist), startup-disk and touch-id (owned by other agents), rescue (user rolo default).
+pkgname=omarchy-mac-t6050
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Omarchy settings for the M5 Pro MacBooks (T6050): s2idle lid sleep, xhci wake-up, RT audio limits'
+arch=(any)
+url='https://github.com/RolandoT98/m5pro-linux'
+license=(MIT)
+depends=(systemd)
+source=(m5pro-contrib-src.tar.zst)
+sha256sums=(SKIP)   # ../mk-source.sh prints it
+backup=(etc/sysctl.d/40-m5pro-dmesg.conf)
+
+package() {
+  cd "$srcdir/contrib/omarchy-mac"
+  local d
+  for d in dmesg-unrestricted xhci-wakeup lid-sleep-s2idle module-config; do
+    cp -a "$d/files/." "$pkgdir/"
+  done
+  install -Dm644 audio-realtime/25-m5pro-audio-rt.conf "$pkgdir/etc/security/limits.d/25-m5pro-audio-rt.conf"
+}

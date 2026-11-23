@@ -1,0 +1,24 @@
+#!/bin/sh
+# Touch ID bring-up on the J716s: the SEP node stays disabled until apple_sep enables it, so nothing autoloads the
+# driver. Load it (options in /etc/modprobe.d/apple-sep.conf), wait for the key store, then open /dev/sep-bio once so the
+# enclave restores the enrolled fingers before fprintd asks.
+# v2 (encryption-2): if the initramfs already loaded apple_sep for the key store only (keystore_only != 0), finish the attach
+# instead of modprobe (modprobe would be a no-op and Touch ID would stay off). Identical to v1 otherwise.
+set -u
+KO=/sys/module/apple_sep/parameters/keystore_only
+if [ -r $KO ] && [ "$(cat $KO 2>/dev/null)" != 0 ] && [ "$(cat $KO 2>/dev/null)" != N ]; then
+    done_=
+    for f in /sys/bus/platform/devices/*.sep/complete_attach /sys/bus/platform/drivers/apple_sep/*/complete_attach; do
+        [ -e "$f" ] || continue
+        if echo 1 > "$f"; then echo "touchid-up: complete_attach written to $f"; done_=1; break; fi
+    done
+    [ -n "$done_" ] || { echo "touchid-up: apple_sep is key-store-only and no complete_attach attribute accepted a write"; ls -d /sys/bus/platform/devices/*.sep/* 2>&1 | head -20; exit 1; }
+else
+    modprobe apple_sep || exit 1
+fi
+d=; for i in $(seq 1 100); do for x in /sys/bus/platform/devices/*.sep/diag; do [ -d "$x" ] && d=$x; done; [ -n "$d" ] && break; sleep 0.1; done
+[ -n "$d" ] || { echo "touchid-up: no SEP diag"; exit 1; }
+for i in $(seq 1 1200); do [ "$(cat $d/keystore 2>/dev/null)" = unknown ] || break; sleep 0.1; done
+echo "touchid-up: keystore $(cat $d/keystore), keybag $(cat $d/keybag)"
+/usr/local/lib/m5pro/touchid-sensor-present && echo "touchid-up: sensor present" || echo "touchid-up: sensor not reported"
+sleep 1; echo "touchid-up: touchid $(cat $d/touchid), restore $(cat $d/restore), matching $(cat $d/matching)"
