@@ -1,0 +1,15 @@
+#!/bin/sh
+# panel-floor INSTANCE: run after systemd-backlight restored the saved panel brightness at boot (instance name
+# "backlight:apple-panel-bl"). If the saved level is below FLOOR_PCT of the maximum (the last Linux session ended dimmed:
+# 29, 32, 42 and 69 of 600 were restored on 6 of the last 41 boots), raise it to FLOOR_PCT so the login screen is
+# readable. The ambient-light daemon (m5pro-auto-brightness) takes over after unlock. Never lowers a level.
+FLOOR_PCT=30
+[ -r /etc/default/m5pro-panel-floor ] && . /etc/default/m5pro-panel-floor
+n=${1#backlight:}; d=/sys/class/backlight/$n
+[ -r "$d/brightness" ] && [ -r "$d/max_brightness" ] || exit 0
+cur=$(cat "$d/brightness"); max=$(cat "$d/max_brightness")
+want=$(( max * FLOOR_PCT / 100 ))
+if [ "$cur" -lt "$want" ]; then
+    echo "$want" > "$d/brightness" 2>/dev/null && echo "<5>m5pro-panel-floor: panel $n restored at $cur/$max, raised to $want" 2>/dev/null > /dev/kmsg
+fi
+exit 0

@@ -1,0 +1,7 @@
+[Unit]
+Description=Sample the NVMe write counter (for the shutdown settle decision, m5pro)
+ConditionPathExists=/sys/block/nvme0n1/stat
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/m5pro/io-sample

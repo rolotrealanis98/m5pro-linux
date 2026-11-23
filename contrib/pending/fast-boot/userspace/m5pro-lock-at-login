@@ -1,0 +1,29 @@
+#!/bin/bash
+# m5pro-lock-at-login v2 (fast-boot). Lock the desktop as soon as the session starts (this Mac logs in automatically on
+# tty2, so the lock screen is the login screen). Started from ~/.config/hypr/autostart.lua.
+#
+# v1 waited for the shell process, then slept 2 s, then locked (about 3.6 s after Hyprland was up). v2 asks the lock
+# plugin itself (omarchy-shell lock isLocked answers as soon as the plugin is loaded), locks at once, and then keeps the
+# panel lit for the first 120 s: Omarchy's lock blanks the display (DPMS off) 5 s after the lock if nobody has touched an
+# input device, which is what an automatic boot-time lock always looks like, so the login screen used to go dark by itself
+# ("the display doesn't wake up with the login screen"). Whenever the display is found blanked during the hold, it is woken
+# (omarchy-system-wake). One short blink at +5 s remains; the proper fix is Omarchy skipping that blank for a boot-time lock.
+# After the owner unlocks it asks the 1Password Touch ID helper to unlock 1Password (as v1).
+set -u
+# 1. the lock plugin answers: no fixed sleep
+for _ in $(seq 1 300); do omarchy-shell lock isLocked >/dev/null 2>&1 && break; sleep 0.1; done
+# 2. lock; if the session is not locked after 2 s (plugin still starting), ask again
+for _ in 1 2 3 4 5 6; do
+    omarchy-system-lock
+    for _ in 1 2 3 4 5 6 7 8; do omarchy-hyprland-session-locked >/dev/null 2>&1 && break 2; sleep 0.25; done
+done
+# 3. hold the display on for the first 120 s of the boot-time lock
+t0=$(date +%s)
+lit() { hyprctl monitors -j 2>/dev/null | jq -e '[.[] | select(.disabled == false)] | length > 0 and all(.dpmsStatus)' >/dev/null 2>&1; }
+while omarchy-hyprland-session-locked >/dev/null 2>&1 && [ $(( $(date +%s) - t0 )) -lt 120 ]; do
+    lit || omarchy-system-wake >/dev/null 2>&1
+    sleep 0.2
+done
+# 4. wait until the lock is gone (Touch ID or password), up to 12 h, then unlock 1Password like v1
+for _ in $(seq 1 43200); do omarchy-hyprland-session-locked >/dev/null 2>&1 || break; sleep 1; done
+command -v m5pro-1p-touchid >/dev/null && m5pro-1p-touchid unlock >/dev/null 2>&1 || true

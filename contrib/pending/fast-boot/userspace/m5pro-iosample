@@ -1,0 +1,8 @@
+#!/bin/sh
+# m5pro-iosample: append "epoch sectors-written-on-nvme0n1" to /run/m5pro-io-samples, keep the last 12 lines (3 minutes).
+# Read by /usr/lib/systemd/system-shutdown/m5pro-settle.sh. Run by m5pro-iosample.timer.
+S=/run/m5pro-io-samples
+w=$(awk '{print $7}' /sys/block/nvme0n1/stat 2>/dev/null) || exit 0
+[ -n "$w" ] || exit 0
+echo "$(date +%s) $w" >> "$S"
+tail -n 12 "$S" > "$S.tmp" && mv -f "$S.tmp" "$S"

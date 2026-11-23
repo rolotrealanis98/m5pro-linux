@@ -1,0 +1,10 @@
+[Unit]
+Description=Sample the NVMe write counter every 15 s (m5pro)
+
+[Timer]
+OnBootSec=2s
+OnUnitActiveSec=15s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
