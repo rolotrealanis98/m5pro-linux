@@ -7,32 +7,30 @@ as the build and USB host. Started 2026-10-20.
 This repo holds only what was made or changed here. Upstream sources are pinned in
 [`SOURCES.md`](SOURCES.md), not vendored.
 
-## Status (2026-11-23)
+## Status (2026-11-27)
 
 **Kept current:** this section is updated with every step forward (a new daily, a feature that starts working, a test
 boot built, a PR merged). The capability ledger [`gap-map.csv`](contrib/community/gap-map.csv) was refreshed on
-2026-11-23. Older snapshots: [`docs/status-2026-11-08.md`](docs/status-2026-11-08.md),
+2026-11-23. Older snapshots: [`docs/status-2026-11-23.md`](docs/status-2026-11-23.md), [`docs/status-2026-11-08.md`](docs/status-2026-11-08.md),
 [`docs/status-2026-11-06.md`](docs/status-2026-11-06.md). Every change made on the Mac itself is a row in
 [`contrib/omarchy-mac/INVENTORY.md`](contrib/omarchy-mac/INVENTORY.md). The capability-by-capability map is
 [`contrib/community/FULL-SUPPORT-GAP-MAP.md`](contrib/community/FULL-SUPPORT-GAP-MAP.md) (refreshed 2026-11-17).
 
-**Daily boot:** `daily-20261123-f42d76ae.bin` (**quiet and fast**, since 2026-11-23): kernel **7.3.0-g0c6bb36ed14a** (branch
-`j716s-ane2293` = `j716s-xdr` plus the USB-C hotplug fix, the Neural Engine with the 27.3 code pin and the HDR headroom ramp),
-a silent **aura stage 2** (`j716s-camera-1` with `FB_SILENT_MODE`, no USB host wait), a **silent m1n1 stage 1** (the enrolled A/B stage 1
-with its on-screen log switched off, enrolled 2026-11-23 through 1TR), quiet boot arguments (`quiet loglevel=3 logo.nologo
-systemd.show_status=false`), a quiet initramfs, and a blank tty1. **No text from the Apple logo to the lock screen.** Power-on to the
-lock screen **23.6 s** (was about 33 s); a restart about 30 s (was about 58 s): autologin without the `Type=idle` wait, the lock
-without a fixed sleep, the shutdown settle only after a write burst ([`contrib/pending/fast-boot/`](contrib/pending/fast-boot/)).
-Omarchy 4.5 on the root, updated with the stock `omarchy update` behind [`safe-update`](contrib/omarchy-mac/safe-update/)'s guards
-(latest guarded update 2026-11-23, 52 packages). Rollback and verbose escape hatch (`boot.bin.prev`): the same kernel with the verbose
-boot, `ane2293c-everyday-20261123-624bd344.bin`; `touch /etc/m5-verbose` brings the kernel log back on screen.
+**Daily boot:** `daily-20261125-43844987.bin` (**the motion-2 daily**, promoted 2026-11-26; still the quiet and fast boot of 2026-11-23): kernel **7.3.0-g0f96ca644485**
+(the previous daily plus the accelerometer, gyroscope and ambient light sensor through the AOP; the guided check is `m5pro-motion-test`), loader **aura 1.0.0b13-gbba0d136**
+(silent, no USB host wait), the enrolled silent A/B stage 1, quiet boot arguments (`quiet loglevel=3 logo.nologo systemd.show_status=false`), a quiet
+initramfs and a blank tty1. **No text from the Apple logo to the lock screen**; power-on to the lock screen 23.6 s, a restart about 30 s
+([`contrib/pending/fast-boot/`](contrib/pending/fast-boot/)). The macOS stub is **27.3 beta (26C5035r)**. Omarchy 4.5 on the root: the stock `omarchy update` now works
+behind [`safe-update`](contrib/omarchy-mac/safe-update/)'s holds (`hyprlock` joined the held packages on 2026-11-26). Rollback: `boot.bin.prev` = `daily-20261125-16feafef.bin`
+(the previous daily); `touch /etc/m5-verbose` brings the kernel log back on screen. GPU session on **Mesa tip-hwrq6** (`fe6d47e492`, applied 2026-11-26 through
+`/etc/mesa-aurora/session.env`): glmark2 6205, and kitty and Qt load EGL without the `GLIBC_TUNABLES` workaround.
 
 | Status | Area | State |
 |---|---|---|
 | **Works (daily)** | CPU, memory, storage | 18 CPUs, WFI idle, schedutil cpufreq, NVMe root with an e2fsck at every boot. |
 | **Works (daily)** | Display | The DCP drives the panel at 120 Hz with VRR. **XDR brightness up to 1600 nits** (`m5pro-xdr`, menu row; owner-tested 800-1600 nits, no flicker) and **HDR video** through Hyprland's `cm_auto_hdr` with `appledrm.fw27_3_edr=1`; the HDR headroom fades out over 2 s as on macOS. [`xdr-brightness/`](contrib/omarchy-mac/xdr-brightness/) |
 | **Works (daily)** | Brightness | Automatic brightness from the ambient light sensor for the panel and keyboard light, dimming on inactivity. [`auto-brightness/`](contrib/omarchy-mac/auto-brightness/) |
-| **Works (daily)** | GPU | Vulkan and native GL (mesa-aurora) for the Hyprland session, zink per app where native GL still renders wrongly. GPU recoveries no longer take the compositor down. |
+| **Works (daily)** | GPU | Vulkan and native GL (mesa-aurora) for the Hyprland session, zink per app where native GL still renders wrongly. GPU recoveries no longer take the compositor down. Mesa tip-hwrq6 since 2026-11-26. |
 | **Works (daily)** | Keyboard, trackpad | Keyboard and backlight, trackpad with haptics, macOS-feel pointer profiles. Palm rejection patches are staged. |
 | **Works (daily)** | Touch ID | sudo, polkit, the lock screen (also at login) and 1Password unlock through the Secure Enclave. [`touchid-omarchy/`](contrib/pending/touchid-omarchy/), [`lock-at-login/`](contrib/omarchy-mac/lock-at-login/) |
 | **Works (daily)** | Camera | The FaceTime HD camera through `apple-isp` (owner-tested in Chrome and Meet) with a denoise filter and an on-demand V4L2 "Clean" camera. The spatial and chroma clean-up stage for dim light plus 60 Hz anti-flicker (pkgrel 10) is installed since 2026-11-23. [`camera-denoise/`](contrib/omarchy-mac/camera-denoise/), [`camera-v4l2-bridge/`](contrib/omarchy-mac/camera-v4l2-bridge/) |
@@ -40,11 +38,12 @@ boot, `ane2293c-everyday-20261123-624bd344.bin`; `touch /etc/m5-verbose` brings 
 | **Partial (daily)** | Speakers | Protected by speakerguardd v2 with PipeWire realtime; a quiet tone plays clean. The listening test at normal volume is still to do. |
 | **Works (daily)** | Wi-Fi | The kernel trains the N1; Wi-Fi 2.4/5 GHz works, including open networks. The firmware reports no Wi-Fi 7 (EHT); 6 GHz is enabled (passive scan) but no 6 GHz network has been seen yet. The first 5 GHz association after a boot or wake sometimes fails (firmware status 352) and lands on 2.4 GHz. |
 | **Works (daily)** | Bluetooth | AirPods Pro (music, media and volume keys, and **noise control, battery and ear detection** through [`airpods-control/`](contrib/omarchy-mac/airpods-control/)); the iPhone pairs and tethers over Bluetooth (NAP). |
-| **Works (daily)** | USB-C | Both front ports work as USB3 hosts. The hotplug kernel fix (a port controller missing at probe, a liquid-detection state that never cleared, lost plug events) is in the daily: 6/6 plug cycles across both ports clean. The boot-time re-probe service ([`usb-pd-rebind/`](contrib/omarchy-mac/usb-pd-rebind/)) stays as a belt. The left-back port is the tether. |
+| **Partial (daily)** | USB-C | Both front ports (left-front, right) work as USB3 hosts. The hotplug kernel fix (a port controller missing at probe, a liquid-detection state that never cleared, lost plug events) is in the daily; on 2026-11-27 a plug test on the #3280 test kernel ran 3 clean cycles on each front port, and the lost-event recovery fired once. **The left-rear port (MagSafe side) is a gap:** it showed no event at any level, because its port controller (SPMI 1-08) has no connector node in the J716s device tree and its USB controller (2aa280000) is not enabled. It is also the port the development tether (the m1n1 gadget) uses, so the daily keeps it out of host use. The boot-time re-probe service ([`usb-pd-rebind/`](contrib/omarchy-mac/usb-pd-rebind/)) stays as a belt. |
 | **Works (daily)** | Battery, power | Battery and charger, an 80 % charge limit, working power profiles (daemon 0.30-9). |
 | **Works (daily)** | Sleep | s2idle on lid close (about 4.3 W on battery). Deep sleep is built, not run. The RTC alarm cannot wake it yet (the PMU RTC has no interrupt wired; SPMI interrupts in progress). |
-| **Works (daily)** | Desktop | Omarchy 4.5 (Hyprland, Lua config), Log out, Startup Disk and Reboot into macOS from the menu, and the **Login Items & Restore** app: it reopens every window on its workspace after a reboot and resumes Claude Code, Codex, OpenCode and Gemini terminal sessions (new on 2026-11-19; one real reboot so far, more checks to come). [`session-restore/`](contrib/omarchy-mac/session-restore/), [`startup-disk/`](contrib/omarchy-mac/startup-disk/) |
+| **Works (daily)** | Desktop | Omarchy 4.5 (Hyprland, Lua config), Log out, Startup Disk and Reboot into macOS from the menu, and the **Login Items & Restore** app: it reopens every window on its workspace after a reboot and resumes Claude Code, Codex, OpenCode and Gemini terminal sessions (new on 2026-11-19; it leaves muvm and Steam windows alone since 2026-11-27). [`session-restore/`](contrib/omarchy-mac/session-restore/), [`startup-disk/`](contrib/omarchy-mac/startup-disk/) |
 | **Works (daily)** | Containers, VMs | KVM, Docker, and x86-64 programs through qemu binfmt. |
+| **In progress** | Steam | `m5pro-steam` runs Valve's arm64 client inside a muvm VM with the GPU (`m5pro-muvm-gpu`; zink on the Vulkan driver in the guest), Proton ARM64 is the compatibility tool. Open: the Steam UI scaling is still too small; the first real Proton game has not run yet (paused by the owner). Session restore no longer relaunches the VM after a reboot. [`steam-muvm/`](contrib/omarchy-mac/steam-muvm/), [`muvm-gpu/`](contrib/omarchy-mac/muvm-gpu/) |
 | **Works (daily)** | NVRAM, Startup Disk | Read from Linux; the menu's Reboot into macOS (one-time target) and the default startup volume, written in place with read-back checks. |
 | **Works (daily)** | Neural Engine | The ANE driver ([aurora-silicon/linux#2293](https://github.com/aurora-silicon/linux/pull/2293) DT + #1957's per-build table) with a code pin for the macOS 27.3 (26C5035r) firmware: `/dev/accel/accel0` at every boot, and the **first H17 compute on Linux** (add/sub/mul/relu programs from mil-hwx-compiler, 15 000 runs, all within 1 ulp, about 100 µs each). Real models wait for the compiler's H17 backend. [`contrib/pending/ane/`](contrib/pending/ane/) |
 | **Works (daily)** | Video decode | H.264, HEVC (10-bit), VP9 and AV1 on the AVD through VA-API: ffmpeg output pixel-identical to software, mpv by default, Chrome with 0 dropped frames. [`avd-video/`](contrib/omarchy-mac/avd-video/) |
@@ -52,25 +51,20 @@ boot, `ane2293c-everyday-20261123-624bd344.bin`; `touch /etc/m5-verbose` brings 
 | **In progress** | AirDrop | The N1 firmware starts AWDL and stops after about 11 s; Taildrop is the fallback for iPhone sharing. [`airdrop/`](contrib/omarchy-mac/airdrop/) |
 | **Test kernels** | Thunderbolt/USB4, external displays | Both routers bring up a TB3 link and a PCIe tunnel on a test kernel; not on the daily, so no docks or DisplayPort yet. HDMI is lined up on the newest test stack (`j716s-t2-hdmi`), and deep sleep after it (`j716s-t2-sleep`, attended). [`contrib/pending/thunderbolt/`](contrib/pending/thunderbolt/) |
 | **Prepared** | SD card reader | The GL9755 reader on PCIe port 1: device tree node, SD power line, reset pin and DART, plus the PCI SDHCI driver (branch `j716s-sdxc`, DTBs compile). Link tunables are copied from the J714s/K116s; one self-reverting boot checks it. |
-| **Not planned** | Fan control | The T6050 SMC has no unlock key. |
+| **Works (daily)** | Fan control | The J716s device tree gives both fans a manual target ([aurora-silicon/linux#3281](https://github.com/aurora-silicon/linux/pull/3281)): `fan1/2_target` are writable, the SMC takes the target and hands the fan back on 0. The driver enforces a 120 s lease and a 90 C guard (fans at maximum, released at 80 C). `m5pro-fan-lead` is installed and runs the fans ahead of the die heat on AC in the performance profile; the `m5pro-fan` command and menu row are built, not installed. [`fan-lead/`](contrib/omarchy-mac/fan-lead/), [`fan-control/`](contrib/omarchy-mac/fan-control/) |
 
-**Test boots run on 2026-11-23 (unattended):** `pmu-edac1`: the CPU PMU counts on both core types (`perf stat`), EDAC
-monitors 12 + 23 error sources with no errors, the AES engine times out at probe (needs the SIO side). `gpupm-observed`:
-macOS's GPU power values give +8.5 % in glmark at the same idle power (one run each). **Waiting for hardware or the owner:** HDMI with HDMI audio (`extdisp-chain`, needs an HDMI display), the encrypted-root
-unlock (`encryption-2`, initramfs with SEP token and passphrase; the scratch-file test passed on 2026-11-23); AirDrop is being
-rebuilt on the daily kernel. Distribution work in progress: package recipes and an `m5pro-boot` CLI
-([`contrib/distro/`](contrib/distro/)), and omarchy-mac-installer support for the J716s (simulation only).
+**Test boots:** 2026-11-23 `pmu-edac1` (the CPU PMU counts on both core types, EDAC monitors 12 + 23 error sources with no errors, the AES engine times out at probe) and
+`gpupm-observed` (macOS's GPU power values: +8.5 % glmark at the same idle power). 2026-11-27: the #3280 plug test (above). **Waiting for hardware or the owner:** HDMI with HDMI audio
+(`extdisp-chain`, needs an HDMI display), the encrypted-root unlock (`encryption-2`; the scratch-file test passed on 2026-11-23), the first Proton game. AirDrop is being rebuilt on the
+daily kernel. Distribution work in progress: package recipes and an `m5pro-boot` CLI ([`contrib/distro/`](contrib/distro/)), and omarchy-mac-installer support for the J716s (simulation only).
 
-**Upstream** (`aurora-silicon/linux`): merged #1082, #1083, #1084, #1152, #1160, #1167 (the J716s device tree), #1174
-(27.3 display method IDs), #1182 and #1183 (kernel-side N1 training), #1240, #1241, #1242 (GPU recovery). Open: **#1173**
-(M5 GPU InitData for 27.2 and 27.3; on 2026-11-22 macOS 27.2's own InitData was captured on this Mac under the m1n1
-hypervisor: the version word, allocation sizes, policy bands and controller words, the inserted status-config words
-and the 27.0 HW data layout all match the PR, one status-config block stride is still open; the comment is drafted)
-and **#2070** (refuse deep sleep where the 27.x display sleep is unknown; the review asks for admission by the
-firmware's method table and a re-signed commit, being reworked), and aura **#274** (the J716s boot, being retargeted to the
-27.2 stub and split into small PRs after review). For the
-Omarchy project: [omacom/linux-aurora #413](https://github.com/omacom/linux-aurora/pull/413) and the omacom m1n1 stack
-#30-#37. [`contrib/validated/aurora/prs/`](contrib/validated/aurora/prs/)
+**Upstream** (`aurora-silicon/linux`): merged #1082, #1083, #1084, #1152, #1160, #1167 (the J716s device tree), #1174, #1182, #1183, #1240, #1241, #1242. **Opened on 2026-11-26/27:**
+**#3280** (tipd hotplug: survive probe-time read errors, recover lost plug events; plug row posted), **#3281** (J716s device tree: Touch ID, fans, the left-front USB4 router),
+**#3282** (Wi-Fi: join open networks; open-network row posted, ready), **#3283** (DCP: refuse panel brightness after a display-processor crash). **#2070** (refuse deep sleep where the
+27.x display sleep is unknown) has main merged in and carries a hardware row; **#2293** (Neural Engine) has its row posted; **#1173** (M5 GPU InitData) is open. aura: **#503** and **#504** updated;
+**#502** failed its hardware boot on 2026-11-27 before the hand-off (`SMP: boot CPU RVBAR check failed`: aura main lacks the J716s RVBAR relay; not #502's change); **#274** (the J716s boot) is open.
+Stale omacom PRs were closed as superseded, and test-result comments were posted on 15 PRs by other people. For the Omarchy project:
+[omacom/linux-aurora #413](https://github.com/omacom/linux-aurora/pull/413) and omacom/omarchy-mac-pkgs #103. [`contrib/validated/aurora/prs/`](contrib/validated/aurora/prs/)
 
 ## Quick start: build and install a payload
 
