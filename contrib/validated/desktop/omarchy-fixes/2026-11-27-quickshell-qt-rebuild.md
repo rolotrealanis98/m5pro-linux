@@ -21,6 +21,7 @@ private Qt Quick API, which is not guaranteed stable across Qt patch releases, s
    [2026-11-27-gpu-shell.md](2026-11-27-gpu-shell.md)).
 
 ## Files changed
+Recipe copy: `contrib/distro/pkg/quickshell/`.
 Package `quickshell` 0.3.2.r7.g2b4501a-1 (Omarchy aarch64 repo) -> 0.3.2.r7.g2b4501a-14 (local build, unmodified Omarchy recipe).
 
 ## Verified

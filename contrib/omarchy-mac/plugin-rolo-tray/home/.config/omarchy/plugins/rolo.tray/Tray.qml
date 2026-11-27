@@ -47,10 +47,12 @@ BarWidget {
   readonly property bool holdOpen: trayMenuOpen || managePopupOpen || barDragging || (!!bar && bar.traySectionPopoutOpen === true)
   // The mark under the bar sits under the icon whose menu is open.
   readonly property Item openPanelIndicatorItem: trayMenuOpen ? activeTrayAnchor : null
-  // Match Waybar's group/tray-expander drawer transition-duration.
-  readonly property int animationDuration: 600
+  // Was 600 (Waybar's tray-expander duration); Rolando wants it fast.
+  readonly property int animationDuration: 150
   property real revealProgress: expanded || holdOpen ? 1 : 0
-  readonly property real revealExtent: drawerExtent * revealProgress
+  // Snapped to whole device pixels: a fractional width made every widget to
+  // its side land between pixels on each frame, which reads as shimmer.
+  readonly property real revealExtent: Math.round(drawerExtent * revealProgress * Screen.devicePixelRatio) / Screen.devicePixelRatio
   // The pinned icons sit against the tray's fixed edge with the chevron past
   // them. Opening, the drawer grows the tray between the two and pushes the
   // chevron out of the way, while the pointer that opened it stays over the
@@ -562,6 +564,21 @@ BarWidget {
             fontSize: Style.font.bodySmall
             onClicked: root.toggleHide(rowRoot.itemId)
           }
+        }
+      }
+
+      PanelSeparator { width: parent.width; foreground: root.foreground }
+
+      // Quit: disable this plugin so it leaves the bar (Omarchy menu → Plugins brings it back).
+      Button {
+        text: "Quit My System tray"
+        iconText: "󰈆"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        fontSize: Style.font.bodySmall
+        onClicked: {
+          root.managePopupOpen = false
+          Quickshell.execDetached(["omarchy", "plugin", "disable", "rolo.tray"])
         }
       }
     }
