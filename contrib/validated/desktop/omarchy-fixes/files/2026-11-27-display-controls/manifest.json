@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "rolo.display",
+  "name": "Display",
+  "version": "1.0.0",
+  "author": "Omarchy, rolo",
+  "description": "Omarchy's Display panel, loaded from the package, plus XDR range, auto brightness, fine scaling, refresh rate, VRR, HDR and night light",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Display.qml"
+  },
+  "barWidget": {
+    "displayName": "Display",
+    "description": "Brightness, XDR, scale, refresh rate, VRR, HDR and night light",
+    "category": "System",
+    "allowMultiple": false
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.monitor"
+  }
+}

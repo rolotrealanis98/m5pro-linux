@@ -1,0 +1,296 @@
+#!/bin/bash
+# Backend of the rolo.display panel (Omarchy's Display panel plus more controls): reads and changes display
+# settings through Hyprland's Lua API and the J716s helpers. Nothing here edits a Hyprland config file: a choice
+# is applied with "hyprctl eval" and remembered in ~/.config/rolo-display/overrides.json, and "reapply" (run by
+# the panel when the shell starts and after every Hyprland config reload) puts the remembered choices back.
+#
+#   display-ctl state                           everything the panel shows, as JSON
+#   display-ctl scale SCALE [MONITOR]           1 to 4, in steps of 1/120
+#   display-ctl mode WxH@RATEHz|preferred [MONITOR] [--try]
+#   display-ctl vrr 0|1|2|3                     off, on, fullscreen only, fullscreen video and games
+#   display-ctl hdr off|auto|on [MONITOR] [--try]
+#   display-ctl xdr NITS|off                    the built-in panel's brightness ceiling (m5pro-xdr)
+#   display-ctl auto-brightness on|off          m5pro-auto-brightness
+#   display-ctl nightlight on|off
+#   display-ctl reapply
+#   display-ctl reset                           forget the remembered choices and reload Hyprland
+# MONITOR defaults to the focused one. --try applies without remembering (the panel's "keep this?" step).
+set -uo pipefail
+
+CONF_HOME=${XDG_CONFIG_HOME:-$HOME/.config}
+OV=$CONF_HOME/rolo-display/overrides.json
+LOCK=${XDG_RUNTIME_DIR:-/tmp}/rolo-display.lock
+SCALE_LOG=${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/monitor-scaling.log
+BL=/sys/class/backlight/apple-panel-bl
+AB_UNIT=m5pro-auto-brightness.service
+
+die() { echo "display-ctl: $*" >&2; exit 1; }
+valid_name() { [[ ${1:-} =~ ^[A-Za-z0-9._-]+$ ]]; }
+monitors() { hyprctl monitors all -j 2>/dev/null; }
+opt() {
+  hyprctl getoption "$1" -j 2>/dev/null |
+    jq -r 'if has("int") then .int elif has("bool") then .bool elif has("float") then .float else empty end' 2>/dev/null
+}
+lua() {
+  local out
+  out=$(hyprctl eval "$1" 2>&1)
+  [[ $out == ok* ]] || die "Hyprland refused the change: ${out:0:200}"
+}
+
+ov() { { [[ -s $OV ]] && jq -c 'if type == "object" then . else {} end' "$OV" 2>/dev/null; } || echo '{}'; }
+ov_set() { # jq arguments; the filter rewrites the overrides object
+  local cur tmp
+  cur=$(ov)
+  mkdir -p "${OV%/*}" || return 1
+  tmp=$(mktemp "$OV.XXXXXX") || return 1
+  if jq "$@" <<<"$cur" >"$tmp"; then mv "$tmp" "$OV"; else rm -f "$tmp"; return 1; fi
+}
+
+mon_json() { # NAME, or nothing for the focused monitor
+  local mons
+  mons=$(monitors) || return 1
+  if [[ -n ${1:-} ]]; then
+    valid_name "$1" || return 1
+    jq -ce --arg n "$1" '[.[] | select(.name == $n)][0] // empty' <<<"$mons"
+  else
+    jq -ce '[.[] | select(.focused == true)][0] // empty' <<<"$mons"
+  fi
+}
+
+# Whole logical pixels in both directions: the scales Hyprland takes without its scale check turned off.
+clean() { # scale in 1/120, width, height
+  awk -v k="$1" -v w="$2" -v h="$3" '
+    function gcd(a, b, t) { while (b) { t = a % b; a = b; b = t } return a }
+    BEGIN { g = gcd(w * 120, h * 120); exit !(k <= g && g % k == 0) }'
+}
+
+# One hl.monitor call that carries the whole rule, so the result does not depend on what an earlier rule held.
+# Empty arguments keep what the monitor has now.
+apply_monitor() { # monitor-json [scale-in-1/120] [mode] [cm] [bitdepth]
+  local m=$1 k=${2:-} mode=${3:-} cm=${4:-} bits=${5:-}
+  local name w h r x y tr count pos mw mh
+  name=$(jq -r '.name' <<<"$m")
+  valid_name "$name" || die "unsafe monitor name"
+  read -r w h r x y tr < <(jq -r '[.width, .height, .refreshRate, .x, .y, (.transform // 0)] | @tsv' <<<"$m")
+  [[ $w =~ ^[0-9]+$ && $h =~ ^[0-9]+$ && $r =~ ^[0-9]+(\.[0-9]+)?$ && $tr =~ ^[0-7]$ ]] || die "unexpected monitor data"
+  [[ -n $k ]] || k=$(jq -r '.scale * 120 | round' <<<"$m")
+  [[ $k =~ ^[0-9]+$ ]] && ((k >= 60 && k <= 480)) || die "scale out of range"
+  [[ -n $mode ]] || mode="${w}x${h}@${r}"
+  [[ $mode == preferred || $mode =~ ^[0-9]+x[0-9]+@[0-9]+(\.[0-9]+)?$ ]] || die "bad mode"
+  [[ -n $cm ]] || cm=$(jq -r '.colorManagementPreset // "srgb"' <<<"$m")
+  [[ $cm =~ ^[a-z0-9]+$ ]] || cm=srgb
+  [[ -n $bits ]] || bits=$(jq -r 'if ((.currentFormat // "") | test("2101010|16161616")) then 10 else 8 end' <<<"$m")
+  [[ $bits == 8 || $bits == 10 ]] || bits=8
+  # Alone, the monitor stays where it is. Beside others Hyprland places it, as Omarchy's own scaling does.
+  count=$(monitors | jq '[.[] | select(.disabled != true)] | length')
+  if ((count > 1)); then pos=auto; else pos="${x}x${y}"; fi
+  [[ $pos =~ ^-?[0-9]+x-?[0-9]+$ ]] || pos=auto
+  mw=$w mh=$h
+  if [[ $mode =~ ^([0-9]+)x([0-9]+)@ ]]; then mw=${BASH_REMATCH[1]} mh=${BASH_REMATCH[2]}; fi
+  # A scale between the exact ones is rounded to the nearest exact one unless the check is off.
+  clean "$k" "$mw" "$mh" || lua 'hl.config({ debug = { disable_scale_checks = true } })'
+  lua "hl.monitor({ output = \"$name\", mode = \"$mode\", position = \"$pos\", scale = $k / 120, transform = $tr, bitdepth = $bits, cm = \"$cm\" })"
+}
+
+hdr_mode() { # monitor-json -> on | auto | off
+  local cm auto
+  cm=$(jq -r '.colorManagementPreset // ""' <<<"$1")
+  auto=$(opt render.cm_auto_hdr)
+  if [[ $cm == hdr* ]]; then echo on; elif [[ ${auto:-0} =~ ^[1-9] ]]; then echo auto; else echo off; fi
+}
+
+apply_hdr() { # monitor-json off|auto|on
+  local m=$1 want=$2 cm bits
+  cm=$(jq -r '.colorManagementPreset // "srgb"' <<<"$m")
+  bits=$(jq -r 'if ((.currentFormat // "") | test("2101010|16161616")) then 10 else 8 end' <<<"$m")
+  case $want in
+  on)
+    apply_monitor "$m" "" "" hdr 10
+    ;;
+  auto)
+    lua 'hl.config({ render = { cm_auto_hdr = 1 } })'
+    if [[ $cm == hdr* ]]; then cm=srgb; apply_monitor "$m" "" "" "$cm" 10; elif [[ $bits != 10 ]]; then apply_monitor "$m" "" "" "$cm" 10; fi
+    ;;
+  off)
+    lua 'hl.config({ render = { cm_auto_hdr = 0 } })'
+    if [[ $cm == hdr* ]]; then apply_monitor "$m" "" "" srgb ""; fi
+    ;;
+  esac
+}
+
+cmd_state() {
+  local mons vrr ahdr chk xdr ab night
+  mons=$(monitors)
+  [[ -n $mons ]] || mons='[]'
+  vrr=$(opt misc.vrr)
+  ahdr=$(opt render.cm_auto_hdr)
+  chk=$(opt debug.disable_scale_checks)
+  xdr='{"supported":false}'
+  if [[ -r $BL/device/xdr_max_nits ]] && command -v m5pro-xdr >/dev/null; then
+    xdr=$(jq -cn --arg max "$(<"$BL/device/xdr_max_nits")" --arg sdr "$(<"$BL/device/sdr_max_nits")" \
+      --arg peak "$(<"$BL/device/xdr_peak_nits")" --arg nits "$(<"$BL/brightness")" --arg range "$(<"$BL/max_brightness")" \
+      '{supported:true, max:($max|tonumber? // 0), sdr:($sdr|tonumber? // 0), peak:($peak|tonumber? // 0),
+        nits:($nits|tonumber? // 0), range:($range|tonumber? // 0)}') || xdr='{"supported":false}'
+  fi
+  ab='{"supported":false}'
+  if command -v m5pro-auto-brightness >/dev/null; then
+    if systemctl --user is-active --quiet "$AB_UNIT"; then ab='{"supported":true,"on":true}'; else ab='{"supported":true,"on":false}'; fi
+  fi
+  night='{"supported":false}'
+  if command -v omarchy-toggle-nightlight >/dev/null; then
+    night='{"supported":true,"on":false}'
+    if pgrep -x hyprsunset >/dev/null && [[ $(omarchy-toggle-nightlight --status 2>/dev/null | jq -r '.enabled' 2>/dev/null) == true ]]; then
+      night='{"supported":true,"on":true}'
+    fi
+  fi
+  jq -cn --argjson mons "$mons" --arg vrr "$vrr" --arg ahdr "$ahdr" --arg chk "$chk" \
+    --argjson xdr "$xdr" --argjson ab "$ab" --argjson night "$night" --argjson ov "$(ov)" '
+    { monitors: [ $mons[] | {
+        name, focused: (.focused == true), enabled: (.disabled != true),
+        builtin: (.name | test("^(eDP|LVDS|DSI)-")),
+        width, height, refresh: .refreshRate, scale, transform: (.transform // 0),
+        vrr: (.vrr == true), vrrCapable: (.hardwareDetails.vrrCapable // null), hdrCapable: (.hardwareDetails.hdr // null),
+        cm: (.colorManagementPreset // ""),
+        bitdepth: (if ((.currentFormat // "") | test("2101010|16161616")) then 10 else 8 end),
+        modes: ((.availableModes // [])[:200]) } ],
+      vrr: ($vrr | tonumber? // null), autoHdr: ($ahdr | tonumber? // null), scaleChecksOff: ($chk == "true"),
+      xdr: $xdr, autoBrightness: $ab, nightlight: $night, overrides: $ov }'
+}
+
+cmd_scale() {
+  local s=${1:-} m k name
+  [[ $s =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "usage: display-ctl scale SCALE [MONITOR]"
+  k=$(awk -v s="$s" 'BEGIN { printf "%d\n", s * 120 + 0.5 }')
+  ((k >= 120 && k <= 480)) || die "the scale must be between 1 and 4"
+  m=$(mon_json "${2:-}") || die "no such monitor"
+  name=$(jq -r '.name' <<<"$m")
+  apply_monitor "$m" "$k"
+  ov_set --arg n "$name" --argjson k "$k" --argjson t "$(date +%s)" '.monitors[$n].scale120 = $k | .monitors[$n].scaleAt = $t'
+}
+
+cmd_mode() {
+  local mode=${1:-} mon=${2:-} try=${3:-} m name
+  if [[ $mon == --try ]]; then try=--try mon=""; fi
+  [[ -n $mode ]] || die "usage: display-ctl mode WxH@RATEHz|preferred [MONITOR] [--try]"
+  m=$(mon_json "$mon") || die "no such monitor"
+  name=$(jq -r '.name' <<<"$m")
+  if [[ $mode != preferred ]]; then
+    jq -e --arg x "$mode" '(.availableModes // []) | index($x) != null' <<<"$m" >/dev/null || die "$mode is not a mode of $name"
+  fi
+  apply_monitor "$m" "" "${mode%Hz}"
+  [[ $try == --try ]] && return 0
+  if [[ $mode == preferred ]]; then ov_set --arg n "$name" 'del(.monitors[$n].mode)'; else ov_set --arg n "$name" --arg x "$mode" '.monitors[$n].mode = $x'; fi
+}
+
+cmd_vrr() {
+  [[ ${1:-} =~ ^[0-3]$ ]] || die "usage: display-ctl vrr 0|1|2|3"
+  lua "hl.config({ misc = { vrr = $1 } })"
+  ov_set --argjson v "$1" '.vrr = $v'
+}
+
+cmd_hdr() {
+  local want=${1:-} mon=${2:-} try=${3:-} m name
+  if [[ $mon == --try ]]; then try=--try mon=""; fi
+  [[ $want == off || $want == auto || $want == on ]] || die "usage: display-ctl hdr off|auto|on [MONITOR] [--try]"
+  m=$(mon_json "$mon") || die "no such monitor"
+  name=$(jq -r '.name' <<<"$m")
+  apply_hdr "$m" "$want"
+  [[ $try == --try ]] || ov_set --arg n "$name" --arg x "$want" '.monitors[$n].hdr = $x'
+}
+
+cmd_xdr() {
+  local n=${1:-} sdr peak
+  [[ -e $BL/device/xdr_max_nits ]] && command -v m5pro-xdr >/dev/null || die "XDR brightness is not available here"
+  if [[ $n == off ]]; then m5pro-xdr off; return; fi
+  sdr=$(<"$BL/device/sdr_max_nits") peak=$(<"$BL/device/xdr_peak_nits")
+  [[ $n =~ ^[0-9]+$ ]] && ((n > sdr && n <= peak)) || die "NITS must be above $sdr and at most $peak, or off"
+  # m5pro-xdr reads this as the ceiling for a plain "on", so the menu row follows the last choice.
+  mkdir -p "$CONF_HOME/m5pro-xdr" && printf '%s\n' "$n" >"$CONF_HOME/m5pro-xdr/nits"
+  m5pro-xdr on "$n"
+}
+
+cmd_auto_brightness() {
+  [[ ${1:-} == on || ${1:-} == off ]] || die "usage: display-ctl auto-brightness on|off"
+  command -v m5pro-auto-brightness >/dev/null || die "auto brightness is not installed"
+  m5pro-auto-brightness "$1" >/dev/null
+}
+
+cmd_nightlight() {
+  local want cur=false
+  case ${1:-} in on) want=true ;; off) want=false ;; *) die "usage: display-ctl nightlight on|off" ;; esac
+  if pgrep -x hyprsunset >/dev/null; then cur=$(omarchy-toggle-nightlight --status 2>/dev/null | jq -r '.enabled' 2>/dev/null); fi
+  [[ $cur == "$want" ]] || omarchy-toggle-nightlight >/dev/null 2>&1
+}
+
+# A scale set with Omarchy's own command (the Super + / keys) after ours wins: forget ours for that monitor.
+drop_foreign_scale() {
+  local last at mon t saved
+  [[ -r $SCALE_LOG ]] || return 0
+  last=$(tail -n 1 "$SCALE_LOG")
+  at=$(sed -n 's/^at=\([^\t]*\)\t.*/\1/p' <<<"$last")
+  mon=$(sed -n 's/.*\tmonitor=\([^\t]*\)\t.*/\1/p' <<<"$last")
+  valid_name "$mon" || return 0
+  t=$(date -d "$at" +%s 2>/dev/null) || return 0
+  saved=$(jq -r --arg n "$mon" '.monitors[$n].scaleAt // empty' <<<"$(ov)")
+  [[ $saved =~ ^[0-9]+$ ]] || return 0
+  ((t > saved)) && ov_set --arg n "$mon" 'del(.monitors[$n].scale120, .monitors[$n].scaleAt)'
+  return 0
+}
+
+cmd_reapply() {
+  local o mons name m k mode hdr need bare want
+  [[ -s $OV ]] || return 0
+  exec 9>"$LOCK"
+  flock -w 10 9 || return 0
+  drop_foreign_scale
+  o=$(ov)
+  mons=$(monitors) || return 0
+  while IFS= read -r name; do
+    valid_name "$name" || continue
+    m=$(jq -c --arg n "$name" '[.[] | select(.name == $n and .disabled != true)][0] // empty' <<<"$mons")
+    [[ -n $m ]] || continue
+    need=0 bare=""
+    k=$(jq -r --arg n "$name" '.monitors[$n].scale120 // empty' <<<"$o")
+    mode=$(jq -r --arg n "$name" '.monitors[$n].mode // empty' <<<"$o")
+    hdr=$(jq -r --arg n "$name" '.monitors[$n].hdr // empty' <<<"$o")
+    if [[ $k =~ ^[0-9]+$ ]]; then
+      ((k != $(jq -r '.scale * 120 | round' <<<"$m"))) && need=1
+    else
+      k=""
+    fi
+    if [[ -n $mode ]] && jq -e --arg x "$mode" '(.availableModes // []) | index($x) != null' <<<"$m" >/dev/null; then
+      bare=${mode%Hz}
+      jq -e --arg x "$bare" '($x | capture("^(?<w>[0-9]+)x(?<h>[0-9]+)@(?<r>[0-9.]+)$")) as $want
+        | .width == ($want.w | tonumber) and .height == ($want.h | tonumber)
+          and ((.refreshRate - ($want.r | tonumber)) | fabs) < 0.6' <<<"$m" >/dev/null || need=1
+    fi
+    ((need)) && apply_monitor "$m" "$k" "$bare"
+    if [[ $hdr == off || $hdr == auto || $hdr == on ]]; then
+      m=$(mon_json "$name") && [[ $(hdr_mode "$m") != "$hdr" ]] && apply_hdr "$m" "$hdr"
+    fi
+  done < <(jq -r '(.monitors // {}) | keys[]' <<<"$o")
+  want=$(jq -r '.vrr // empty' <<<"$o")
+  if [[ $want =~ ^[0-3]$ && $(opt misc.vrr) != "$want" ]]; then lua "hl.config({ misc = { vrr = $want } })"; fi
+  return 0
+}
+
+cmd_reset() {
+  rm -f "$OV"
+  hyprctl reload >/dev/null
+}
+
+cmd=${1:-}
+[[ $# -gt 0 ]] && shift
+case $cmd in
+state) cmd_state ;;
+scale) cmd_scale "$@" ;;
+mode) cmd_mode "$@" ;;
+vrr) cmd_vrr "$@" ;;
+hdr) cmd_hdr "$@" ;;
+xdr) cmd_xdr "$@" ;;
+auto-brightness) cmd_auto_brightness "$@" ;;
+nightlight) cmd_nightlight "$@" ;;
+reapply) cmd_reapply ;;
+reset) cmd_reset ;;
+*) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac
