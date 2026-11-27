@@ -100,6 +100,8 @@ Of the 79 migrations added since v4.5.0: 25 DEFER (24 BOOT, 1 PACCONF, almost al
 - Not covered: the AUR step and the boot verify run after the post-update hook (IgnorePkg protects the AUR step; `/boot`
   is held). The end prompt "Linux kernel has been updated. Reboot?" is always shown here (our kernel's modules are not
   package-owned); answer no unless something asks for a reboot.
+- After `omarchy update`: the message that `update-verify` "needs omarchy-mac-boot" is expected and harmless, because that package is deliberately held. If a kmod or kernel-package upgrade makes Omarchy offer a reboot, answer **no**: the J716s kernel comes from the boot file on the ESP, not from the Arch kernel package.
+- Run as a root login (ssh), `--check`, `--dry-run` and friends use the desktop user's home (the owner of the graphical session, else the first regular account), not `/root`; `--run` still refuses a root login.
 - First native run 2026-11-19: 43 upgrades + 2 AUR rebuilds, `/boot` unchanged, 0 failures. Found and fixed: `/boot` is an
   automount, so the snapshot's ESP manifest listed 4 of 495 files (`ESP_CMD` now lists `/boot/` first).
 
