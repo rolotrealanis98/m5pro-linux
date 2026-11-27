@@ -168,6 +168,46 @@ class Plan(unittest.TestCase):
         self.assertIn("'claude --permission-mode auto --resume s1; exec bash'", m.group_command(g))
 
 
+class VmWindows(unittest.TestCase):
+    """Windows hosted by the muvm/Steam VM are never saved and never replayed (a relaunched VM holds /boot open)."""
+    steam = dict(cmd=["m5pro-steam"], desktop="steam")
+
+    def test_argv_and_class_detection(self):
+        self.assertTrue(m.is_vm_argv(["/opt/muvm-gpu-20261125/bin/muvm", "--", "steam"]))
+        self.assertTrue(m.is_vm_argv(["bash", "-lc", "m5pro-steam -silent"]))
+        self.assertTrue(m.is_vm_argv(["/usr/local/bin/m5pro-muvm-gpu", "x"]))
+        self.assertFalse(m.is_vm_argv(["firefox", "https://store.steampowered.com"]))
+        for cls in ("steam", "Steam", "steamwebhelper", "steam_app_1245620", "muvm"):
+            self.assertTrue(m.is_vm_window({"class": cls}), cls)
+        self.assertFalse(m.is_vm_window({"class": "firefox", "cmd": ["firefox"]}))
+
+    def test_process_ancestry(self):
+        table = {10: {"ppid": 1, "comm": "muvm", "cmd": ["/usr/bin/muvm", "--", "steam"], "tty": 0},
+                 11: {"ppid": 10, "comm": "weird", "cmd": ["weird"], "tty": 0},
+                 20: {"ppid": 1, "comm": "firefox", "cmd": ["firefox"], "tty": 0}}
+        self.assertTrue(m.is_vm_window({"class": "weird", "pid": 11}, table))
+        self.assertFalse(m.is_vm_window({"class": "firefox", "pid": 20}, table))
+
+    def test_capture_skips_vm_windows(self):
+        table = {7: {"ppid": 1, "comm": "muvm", "cmd": ["muvm", "--", "steam"], "tty": 0},
+                 8: {"ppid": 1, "comm": "mpv", "cmd": ["mpv"], "tty": 0}}
+        def client(addr, cls, pid):
+            return {"address": addr, "class": cls, "initialClass": cls, "title": cls, "mapped": True, "pid": pid, "workspace": {"id": 1, "name": "1"},
+                    "monitor": 0, "floating": False, "at": [0, 0], "size": [10, 10], "fullscreen": 0}
+        s = m.collect_snapshot(table=table, clients=[client("0x1", "steam", 7), client("0x2", "gameapp", 7), client("0x3", "mpv", 8)],
+                               monitors=[{"id": 0, "name": "eDP-1"}], index=type("I", (), {"lookup": lambda *a, **k: None})())
+        self.assertEqual([w["class"] for w in s["windows"]], ["mpv"])
+
+    def test_replay_of_saved_state_skips_vm_windows(self):
+        steam = win("steam", 3, cmd=["m5pro-steam"], desktop="steam", pid=50)
+        web = win("steamwebhelper", 3, cmd=["steamwebhelper"], pid=51)
+        via_cmd = win("odd", 3, cmd=["/opt/muvm-gpu-20261125/bin/muvm", "--", "x"], pid=52)
+        term = win("Alacritty", 3, "terminal", terminal="alacritty", cwd="/", run=["m5pro-steam"])
+        keep = win("mpv", 3, cmd=["mpv"], pid=53)
+        g = m.build_plan(snap(steam, web, via_cmd, term, keep), snap(), {"excluded": []}, [])
+        self.assertEqual([(x["classes"][0], x["status"]) for x in g], [("mpv", "launch")])
+
+
 class LoginItems(unittest.TestCase):
     def setUp(self):
         for d in ("user-autostart", "sys-autostart"):

@@ -37,6 +37,11 @@ IGNORE_CLASSES = {
     "org.m5pro.sessionrestore", "quickshell", "xdg-desktop-portal-gtk", "hyprland-share-picker",
     "org.freedesktop.impl.portal.desktop.hyprland", "polkit-gnome-authentication-agent-1", "mission-control",
 }
+# Windows hosted by a muvm microVM (Steam and its games via m5pro-steam / m5pro-muvm-gpu) are never saved or restored: a relaunched VM
+# holds /boot open and blocks test boots. Matched on the window class, the launch command, and the process ancestry.
+VM_CLASS_RE = re.compile(r"^(steam|steamwebhelper|steam_app_\d+|steam_proton|muvm)$")
+VM_EXES = {"muvm", "krun", "m5pro-muvm-gpu", "m5pro-steam", "steam", "steamwebhelper", "steamrtarm64", "steam.sh"}
+VM_PATH_PARTS = ("/bin/muvm", "m5pro-muvm-gpu", "m5pro-steam")
 # Terminals we know how to start with a working directory and a command.
 TERMINALS = {"alacritty": "alacritty", "kitty": "kitty", "foot": "foot", "footclient": "foot"}
 SHELLS = {"bash", "zsh", "fish", "sh", "dash", "nu", "xonsh", "ksh"}
@@ -51,6 +56,35 @@ LOCKED_UNITS = {
 
 
 # ----------------------------------------------------------------------------- small helpers
+
+def is_vm_argv(argv):
+    """True when a command line runs muvm, Steam or one of our wrappers for them (any argv element, so `bash -lc 'm5pro-steam'` counts)."""
+    for a in argv or []:
+        if not isinstance(a, str):
+            continue
+        if os.path.basename(a) in VM_EXES or any(part in a for part in VM_PATH_PARTS):
+            return True
+        if " " in a and any(os.path.basename(t) in VM_EXES for t in a.split()):
+            return True
+    return False
+
+
+def is_vm_window(w, table=None):
+    """A window (live client or saved entry) that a muvm VM hosts. table (proc_table) adds the process-ancestry check."""
+    for k in ("class", "initialClass"):
+        if VM_CLASS_RE.match((w.get(k) or "").lower()):
+            return True
+    if (w.get("desktop") or "").lower() in ("steam", "steam.desktop"):
+        return True
+    if is_vm_argv(w.get("cmd")) or is_vm_argv(w.get("run")):
+        return True
+    if table is not None:
+        pid, hops = w.get("pid") or 0, 0
+        while pid and pid in table and hops < 12:
+            if is_vm_argv(table[pid]["cmd"]) or table[pid]["comm"] in VM_EXES:
+                return True
+            pid, hops = table[pid].get("ppid") or 0, hops + 1
+    return False
 
 def atomic_write(path, data, mode=0o600):
     d = os.path.dirname(path)
@@ -662,6 +696,8 @@ def collect_snapshot(table=None, clients=None, monitors=None, index=None):
         if not c.get("mapped") or not cls or cls.lower() in IGNORE_CLASSES:
             continue
         pid = c.get("pid") or 0
+        if is_vm_window({"class": cls, "initialClass": c.get("initialClass"), "pid": pid}, table):
+            continue
         w = {
             "address": c["address"], "class": c.get("class", ""), "initialClass": c.get("initialClass", ""),
             "title": c.get("title", ""), "initialTitle": c.get("initialTitle", ""),
@@ -1172,6 +1208,8 @@ def build_plan(snap, live, cfg, matchers, adopt=False):
     for w in sorted(snap["windows"], key=window_order_key):
         cls = w["class"].lower()
         if cls in IGNORE_CLASSES:
+            continue
+        if is_vm_window(w):          # also drops VM windows from state saved before this rule existed
             continue
         if exclude_key(w) in excluded or (w["kind"] == "app" and (w.get("initialClass") or "").lower() in excluded):
             groups.append({"status": "skip", "reason": "excluded", "windows": [w], "classes": [w["class"]], "kind": w["kind"]})

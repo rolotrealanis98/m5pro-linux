@@ -34,6 +34,8 @@ resume>; exec bash'`, so the shell stays if the agent exits; a terminal without 
 Terminals with their own class (Omarchy's `org.omarchy.agent`) keep it, a TUI the terminal was started for (`-e btop`) is
 started again.
 
+**VM windows are skipped.** Windows hosted by the muvm VM (Steam, its web helper, games: class `steam`, `steam_app_*`, `muvm`, or a launch command or process ancestry running `muvm`, `m5pro-muvm-gpu` or `m5pro-steam`) are neither saved nor replayed, including from snapshots saved before this rule: a relaunched VM holds `/boot` open and blocks test boots.
+
 `m5pro-session-restore --dry-run` prints the plan, `--dry-run --fresh` prints what a reboot would do. Automatic restore has a switch
 in the app (default on); off means the login service does nothing.
 
