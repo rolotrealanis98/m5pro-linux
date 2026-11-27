@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "rolo.power",
+  "name": "Power",
+  "version": "1.0.0",
+  "author": "Omarchy, rolo",
+  "description": "Omarchy's Power panel, loaded from the package, plus an adjustable battery charge limit",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Power.qml"
+  },
+  "barWidget": {
+    "displayName": "Power",
+    "description": "Battery, charge limit, power profile, and system stats",
+    "category": "System",
+    "allowMultiple": false
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.power"
+  }
+}

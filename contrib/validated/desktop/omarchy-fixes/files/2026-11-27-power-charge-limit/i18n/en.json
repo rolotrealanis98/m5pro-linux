@@ -1,0 +1,13 @@
+{
+  "limit.title": "CHARGE LIMIT",
+  "limit.percent": "%1%",
+  "limit.off": "Off",
+  "limit.range": "Charging stops at %1% and resumes at %2%.",
+  "limit.stop": "Charging stops at %1%.",
+  "limit.none": "No limit: the battery charges to 100%.",
+  "limit.fullOnce": "Charging to 100% this time. Back to %1% when unplugged.",
+  "limit.fullOnceButton": "Charge to 100% once",
+  "limit.fullOnceCancel": "Back to %1% now",
+  "limit.applying": "Applying…",
+  "limit.failed": "Not changed: the password prompt was cancelled or refused."
+}
