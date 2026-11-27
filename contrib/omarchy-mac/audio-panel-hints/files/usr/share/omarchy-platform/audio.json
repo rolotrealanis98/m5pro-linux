@@ -1,0 +1,8 @@
+{
+  "hidden": [
+    "alsa_output\\.platform-sound\\.RawSpeakers",
+    "sgv2\\.(speaker|sense)\\.[a-z0-9]+",
+    "sgv2\\.(protect|voicing)\\.[a-z0-9]+\\.out",
+    "audio_effect\\.[a-z0-9]+-mic"
+  ]
+}

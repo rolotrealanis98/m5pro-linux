@@ -5,7 +5,9 @@
 #
 # Source recipe: aurora-silicon/alarm-aurora packages/speakerguardd-v2 @ 282881f37c86 (pkgrel 41, pin
 # 04169c44, "Merge pull request #175"), unchanged except:
-#   - header and pkgrel (41.1; pkgrel takes no letters);
+#   - header and pkgrel (41.2; pkgrel takes no letters);
+#   - 0001-gen-name-the-speaker-sink-without-the-board-code.patch (41.2, 2026-11-27): the speaker sink is "MacBook Pro speakers",
+#     not "MacBook Pro J716 speakers"; internal nodes keep the board code;
 #   - depends: 'pipewire-speaker-graph>=2' and 'aurora-audio>=4.1.aurora2-11' dropped and 'lilv' added,
 #     exactly as betizzel/omarchy-m5 installer/recipes/speakerguardd-v2-upstream @ b23d9630 does (our
 #     root has neither Aurora's PipeWire nor aurora-audio); the consequences are in the comment in
@@ -17,7 +19,7 @@
 pkgbase=speakerguardd-v2
 pkgname=('speakerguardd-v2')
 pkgver=1.0.0alpha.1
-pkgrel=41.1
+pkgrel=41.2
 # The pin: the one place to move, with the first sha256sums entry.
 _commit=04169c4470650f8e2554db70d4072fb92e484138
 _src=speakerguardd-$_commit
@@ -28,14 +30,17 @@ url='https://github.com/aurora-silicon/speakerguardd'
 license=('MIT')
 makedepends=('rust' 'cargo' 'python')
 source=("$pkgbase-$_commit.tar.gz::https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/$_commit"
-        README.alarm-aurora.md)
+        README.alarm-aurora.md
+        0001-gen-name-the-speaker-sink-without-the-board-code.patch)
 sha256sums=('c6d8b07251eb34f42d97fee293ff87a1da3fc765d1e42c7af8786ee22ae27e88'
-            '4f8114220e567ff577cdd55d8086180b9376544acacad7087e1becedb2fb7d2c')
+            '4f8114220e567ff577cdd55d8086180b9376544acacad7087e1becedb2fb7d2c'
+            '68437ba88c9b36a1728bce0603f862140c5ee3479e268ff988a3732f460ccb74')
 # The crates this package ships; the rig and benchmark crates stay out.
 _crates=(-p sgv2-core -p sgv2-lv2 -p sgv2-supervisor -p aurora-speaker-tuning)
 
 prepare() {
   cd "$_src"
+  patch -Np1 -i "$srcdir/0001-gen-name-the-speaker-sink-without-the-board-code.patch"
   # The upstream units, under their own names, with the programs where this
   # package installs them. Provisioning and the self-check are hard
   # prerequisites of the supervisor, and every system unit carries the gate:

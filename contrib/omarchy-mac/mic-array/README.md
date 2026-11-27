@@ -23,7 +23,7 @@ userspace no longer matched the card:
 |---|---|
 | `files/usr/share/alsa/ucm2/conf.d/aop_audio/MacBook Pro J716 High-Power Audio Interface.conf` | UCM for the HPAI card, as upstream's J616 file |
 | `files/usr/share/alsa/ucm2/conf.d/aop_audio/j716s/HiFi.conf` | the Mic device: upstream's `3chan/HiFi.conf` without `JackControl "Internal Mic Jack"`, which this card does not have |
-| `files/usr/share/asahi-audio/j716/mic.json` | unchanged copy of `../../validated/desktop/audio/mic-template/j716-mic.json` (upstream J714 graph, equal mix) |
+| `files/usr/share/asahi-audio/j716/mic.json` | copy of `../../validated/desktop/audio/mic-template/j716-mic.json` (upstream J714 graph, equal mix; source named "MacBook Pro Microphone" since 2026-11-27) |
 | `files/usr/share/wireplumber/wireplumber.conf.d/99-asahi-j716-mic.conf` | rules on `hw:AppleJ716HPAI,0` (and card id + PCM 0, and the old name), `node.software-dsp = required` |
 
 The only `node.software-dsp.rules` on the Mac are these (speakerguardd v2 builds the speaker graph itself), so
@@ -43,7 +43,7 @@ Then restart WirePlumber (log out and in, reboot, or `systemctl --user restart w
 ## Owner test (2 minutes, after the next login or boot)
 
 1. Unplug the Yamaha (or keep it and pick the Mac mic by hand in step 2). Open `wiremix` (Omarchy audio menu)
-   or `pavucontrol`, Input Devices: "MacBook Pro J716 Microphone" is there, "Built-in Audio Multichannel" and
+   or `pavucontrol`, Input Devices: "MacBook Pro Microphone" is there, "Built-in Audio Multichannel" and
    "Raw Mic Device" are not. Set it as default (check mark / Set as fallback).
 2. Speak at normal distance: the level meter moves with the voice and falls back when you stop. If it barely
    moves, raise its volume to 100 % (the graph starts at 70 %) and say so in the report.
@@ -51,5 +51,5 @@ Then restart WirePlumber (log out and in, reboot, or `systemctl --user restart w
    volume, owner present): `pw-play /tmp/memo.wav`. Expect your voice, clear, no hum, no clipping; then
    `rm /tmp/memo.wav`.
 4. One app: Chrome `https://webcammictest.com/check-mic` or a Meet/Zoom test call: the browser's level bar moves.
-   Discord: Settings > Voice & Video > Input "MacBook Pro J716 Microphone", "Let's Check".
+   Discord: Settings > Voice & Video > Input "MacBook Pro Microphone", "Let's Check".
 5. Report: source present yes/no, meter moves yes/no, memo sounds right yes/no (noisy, quiet, distorted?).

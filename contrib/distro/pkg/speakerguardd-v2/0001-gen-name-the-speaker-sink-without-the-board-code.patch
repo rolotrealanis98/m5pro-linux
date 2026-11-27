@@ -1,0 +1,146 @@
+From: Rolando Trevino <rolotrealanis@gmail.com>
+Subject: [PATCH] gen: name the speaker sink without the board code
+
+The voicing sink is the device users pick in a volume menu; the device tree's
+model ("MacBook Pro J716") carries the board code, which means nothing there.
+Use "MacBook Pro speakers" for that sink only; the internal protect, amp and
+sense nodes keep the full model. Regenerates the committed per-machine files.
+---
+--- a/packaging/pipewire/sgv2-j316.conf
++++ b/packaging/pipewire/sgv2-j316.conf
+@@ -131,8 +131,8 @@
+     { name = libpipewire-module-filter-chain
+        flags = [ nofail ]
+        args = {
+-           node.description = "MacBook Pro J316 speakers"
+-           media.name = "MacBook Pro J316 speakers"
++           node.description = "MacBook Pro speakers"
++           media.name = "MacBook Pro speakers"
+            filter.graph = {
+                nodes = [ { type = lv2 name = voicing plugin = "https://aurora-silicon.org/lv2/sgv2#voicing-6ch" } ]
+                inputs = [ "voicing:in_0" "voicing:in_1" ]
+@@ -141,7 +141,7 @@
+            }
+            capture.props = {
+                node.name = "sgv2.voicing.j316"
+-               node.description = "MacBook Pro J316 speakers"
++               node.description = "MacBook Pro speakers"
+                media.class = "Audio/Sink"
+                audio.rate = 48000
+                # Held at the PCM rate like the amps' sink: while the amps
+--- a/packaging/pipewire/sgv2-j413.conf
++++ b/packaging/pipewire/sgv2-j413.conf
+@@ -131,8 +131,8 @@
+     { name = libpipewire-module-filter-chain
+        flags = [ nofail ]
+        args = {
+-           node.description = "MacBook Air J413 speakers"
+-           media.name = "MacBook Air J413 speakers"
++           node.description = "MacBook Air speakers"
++           media.name = "MacBook Air speakers"
+            filter.graph = {
+                nodes = [ { type = lv2 name = voicing plugin = "https://aurora-silicon.org/lv2/sgv2#voicing-4ch" } { type = builtin name = b0 label = linear control = { "Mult" = 0.995061676 "Add" = 0.0 } } { type = builtin name = b1 label = linear control = { "Mult" = 0.995061676 "Add" = 0.0 } } ]
+                links = [ { output = "voicing:out_0" input = "b0:In" } { output = "voicing:out_1" input = "b1:In" } ]
+@@ -142,7 +142,7 @@
+            }
+            capture.props = {
+                node.name = "sgv2.voicing.j413"
+-               node.description = "MacBook Air J413 speakers"
++               node.description = "MacBook Air speakers"
+                media.class = "Audio/Sink"
+                audio.rate = 48000
+                # Held at the PCM rate like the amps' sink: while the amps
+--- a/packaging/pipewire/sgv2-j616.conf
++++ b/packaging/pipewire/sgv2-j616.conf
+@@ -132,8 +132,8 @@
+     { name = libpipewire-module-filter-chain
+        flags = [ nofail ]
+        args = {
+-           node.description = "MacBook Pro J616 speakers"
+-           media.name = "MacBook Pro J616 speakers"
++           node.description = "MacBook Pro speakers"
++           media.name = "MacBook Pro speakers"
+            filter.graph = {
+                nodes = [ { type = lv2 name = voicing plugin = "https://aurora-silicon.org/lv2/sgv2#voicing-6ch" } ]
+                inputs = [ "voicing:in_0" "voicing:in_1" ]
+@@ -142,7 +142,7 @@
+            }
+            capture.props = {
+                node.name = "sgv2.voicing.j616"
+-               node.description = "MacBook Pro J616 speakers"
++               node.description = "MacBook Pro speakers"
+                media.class = "Audio/Sink"
+                audio.rate = 48000
+                # Held at the PCM rate like the amps' sink: while the amps
+--- a/packaging/pipewire/sgv2-j700.conf
++++ b/packaging/pipewire/sgv2-j700.conf
+@@ -106,8 +106,8 @@
+     { name = libpipewire-module-filter-chain
+        flags = [ nofail ]
+        args = {
+-           node.description = "MacBook Neo J700 speakers"
+-           media.name = "MacBook Neo J700 speakers"
++           node.description = "MacBook Neo speakers"
++           media.name = "MacBook Neo speakers"
+            filter.graph = {
+                nodes = [ { type = lv2 name = voicing plugin = "https://aurora-silicon.org/lv2/sgv2#voicing-2ch" } ]
+                inputs = [ "voicing:in_0" "voicing:in_1" ]
+@@ -116,7 +116,7 @@
+            }
+            capture.props = {
+                node.name = "sgv2.voicing.j700"
+-               node.description = "MacBook Neo J700 speakers"
++               node.description = "MacBook Neo speakers"
+                media.class = "Audio/Sink"
+                audio.rate = 48000
+                # Held at the PCM rate like the amps' sink: while the amps
+--- a/packaging/session/gen.py
++++ b/packaging/session/gen.py
+@@ -38,6 +38,7 @@
+ """
+ import json
+ import math
++import re
+ import os
+ import sys
+ 
+@@ -174,6 +175,19 @@
+     return [1.0 / (2.0 * math.sin((2 * k - 1) * math.pi / (2 * order))) for k in range(1, order // 2 + 1)]
+ 
+ 
++# A board code at the end of the device tree's model ("J716", "J413s"):
++# useful in the internal nodes' descriptions, noise in the speaker sink the
++# user picks in a volume menu.
++BOARD_CODE = re.compile(r"\s+J\d{3}[a-z]?$")
++
++
++def display_name(c):
++    """The user-facing name of the speakers: the model without its board
++    code ("MacBook Pro J716" -> "MacBook Pro"); the model itself when
++    stripping would leave nothing."""
++    return BOARD_CODE.sub("", c["name"]).strip() or c["name"]
++
++
+ def voicing_conf(m, c, w):
+     """One stereo chain, in unit-lane order, mapped to physical AUX ports
+     with the same map as the protection input. Volume is handled by the
+@@ -213,8 +227,8 @@
+     {{ name = libpipewire-module-filter-chain
+        flags = [ nofail ]
+        args = {{
+-           node.description = "{c['name']} speakers"
+-           media.name = "{c['name']} speakers"
++           node.description = "{display_name(c)} speakers"
++           media.name = "{display_name(c)} speakers"
+            filter.graph = {{
+                nodes = [{pre_nodes} {{ type = lv2 name = voicing plugin = "https://aurora-silicon.org/lv2/sgv2#voicing-{amps}ch" }}{extra_nodes} ]{links_line}
+                inputs = [ {inputs} ]
+@@ -223,7 +237,7 @@
+            }}
+            capture.props = {{
+                node.name = "sgv2.voicing.{m}"
+-               node.description = "{c['name']} speakers"
++               node.description = "{display_name(c)} speakers"
+                media.class = "Audio/Sink"
+                audio.rate = {c['rate']}
+                # Held at the PCM rate like the amps' sink: while the amps
