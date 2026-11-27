@@ -14,11 +14,9 @@ LIB=${HYPR_CARDS_LIB:-/usr/local/lib/hypr-cards.sh}
 # shellcheck source=hypr-cards.sh
 [ -r "$LIB" ] && . "$LIB"
 
-# Qt Quick apps (the Omarchy bar, quickshell) render in software: their GPU
-# work faulted the Apple GPU and took the compositor down (tracker #36).
-# Exported here so every launch path (exec-once, uwsm, omarchy-restart-shell)
-# inherits it. Remove once the GPU recovery fixes land.
-export QT_QUICK_BACKEND=software
+# Qt Quick apps (the Omarchy bar, quickshell) render on the GPU since
+# 2026-11-27: the GPU recovery fixes of tracker #36 are in the daily. The
+# software pin that stood here is in hypr-session.pre-gpu-shell.
 
 aurora_present() {
   declare -F hypr_cards_scan >/dev/null || return 1

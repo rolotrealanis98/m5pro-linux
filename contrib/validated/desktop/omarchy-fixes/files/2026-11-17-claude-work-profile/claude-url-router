@@ -8,4 +8,4 @@ if [[ -n "$pid" && -r "/proc/$pid/cmdline" ]] &&
    tr '\0' ' ' <"/proc/$pid/cmdline" | grep -qE -- "--user-data-dir=$work_dir( |$)"; then
   exec "$HOME/.local/bin/claude-work" "$@"
 fi
-exec /usr/bin/claude-desktop --disable-gpu "$@"
+exec /usr/bin/claude-desktop "$@"
