@@ -1,0 +1,257 @@
+From d131d212653a75132088c4e27f2f39240cea2bc7 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Sat, 28 Nov 2026 03:17:27 -0500
+Subject: [PATCH 9/9] settings: slim profile (BB_SLIM)
+
+flutter build linux --dart-define=BB_SLIM=true hides the options a single desktop
+owner does not need (about 45 tiles and 7 top-level entries, matched by title in
+SettingsTile, SettingsSwitch and SettingsOptions) and seeds Messages-like defaults
+for keys never saved (delivery status and timestamps, unknown-sender filter,
+Mark Read as the only notification action, full image quality, emoticons).
+Nothing is removed from the app and nothing the owner saved is overwritten; no
+account, server or Private API sending option is touched. A normal build is
+unchanged: the flag is a compile-time constant.
+---
+ .../widgets/content/settings_dropdown.dart    |   2 +
+ .../widgets/content/settings_switch.dart      |   2 +
+ .../widgets/content/settings_tile.dart        |   2 +
+ .../widgets/search/settings_items_list.dart   |  25 ++++
+ lib/database/global/settings.dart             |   2 +
+ lib/helpers/ui/slim_profile.dart              | 110 ++++++++++++++++++
+ 6 files changed, 143 insertions(+)
+ create mode 100644 lib/helpers/ui/slim_profile.dart
+
+diff --git a/lib/app/layouts/settings/widgets/content/settings_dropdown.dart b/lib/app/layouts/settings/widgets/content/settings_dropdown.dart
+index 9abb3dc40..f012c41fd 100644
+--- a/lib/app/layouts/settings/widgets/content/settings_dropdown.dart
++++ b/lib/app/layouts/settings/widgets/content/settings_dropdown.dart
+@@ -1,3 +1,4 @@
++import 'package:bluebubbles/helpers/ui/slim_profile.dart';
+ import 'package:bluebubbles/app/components/animated_dropdown_menu.dart';
+ import 'package:bluebubbles/app/layouts/settings/widgets/content/settings_leading_icon.dart';
+ import 'package:bluebubbles/helpers/types/constants.dart';
+@@ -56,6 +57,7 @@ class SettingsOptions<T extends Object> extends StatelessWidget {
+ 
+   @override
+   Widget build(BuildContext context) {
++    if (SlimProfile.hides(title)) return const SizedBox.shrink();
+     if (SettingsSvc.settings.skin.value == Skins.iOS && useCupertino) {
+       final texts = options.map((e) => Text(_labelFor(e),
+           style: context.theme.textTheme.bodyLarge!
+diff --git a/lib/app/layouts/settings/widgets/content/settings_switch.dart b/lib/app/layouts/settings/widgets/content/settings_switch.dart
+index d863bce51..7a8717ec1 100644
+--- a/lib/app/layouts/settings/widgets/content/settings_switch.dart
++++ b/lib/app/layouts/settings/widgets/content/settings_switch.dart
+@@ -1,3 +1,4 @@
++import 'package:bluebubbles/helpers/ui/slim_profile.dart';
+ import 'package:bluebubbles/app/components/bb_switch.dart';
+ import 'package:bluebubbles/app/layouts/settings/widgets/content/settings_leading_icon.dart';
+ import 'package:bluebubbles/helpers/helpers.dart';
+@@ -25,6 +26,7 @@ class SettingsSwitch extends StatelessWidget {
+ 
+   @override
+   Widget build(BuildContext context) {
++    if (SlimProfile.hides(title)) return const SizedBox.shrink();
+     return Material(
+       color: Colors.transparent,
+       child: InkWell(
+diff --git a/lib/app/layouts/settings/widgets/content/settings_tile.dart b/lib/app/layouts/settings/widgets/content/settings_tile.dart
+index b7161b28d..e742d72a3 100644
+--- a/lib/app/layouts/settings/widgets/content/settings_tile.dart
++++ b/lib/app/layouts/settings/widgets/content/settings_tile.dart
+@@ -1,3 +1,4 @@
++import 'package:bluebubbles/helpers/ui/slim_profile.dart';
+ import 'package:bluebubbles/helpers/helpers.dart';
+ import 'package:bluebubbles/services/services.dart';
+ import 'package:flutter/foundation.dart';
+@@ -36,6 +37,7 @@ class SettingsTile extends StatelessWidget {
+ 
+   @override
+   Widget build(BuildContext context) {
++    if (SlimProfile.hides(title)) return const SizedBox.shrink();
+     if (activePage == null) return _build(context, false);
+     return Obx(() => _build(
+         context, NavigationSvc.isTabletMode(context) && NavigationSvc.activeSettingsPage.value == activePage));
+diff --git a/lib/app/layouts/settings/widgets/search/settings_items_list.dart b/lib/app/layouts/settings/widgets/search/settings_items_list.dart
+index ff57a72d6..334ddf244 100644
+--- a/lib/app/layouts/settings/widgets/search/settings_items_list.dart
++++ b/lib/app/layouts/settings/widgets/search/settings_items_list.dart
+@@ -1,3 +1,4 @@
++import 'package:bluebubbles/helpers/ui/slim_profile.dart';
+ import '../../pages/misc/misc_panel.dart';
+ import '../../pages/scheduling/message_reminders_panel.dart';
+ import '../../pages/scheduling/scheduled_messages_panel.dart';
+@@ -38,6 +39,7 @@ import 'package:get/get.dart' hide Response;
+ import 'package:universal_io/io.dart';
+ import 'searchable_setting_item.dart';
+ 
++/// The settings page entries; the slim build (BB_SLIM) leaves out the ones it hides.
+ List<Widget> buildSettingItemList({
+   required BuildContext context,
+   required String searchQuery,
+@@ -48,6 +50,29 @@ List<Widget> buildSettingItemList({
+   required TextStyle iosSubtitle,
+   required TextStyle materialSubtitle,
+   required NavigatorService ns,
++}) =>
++    SlimProfile.filterSettingItems(_buildAllSettingItems(
++      context: context,
++      searchQuery: searchQuery,
++      tileColor: tileColor,
++      samsung: samsung,
++      iOS: iOS,
++      material: material,
++      iosSubtitle: iosSubtitle,
++      materialSubtitle: materialSubtitle,
++      ns: ns,
++    ));
++
++List<Widget> _buildAllSettingItems({
++  required BuildContext context,
++  required String searchQuery,
++  required Color tileColor,
++  required bool samsung,
++  required bool iOS,
++  required bool material,
++  required TextStyle iosSubtitle,
++  required TextStyle materialSubtitle,
++  required NavigatorService ns,
+ }) {
+   // return searchable items, headers, tiles, or sections
+   return [
+diff --git a/lib/database/global/settings.dart b/lib/database/global/settings.dart
+index a485def83..fbdc2a112 100644
+--- a/lib/database/global/settings.dart
++++ b/lib/database/global/settings.dart
+@@ -1,3 +1,4 @@
++import 'package:bluebubbles/helpers/ui/slim_profile.dart';
+ import 'dart:async';
+ import 'dart:convert';
+ 
+@@ -343,6 +344,7 @@ class Settings {
+     for (String s in keys) {
+       items[s] = PrefsSvc.admin.get(s);
+     }
++    SlimProfile.seedDefaults(items);
+     if (items.isNotEmpty) {
+       return Settings.fromMap(items);
+     } else {
+diff --git a/lib/helpers/ui/slim_profile.dart b/lib/helpers/ui/slim_profile.dart
+new file mode 100644
+index 000000000..0c6251743
+--- /dev/null
++++ b/lib/helpers/ui/slim_profile.dart
+@@ -0,0 +1,110 @@
++import 'package:bluebubbles/app/layouts/settings/widgets/layout/settings_section.dart';
++import 'package:bluebubbles/app/layouts/settings/widgets/search/searchable_setting_item.dart';
++import 'package:flutter/widgets.dart';
++
++/// `flutter build linux --dart-define=BB_SLIM=true` builds the slim profile: the settings a single desktop owner
++/// needs, with defaults that feel like a native Messages client. Nothing is removed from the app: hidden options keep
++/// their stored values and defaults, and a normal build is upstream's behaviour. The flag is a compile-time constant,
++/// so a normal build drops all of this.
++const bool kSlim = bool.fromEnvironment('BB_SLIM');
++
++class SlimProfile {
++  SlimProfile._();
++
++  /// Titles of settings tiles, switches and option lists that the slim build hides. Matched by exact title in
++  /// SettingsTile, SettingsSwitch and SettingsOptions, so a tile needs no edit at its call site.
++  static const Set<String> _hiddenTitles = {
++    // Desktop
++    'Launch on Startup',
++    'Show Startup Entry',
++    'Launch on Startup Minimized',
++    'Minimize to Tray',
++    'Actions',
++    // Appearance
++    'Theme Studio',
++    'App Skin',
++    'Colorful Avatars',
++    'Colorful Bubbles',
++    'Custom Avatar Colors',
++    'Custom Avatars',
++    // Chat list
++    'Show Sync Indicator in Chat List',
++    'Filtered Chat List',
++    'Unarchive Chats On New Message',
++    'Hide Dividers',
++    'Dense Conversation Tiles',
++    'Move Chat Creator Button to Header',
++    'Show Filters in Header',
++    'Show Custom Group Filters',
++    // Conversation
++    'Show Chat Name as Placeholder',
++    'Show Avatars in DM Chats',
++    'Message Options Order',
++    'Sync Group Chat Icons',
++    'Store Last Read Message',
++    'Hide Names in Reaction Details',
++    'Auto-open Keyboard',
++    'Swipe Message Box to Close Keyboard',
++    'Swipe Message Box to Open Keyboard',
++    'Hide Keyboard When Scrolling',
++    'Open Keyboard After Tapping Scroll To Bottom',
++    'Scroll To Bottom When Sending Messages',
++    // Attachments, advanced, notifications
++    'Only Auto-download Attachments on WiFi',
++    'High Performance Mode',
++    'Cancel Queued Messages on Failure',
++    'Send Delay',
++    'Maximum Group Avatar Count',
++    'Text Detection',
++    'Notify When Incremental Sync Complete',
++  };
++
++  /// Top-level settings entries hidden in the slim build.
++  static const Set<String> _hiddenTopLevel = {
++    'Custom Groups',
++    'Redacted Mode',
++    'Storage Analyzer',
++    'Developer Tools',
++    'Backup & Restore',
++    'Leave Us a Review',
++    'Join Our Discord',
++  };
++
++  static bool hides(String? title) => kSlim && title != null && _hiddenTitles.contains(title);
++
++  /// Drops the hidden top-level entries (and any section header left without entries).
++  static List<Widget> filterSettingItems(List<Widget> items) {
++    if (!kSlim) return items;
++    final out = <Widget>[];
++    for (final item in items) {
++      if (item is SearchableSettingItem && _hiddenTopLevel.contains(item.title)) continue;
++      if (item is SettingsSection && item.searchableSettingsItems != null) {
++        final kept = item.searchableSettingsItems!.where((i) => !_hiddenTopLevel.contains(i.title)).toList();
++        if (kept.isEmpty) {
++          // Drop the header placed just before an emptied section.
++          if (out.isNotEmpty && out.last is SearchableSettingItem) out.removeLast();
++          continue;
++        }
++        out.add(SettingsSection(backgroundColor: item.backgroundColor, searchableSettingsItems: kept));
++        continue;
++      }
++      out.add(item);
++    }
++    return out;
++  }
++
++  /// Defaults for a desktop that wants Messages-like behaviour. Only keys the user has never saved are seeded, so
++  /// nothing the owner changed is overwritten, and no account, server or Private API sending option is touched.
++  static void seedDefaults(Map<String, dynamic> stored) {
++    if (!kSlim) return;
++    const defaults = <String, dynamic>{
++      'statusIndicatorsOnChats': true,
++      'filterUnknownSenders': true,
++      'showDeliveryTimestamps': true,
++      'selectedActionIndices': [0],
++      'previewImageQuality': 1.0,
++      'replaceEmoticonsWithEmoji': true,
++    };
++    defaults.forEach((key, value) => stored.putIfAbsent(key, () => value));
++  }
++}
+-- 
+2.56.0
+

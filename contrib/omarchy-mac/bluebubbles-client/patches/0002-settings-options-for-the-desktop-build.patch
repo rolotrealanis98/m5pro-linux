@@ -1,0 +1,98 @@
+From 865c0831138d5ee4b077c5f4c3c03716b3df5ec5 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Sat, 28 Nov 2026 03:17:26 -0500
+Subject: [PATCH 2/9] settings: options for the desktop build
+
+UI scale, font scale and system font, follow the Omarchy theme, reopen the last
+chat; the titlebar defaults to hidden (Hyprland draws no decorations, and the
+Flutter-drawn buttons sit on top of the conversation header). Device-local keys
+stay out of backups. No UI yet.
+---
+ lib/database/global/settings.dart | 43 +++++++++++++++++++++++++++++--
+ 1 file changed, 41 insertions(+), 2 deletions(-)
+
+diff --git a/lib/database/global/settings.dart b/lib/database/global/settings.dart
+index 37006434a..a485def83 100644
+--- a/lib/database/global/settings.dart
++++ b/lib/database/global/settings.dart
+@@ -244,7 +244,22 @@ class Settings {
+   List<DetailsMenuAction> get detailsMenuActions => _detailsMenuActions;
+ 
+   // Linux settings
+-  final Rx<BBTitleBarStyle> titleBarStyle = BBTitleBarStyle.custom.obs;
++  final Rx<BBTitleBarStyle> titleBarStyle = BBTitleBarStyle.hidden.obs;
++
++  /// UI scale for the whole app on Linux. 0 follows the desktop's text size (see DesktopScale).
++  final RxDouble uiScale = 0.0.obs;
++
++  /// Extra text-only scale on top of [uiScale].
++  final RxDouble fontScale = 1.0.obs;
++
++  /// Recolor the app with the active Omarchy theme (Linux).
++  final RxBool followOmarchyTheme = true.obs;
++
++  /// Reopen the last opened chat at start (desktop). Off: start on the chat list.
++  final RxBool restoreLastChat = false.obs;
++
++  /// Use the desktop's interface font instead of the app's own.
++  final RxBool useSystemFont = true.obs;
+ 
+   // Desktop settings
+   final RxBool useDesktopAccent = RxBool(false);
+@@ -351,6 +366,11 @@ class Settings {
+     'desktopNotificationSoundPath',
+     'lastIncrementalSync',
+     'lastIncrementalSyncRowId',
++    'uiScale',
++    'fontScale',
++    'useSystemFont',
++    'restoreLastChat',
++    'followOmarchyTheme',
+   ];
+ 
+   Map<String, dynamic> toMap({bool includeAll = true}) {
+@@ -468,6 +488,11 @@ class Settings {
+       'pinColumnsLandscape': pinColumnsLandscape.value,
+       'maxAvatarsInGroupWidget': maxAvatarsInGroupWidget.value,
+       'titleBarStyle': titleBarStyle.value.index,
++      'uiScale': uiScale.value,
++      'fontScale': fontScale.value,
++      'useSystemFont': useSystemFont.value,
++      'restoreLastChat': restoreLastChat.value,
++      'followOmarchyTheme': followOmarchyTheme.value,
+       'windowEffect': windowEffect.value.name,
+       'windowEffectCustomOpacityLight': windowEffectCustomOpacityLight.value,
+       'windowEffectCustomOpacityDark': windowEffectCustomOpacityDark.value,
+@@ -728,6 +753,15 @@ class Settings {
+             ? BBTitleBarStyle.native
+             : SettingsSvc.settings.titleBarStyle.value;
+ 
++    SettingsSvc.settings.uiScale.value = (map['uiScale'] as num?)?.toDouble() ?? SettingsSvc.settings.uiScale.value;
++    SettingsSvc.settings.fontScale.value =
++        (map['fontScale'] as num?)?.toDouble() ?? SettingsSvc.settings.fontScale.value;
++    SettingsSvc.settings.useSystemFont.value = map['useSystemFont'] ?? SettingsSvc.settings.useSystemFont.value;
++    SettingsSvc.settings.followOmarchyTheme.value =
++        map['followOmarchyTheme'] ?? SettingsSvc.settings.followOmarchyTheme.value;
++    SettingsSvc.settings.restoreLastChat.value =
++        map['restoreLastChat'] ?? SettingsSvc.settings.restoreLastChat.value;
++
+     SettingsSvc.settings.showReplyField.value = map['showReplyField'] ?? SettingsSvc.settings.showReplyField.value;
+     if (map.containsKey('selectedActionIndices')) {
+       SettingsSvc.settings.selectedActionIndices.value =
+@@ -916,7 +950,12 @@ class Settings {
+         ? BBTitleBarStyle.values[map['titleBarStyle']]
+         : map['useCustomTitleBar'] == false
+             ? BBTitleBarStyle.native
+-            : BBTitleBarStyle.custom;
++            : BBTitleBarStyle.hidden;
++    s.uiScale.value = (map['uiScale'] as num?)?.toDouble() ?? 0.0;
++    s.fontScale.value = (map['fontScale'] as num?)?.toDouble() ?? 1.0;
++    s.useSystemFont.value = map['useSystemFont'] ?? true;
++    s.restoreLastChat.value = map['restoreLastChat'] ?? false;
++    s.followOmarchyTheme.value = map['followOmarchyTheme'] ?? true;
+ 
+     s.showReplyField.value = map['showReplyField'] ?? true;
+     s.selectedActionIndices.value = _processSelectedActionIndices(map['selectedActionIndices'], s.showReplyField.value);
+-- 
+2.56.0
+

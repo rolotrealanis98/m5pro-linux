@@ -1,0 +1,28 @@
+From 31232587ab5b5e1144de5fc90857101efc42cd6d Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 08:33:47 -0500
+Subject: [PATCH 1/9] linux: BLUEBUBBLES_IMPELLER=1 opts into Impeller
+
+Skia stays the default. The opt-in lets the renderer be compared on a real GPU,
+where the llvmpipe flicker that motivated the Skia pin does not apply.
+---
+ linux/my_application.cc | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/linux/my_application.cc b/linux/my_application.cc
+index ed338b226..346cf920f 100644
+--- a/linux/my_application.cc
++++ b/linux/my_application.cc
+@@ -114,7 +114,8 @@ static void my_application_activate(GApplication* application) {
+   g_autoptr(FlDartProject) project = fl_dart_project_new();
+   fl_dart_project_set_dart_entrypoint_arguments(project, self->dart_entrypoint_arguments);
+   // Skia until flutter/flutter#192915 (Impeller flicker on VM/llvmpipe GPUs) is fixed.
+-  fl_dart_project_set_enable_impeller(project, FALSE);
++  // BLUEBUBBLES_IMPELLER=1 opts in, to compare the two renderers on a real GPU.
++  fl_dart_project_set_enable_impeller(project, g_strcmp0(g_getenv("BLUEBUBBLES_IMPELLER"), "1") == 0);
+   fl_dart_project_set_ui_thread_policy(project, FL_UI_THREAD_POLICY_RUN_ON_SEPARATE_THREAD);
+ 
+   FlView* view = fl_view_new(project);
+-- 
+2.56.0
+

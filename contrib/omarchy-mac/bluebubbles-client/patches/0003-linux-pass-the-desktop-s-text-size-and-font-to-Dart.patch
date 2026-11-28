@@ -1,0 +1,147 @@
+From ff9433e7e9f0b4a7397ef126eb13d416079b4c3c Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Sat, 28 Nov 2026 03:17:26 -0500
+Subject: [PATCH 3/9] linux: pass the desktop's text size and font to Dart
+
+Read org.gnome.desktop.interface text-scaling-factor and font-name (what
+omarchy-display-text-size and the font settings write) in the runner, hand them
+over as --gtk-text-scale= and --gtk-font= so the first frame has them, and push
+changes over the bluebubbles/gtk-settings channel. The window title is now
+BlueBubbles instead of bluebubbles_app.
+---
+ linux/my_application.cc | 79 +++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 77 insertions(+), 2 deletions(-)
+
+diff --git a/linux/my_application.cc b/linux/my_application.cc
+index 346cf920f..d39d7f8dc 100644
+--- a/linux/my_application.cc
++++ b/linux/my_application.cc
+@@ -18,6 +18,9 @@ struct _MyApplication {
+   // Channel the Flutter side uses to push status to / dismiss the native splash
+   // (mirrors splash_channel_ in windows/runner/flutter_window.cpp).
+   FlMethodChannel* splash_channel;
++  // Pushes GTK text size and font changes (org.gnome.desktop.interface) to Dart.
++  FlMethodChannel* gtk_settings_channel;
++  GSettings* interface_settings;
+ };
+ 
+ G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+@@ -56,6 +59,52 @@ static void splash_method_call_cb(FlMethodChannel* channel, FlMethodCall* method
+   }
+ }
+ 
++// The desktop's text settings, which Omarchy drives with `omarchy-display-text-size`
++// (GTK text-scaling-factor) and its font settings. Read here so the first Dart frame
++// already has them, and watched so a change reaches the running app.
++static GSettings* open_interface_settings() {
++  GSettingsSchemaSource* source = g_settings_schema_source_get_default();
++  if (source == nullptr) return nullptr;
++  g_autoptr(GSettingsSchema) schema =
++      g_settings_schema_source_lookup(source, "org.gnome.desktop.interface", TRUE);
++  if (schema == nullptr) return nullptr;
++  return g_settings_new_full(schema, nullptr, nullptr);
++}
++
++static gboolean has_key(GSettings* settings, const gchar* key) {
++  g_autoptr(GSettingsSchema) schema = nullptr;
++  g_object_get(settings, "settings-schema", &schema, nullptr);
++  return schema != nullptr && g_settings_schema_has_key(schema, key);
++}
++
++static double interface_text_scale(GSettings* settings) {
++  if (settings == nullptr || !has_key(settings, "text-scaling-factor")) return 1.0;
++  return g_settings_get_double(settings, "text-scaling-factor");
++}
++
++static gchar* interface_font_name(GSettings* settings) {
++  if (settings == nullptr || !has_key(settings, "font-name")) return g_strdup("");
++  return g_settings_get_string(settings, "font-name");
++}
++
++static void push_interface_settings(MyApplication* self) {
++  if (self->gtk_settings_channel == nullptr || self->interface_settings == nullptr) return;
++  g_autofree gchar* font = interface_font_name(self->interface_settings);
++  g_autoptr(FlValue) args = fl_value_new_map();
++  fl_value_set_string_take(args, "textScale",
++                           fl_value_new_float(interface_text_scale(self->interface_settings)));
++  fl_value_set_string_take(args, "font", fl_value_new_string(font));
++  fl_method_channel_invoke_method(self->gtk_settings_channel, "changed", args, nullptr, nullptr,
++                                  nullptr);
++}
++
++static void interface_settings_changed_cb(GSettings* settings, gchar* key, gpointer user_data) {
++  (void)settings;
++  if (g_strcmp0(key, "text-scaling-factor") == 0 || g_strcmp0(key, "font-name") == 0) {
++    push_interface_settings(MY_APPLICATION(user_data));
++  }
++}
++
+ // True when "minimized" was passed on the command line — the app starts hidden
+ // in the tray, so we skip the splash (mirrors the Windows runner).
+ static gboolean started_minimized(char** arguments) {
+@@ -99,13 +148,13 @@ static void my_application_activate(GApplication* application) {
+   if (use_header_bar) {
+     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
+     gtk_widget_show(GTK_WIDGET(header_bar));
+-    gtk_header_bar_set_title(header_bar, "bluebubbles_app");
++    gtk_header_bar_set_title(header_bar, "BlueBubbles");
+     gtk_header_bar_set_show_close_button(header_bar, TRUE);
+     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
+   } else {
+     auto bdw = bitsdojo_window_from(window);
+     bdw->setCustomFrame(true);
+-    gtk_window_set_title(window, "bluebubbles_app");
++    gtk_window_set_title(window, "BlueBubbles");
+   }
+ 
+   gtk_window_set_default_size(window, 1280, 720);
+@@ -168,6 +217,14 @@ static void my_application_activate(GApplication* application) {
+   fl_method_channel_set_method_call_handler(self->splash_channel, splash_method_call_cb,
+                                             self, nullptr);
+ 
++  self->gtk_settings_channel = fl_method_channel_new(
++      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
++      "bluebubbles/gtk-settings", FL_METHOD_CODEC(codec));
++  if (self->interface_settings != nullptr) {
++    g_signal_connect(self->interface_settings, "changed", G_CALLBACK(interface_settings_changed_cb),
++                     self);
++  }
++
+   gtk_widget_grab_focus(GTK_WIDGET(view));
+ }
+ 
+@@ -177,6 +234,22 @@ static gboolean my_application_local_command_line(GApplication* application, gch
+   // Strip out the first argument as it is the binary name.
+   self->dart_entrypoint_arguments = g_strdupv(*arguments + 1);
+ 
++  // Hand the desktop's text settings to Dart as trailing arguments ("minimized",
++  // when present, must stay first).
++  self->interface_settings = open_interface_settings();
++  {
++    g_autofree gchar* font = interface_font_name(self->interface_settings);
++    g_autofree gchar* scale_arg = g_strdup_printf(
++        "--gtk-text-scale=%.4f", interface_text_scale(self->interface_settings));
++    g_autofree gchar* font_arg = g_strdup_printf("--gtk-font=%s", font);
++    guint n = g_strv_length(self->dart_entrypoint_arguments);
++    self->dart_entrypoint_arguments =
++        static_cast<char**>(g_realloc(self->dart_entrypoint_arguments, sizeof(char*) * (n + 3)));
++    self->dart_entrypoint_arguments[n] = g_strdup(scale_arg);
++    self->dart_entrypoint_arguments[n + 1] = g_strdup(font_arg);
++    self->dart_entrypoint_arguments[n + 2] = nullptr;
++  }
++
+   g_autoptr(GError) error = nullptr;
+   if (!g_application_register(application, nullptr, &error)) {
+      g_warning("Failed to register: %s", error->message);
+@@ -201,6 +274,8 @@ static void my_application_dispose(GObject* object) {
+   MyApplication* self = MY_APPLICATION(object);
+   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+   g_clear_object(&self->splash_channel);
++  g_clear_object(&self->gtk_settings_channel);
++  g_clear_object(&self->interface_settings);
+   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
+ }
+ 
+-- 
+2.56.0
+

@@ -1,0 +1,84 @@
+{
+ "label": "sc-default",
+ "install": "/home/rolo/.local/opt/bluebubbles",
+ "wldebug": true,
+ "t_window_mapped_s": 0.24,
+ "t_cpu_settled_s": 4.2,
+ "cpu_seconds_startup": 2.0,
+ "rss_mb_after_start": 518,
+ "gl_libs": [
+  "libEGL.so.1.1.0",
+  "libEGL_aurora.so.0.0.0",
+  "libGLESv2.so.2.1.0",
+  "libGLX.so.0.0.0",
+  "libGLX_aurora.so.0.0.0",
+  "libgallium-26.3.0-devel.so",
+  "libgbm.so.1.0.0",
+  "libvulkan.so.1.4.363"
+ ],
+ "threads": 40,
+ "window": {
+  "class": "bluebubbles",
+  "initialClass": "bluebubbles",
+  "at": [
+   290,
+   155
+  ],
+  "size": [
+   1100,
+   759
+  ],
+  "floating": true,
+  "xwayland": false
+ },
+ "launch_env": {
+  "GDK_BACKEND": "wayland,x11,*",
+  "GDK_SCALE": "2"
+ },
+ "gdk_env": {
+  "GDK_BACKEND": "wayland,x11,*",
+  "GDK_SCALE": "2"
+ },
+ "scroll10s": {
+  "cpu_pct": 46.1,
+  "wakeups_per_s": 675.2,
+  "rss_mb": 579
+ },
+ "wl_window": [
+  1795786224.7160475,
+  1795786234.7679727
+ ],
+ "scroll_commits": {
+  "surface": "wl_surface#32",
+  "commits": 477,
+  "fps": 47.5,
+  "interval_ms_p50_p95_p99_max": [
+   16.7,
+   19.4,
+   66.7,
+   499.8
+  ],
+  "over_16.7ms_pct": 48.9
+ },
+ "wl_buffer_scale_calls": [
+  "2"
+ ],
+ "wl_buffer_sizes": [
+  "2200x1518",
+  "2636x1612",
+  "2652x1628"
+ ],
+ "xdg_configure": [
+  "0x0",
+  "1100x759"
+ ],
+ "xdg_min_size": [
+  "0, 0",
+  "109, 39",
+  "111, 42",
+  "117, 47",
+  "300, 300"
+ ],
+ "fractional_scale_requested": false,
+ "shots_dir": "/tmp/bbshots-sc-default"
+}

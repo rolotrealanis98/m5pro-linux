@@ -1,0 +1,332 @@
+From f7be620e02e13e9dc53a8b05b6f90ec8c8258928 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Sat, 28 Nov 2026 03:17:26 -0500
+Subject: [PATCH 4/9] ui: follow the desktop's text size, with a scale setting
+
+The engine applies GTK text-scaling-factor to text alone, which shrinks type but
+not widgets, so the Omarchy text size and the app's phone-sized layout disagreed.
+Scale the whole UI instead: the app is laid out at window/scale and scaled back,
+and the engine's text factor is replaced by a font-size multiplier. The automatic
+scale makes the body text (14 px) as large as the desktop's interface text
+(12 px at Omarchy's current size), follows omarchy-display-text-size live, and
+Desktop Settings gets Match Desktop Text Size, Interface Scale and Font Size.
+BB_UI_SCALE and BB_FONT_SCALE override both for measuring.
+---
+ .../settings/pages/desktop/desktop_panel.dart |  79 ++++++++++
+ lib/helpers/ui/desktop_scale.dart             | 143 ++++++++++++++++++
+ lib/main.dart                                 |  16 +-
+ 3 files changed, 234 insertions(+), 4 deletions(-)
+ create mode 100644 lib/helpers/ui/desktop_scale.dart
+
+diff --git a/lib/app/layouts/settings/pages/desktop/desktop_panel.dart b/lib/app/layouts/settings/pages/desktop/desktop_panel.dart
+index d2be7dd73..eb57442bd 100644
+--- a/lib/app/layouts/settings/pages/desktop/desktop_panel.dart
++++ b/lib/app/layouts/settings/pages/desktop/desktop_panel.dart
+@@ -3,6 +3,7 @@ import 'dart:math';
+ 
+ import 'package:animated_size_and_fade/animated_size_and_fade.dart';
+ import 'package:bluebubbles/helpers/helpers.dart';
++import 'package:bluebubbles/helpers/ui/desktop_scale.dart';
+ import 'package:bluebubbles/app/layouts/settings/widgets/settings_widgets.dart';
+ import 'package:bluebubbles/app/components/avatars/contact_avatar_widget.dart';
+ import 'package:bluebubbles/database/models.dart' hide PlatformFile;
+@@ -35,6 +36,83 @@ class _DesktopPanelState extends State<DesktopPanel> with ThemeHelpers {
+     notificationPlayer.stream.playing.listen((value) => playingNotificationSound.value = value);
+   }
+ 
++  /// Text and UI size. By default both follow the desktop's text size (Omarchy's `omarchy-display-text-size`).
++  List<Widget> _interfaceTiles() {
++    final settings = SettingsSvc.settings;
++    return [
++      Obx(() => SettingsSwitch(
++            onChanged: (bool val) async {
++              settings.uiScale.value = val ? 0 : double.parse(DesktopScale.uiScale.toStringAsFixed(2));
++              await settings.saveOneAsync('uiScale');
++            },
++            initialVal: settings.uiScale.value == 0,
++            title: "Match Desktop Text Size",
++            subtitle:
++                "Scale the whole app so its text is as large as the desktop's interface text (now ${DesktopScale.gtkTextPx.toStringAsFixed(1)} px, auto scale ${DesktopScale.autoUiScale.toStringAsFixed(2)}x). Follows changes made with omarchy-display-text-size.",
++            backgroundColor: tileColor,
++            leading: const SettingsLeadingIcon(
++              iosIcon: CupertinoIcons.textformat_size,
++              materialIcon: Icons.format_size,
++              containerColor: Colors.teal,
++            ),
++          )),
++      Obx(() => settings.uiScale.value == 0
++          ? const SizedBox.shrink()
++          : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
++              Container(
++                padding: const EdgeInsets.only(left: 15, top: 10),
++                child: Text("Interface Scale", style: Theme.of(this.context).textTheme.bodyLarge),
++              ),
++              SettingsSlider(
++                  startingVal: settings.uiScale.value,
++                  update: (double val) => settings.uiScale.value = double.parse(val.toStringAsFixed(2)),
++                  onChangeEnd: (double val) async => await settings.saveOneAsync('uiScale'),
++                  formatValue: ((double val) => "${val.toStringAsFixed(2)}x"),
++                  backgroundColor: tileColor,
++                  min: 0.6,
++                  max: 1.6,
++                  divisions: 20),
++            ])),
++      Container(
++        color: tileColor,
++        padding: const EdgeInsets.only(left: 15, top: 10),
++        alignment: Alignment.centerLeft,
++        child: Text("Font Size", style: Theme.of(this.context).textTheme.bodyLarge),
++      ),
++      SettingsSlider(
++          startingVal: settings.fontScale.value,
++          update: (double val) => settings.fontScale.value = double.parse(val.toStringAsFixed(2)),
++          onChangeEnd: (double val) async => await settings.saveOneAsync('fontScale'),
++          formatValue: ((double val) => "${(val * 100).round()}%"),
++          backgroundColor: tileColor,
++          min: 0.8,
++          max: 1.5,
++          divisions: 14),
++      Obx(() => SettingsSwitch(
++            onChanged: (bool val) async {
++              settings.useSystemFont.value = val;
++              await settings.saveOneAsync('useSystemFont');
++            },
++            initialVal: settings.useSystemFont.value,
++            title: "Use Desktop Font",
++            subtitle: "Use the interface font of the desktop (${DesktopScale.systemFamily}) instead of the app's own.",
++            backgroundColor: tileColor,
++            leading: const SettingsLeadingIcon(
++              iosIcon: CupertinoIcons.textformat,
++              materialIcon: Icons.font_download_outlined,
++              containerColor: Colors.blueGrey,
++            ),
++          )),
++      Container(
++        color: tileColor,
++        child: Padding(
++          padding: const EdgeInsets.only(left: 15.0),
++          child: SettingsDivider(color: Theme.of(this.context).colorScheme.surfaceVariant),
++        ),
++      ),
++    ];
++  }
++
+   @override
+   Widget build(BuildContext context) {
+     final RxInt maxActions = Platform.isWindows
+@@ -55,6 +133,7 @@ class _DesktopPanelState extends State<DesktopPanel> with ThemeHelpers {
+               SettingsSection(
+                 backgroundColor: tileColor,
+                 children: [
++                  if (Platform.isLinux) ..._interfaceTiles(),
+                   Obx(() => SettingsSwitch(
+                         onChanged: (bool val) async {
+                           SettingsSvc.settings.launchAtStartup.value = await SettingsSvc.setupLaunchAtStartup(
+diff --git a/lib/helpers/ui/desktop_scale.dart b/lib/helpers/ui/desktop_scale.dart
+new file mode 100644
+index 000000000..5d9a5923b
+--- /dev/null
++++ b/lib/helpers/ui/desktop_scale.dart
+@@ -0,0 +1,143 @@
++import 'dart:io';
++import 'dart:math' as math;
++
++import 'package:bluebubbles/services/services.dart';
++import 'package:flutter/material.dart';
++import 'package:flutter/services.dart';
++import 'package:get/get.dart';
++
++/// Makes text and UI size follow the desktop (Omarchy) instead of a fixed phone-sized layout.
++///
++/// Omarchy has one text-size knob (`omarchy-display-text-size`) that sets the GTK
++/// `text-scaling-factor`, the interface font and the shell size together. The Linux runner reads
++/// them from GSettings, passes them as `--gtk-text-scale=` and `--gtk-font=` and pushes changes over
++/// the `bluebubbles/gtk-settings` channel. The Flutter engine already applies `text-scaling-factor`
++/// to text alone, which shrinks the type but not the widgets; this scales both together.
++class DesktopScale {
++  DesktopScale._();
++
++  /// GTK interface text size the app's base body text (Material `bodyMedium`, 14 logical px) is matched to.
++  static const double baseBodyPx = 14;
++
++  static const _channel = MethodChannel('bluebubbles/gtk-settings');
++
++  /// GTK `text-scaling-factor`, 1.0 when unknown.
++  static final RxDouble gtkTextScale = 1.0.obs;
++
++  /// GTK interface font name as `Family Size`, for example `Liberation Sans 11`. Empty when unknown.
++  static final RxString gtkFont = ''.obs;
++
++  static bool get enabled => Platform.isLinux;
++
++  static void init(List<String> arguments) {
++    if (!enabled) return;
++    for (final arg in arguments) {
++      if (arg.startsWith('--gtk-text-scale=')) {
++        gtkTextScale.value = double.tryParse(arg.substring('--gtk-text-scale='.length)) ?? 1.0;
++      } else if (arg.startsWith('--gtk-font=')) {
++        gtkFont.value = arg.substring('--gtk-font='.length);
++      }
++    }
++    _channel.setMethodCallHandler((call) async {
++      if (call.method != 'changed') return null;
++      final args = call.arguments as Map<Object?, Object?>;
++      gtkTextScale.value = (args['textScale'] as num?)?.toDouble() ?? gtkTextScale.value;
++      gtkFont.value = (args['font'] as String?) ?? gtkFont.value;
++      return null;
++    });
++  }
++
++  /// `Liberation Sans 11` -> `Liberation Sans`.
++  static String familyOf(String font) {
++    final match = RegExp(r'^(.*?)\s+\d+(\.\d+)?$').firstMatch(font.trim());
++    return (match?.group(1) ?? font).trim();
++  }
++
++  /// Interface font size in CSS pixels at 96 dpi with the text scaling factor applied: `Liberation Sans 11` at 0.8182
++  /// is 9 pt, 12 px. 11 pt when the font name has no size.
++  static double textPxFor(String font, double textScale) {
++    final match = RegExp(r'(\d+(\.\d+)?)$').firstMatch(font.trim());
++    final pt = double.tryParse(match?.group(1) ?? '') ?? 11;
++    return pt * textScale * 96 / 72;
++  }
++
++  /// UI scale that makes the app's body text ([baseBodyPx]) as large as the desktop's interface text.
++  static double autoScaleFor(String font, double textScale) =>
++      (textPxFor(font, textScale) / baseBodyPx).clamp(0.6, 2.0).toDouble();
++
++  static String get systemFamily => familyOf(gtkFont.value);
++
++  static double get gtkTextPx => textPxFor(gtkFont.value, gtkTextScale.value);
++
++  static double get autoUiScale => autoScaleFor(gtkFont.value, gtkTextScale.value);
++
++  /// BB_UI_SCALE and BB_FONT_SCALE override the settings, for measuring.
++  static double? get _envUiScale => double.tryParse(Platform.environment['BB_UI_SCALE'] ?? '');
++  static double? get _envFontScale => double.tryParse(Platform.environment['BB_FONT_SCALE'] ?? '');
++
++  /// The scale applied to the whole UI (layout and text together).
++  static double get uiScale {
++    if (!enabled) return 1.0;
++    final env = _envUiScale;
++    if (env != null) return env;
++    final chosen = SettingsSvc.settings.uiScale.value;
++    return chosen > 0 ? chosen : autoUiScale;
++  }
++
++  /// Extra text-only multiplier on top of [uiScale].
++  static double get fontScale {
++    if (!enabled) return 1.0;
++    return _envFontScale ?? SettingsSvc.settings.fontScale.value;
++  }
++
++  /// Font family for all text: the desktop's interface font, or null for the app's own.
++  static String? get family {
++    if (!enabled || !SettingsSvc.settings.useSystemFont.value) return null;
++    final f = systemFamily;
++    return f.isEmpty ? null : f;
++  }
++}
++
++/// Applies [DesktopScale] around the app: lays the child out at (window / scale) logical pixels and
++/// scales it back up, and replaces the engine's text-only scaling factor with the app's own.
++class DesktopScaleWrapper extends StatelessWidget {
++  const DesktopScaleWrapper({super.key, required this.child});
++
++  final Widget child;
++
++  @override
++  Widget build(BuildContext context) {
++    if (!DesktopScale.enabled) return child;
++    return Obx(() {
++      // Read every input here so this subtree rebuilds when any of them changes.
++      DesktopScale.gtkTextScale.value;
++      DesktopScale.gtkFont.value;
++      SettingsSvc.settings.uiScale.value;
++      final fontScale = DesktopScale.fontScale;
++      final scale = DesktopScale.uiScale;
++
++      return LayoutBuilder(builder: (context, constraints) {
++        final media = MediaQuery.of(context);
++        final width = constraints.maxWidth / scale;
++        final height = constraints.maxHeight / scale;
++        Widget inner = MediaQuery(
++          data: media.copyWith(
++            size: Size(width, height),
++            textScaler: TextScaler.linear(fontScale),
++            padding: media.padding / scale,
++            viewPadding: media.viewPadding / scale,
++            viewInsets: media.viewInsets / scale,
++          ),
++          child: child,
++        );
++        if ((scale - 1).abs() < 0.005) return inner;
++        // FittedBox lays its child out unconstrained and scales it to fill, with correct hit testing.
++        return FittedBox(
++          fit: BoxFit.fill,
++          alignment: Alignment.topLeft,
++          child: SizedBox(width: math.max(1, width), height: math.max(1, height), child: inner),
++        );
++      });
++    });
++  }
++}
+diff --git a/lib/main.dart b/lib/main.dart
+index 811a504a6..545a34602 100644
+--- a/lib/main.dart
++++ b/lib/main.dart
+@@ -21,6 +21,7 @@ import 'package:bluebubbles/app/layouts/startup/failure_to_start.dart';
+ import 'package:bluebubbles/app/layouts/setup/setup_view.dart';
+ import 'package:bluebubbles/app/layouts/startup/splash_screen.dart';
+ import 'package:bluebubbles/app/wrappers/titlebar_wrapper.dart';
++import 'package:bluebubbles/helpers/ui/desktop_scale.dart';
+ import 'package:bluebubbles/database/models.dart';
+ import 'package:bluebubbles/services/services.dart';
+ import 'package:collection/collection.dart';
+@@ -69,6 +70,7 @@ Future<Null> bubble() async {
+ Future<Null> initApp(bool bubble, List<String> arguments) async {
+   runZonedGuarded<Future<void>>(() async {
+     WidgetsFlutterBinding.ensureInitialized();
++    DesktopScale.init(arguments);
+ 
+     /* ----- DESKTOP NATIVE SPLASH STATUS ----- */
+     // Pushes startup status to the native splash; detached once it's dismissed.
+@@ -333,7 +335,11 @@ class Main extends StatelessWidget {
+       dark:
+           darkTheme.copyWith(textSelectionTheme: TextSelectionThemeData(selectionColor: darkTheme.colorScheme.primary)),
+       initial: savedThemeMode ?? AdaptiveThemeMode.system,
+-      builder: (theme, darkTheme) => GetMaterialApp(
++      builder: (theme, darkTheme) => Obx(() {
++        // Re-theme when the desktop font or the font setting changes.
++        DesktopScale.gtkFont.value;
++        SettingsSvc.settings.useSystemFont.value;
++        return GetMaterialApp(
+         debugShowCheckedModeBanner: false,
+         title: 'BlueBubbles',
+         theme: theme.withEmojiFallback.copyWith(
+@@ -394,7 +400,8 @@ class Main extends StatelessWidget {
+           LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.keyI): const OpenChatDetailsIntent(),
+           LogicalKeySet(LogicalKeyboardKey.escape): const GoBackIntent(),
+         },
+-        builder: (context, child) => SafeArea(
++        builder: (context, child) => DesktopScaleWrapper(
++            child: SafeArea(
+           top: false,
+           bottom: false,
+           // secure_application has no Linux implementation; mounting it (and the
+@@ -494,9 +501,10 @@ class Main extends StatelessWidget {
+                     },
+                   ),
+                 ),
+-        ),
++        )),
+         defaultTransition: Transition.cupertino,
+-      ),
++        );
++      }),
+     );
+   }
+ }
+-- 
+2.56.0
+

@@ -1,0 +1,61 @@
+{
+ "label": "skia-full",
+ "install": "/home/rolo/.local/opt/bluebubbles-m5pro",
+ "wldebug": false,
+ "t_window_mapped_s": 0.24,
+ "t_cpu_settled_s": 4.2,
+ "cpu_seconds_startup": 1.4,
+ "rss_mb_after_start": 537,
+ "gl_libs": [
+  "libEGL.so.1.1.0",
+  "libEGL_aurora.so.0.0.0",
+  "libGLESv2.so.2.1.0",
+  "libGLX.so.0.0.0",
+  "libGLX_aurora.so.0.0.0",
+  "libgallium-26.3.0-devel.so",
+  "libgbm.so.1.0.0",
+  "libvulkan.so.1.4.363"
+ ],
+ "threads": 41,
+ "window": {
+  "class": "bluebubbles",
+  "initialClass": "bluebubbles",
+  "at": [
+   290,
+   155
+  ],
+  "size": [
+   1100,
+   759
+  ],
+  "floating": true,
+  "xwayland": false
+ },
+ "launch_env": {
+  "GDK_BACKEND": "wayland,x11,*",
+  "GDK_SCALE": "2"
+ },
+ "gdk_env": {
+  "GDK_BACKEND": "wayland,x11,*",
+  "GDK_SCALE": "2"
+ },
+ "idle60": {
+  "cpu_pct": 1.23,
+  "wakeups_per_s": 25.8,
+  "nonvol_per_s": 4.4,
+  "rss_mb_min_max": [
+   566,
+   770
+  ]
+ },
+ "scroll10s": {
+  "cpu_pct": 47.4,
+  "wakeups_per_s": 1866.5,
+  "rss_mb": 1002
+ },
+ "wl_window": [
+  1795787351.5731177,
+  1795787361.6316803
+ ],
+ "shots_dir": "/tmp/bbshots-skia-full"
+}

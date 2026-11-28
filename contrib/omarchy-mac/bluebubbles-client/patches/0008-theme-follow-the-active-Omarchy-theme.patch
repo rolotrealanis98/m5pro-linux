@@ -1,0 +1,299 @@
+From 89e98dd524c090fb94637eb85aba84e4fde4005f Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Sat, 28 Nov 2026 03:17:27 -0500
+Subject: [PATCH 8/9] theme: follow the active Omarchy theme
+
+Recolor the light and dark themes with ~/.local/state/omarchy/current/theme/
+colors.toml (accent, background, foreground, raised and muted shades, error,
+green) and re-apply when Omarchy switches theme. A Desktop Settings switch turns
+it off. Unit tests for the scale math and the colors.toml parser.
+---
+ .../settings/pages/desktop/desktop_panel.dart |  16 +++
+ lib/main.dart                                 |   4 +
+ lib/services/ui/theme/omarchy_palette.dart    | 125 ++++++++++++++++++
+ lib/services/ui/theme/themes_service.dart     |  11 ++
+ test/desktop_follow_test.dart                 |  62 +++++++++
+ 5 files changed, 218 insertions(+)
+ create mode 100644 lib/services/ui/theme/omarchy_palette.dart
+ create mode 100644 test/desktop_follow_test.dart
+
+diff --git a/lib/app/layouts/settings/pages/desktop/desktop_panel.dart b/lib/app/layouts/settings/pages/desktop/desktop_panel.dart
+index 2b9d0000b..4d6f8816a 100644
+--- a/lib/app/layouts/settings/pages/desktop/desktop_panel.dart
++++ b/lib/app/layouts/settings/pages/desktop/desktop_panel.dart
+@@ -103,6 +103,22 @@ class _DesktopPanelState extends State<DesktopPanel> with ThemeHelpers {
+               containerColor: Colors.blueGrey,
+             ),
+           )),
++      Obx(() => SettingsSwitch(
++            onChanged: (bool val) async {
++              settings.followOmarchyTheme.value = val;
++              await settings.saveOneAsync('followOmarchyTheme');
++              ThemeSvc.reloadFromSystem();
++            },
++            initialVal: settings.followOmarchyTheme.value,
++            title: "Follow Omarchy Theme",
++            subtitle: "Use the colors of the active Omarchy theme, and switch when the theme changes.",
++            backgroundColor: tileColor,
++            leading: const SettingsLeadingIcon(
++              iosIcon: CupertinoIcons.paintbrush,
++              materialIcon: Icons.palette_outlined,
++              containerColor: Colors.purple,
++            ),
++          )),
+       Obx(() => SettingsSwitch(
+             onChanged: (bool val) async {
+               settings.restoreLastChat.value = val;
+diff --git a/lib/main.dart b/lib/main.dart
+index 127504516..c33b88c19 100644
+--- a/lib/main.dart
++++ b/lib/main.dart
+@@ -22,6 +22,7 @@ import 'package:bluebubbles/app/layouts/setup/setup_view.dart';
+ import 'package:bluebubbles/app/layouts/startup/splash_screen.dart';
+ import 'package:bluebubbles/app/wrappers/titlebar_wrapper.dart';
+ import 'package:bluebubbles/helpers/ui/desktop_perf.dart';
++import 'package:bluebubbles/services/ui/theme/omarchy_palette.dart';
+ import 'package:bluebubbles/helpers/ui/desktop_scale.dart';
+ import 'package:bluebubbles/database/models.dart';
+ import 'package:bluebubbles/services/services.dart';
+@@ -255,6 +256,9 @@ Future<Null> initApp(bool bubble, List<String> arguments) async {
+         savedThemeMode: await AdaptiveTheme.getThemeMode(),
+       )));
+       DesktopPerf.afterRunApp();
++      if (Platform.isLinux) OmarchyPalette.watch(() {
++        if (SettingsSvc.settings.followOmarchyTheme.value) ThemeSvc.reloadFromSystem();
++      });
+     } else {
+       runApp(FailureToStart(e: exception, s: stacktrace));
+       throw Exception("$exception $stacktrace");
+diff --git a/lib/services/ui/theme/omarchy_palette.dart b/lib/services/ui/theme/omarchy_palette.dart
+new file mode 100644
+index 000000000..3825982c4
+--- /dev/null
++++ b/lib/services/ui/theme/omarchy_palette.dart
+@@ -0,0 +1,125 @@
++import 'dart:async';
++
++import 'package:bluebubbles/helpers/helpers.dart';
++import 'package:flutter/material.dart';
++import 'package:universal_io/io.dart';
++
++/// The active Omarchy theme's colors (`~/.local/state/omarchy/current/theme/colors.toml`), applied to the app's
++/// themes so Messages looks like the rest of the desktop. Omarchy rewrites that directory when the theme changes;
++/// [watch] reports it.
++class OmarchyPalette {
++  OmarchyPalette._(this._colors, this.dark);
++
++  final Map<String, Color> _colors;
++  final bool dark;
++
++  static String get _dir {
++    final state = Platform.environment['XDG_STATE_HOME'] ?? '${Platform.environment['HOME']}/.local/state';
++    return '$state/omarchy/current';
++  }
++
++  /// The current palette, or null when this is not an Omarchy session or the file cannot be read.
++  static OmarchyPalette? load() {
++    try {
++      final file = File('$_dir/theme/colors.toml');
++      if (!file.existsSync()) return null;
++      return parse(file.readAsStringSync());
++    } catch (_) {
++      return null;
++    }
++  }
++
++  /// Parses the `key = "#rrggbb"` lines of a colors.toml. Null without a background and foreground.
++  static OmarchyPalette? parse(String content) {
++    final colors = <String, Color>{};
++    var dark = true;
++    final line = RegExp(r'^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]*)"');
++    for (final raw in content.split('\n')) {
++      final m = line.firstMatch(raw);
++      if (m == null) continue;
++      final key = m.group(1)!;
++      final value = m.group(2)!;
++      if (key == 'mode') {
++        dark = value != 'light';
++      } else if (RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(value)) {
++        colors[key] = Color(int.parse('FF${value.substring(1)}', radix: 16));
++      }
++    }
++    if (!colors.containsKey('background') || !colors.containsKey('foreground')) return null;
++    return OmarchyPalette._(colors, dark);
++  }
++
++  /// Calls [onChange] (debounced) when Omarchy switches theme.
++  static StreamSubscription<FileSystemEvent>? watch(void Function() onChange) {
++    try {
++      final dir = Directory(_dir);
++      if (!dir.existsSync()) return null;
++      Timer? debounce;
++      return dir.watch().listen((_) {
++        debounce?.cancel();
++        debounce = Timer(const Duration(milliseconds: 400), onChange);
++      });
++    } catch (_) {
++      return null;
++    }
++  }
++
++  Color? _first(List<String> keys) {
++    for (final k in keys) {
++      final c = _colors[k];
++      if (c != null) return c;
++    }
++    return null;
++  }
++
++  Color get background => _colors['background']!;
++  Color get foreground => _colors['foreground']!;
++  Color get accent => _first(['accent', 'blue']) ?? foreground;
++  Color get raised => _first(['lighter_background', 'lighter_bg', 'selection']) ?? background;
++  Color get sunken => _first(['dark_background', 'dark_bg']) ?? background;
++  Color get muted => _first(['dark_foreground', 'dark_fg', 'muted']) ?? foreground;
++  Color get outline => _first(['muted', 'selection']) ?? muted;
++  Color get error => _first(['red']) ?? const Color(0xFFFF453A);
++  Color get green => _first(['green']) ?? accent;
++
++  /// [theme] recolored with this palette. Brightness and typography stay the theme's own.
++  ThemeData apply(ThemeData theme) {
++    final scheme = theme.colorScheme.copyWith(
++      primary: accent,
++      onPrimary: background,
++      primaryContainer: raised,
++      onPrimaryContainer: foreground,
++      secondary: accent,
++      onSecondary: background,
++      secondaryContainer: raised,
++      onSecondaryContainer: foreground,
++      tertiary: green,
++      surface: background,
++      onSurface: foreground,
++      surfaceContainerHighest: raised,
++      surfaceVariant: raised,
++      onSurfaceVariant: muted,
++      outline: outline,
++      error: error,
++      inverseSurface: foreground,
++      onInverseSurface: background,
++      inversePrimary: accent,
++    );
++    return theme.copyWith(
++      colorScheme: scheme,
++      scaffoldBackgroundColor: background,
++      canvasColor: background,
++      cardColor: raised,
++      extensions: theme.extensions.values.map((e) => e is BubbleColors
++          ? e.copyWith(
++              iMessageBubbleColor: accent,
++              oniMessageBubbleColor: background,
++              smsBubbleColor: green,
++              onSmsBubbleColor: background,
++              receivedBubbleColor: raised,
++              onReceivedBubbleColor: foreground,
++            )
++          : e),
++    );
++  }
++}
+diff --git a/lib/services/ui/theme/themes_service.dart b/lib/services/ui/theme/themes_service.dart
+index d8b282327..2bdec0f5f 100644
+--- a/lib/services/ui/theme/themes_service.dart
++++ b/lib/services/ui/theme/themes_service.dart
+@@ -1,3 +1,4 @@
++import 'package:bluebubbles/services/ui/theme/omarchy_palette.dart';
+ import 'package:adaptive_theme/adaptive_theme.dart';
+ import 'package:bluebubbles/helpers/helpers.dart';
+ import 'package:bluebubbles/app/components/custom/custom_bouncing_scroll_physics.dart';
+@@ -681,9 +682,19 @@ class ThemesService {
+   }
+ 
+   ThemePair getStructsFromData(ThemeData light, ThemeData dark) {
++    if (Platform.isLinux && SettingsSvc.settings.followOmarchyTheme.value) {
++      final palette = OmarchyPalette.load();
++      if (palette != null) return ThemePair(light: palette.apply(light), dark: palette.apply(dark));
++    }
+     return Platform.isWindows ? _applyWindowsAccent(light, dark) : ThemePair(light: light, dark: dark);
+   }
+ 
++  /// Re-applies the themes, after the Omarchy palette (or the setting that follows it) changed.
++  void reloadFromSystem() {
++    final context = Get.context;
++    if (context != null && context.mounted) _loadTheme(context);
++  }
++
+   Future<ThemeStruct> revertToPreviousDarkTheme() async {
+     List<ThemeStruct> allThemes = ThemeStruct.getThemes();
+     final darkName = PrefsSvc.theme.getPreviousDarkTheme();
+diff --git a/test/desktop_follow_test.dart b/test/desktop_follow_test.dart
+new file mode 100644
+index 000000000..f4b20d6fb
+--- /dev/null
++++ b/test/desktop_follow_test.dart
+@@ -0,0 +1,62 @@
++import 'package:bluebubbles/helpers/ui/desktop_scale.dart';
++import 'package:bluebubbles/services/ui/theme/omarchy_palette.dart';
++import 'package:flutter/material.dart';
++import 'package:flutter_test/flutter_test.dart';
++
++void main() {
++  group('DesktopScale', () {
++    test('Omarchy default text size (Liberation Sans 11 at 0.8182) is 12 px', () {
++      expect(DesktopScale.textPxFor('Liberation Sans 11', 0.8182), closeTo(12.0, 0.01));
++    });
++
++    test('auto scale makes the 14 px body text as large as the desktop text', () {
++      expect(DesktopScale.autoScaleFor('Liberation Sans 11', 0.8182), closeTo(12 / 14, 0.001));
++      expect(DesktopScale.autoScaleFor('Liberation Sans 11', 1.0), closeTo(14.667 / 14, 0.001));
++    });
++
++    test('auto scale is clamped', () {
++      expect(DesktopScale.autoScaleFor('Liberation Sans 6', 0.5), 0.6);
++      expect(DesktopScale.autoScaleFor('Liberation Sans 30', 2.0), 2.0);
++    });
++
++    test('family and size are parsed from a GTK font name', () {
++      expect(DesktopScale.familyOf('Liberation Sans 11'), 'Liberation Sans');
++      expect(DesktopScale.familyOf('Noto Sans 10.5'), 'Noto Sans');
++      expect(DesktopScale.familyOf('Cantarell'), 'Cantarell');
++      expect(DesktopScale.textPxFor('Cantarell', 1.0), closeTo(14.667, 0.01));
++    });
++  });
++
++  group('OmarchyPalette', () {
++    const colors = '''
++mode = "dark"
++accent = "#ff9f0a"
++background = "#1c1c1e"
++lighter_background = "#2c2c2e"
++foreground = "#f5f5f7"
++red = "#ff5f4a"
++broken = "not a color"
++''';
++
++    test('parses colors.toml', () {
++      final p = OmarchyPalette.parse(colors)!;
++      expect(p.dark, isTrue);
++      expect(p.accent, const Color(0xFFFF9F0A));
++      expect(p.background, const Color(0xFF1C1C1E));
++      expect(p.raised, const Color(0xFF2C2C2E));
++      expect(p.error, const Color(0xFFFF5F4A));
++    });
++
++    test('needs a background and a foreground', () {
++      expect(OmarchyPalette.parse('accent = "#ff9f0a"'), isNull);
++    });
++
++    test('recolors a theme and keeps its brightness', () {
++      final p = OmarchyPalette.parse(colors)!;
++      final themed = p.apply(ThemeData(brightness: Brightness.dark));
++      expect(themed.colorScheme.brightness, Brightness.dark);
++      expect(themed.colorScheme.primary, const Color(0xFFFF9F0A));
++      expect(themed.colorScheme.surface, const Color(0xFF1C1C1E));
++    });
++  });
++}
+-- 
+2.56.0
+

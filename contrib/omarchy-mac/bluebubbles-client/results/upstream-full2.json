@@ -1,0 +1,61 @@
+{
+ "label": "upstream-full2",
+ "install": "/home/rolo/.local/opt/bluebubbles",
+ "wldebug": false,
+ "t_window_mapped_s": 0.24,
+ "t_cpu_settled_s": 4.2,
+ "cpu_seconds_startup": 1.7,
+ "rss_mb_after_start": 521,
+ "gl_libs": [
+  "libEGL.so.1.1.0",
+  "libEGL_aurora.so.0.0.0",
+  "libGLESv2.so.2.1.0",
+  "libGLX.so.0.0.0",
+  "libGLX_aurora.so.0.0.0",
+  "libgallium-26.3.0-devel.so",
+  "libgbm.so.1.0.0",
+  "libvulkan.so.1.4.363"
+ ],
+ "threads": 38,
+ "window": {
+  "class": "bluebubbles",
+  "initialClass": "bluebubbles",
+  "at": [
+   290,
+   155
+  ],
+  "size": [
+   1100,
+   759
+  ],
+  "floating": true,
+  "xwayland": false
+ },
+ "launch_env": {
+  "GDK_BACKEND": "wayland,x11,*",
+  "GDK_SCALE": "2"
+ },
+ "gdk_env": {
+  "GDK_BACKEND": "wayland,x11,*",
+  "GDK_SCALE": "2"
+ },
+ "idle60": {
+  "cpu_pct": 3.33,
+  "wakeups_per_s": 33.4,
+  "nonvol_per_s": 9.6,
+  "rss_mb_min_max": [
+   610,
+   717
+  ]
+ },
+ "scroll10s": {
+  "cpu_pct": 53.2,
+  "wakeups_per_s": 648.2,
+  "rss_mb": 890
+ },
+ "wl_window": [
+  1795787582.3782938,
+  1795787592.4236977
+ ],
+ "shots_dir": "/tmp/bbshots-upstream-full2"
+}

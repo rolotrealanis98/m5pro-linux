@@ -1,0 +1,53 @@
+From c378adf1c0ee048d1decd22fba439299e2722ede Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Sat, 28 Nov 2026 03:17:26 -0500
+Subject: [PATCH 6/9] ui: start on the chat list, not the last opened chat
+
+Reopening the last chat at start opens it, which can mark it read on the server.
+A setting in Desktop Settings brings the old behaviour back.
+---
+ .../pages/conversation_list.dart                  |  1 +
+ .../settings/pages/desktop/desktop_panel.dart     | 15 +++++++++++++++
+ 2 files changed, 16 insertions(+)
+
+diff --git a/lib/app/layouts/conversation_list/pages/conversation_list.dart b/lib/app/layouts/conversation_list/pages/conversation_list.dart
+index 93adc6d76..ee65d5622 100644
+--- a/lib/app/layouts/conversation_list/pages/conversation_list.dart
++++ b/lib/app/layouts/conversation_list/pages/conversation_list.dart
+@@ -161,6 +161,7 @@ class _ConversationListState extends CustomState<ConversationList, void, Convers
+     if (kIsDesktop || kIsWeb) {
+       final lastOpenedChat = PrefsSvc.messaging.getLastOpenedChat();
+       if (lastOpenedChat != null &&
++          SettingsSvc.settings.restoreLastChat.value &&
+           showAltLayoutContextless &&
+           ChatsSvc.activeChat?.chat.guid != lastOpenedChat &&
+           !LifecycleSvc.isBubble) {
+diff --git a/lib/app/layouts/settings/pages/desktop/desktop_panel.dart b/lib/app/layouts/settings/pages/desktop/desktop_panel.dart
+index eb57442bd..2b9d0000b 100644
+--- a/lib/app/layouts/settings/pages/desktop/desktop_panel.dart
++++ b/lib/app/layouts/settings/pages/desktop/desktop_panel.dart
+@@ -103,6 +103,21 @@ class _DesktopPanelState extends State<DesktopPanel> with ThemeHelpers {
+               containerColor: Colors.blueGrey,
+             ),
+           )),
++      Obx(() => SettingsSwitch(
++            onChanged: (bool val) async {
++              settings.restoreLastChat.value = val;
++              await settings.saveOneAsync('restoreLastChat');
++            },
++            initialVal: settings.restoreLastChat.value,
++            title: "Reopen Last Chat at Start",
++            subtitle: "Off: start on the chat list. Opening a chat can mark its messages as read.",
++            backgroundColor: tileColor,
++            leading: const SettingsLeadingIcon(
++              iosIcon: CupertinoIcons.chat_bubble_text,
++              materialIcon: Icons.chat_outlined,
++              containerColor: Colors.green,
++            ),
++          )),
+       Container(
+         color: tileColor,
+         child: Padding(
+-- 
+2.56.0
+

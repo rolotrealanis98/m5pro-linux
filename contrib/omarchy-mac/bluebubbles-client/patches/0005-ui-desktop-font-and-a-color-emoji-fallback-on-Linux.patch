@@ -1,0 +1,178 @@
+From 7ec7e4a8b1eda0a28f36f701922f2604a27cbb60 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Sat, 28 Nov 2026 03:17:26 -0500
+Subject: [PATCH 5/9] ui: desktop font and a color emoji fallback on Linux
+
+Use the desktop's interface font for all text (Desktop Settings has a switch),
+and name Noto Color Emoji as the fallback for the text styles that asked for the
+Apple Color Emoji font, which the app does not ship on Linux. Without it the
+engine's fallback picked monochrome symbol fonts: tofu boxes in names and
+previews, flat white hearts.
+---
+ .../custom_text_editing_controllers.dart      |  2 +-
+ .../widgets/message/popup/message_popup.dart  |  2 +-
+ .../popup/widgets/reaction_details.dart       |  2 +-
+ .../widgets/message/reaction/reaction.dart    |  4 +--
+ .../text_field/picked_attachments_holder.dart |  2 +-
+ lib/app/layouts/findmy/findmy_controller.dart |  2 +-
+ lib/helpers/types/helpers/message_helper.dart |  2 +-
+ lib/helpers/ui/theme_helpers.dart             | 35 +++++++++++++------
+ 8 files changed, 33 insertions(+), 18 deletions(-)
+
+diff --git a/lib/app/components/custom_text_editing_controllers.dart b/lib/app/components/custom_text_editing_controllers.dart
+index 6534457e6..15d47f69f 100644
+--- a/lib/app/components/custom_text_editing_controllers.dart
++++ b/lib/app/components/custom_text_editing_controllers.dart
+@@ -454,7 +454,7 @@ class SpellCheckTextEditingController extends TextEditingController {
+         TextSpan(
+             text: match.group(0),
+             style:
+-                style?.copyWith(fontFamily: "Apple Color Emoji") ?? const TextStyle(fontFamily: "Apple Color Emoji")),
++                style?.copyWith(fontFamily: "Apple Color Emoji", fontFamilyFallback: kEmojiFontFallback) ?? const TextStyle(fontFamily: "Apple Color Emoji", fontFamilyFallback: kEmojiFontFallback)),
+       );
+       lastIndex = match.end;
+     }
+diff --git a/lib/app/layouts/conversation_view/widgets/message/popup/message_popup.dart b/lib/app/layouts/conversation_view/widgets/message/popup/message_popup.dart
+index 49219e48d..104e72ca5 100644
+--- a/lib/app/layouts/conversation_view/widgets/message/popup/message_popup.dart
++++ b/lib/app/layouts/conversation_view/widgets/message/popup/message_popup.dart
+@@ -412,7 +412,7 @@ class _MessagePopupState extends State<MessagePopup> with SingleTickerProviderSt
+                                                                   final text = Text(
+                                                                     ReactionTypes.reactionToEmoji[e] ?? "X",
+                                                                     style: const TextStyle(
+-                                                                        fontSize: 18, fontFamily: 'Apple Color Emoji'),
++                                                                        fontSize: 18, fontFamily: 'Apple Color Emoji', fontFamilyFallback: kEmojiFontFallback),
+                                                                     textAlign: TextAlign.center,
+                                                                   );
+                                                                   // rotate thumbs down to match iOS
+diff --git a/lib/app/layouts/conversation_view/widgets/message/popup/widgets/reaction_details.dart b/lib/app/layouts/conversation_view/widgets/message/popup/widgets/reaction_details.dart
+index 53c5f8e20..eaa84ba0f 100644
+--- a/lib/app/layouts/conversation_view/widgets/message/popup/widgets/reaction_details.dart
++++ b/lib/app/layouts/conversation_view/widgets/message/popup/widgets/reaction_details.dart
+@@ -111,7 +111,7 @@ class ReactionDetails extends StatelessWidget {
+                                   child: Builder(builder: (context) {
+                                     final text = Text(
+                                       ReactionTypes.reactionToEmoji[message.associatedMessageType] ?? "X",
+-                                      style: const TextStyle(fontSize: 18, fontFamily: 'Apple Color Emoji'),
++                                      style: const TextStyle(fontSize: 18, fontFamily: 'Apple Color Emoji', fontFamilyFallback: kEmojiFontFallback),
+                                       textAlign: TextAlign.center,
+                                     );
+                                     if (message.associatedMessageType == "dislike") {
+diff --git a/lib/app/layouts/conversation_view/widgets/message/reaction/reaction.dart b/lib/app/layouts/conversation_view/widgets/message/reaction/reaction.dart
+index 1b34cbe59..cd20f5d5a 100644
+--- a/lib/app/layouts/conversation_view/widgets/message/reaction/reaction.dart
++++ b/lib/app/layouts/conversation_view/widgets/message/reaction/reaction.dart
+@@ -182,7 +182,7 @@ class ReactionWidgetState extends State<ReactionWidget> with ThemeHelpers {
+                 child: Builder(builder: (context) {
+                   final text = Text(
+                     ReactionTypes.reactionToEmoji[reactionType] ?? "X",
+-                    style: const TextStyle(fontSize: 15, fontFamily: 'Apple Color Emoji'),
++                    style: const TextStyle(fontSize: 15, fontFamily: 'Apple Color Emoji', fontFamilyFallback: kEmojiFontFallback),
+                     textAlign: TextAlign.center,
+                   );
+                   // rotate thumbs down to match iOS
+@@ -342,7 +342,7 @@ class ReactionWidgetState extends State<ReactionWidget> with ThemeHelpers {
+           child: Builder(builder: (ctx) {
+             final text = Text(
+               ReactionTypes.reactionToEmoji[rType] ?? "X",
+-              style: const TextStyle(fontSize: 15, fontFamily: 'Apple Color Emoji'),
++              style: const TextStyle(fontSize: 15, fontFamily: 'Apple Color Emoji', fontFamilyFallback: kEmojiFontFallback),
+               textAlign: TextAlign.center,
+             );
+             if (rType == "dislike") {
+diff --git a/lib/app/layouts/conversation_view/widgets/text_field/picked_attachments_holder.dart b/lib/app/layouts/conversation_view/widgets/text_field/picked_attachments_holder.dart
+index cfdd547c3..334245677 100644
+--- a/lib/app/layouts/conversation_view/widgets/text_field/picked_attachments_holder.dart
++++ b/lib/app/layouts/conversation_view/widgets/text_field/picked_attachments_holder.dart
+@@ -197,7 +197,7 @@ class _EmojiSuggestions extends StatelessWidget {
+                         children: <Widget>[
+                           Text(
+                             emoji.emoji,
+-                            style: context.textTheme.labelLarge!.apply(fontFamily: "Apple Color Emoji"),
++                            style: context.textTheme.labelLarge!.apply(fontFamily: "Apple Color Emoji", fontFamilyFallback: kEmojiFontFallback),
+                           ),
+                           const SizedBox(width: 8),
+                           Text(
+diff --git a/lib/app/layouts/findmy/findmy_controller.dart b/lib/app/layouts/findmy/findmy_controller.dart
+index a66f07599..f5c8aa4b7 100644
+--- a/lib/app/layouts/findmy/findmy_controller.dart
++++ b/lib/app/layouts/findmy/findmy_controller.dart
+@@ -346,7 +346,7 @@ class FindMyController extends GetxController {
+               padding: const EdgeInsets.only(bottom: 5.0),
+               child: e.role?['emoji'] != null
+                   ? Text(e.role!['emoji'],
+-                      style: Get.context!.theme.textTheme.bodyLarge!.copyWith(fontFamily: 'Apple Color Emoji'))
++                      style: Get.context!.theme.textTheme.bodyLarge!.copyWith(fontFamily: 'Apple Color Emoji', fontFamilyFallback: kEmojiFontFallback))
+                   : Icon(
+                       (e.isMac ?? false)
+                           ? Icons.computer
+diff --git a/lib/helpers/types/helpers/message_helper.dart b/lib/helpers/types/helpers/message_helper.dart
+index 317f22db2..197b644f1 100644
+--- a/lib/helpers/types/helpers/message_helper.dart
++++ b/lib/helpers/types/helpers/message_helper.dart
+@@ -79,7 +79,7 @@ class MessageHelper {
+       children.add(
+         TextSpan(
+           text: chunk,
+-          style: style.apply(fontFamily: "Apple Color Emoji"),
++          style: style.apply(fontFamily: "Apple Color Emoji", fontFamilyFallback: kEmojiFontFallback),
+           recognizer: recognizer,
+         ),
+       );
+diff --git a/lib/helpers/ui/theme_helpers.dart b/lib/helpers/ui/theme_helpers.dart
+index a249eff3a..4e46f2977 100644
+--- a/lib/helpers/ui/theme_helpers.dart
++++ b/lib/helpers/ui/theme_helpers.dart
+@@ -1,6 +1,7 @@
+ import 'dart:math';
+ 
+ import 'package:bluebubbles/helpers/helpers.dart';
++import 'package:bluebubbles/helpers/ui/desktop_scale.dart';
+ import 'package:bluebubbles/helpers/ui/system_ui_overlay_style_helpers.dart';
+ import 'package:bluebubbles/services/services.dart';
+ import 'package:bluebubbles/utils/window_effects.dart';
+@@ -111,17 +112,31 @@ class BubbleText extends ThemeExtension<BubbleText> {
+   }
+ }
+ 
++/// Emoji font stack for TextStyles that name "Apple Color Emoji": on Linux the app never ships that font, and
++/// Flutter's own fallback picks a monochrome symbol font for many emoji (tofu boxes, flat hearts).
++const List<String> kEmojiFontFallback = ["Noto Color Emoji"];
++
+ extension EmojiFontFallback on ThemeData {
+-  /// Windows' own font fallback misses newer emoji (e.g. U+1FAEA), so name the emoji font explicitly. Apply to every
+-  /// theme handed to a [Theme] widget, including per-chat themes resolved from [ThemeStruct]. No-op elsewhere.
+-  ThemeData get withEmojiFallback => !Platform.isWindows
+-      ? this
+-      : copyWith(
+-          textTheme: textTheme.apply(fontFamilyFallback: const ["Segoe UI Emoji"]),
+-          extensions: extensions.values.map((e) => e is BubbleText
+-              ? e.copyWith(bubbleText: e.bubbleText.apply(fontFamilyFallback: const ["Segoe UI Emoji"]))
+-              : e),
+-        );
++  /// Names the platform's color emoji font explicitly, because the engine's own fallback misses emoji: Windows lacks
++  /// newer ones (e.g. U+1FAEA) and Linux picks monochrome symbol fonts. On Linux this also applies the desktop's
++  /// interface font. Apply to every theme handed to a [Theme] widget, including per-chat themes resolved from
++  /// [ThemeStruct].
++  ThemeData get withEmojiFallback {
++    final List<String>? emoji = Platform.isWindows
++        ? const ["Segoe UI Emoji"]
++        : Platform.isLinux
++            ? kEmojiFontFallback
++            : null;
++    final String? family = DesktopScale.family;
++    if (emoji == null && family == null) return this;
++    return copyWith(
++      textTheme: textTheme.apply(fontFamily: family, fontFamilyFallback: emoji),
++      primaryTextTheme: primaryTextTheme.apply(fontFamily: family, fontFamilyFallback: emoji),
++      extensions: extensions.values.map((e) => e is BubbleText
++          ? e.copyWith(bubbleText: e.bubbleText.apply(fontFamily: family, fontFamilyFallback: emoji))
++          : e),
++    );
++  }
+ }
+ 
+ /// Mixin to provide settings widgets with easy access to the commonly used
+-- 
+2.56.0
+

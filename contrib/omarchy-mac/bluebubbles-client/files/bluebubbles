@@ -1,0 +1,13 @@
+#!/bin/bash
+# BlueBubbles desktop launcher (m5pro client build by default).
+#   BLUEBUBBLES_UPSTREAM=1     run the untouched upstream tarball in ~/.local/opt/bluebubbles instead
+#   BLUEBUBBLES_SOFTWARE_GL=1  render on llvmpipe instead of the GPU
+#   BLUEBUBBLES_IMPELLER=1     Impeller instead of Skia (m5pro build only)
+# Never run two at once: they share ~/.local/share/app.bluebubbles.BlueBubbles.
+[ "${BLUEBUBBLES_SOFTWARE_GL:-0}" = 1 ] && export LIBGL_ALWAYS_SOFTWARE=1
+if [ "${BLUEBUBBLES_UPSTREAM:-0}" = 1 ] || [ ! -x ~/.local/opt/bluebubbles-m5pro/bluebubbles ]; then
+  APP=~/.local/opt/bluebubbles
+else
+  APP=~/.local/opt/bluebubbles-m5pro
+fi
+cd "$APP" && exec ./bluebubbles "$@"

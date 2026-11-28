@@ -1,0 +1,173 @@
+From 17e6c77c3c90c7a0b51ea0c2ab2bcb4695dd9a62 Mon Sep 17 00:00:00 2001
+From: Rolando Trevino <122947376+rolotrealanis98@users.noreply.github.com>
+Date: Sat, 28 Nov 2026 03:16:20 -0500
+Subject: [PATCH] diagnostics: BB_DIAG=1 prints startup marks and frame
+ statistics
+
+Measurement only; no behaviour change. The upstream baseline for comparing
+against m5pro/client with the same marks.
+---
+ lib/helpers/backend/startup_tasks.dart |  5 ++
+ lib/helpers/ui/desktop_perf.dart       | 69 ++++++++++++++++++++++++++
+ lib/main.dart                          |  4 ++
+ 3 files changed, 78 insertions(+)
+ create mode 100644 lib/helpers/ui/desktop_perf.dart
+
+diff --git a/lib/helpers/backend/startup_tasks.dart b/lib/helpers/backend/startup_tasks.dart
+index 2cfc5bc78..99589b99b 100644
+--- a/lib/helpers/backend/startup_tasks.dart
++++ b/lib/helpers/backend/startup_tasks.dart
+@@ -3,6 +3,7 @@ import 'dart:io';
+ 
+ import 'package:bluebubbles/env.dart';
+ import 'package:bluebubbles/helpers/helpers.dart';
++import 'package:bluebubbles/helpers/ui/desktop_perf.dart';
+ import 'package:bluebubbles/database/database.dart';
+ import 'package:bluebubbles/database/models.dart';
+ import 'package:bluebubbles/services/isolates/global_isolate.dart';
+@@ -185,6 +186,7 @@ class StartupTasks {
+   static Future<void> initStartupServices({bool isBubble = false}) async {
+     debugPrint("Initializing startup services...");
+     await _initCoreServices(headless: false);
++    DesktopPerf.mark('core-services');
+ 
+     final startupInteropReady = _preRegisterInteropServices(
+       headless: false,
+@@ -196,6 +198,7 @@ class StartupTasks {
+     await _step("Opening database...");
+     await Database.init();
+     Logger.info("Database initialized");
++    DesktopPerf.mark('database');
+     startupInteropReady.complete();
+ 
+     // Register the global isolate
+@@ -261,6 +264,7 @@ class StartupTasks {
+       GetIt.I.isReady<ContactServiceV2>(),
+     ]);
+     Logger.info("All parallel services ready");
++    DesktopPerf.mark('themes-contacts');
+ 
+     Logger.info("Registering NavigatorService...");
+     GetIt.I.registerSingleton<NavigatorService>(NavigatorService());
+@@ -289,6 +293,7 @@ class StartupTasks {
+       dispose: (svc) => svc.dispose(),
+     );
+ 
++    DesktopPerf.mark('services-registered');
+     await setSplashStatus("Finishing up...");
+     Logger.info(
+         "Startup services initialization complete! Running localhost detection then starting incremental sync...");
+diff --git a/lib/helpers/ui/desktop_perf.dart b/lib/helpers/ui/desktop_perf.dart
+new file mode 100644
+index 000000000..c5d7e10bd
+--- /dev/null
++++ b/lib/helpers/ui/desktop_perf.dart
+@@ -0,0 +1,69 @@
++import 'dart:async';
++import 'dart:io';
++import 'dart:ui' as ui;
++
++import 'package:bluebubbles/helpers/backend/startup_tasks.dart';
++import 'package:bluebubbles/helpers/helpers.dart';
++import 'package:bluebubbles/services/services.dart';
++import 'package:flutter/foundation.dart';
++import 'package:flutter/scheduler.dart';
++import 'package:flutter/widgets.dart';
++
++/// Startup and frame diagnostics only (the upstream baseline for comparing against m5pro/client).
++///
++/// `BB_DIAG=1` prints `BBDIAG <name> <ms>` lines on stderr, timed from the `BB_T0` epoch-millisecond
++/// environment variable (set by the launcher; the process start otherwise). It also prints the display
++/// the engine sees. Nothing is printed without it.
++class DesktopPerf {
++  DesktopPerf._();
++
++  static final bool diag = Platform.environment['BB_DIAG'] == '1';
++  static final int _t0 =
++      int.tryParse(Platform.environment['BB_T0'] ?? '') ?? DateTime.now().millisecondsSinceEpoch;
++
++  static void mark(String name) {
++    if (!diag) return;
++    stderr.writeln('BBDIAG $name ${DateTime.now().millisecondsSinceEpoch - _t0}');
++  }
++
++  static void init() {
++    if (!kIsDesktop) return;
++    mark('dart-main');
++  }
++
++  /// Every five seconds: frames produced, and build (UI thread) and raster (GPU thread) times. An idle app that
++  /// still counts frames has something animating; a scrolling app whose p50 build or raster time is over 8.3 ms
++  /// cannot reach 120 fps, and which of the two says where to look.
++  static void _frameStats() {
++    final builds = <int>[];
++    final rasters = <int>[];
++    SchedulerBinding.instance.addTimingsCallback((timings) {
++      for (final t in timings) {
++        builds.add(t.buildDuration.inMicroseconds);
++        rasters.add(t.rasterDuration.inMicroseconds);
++      }
++    });
++    String q(List<int> v, double p) =>
++        v.isEmpty ? '-' : (([...v]..sort())[((v.length - 1) * p).round()] / 1000).toStringAsFixed(1);
++    Timer.periodic(const Duration(seconds: 5), (_) {
++      stderr.writeln('BBDIAG frames t=${DateTime.now().millisecondsSinceEpoch - _t0} n=${builds.length} '
++          'build_ms=${q(builds, .5)}/${q(builds, .95)}/${q(builds, 1)} '
++          'raster_ms=${q(rasters, .5)}/${q(rasters, .95)}/${q(rasters, 1)}');
++      builds.clear();
++      rasters.clear();
++    });
++  }
++
++  static void afterRunApp() {
++    if (!diag) return;
++    _frameStats();
++    WidgetsBinding.instance.waitUntilFirstFrameRasterized.then((_) {
++      mark('first-frame');
++      final view = ui.PlatformDispatcher.instance.views.first;
++      final display = view.display;
++      stderr.writeln('BBDIAG display refreshRate=${display.refreshRate} dpr=${view.devicePixelRatio} '
++          'size=${view.physicalSize} engineTextScale=${ui.PlatformDispatcher.instance.textScaleFactor}');
++    });
++    StartupTasks.uiReady.future.then((_) => mark('ui-ready'));
++  }
++}
+diff --git a/lib/main.dart b/lib/main.dart
+index 811a504a6..a1448f98b 100644
+--- a/lib/main.dart
++++ b/lib/main.dart
+@@ -21,6 +21,7 @@ import 'package:bluebubbles/app/layouts/startup/failure_to_start.dart';
+ import 'package:bluebubbles/app/layouts/setup/setup_view.dart';
+ import 'package:bluebubbles/app/layouts/startup/splash_screen.dart';
+ import 'package:bluebubbles/app/wrappers/titlebar_wrapper.dart';
++import 'package:bluebubbles/helpers/ui/desktop_perf.dart';
+ import 'package:bluebubbles/database/models.dart';
+ import 'package:bluebubbles/services/services.dart';
+ import 'package:collection/collection.dart';
+@@ -69,6 +70,7 @@ Future<Null> bubble() async {
+ Future<Null> initApp(bool bubble, List<String> arguments) async {
+   runZonedGuarded<Future<void>>(() async {
+     WidgetsFlutterBinding.ensureInitialized();
++    DesktopPerf.init();
+ 
+     /* ----- DESKTOP NATIVE SPLASH STATUS ----- */
+     // Pushes startup status to the native splash; detached once it's dismissed.
+@@ -211,6 +213,7 @@ Future<Null> initApp(bool bubble, List<String> arguments) async {
+           }
+           try {
+             await const MethodChannel('bluebubbles/splash').invokeMethod('closeSplash');
++            DesktopPerf.mark('splash-closed');
+           } catch (_) {}
+           detachSplashStatus?.call();
+           unawaited(ThemeSvc.initDynamicColorsDeferred()); // Linux: deferred past splash
+@@ -249,6 +252,7 @@ Future<Null> initApp(bool bubble, List<String> arguments) async {
+         darkTheme: dark,
+         savedThemeMode: await AdaptiveTheme.getThemeMode(),
+       )));
++      DesktopPerf.afterRunApp();
+     } else {
+       runApp(FailureToStart(e: exception, s: stacktrace));
+       throw Exception("$exception $stacktrace");
+-- 
+2.56.0
+
